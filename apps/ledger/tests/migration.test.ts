@@ -1,6 +1,6 @@
 // migration.test · forward-only, immutable once run, proven on populated data,
 // and no migration may leave a table without company_id + RLS.
-import { cp, mkdtemp, writeFile } from 'node:fs/promises';
+import { cp, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -32,6 +32,20 @@ describe('migrations', () => {
       path.join(dir, '005_party_region.sql'),
       `alter table {{schema}}.parties add column region text;`,
     );
+    // Not in migrate.json yet: refused before anything runs.
+    const prepend = await templateFiles(TEMPLATE_MIGRATIONS);
+    const run = () => migrate({ adminUrl: db.adminUrl, schema: 'ledger', sources: { dir, prepend }, lintExempt: TEMPLATE_INFRA_TABLES });
+    await expect(run()).rejects.toThrow(/does not list 005_party_region\.sql/);
+    const led = JSON.parse(await readFile(path.join(dir, 'migrate.json'), 'utf8'));
+    led.migrations.push({ file: '005_party_region.sql', tables: ['parties'] });
+    await writeFile(path.join(dir, 'migrate.json'), JSON.stringify(led));
+    // In production an unproven migration is refused too; this test is the proof, so we mark it after.
+    process.env.NEOS_ENV = 'production';
+    try {
+      await expect(run()).rejects.toThrow(/not proven on populated data: 005_party_region\.sql/);
+    } finally {
+      delete process.env.NEOS_ENV;
+    }
     const applied = await migrate({
       adminUrl: db.adminUrl,
       schema: 'ledger',
@@ -52,6 +66,13 @@ describe('migrations', () => {
     await expect(
       migrate({ adminUrl: db.adminUrl, schema: 'ledger', sources: { dir, prepend: await templateFiles(TEMPLATE_MIGRATIONS) }, lintExempt: TEMPLATE_INFRA_TABLES }),
     ).rejects.toThrow(/changed after it ran/);
+  });
+
+  it('every shipped migration is listed, in order, and marked proven (migrate.json)', async () => {
+    for (const dir of [path.join(LEDGER_ROOT, 'migrations'), path.join(LEDGER_ROOT, '../../packages/neop-template/migrations'), path.join(LEDGER_ROOT, '../../packages/platform/migrations')]) {
+      const led = JSON.parse(await readFile(path.join(dir, 'migrate.json'), 'utf8'));
+      expect(led.migrations.every((m: any) => m.proven_on_populated_data), dir).toBe(true);
+    }
   });
 
   it('the template upgrades through its own stream without taking an app number (R2)', async () => {

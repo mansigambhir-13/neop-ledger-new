@@ -127,6 +127,8 @@ export function webApp(opts: WebOptions): Hono {
 
 /** Run the desk: one HTTP server; returns a stop function. */
 export async function startWeb(opts: WebOptions & { port: number; host?: string }): Promise<{ port: number; stop: () => Promise<void> }> {
+  // The desk is a test harness for NEOPs; people use the NEOS app. It never runs as production.
+  if (process.env.NEOS_ENV === 'production') throw new Error('the NEOS desk is a test harness and does not run with NEOS_ENV=production; the product UI is the NEOS app');
   const { serve } = await import('@hono/node-server');
   const { closeServer } = await import('@neop/pgkit');
   const server = serve({ fetch: webApp(opts).fetch, port: opts.port, hostname: opts.host ?? '0.0.0.0' });

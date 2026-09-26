@@ -77,7 +77,8 @@
               "basis": {
                 "type": "string"
               }
-            }
+            },
+            "additionalProperties": false
           },
           "empty": {
             "type": "boolean"
@@ -97,7 +98,8 @@
                 "type": "string",
                 "format": "date"
               }
-            }
+            },
+            "additionalProperties": false
           },
           "income": {
             "type": "array",
@@ -121,7 +123,8 @@
                 "amount_minor": {
                   "type": "integer"
                 }
-              }
+              },
+              "additionalProperties": false
             }
           },
           "expenses": {
@@ -146,7 +149,8 @@
                 "amount_minor": {
                   "type": "integer"
                 }
-              }
+              },
+              "additionalProperties": false
             }
           },
           "totals": {
@@ -178,9 +182,11 @@
               "net_profit_minor": {
                 "type": "integer"
               }
-            }
+            },
+            "additionalProperties": false
           }
-        }
+        },
+        "additionalProperties": false
       }
     },
     {
@@ -251,7 +257,8 @@
               "basis": {
                 "type": "string"
               }
-            }
+            },
+            "additionalProperties": false
           },
           "empty": {
             "type": "boolean"
@@ -282,7 +289,8 @@
                 "amount_minor": {
                   "type": "integer"
                 }
-              }
+              },
+              "additionalProperties": false
             }
           },
           "liabilities": {
@@ -307,7 +315,8 @@
                 "amount_minor": {
                   "type": "integer"
                 }
-              }
+              },
+              "additionalProperties": false
             }
           },
           "equity": {
@@ -332,7 +341,8 @@
                 "amount_minor": {
                   "type": "integer"
                 }
-              }
+              },
+              "additionalProperties": false
             }
           },
           "balanced": {
@@ -359,9 +369,11 @@
               "earnings_to_date_minor": {
                 "type": "integer"
               }
-            }
+            },
+            "additionalProperties": false
           }
-        }
+        },
+        "additionalProperties": false
       }
     },
     {
@@ -437,7 +449,8 @@
               "basis": {
                 "type": "string"
               }
-            }
+            },
+            "additionalProperties": false
           },
           "empty": {
             "type": "boolean"
@@ -457,7 +470,8 @@
                 "type": "string",
                 "format": "date"
               }
-            }
+            },
+            "additionalProperties": false
           },
           "opening_cash_minor": {
             "type": "integer"
@@ -474,7 +488,8 @@
           "financing_minor": {
             "type": "integer"
           }
-        }
+        },
+        "additionalProperties": false
       }
     },
     {
@@ -544,7 +559,8 @@
               "basis": {
                 "type": "string"
               }
-            }
+            },
+            "additionalProperties": false
           },
           "empty": {
             "type": "boolean"
@@ -593,10 +609,12 @@
                 "balance_minor": {
                   "type": "integer"
                 }
-              }
+              },
+              "additionalProperties": false
             }
           }
-        }
+        },
+        "additionalProperties": false
       }
     },
     {
@@ -674,7 +692,8 @@
               "basis": {
                 "type": "string"
               }
-            }
+            },
+            "additionalProperties": false
           },
           "empty": {
             "type": "boolean"
@@ -714,7 +733,8 @@
               "d90_plus": {
                 "type": "integer"
               }
-            }
+            },
+            "additionalProperties": false
           },
           "items": {
             "type": "array",
@@ -748,10 +768,12 @@
                 "bucket": {
                   "type": "string"
                 }
-              }
+              },
+              "additionalProperties": false
             }
           }
-        }
+        },
+        "additionalProperties": false
       }
     },
     {
@@ -825,7 +847,8 @@
               "basis": {
                 "type": "string"
               }
-            }
+            },
+            "additionalProperties": false
           },
           "empty": {
             "type": "boolean"
@@ -845,7 +868,8 @@
                 "type": "string",
                 "format": "date"
               }
-            }
+            },
+            "additionalProperties": false
           },
           "output_tax_minor": {
             "type": "integer"
@@ -856,7 +880,8 @@
           "net_payable_minor": {
             "type": "integer"
           }
-        }
+        },
+        "additionalProperties": false
       }
     },
     {
@@ -931,7 +956,8 @@
               "basis": {
                 "type": "string"
               }
-            }
+            },
+            "additionalProperties": false
           },
           "account_code": {
             "type": "string"
@@ -954,7 +980,8 @@
               "null"
             ]
           }
-        }
+        },
+        "additionalProperties": false
       }
     },
     {
@@ -1025,7 +1052,8 @@
           "outcome": {
             "type": "string"
           }
-        }
+        },
+        "additionalProperties": false
       },
       "effects": {
         "external": false,
@@ -1064,7 +1092,8 @@
                 "type": "string",
                 "format": "date"
               }
-            }
+            },
+            "additionalProperties": false
           },
           "to": {
             "type": "array",
@@ -1090,7 +1119,8 @@
           "outcome": {
             "type": "string"
           }
-        }
+        },
+        "additionalProperties": false
       },
       "effects": {
         "external": true,
@@ -1171,7 +1201,8 @@
               "basis": {
                 "type": "string"
               }
-            }
+            },
+            "additionalProperties": false
           },
           "as_of": {
             "type": "string",
@@ -1188,10 +1219,32 @@
                 "subtype",
                 "balance_minor",
                 "active"
-              ]
+              ],
+              "properties": {
+                "code": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "type": {
+                  "type": "string"
+                },
+                "subtype": {
+                  "type": "string"
+                },
+                "balance_minor": {
+                  "type": "integer"
+                },
+                "active": {
+                  "type": "boolean"
+                }
+              },
+              "additionalProperties": false
             }
           }
-        }
+        },
+        "additionalProperties": false
       },
       "version": "1.0.0"
     },
@@ -1266,7 +1319,8 @@
               "basis": {
                 "type": "string"
               }
-            }
+            },
+            "additionalProperties": false
           },
           "account_code": {
             "type": "string"
@@ -1300,10 +1354,35 @@
                 "debit_minor",
                 "credit_minor",
                 "balance_minor"
-              ]
+              ],
+              "properties": {
+                "entry_id": {
+                  "type": "string"
+                },
+                "date": {
+                  "type": "string"
+                },
+                "memo": {
+                  "type": "string"
+                },
+                "reference": {
+                  "type": "string"
+                },
+                "debit_minor": {
+                  "type": "integer"
+                },
+                "credit_minor": {
+                  "type": "integer"
+                },
+                "balance_minor": {
+                  "type": "integer"
+                }
+              },
+              "additionalProperties": false
             }
           }
-        }
+        },
+        "additionalProperties": false
       },
       "version": "1.0.0"
     },
@@ -1380,7 +1459,8 @@
               "basis": {
                 "type": "string"
               }
-            }
+            },
+            "additionalProperties": false
           },
           "entries": {
             "type": "array",
@@ -1392,10 +1472,56 @@
                 "memo",
                 "reference",
                 "lines"
-              ]
+              ],
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "date": {
+                  "type": "string"
+                },
+                "memo": {
+                  "type": "string"
+                },
+                "reference": {
+                  "type": "string"
+                },
+                "source": {
+                  "type": "string"
+                },
+                "reverses": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "lines": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "account_code": {
+                        "type": "string"
+                      },
+                      "account_name": {
+                        "type": "string"
+                      },
+                      "debit_minor": {
+                        "type": "integer"
+                      },
+                      "credit_minor": {
+                        "type": "integer"
+                      }
+                    },
+                    "additionalProperties": false
+                  }
+                }
+              },
+              "additionalProperties": false
             }
           }
-        }
+        },
+        "additionalProperties": false
       },
       "version": "1.0.0"
     },
@@ -1478,7 +1604,8 @@
               "basis": {
                 "type": "string"
               }
-            }
+            },
+            "additionalProperties": false
           },
           "kind": {
             "type": "string"
@@ -1501,10 +1628,59 @@
                 "outstanding_minor",
                 "status",
                 "overdue_days"
-              ]
+              ],
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "number": {
+                  "type": "string"
+                },
+                "party": {
+                  "type": "string"
+                },
+                "issue_date": {
+                  "type": "string"
+                },
+                "due_date": {
+                  "type": "string"
+                },
+                "currency": {
+                  "type": "string"
+                },
+                "total_minor": {
+                  "type": "integer"
+                },
+                "paid_minor": {
+                  "type": "integer"
+                },
+                "outstanding_minor": {
+                  "type": "integer"
+                },
+                "status": {
+                  "type": "string"
+                },
+                "sent_at": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "reminded_at": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "overdue_days": {
+                  "type": "integer"
+                }
+              },
+              "additionalProperties": false
             }
           }
-        }
+        },
+        "additionalProperties": false
       },
       "version": "1.0.0"
     },
@@ -1567,7 +1743,8 @@
               "basis": {
                 "type": "string"
               }
-            }
+            },
+            "additionalProperties": false
           },
           "parties": {
             "type": "array",
@@ -1579,10 +1756,41 @@
                 "name",
                 "outstanding_minor",
                 "open_documents"
-              ]
+              ],
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "kind": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "email": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "gstin": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "outstanding_minor": {
+                  "type": "integer"
+                },
+                "open_documents": {
+                  "type": "integer"
+                }
+              },
+              "additionalProperties": false
             }
           }
-        }
+        },
+        "additionalProperties": false
       },
       "version": "1.0.0"
     },
@@ -1641,7 +1849,8 @@
               "basis": {
                 "type": "string"
               }
-            }
+            },
+            "additionalProperties": false
           },
           "transactions": {
             "type": "array",
@@ -1653,10 +1862,77 @@
                 "description",
                 "amount_minor",
                 "suggestions"
-              ]
+              ],
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "date": {
+                  "type": "string"
+                },
+                "description": {
+                  "type": "string"
+                },
+                "amount_minor": {
+                  "type": "integer"
+                },
+                "currency": {
+                  "type": "string"
+                },
+                "bank_account_code": {
+                  "type": "string"
+                },
+                "suggestions": {
+                  "type": "object",
+                  "properties": {
+                    "rule": {
+                      "type": [
+                        "object",
+                        "null"
+                      ],
+                      "properties": {
+                        "pattern": {
+                          "type": "string"
+                        },
+                        "account_code": {
+                          "type": "string"
+                        }
+                      },
+                      "additionalProperties": false
+                    },
+                    "documents": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "number": {
+                            "type": "string"
+                          },
+                          "kind": {
+                            "type": "string"
+                          },
+                          "party": {
+                            "type": "string"
+                          },
+                          "outstanding_minor": {
+                            "type": "integer"
+                          },
+                          "score": {
+                            "type": "integer"
+                          }
+                        },
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              },
+              "additionalProperties": false
             }
           }
-        }
+        },
+        "additionalProperties": false
       },
       "version": "1.0.0"
     },
@@ -1712,7 +1988,8 @@
               "basis": {
                 "type": "string"
               }
-            }
+            },
+            "additionalProperties": false
           },
           "closed": {
             "type": "array",
@@ -1722,7 +1999,25 @@
                 "month",
                 "locked_at",
                 "locked_by"
-              ]
+              ],
+              "properties": {
+                "month": {
+                  "type": "string"
+                },
+                "locked_at": {
+                  "type": "string"
+                },
+                "locked_by": {
+                  "type": "string"
+                },
+                "reason": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "additionalProperties": false
             }
           },
           "unreconciled_by_month": {
@@ -1732,10 +2027,20 @@
               "required": [
                 "month",
                 "n"
-              ]
+              ],
+              "properties": {
+                "month": {
+                  "type": "string"
+                },
+                "n": {
+                  "type": "integer"
+                }
+              },
+              "additionalProperties": false
             }
           }
-        }
+        },
+        "additionalProperties": false
       },
       "version": "1.0.0"
     },
@@ -1744,7 +2049,7 @@
       "title": "Coding rules",
       "kind": "read",
       "floor": "on",
-      "description": "The company's bank coding rules (pattern → account), in the order they are tried, with how many bank lines each has matched.",
+      "description": "The company's bank coding rules (pattern \u2192 account), in the order they are tried, with how many bank lines each has matched.",
       "input": {
         "type": "object",
         "additionalProperties": false,
@@ -1790,7 +2095,8 @@
               "basis": {
                 "type": "string"
               }
-            }
+            },
+            "additionalProperties": false
           },
           "rules": {
             "type": "array",
@@ -1803,10 +2109,41 @@
                 "direction",
                 "priority",
                 "matched"
-              ]
+              ],
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "reference": {
+                  "type": "string"
+                },
+                "pattern": {
+                  "type": "string"
+                },
+                "account_code": {
+                  "type": "string"
+                },
+                "account_name": {
+                  "type": "string"
+                },
+                "direction": {
+                  "type": "string"
+                },
+                "priority": {
+                  "type": "integer"
+                },
+                "created_at": {
+                  "type": "string"
+                },
+                "matched": {
+                  "type": "integer"
+                }
+              },
+              "additionalProperties": false
             }
           }
-        }
+        },
+        "additionalProperties": false
       },
       "version": "1.0.0"
     },
@@ -1871,7 +2208,8 @@
               "basis": {
                 "type": "string"
               }
-            }
+            },
+            "additionalProperties": false
           },
           "as_of": {
             "type": "string"
@@ -1897,7 +2235,8 @@
           "ap_due_7d_count": {
             "type": "integer"
           }
-        }
+        },
+        "additionalProperties": false
       }
     },
     {
@@ -1962,7 +2301,8 @@
               "basis": {
                 "type": "string"
               }
-            }
+            },
+            "additionalProperties": false
           },
           "month": {
             "type": "string"
@@ -1985,10 +2325,32 @@
                 "title",
                 "ok",
                 "detail"
-              ]
+              ],
+              "properties": {
+                "key": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "ok": {
+                  "type": "boolean"
+                },
+                "detail": {
+                  "type": "string"
+                },
+                "link": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "additionalProperties": false
             }
           }
-        }
+        },
+        "additionalProperties": false
       }
     },
     {
@@ -2078,7 +2440,8 @@
           "outcome": {
             "type": "string"
           }
-        }
+        },
+        "additionalProperties": false
       },
       "effects": {
         "external": false,
@@ -2176,7 +2539,8 @@
           "outcome": {
             "type": "string"
           }
-        }
+        },
+        "additionalProperties": false
       },
       "effects": {
         "external": false,
@@ -2236,7 +2600,8 @@
           "outcome": {
             "type": "string"
           }
-        }
+        },
+        "additionalProperties": false
       },
       "effects": {
         "external": false,
@@ -2283,7 +2648,8 @@
           "outcome": {
             "type": "string"
           }
-        }
+        },
+        "additionalProperties": false
       },
       "effects": {
         "external": true,
@@ -2333,7 +2699,8 @@
           "outcome": {
             "type": "string"
           }
-        }
+        },
+        "additionalProperties": false
       },
       "effects": {
         "external": true,
@@ -2411,7 +2778,8 @@
           "outcome": {
             "type": "string"
           }
-        }
+        },
+        "additionalProperties": false
       },
       "effects": {
         "external": false
@@ -2454,7 +2822,8 @@
           "outcome": {
             "type": "string"
           }
-        }
+        },
+        "additionalProperties": false
       },
       "effects": {
         "external": false,
@@ -2508,7 +2877,8 @@
           "outcome": {
             "type": "string"
           }
-        }
+        },
+        "additionalProperties": false
       },
       "effects": {
         "external": false
@@ -2552,7 +2922,8 @@
           "outcome": {
             "type": "string"
           }
-        }
+        },
+        "additionalProperties": false
       },
       "effects": {
         "external": false,
@@ -2592,7 +2963,8 @@
           "outcome": {
             "type": "string"
           }
-        }
+        },
+        "additionalProperties": false
       },
       "effects": {
         "external": false
@@ -2633,7 +3005,8 @@
           "outcome": {
             "type": "string"
           }
-        }
+        },
+        "additionalProperties": false
       },
       "effects": {
         "external": false
@@ -2689,7 +3062,8 @@
           "outcome": {
             "type": "string"
           }
-        }
+        },
+        "additionalProperties": false
       },
       "effects": {
         "external": false
@@ -2741,7 +3115,8 @@
           "outcome": {
             "type": "string"
           }
-        }
+        },
+        "additionalProperties": false
       },
       "effects": {
         "external": false

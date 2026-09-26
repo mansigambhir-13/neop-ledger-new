@@ -79,17 +79,21 @@ Each item is small; flag any you disagree with.
 44. **Listeners bind per network.** L3 only on the l3 network (`ledger-l3`), the gate only on the agent network (`ledger-gate`), the agent only on its backend's network (`ledger-agent-rpc`). Register apps by the l3 alias. A runtime probe checks every row.
 45. **Rooms can be re-bound** without losing history (old room retired, migration 010); admins bind rooms and link chat identities over the API; the bot registers in the appservice namespace and joins before it speaks.
 46. **Reports always cite sources.** If the assistant does not list them, `job.finish` fills them from the reads the job made (each read step records its basis).
+47. **Borrowing ranges are checked at registration, both ways.** A `uses` entry must name a read at a version in its semver range; an owner cannot re-register in a way that breaks a borrower. An owner not registered yet is checked when it registers, so deploy order is free.
+48. **Every migration is listed in `migrate.json`**, in order; in production each must carry `proven_on_populated_data` (migration.test proves on a populated copy, then marks it). An unlisted, missing or out-of-order file is refused before anything runs.
+49. **The `neop.v1` bridge to today's NEOS platform** (`docs/pilot-ledger-integration.md`): the descriptor is generated from the manifest; reads, `ledger.ask` and `ledger.job` are capabilities; `ledger.proposal.decide` is human-gated and never dispatched; every operation token is verified claim by claim against the exact body and burned.
+50. **Every output schema is closed** (`additionalProperties: false` at every level), so results can be validated strictly by the platform and a new field is a deliberate, versioned change.
+51. **The desk is a test harness** (compose profile `test`, refuses production); the product UI is the NEOS app.
 
 ## Stand-ins (pilot only)
 - **NeuralChat** — `pickApp()` matches the ask against manifest words. The real NeuralChat replaces it.
 - **Identity** — dev bearer tokens in `neos.users`. Real sign-in replaces it.
 - **Vault** — plaintext JSON in `neos.vault_secrets`; lent per call and audited. Needs encryption at rest before production.
 - **LLM proxy prices** — defaults are placeholders (`NEOP_LLM_PRICES` sets per-contract prices); unknown models are refused.
-- **Blocks** — JSON descriptions only; the NEOS renderer is out of scope.
+- **The desk** — a test harness that renders blocks; the NEOS app adopts the renderer (`docs/pilot-ledger-integration.md`).
+- **Approvals on the NEOS platform** — My Desk there is read-only today; until it gains the fingerprint-bound decide route, yeses are answered on this repo's platform module.
 
 ## Not built yet
 - Confirming the GSP adapter's paths against the chosen GST Suvidha Provider's API (it is configurable; it needs a commercial account to test live).
-- Wiring to the real Matrix homeserver (the bridge and appservice adapter are tested against a fake one).
 - The registry improvement loop (plan: after the second app ships).
-- Runtime network probes against built container images (the topology is checked statically).
 - Wage (if chosen as the second real NEOP).

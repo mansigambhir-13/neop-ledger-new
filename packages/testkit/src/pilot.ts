@@ -164,6 +164,8 @@ export interface BootOptions {
   chat?: boolean;
   /** Route assistants through the platform LLM proxy to this upstream (real Anthropic wire format). */
   llmUpstream?: { url: string; apiKey: string; auth?: 'x-api-key' | 'bearer'; modelPrefix?: string };
+  /** Extra backend settings per app (e.g. the neos-v1 bridge, which needs the company id). */
+  backendConfig?: (app: string, company: { id: string }) => Partial<Parameters<typeof startBackend>[1]>;
   poolSize?: number;
   /** Platform DB pool; small by default because many pilots share one Postgres in the test run. */
   platformDbPool?: number;
@@ -235,6 +237,7 @@ export async function bootPilot(opts: BootOptions): Promise<Pilot> {
       packageCacheDir: await mkdtemp(path.join(os.tmpdir(), `neop-pkg-${key}-`)),
       jwksCacheMs: 1_000,
       timings: { ...FAST, ...(opts.timings ?? {}) },
+      ...(opts.backendConfig?.(key, company) ?? {}),
     };
     backends[key] = await startBackend(a.def, configs[key]!, {});
     await plat.platform.registerApp({ key, l3_url: `http://127.0.0.1:${backends[key].ports.l3}`, manifest: a.def.manifest, service_secret: secret, blocks: a.def.blocks });

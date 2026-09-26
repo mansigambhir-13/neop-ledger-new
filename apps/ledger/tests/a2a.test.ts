@@ -1,5 +1,5 @@
 // a2a.test · another app can call only what an ACL row allows, and never a platform door.
-import { afterAll, beforeAll, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { bootPilot, type Pilot } from './harness.ts';
 import { manifest } from '../src/index.ts';
 
@@ -51,4 +51,24 @@ it('the gateway replays a completed request for the same idempotency key and ref
   expect(b.replayed).toBe(true);
   expect(b.body).toEqual(a.body);
   await expect(P.platform.gateway.call({ ...base, body: { as_of: '2026-08-31' }, idem_key: 'same' })).rejects.toMatchObject({ code: 'idempotency_conflict' });
+});
+
+describe('borrowing is checked at registration (WP §10)', () => {
+  const base = async () => (await import('../src/index.ts')).manifest;
+  it('a borrower must name an ability that exists at a version in its range', async () => {
+    const m = await base();
+    const reg = (uses: any[]) => P.platform.registerApp({ key: 'probe', l3_url: 'http://127.0.0.1:9', manifest: { ...m, app: 'probe', name: 'Probe', abilities: [], uses, blocks: [] } as any, service_secret: 'p'.repeat(32) });
+    await expect(reg([{ app: 'ledger', ability: 'ledger.budget.remaining', range: '^2.0.0' }])).rejects.toThrow(/serves 1\.0\.0/);
+    await expect(reg([{ app: 'ledger', ability: 'ledger.journal.post', range: '*' }])).rejects.toThrow(/no read/);
+    // An owner not registered yet is checked when it registers (deploy order is free).
+    await expect(reg([{ app: 'nobody', ability: 'nobody.y', range: '^1.0.0' }])).resolves.toBeUndefined();
+    const nobody = { ...m, app: 'nobody', name: 'Nobody', abilities: [], uses: [], blocks: [] } as any;
+    await expect(P.platform.registerApp({ key: 'nobody', l3_url: 'http://127.0.0.1:9', manifest: nobody, service_secret: 'n'.repeat(32) })).rejects.toThrow(/probe uses nobody\.y@\^1\.0\.0; this manifest drops it/);
+    await expect(reg([{ app: 'ledger', ability: 'ledger.budget.remaining', range: '^1.0.0' }])).resolves.toBeUndefined();
+  });
+  it('an owner cannot re-register in a way that breaks a pinned borrower', async () => {
+    const m = await base();
+    const bumped = { ...m, abilities: m.abilities.map((a) => (a.key === 'ledger.budget.remaining' ? { ...a, version: '2.0.0' } : a)) };
+    await expect(P.platform.registerApp({ key: 'ledger', l3_url: 'http://127.0.0.1:9', manifest: bumped as any, service_secret: 'l'.repeat(32) })).rejects.toThrow(/probe uses ledger\.budget\.remaining@\^1\.0\.0/);
+  });
 });

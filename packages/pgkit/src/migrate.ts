@@ -47,10 +47,42 @@ function checkStream(files: MigrationFile[], label: string): void {
   }
 }
 
+/**
+ * `migrate.json` (WP §11): every migration in a directory, in order, with the tables it touches and
+ * when it was proven on a populated copy. A file missing from it is refused; in production a
+ * migration without its "proven" marker is refused too — nothing reaches a customer's books unproven.
+ */
+export interface MigrateLedger {
+  migrations: { file: string; tables?: string[]; proven_on_populated_data?: string }[];
+}
+export async function checkMigrateLedger(dir: string, files: string[]): Promise<void> {
+  let raw: string;
+  try {
+    raw = await readFile(path.join(dir, 'migrate.json'), 'utf8');
+  } catch {
+    if (process.env.NEOS_ENV === 'production') throw new Error(`${dir}: migrate.json is required in production`);
+    return;
+  }
+  const led = JSON.parse(raw) as MigrateLedger;
+  const listed = led.migrations.map((m) => m.file);
+  const missing = files.filter((f) => !listed.includes(f));
+  if (missing.length) throw new Error(`${dir}/migrate.json does not list ${missing.join(', ')}`);
+  const gone = listed.filter((f) => !files.includes(f));
+  if (gone.length) throw new Error(`${dir}/migrate.json lists missing files ${gone.join(', ')}`);
+  if (listed.join() !== [...listed].sort().join()) throw new Error(`${dir}/migrate.json is not in migration order`);
+  if (process.env.NEOS_ENV === 'production') {
+    const unproven = led.migrations.filter((m) => !m.proven_on_populated_data).map((m) => m.file);
+    if (unproven.length) throw new Error(`not proven on populated data: ${unproven.join(', ')} — prove on a populated copy, then mark it in migrate.json`);
+  }
+}
+
 async function listFiles(src: MigrationSource): Promise<MigrationFile[]> {
   const template = (src.prepend ?? []).map((f) => ({ name: path.basename(f), file: f })).sort((a, b) => a.name.localeCompare(b.name));
   const names = (await readdir(src.dir)).filter((n) => /^\d{3}_.+\.(sql|ts)$/.test(n)).sort();
   const app = names.map((n) => ({ name: n, file: path.join(src.dir, n) }));
+  await checkMigrateLedger(src.dir, names);
+  const tdirs = [...new Set((src.prepend ?? []).map((f) => path.dirname(f)))];
+  for (const d of tdirs) await checkMigrateLedger(d, (src.prepend ?? []).filter((f) => path.dirname(f) === d).map((f) => path.basename(f)));
   checkStream(template, 'template');
   checkStream(app, 'app');
   const clash = template.find((t) => app.some((a) => a.name === t.name));

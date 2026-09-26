@@ -1,5 +1,7 @@
 # The NEOS desk · designed from the NEOP plan, not from the old app
 
+> Update 26 Sep (1.3.0): the desk is a **test harness** — a stand-in for the NEOS app so NEOPs can be driven end to end in development and CI. It runs only under the compose profile `test` and refuses `NEOS_ENV=production`. The product UI is the NEOS app (`neos-app-platform`), which adopts the block renderer (`docs/pilot-ledger-integration.md`, row 2).
+>
 > Update 26 Sep: the desk is now platform-owned and multi-app (`packages/platform/src/web`). An app's own screens are its `blocks/*.json`, validated at registration and drawn by the desk's one renderer (`@neop/contracts` blocks). Everything below still holds; "Books" is Ledger's block pages.
 
 The old Ledger console was a bookkeeping app with an operator skin: pages of

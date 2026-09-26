@@ -32,3 +32,16 @@ Everything is gated on the full suite, type-check and a live Docker run before i
 | 7 | `scripts/netprobe.ts` + `scripts/netcheck.sh`; listeners bound per network (L3 on l3, gate on agent network, agent RPC on its own) | live probe found two real gaps (agent→L3, proxy→backend/agent), fixed; policy holds in every container |
 | 8 | `docs/NEOP-WHOLE-PICTURE-v3.md` | — |
 | 9 | `scripts/pilot-acceptance.ts` | `docs/PILOT-ACCEPTANCE.md`: 5/5 criteria, 20 real requests, real model. The first run failed one criterion (a report without sources); the book now fills sources from the job's reads (honesty.test) |
+
+## Re-read · 26 September 2026 — against the plan and the NEOS platform repos
+
+A second pass read the plan's docs again together with `neos-service-platform-api` and
+`neos-app-platform`, to see how the build fits the platform as it runs today.
+
+| # | Gap | Closed by | Proven by |
+| --- | --- | --- | --- |
+| 10 | Phase 0 deliverable `pilot-ledger-integration.md` missing | `docs/pilot-ledger-integration.md`: where the platform is, how Ledger plugs in now, what the platform adopts | — |
+| 11 | Ledger could not be installed on today's platform (descriptor registry + capability gateway) | `neop.v1` bridge (`template/src/l3/neos-v1.ts`), generated descriptor in `apps/ledger/neos-v1/`, closed output schemas | neos-v1.test (9); the platform's own `acceptDescriptorPackage` accepts the files unmodified; CI drift check |
+| 12 | The desk read as a second product UI | Test harness: compose profile `test`, badge, refuses production; product UI is the NEOS app | web.test, network.test |
+| 13 | "Every migration proven on populated data" was a test, not a gate | `migrate.json` per stream; production refuses an unproven file | migration.test |
+| 14 | Borrowed versions not checked | semver `uses` ranges at registration, both ways | a2a.test, semver.test |

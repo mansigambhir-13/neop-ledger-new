@@ -1,0 +1,38 @@
+{
+  "$comment": "WP \u00a711: every migration, in order, the tables it touches, and when it was proven on a populated copy. Forward-only; never edit a line once it has run.",
+  "migrations": [
+    {
+      "file": "002_ledger.sql",
+      "tables": [
+        "accounts",
+        "documents",
+        "journal_entries",
+        "journal_lines",
+        "parties"
+      ],
+      "proven_on_populated_data": "2026-09-26 \u00b7 migration.test (populated copy) + pilot stacks"
+    },
+    {
+      "file": "003_budgets.sql",
+      "tables": [
+        "budgets"
+      ],
+      "proven_on_populated_data": "2026-09-26 \u00b7 migration.test (populated copy) + pilot stacks"
+    },
+    {
+      "file": "004_bookkeeping.sql",
+      "tables": [
+        "accounts",
+        "bank_transactions",
+        "coding_rules",
+        "doc_counters",
+        "documents",
+        "journal_entries",
+        "parties",
+        "payments",
+        "period_locks"
+      ],
+      "proven_on_populated_data": "2026-09-26 \u00b7 migration.test (populated copy) + pilot stacks"
+    }
+  ]
+}

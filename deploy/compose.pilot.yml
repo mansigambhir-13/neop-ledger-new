@@ -145,8 +145,11 @@ services:
 
   # The NEOS desk (platform-owned BFF + one block renderer for every app). It reaches only the platform's desk API over
   # `web`; no database, no secrets, no route to an app backend or an agent.
+  # Test harness only (profile `test`): a stand-in for the NEOS app so NEOPs can be driven end to
+  # end. People use the NEOS app (neos-app-platform); this never ships as a product UI.
   web:
     <<: *node
+    profiles: [test]
     build: { context: .., dockerfile: deploy/platform.Dockerfile }
     command: ["tsx", "scripts/web.ts"]
     depends_on: { platform: { condition: service_healthy } }

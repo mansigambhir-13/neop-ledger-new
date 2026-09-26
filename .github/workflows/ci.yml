@@ -35,9 +35,19 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
+      # The descriptor today's NEOS platform installs Ledger from must match the manifest.
+      - run: pnpm exec tsx scripts/neos-v1-descriptor.ts ledger --check
       - run: pnpm test
       - if: ${{ inputs.load }}
         run: pnpm test:load
+
+  secrets:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      # Every commit, not just the tip: a secret removed later is still in history.
+      - run: docker run --rm -v "$PWD:/repo" zricethezav/gitleaks:v8.28.0 detect --source /repo --redact --no-banner
 
   images:
     runs-on: ubuntu-latest

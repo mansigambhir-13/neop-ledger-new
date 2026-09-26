@@ -59,6 +59,7 @@ a { color: var(--na-greenlink); text-decoration: none; }
   gap: 16px; padding: 18px 30px 12px; background: var(--na-bg);
 }
 .brand { display: flex; align-items: center; gap: 18px; }
+.harness { font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; padding: 2px 8px; border-radius: 999px; border: 1px dashed currentColor; opacity: .7; }
 .wordmark { font-weight: 800; letter-spacing: .28em; font-size: 20px; }
 .co { display: flex; flex-direction: column; background: var(--na-card); border: 1px solid var(--na-line); border-radius: var(--r-sm); padding: 5px 12px; line-height: 1.2; min-width: 80px; }
 .co b { font-size: 12.5px; }

@@ -21,6 +21,10 @@ const b = await startBackend(
     poolSize: Number(env('POOL_SIZE', '5')),
     runnerId: env('RUNNER_ID', `runner-${process.pid}`),
     packageCacheDir: env('NEOP_PACKAGE_CACHE_DIR', '/var/lib/neop/packages'),
+    // Today's NEOS platform gateway (docs/pilot-ledger-integration.md): on only with its public key and a customer map.
+    neosV1: process.env.NEOS_V1_PUBLIC_KEY || process.env.NEOS_V1_PUBLIC_KEY_FILE
+      ? { publicKeyPem: env('NEOS_V1_PUBLIC_KEY'), customers: JSON.parse(env('NEOS_V1_CUSTOMERS')) as Record<string, string> }
+      : undefined,
     log: (m, e) => log('info', m, e),
   },
   { l3Port: Number(env('L3_PORT', '4101')), gatePort: Number(env('GATE_PORT', '4102')), host: '0.0.0.0', l3Host: await bindAddress('L3_HOST'), gateHost: await bindAddress('GATE_HOST') },

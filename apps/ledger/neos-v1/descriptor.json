@@ -1,0 +1,191 @@
+{
+  "schemaVersion": "1",
+  "service": {
+    "id": "ledger",
+    "version": "1.0.0",
+    "contractVersion": "neop.v1",
+    "profile": "neop-template"
+  },
+  "capabilities": [
+    {
+      "id": "ledger.report.pnl",
+      "method": "POST",
+      "scope": "ledger.read",
+      "humanGate": false,
+      "requestSchema": "contract.json#/$defs/ledger_report_pnl_request",
+      "responseSchema": "contract.json#/$defs/ledger_report_pnl_result"
+    },
+    {
+      "id": "ledger.report.balance-sheet",
+      "method": "POST",
+      "scope": "ledger.read",
+      "humanGate": false,
+      "requestSchema": "contract.json#/$defs/ledger_report_balance-sheet_request",
+      "responseSchema": "contract.json#/$defs/ledger_report_balance-sheet_result"
+    },
+    {
+      "id": "ledger.report.cash-flow",
+      "method": "POST",
+      "scope": "ledger.read",
+      "humanGate": false,
+      "requestSchema": "contract.json#/$defs/ledger_report_cash-flow_request",
+      "responseSchema": "contract.json#/$defs/ledger_report_cash-flow_result"
+    },
+    {
+      "id": "ledger.report.trial-balance",
+      "method": "POST",
+      "scope": "ledger.read",
+      "humanGate": false,
+      "requestSchema": "contract.json#/$defs/ledger_report_trial-balance_request",
+      "responseSchema": "contract.json#/$defs/ledger_report_trial-balance_result"
+    },
+    {
+      "id": "ledger.report.aging",
+      "method": "POST",
+      "scope": "ledger.read",
+      "humanGate": false,
+      "requestSchema": "contract.json#/$defs/ledger_report_aging_request",
+      "responseSchema": "contract.json#/$defs/ledger_report_aging_result"
+    },
+    {
+      "id": "ledger.report.vat-summary",
+      "method": "POST",
+      "scope": "ledger.read",
+      "humanGate": false,
+      "requestSchema": "contract.json#/$defs/ledger_report_vat-summary_request",
+      "responseSchema": "contract.json#/$defs/ledger_report_vat-summary_result"
+    },
+    {
+      "id": "ledger.budget.remaining",
+      "method": "POST",
+      "scope": "ledger.read",
+      "humanGate": false,
+      "requestSchema": "contract.json#/$defs/ledger_budget_remaining_request",
+      "responseSchema": "contract.json#/$defs/ledger_budget_remaining_result"
+    },
+    {
+      "id": "ledger.accounts.list",
+      "method": "POST",
+      "scope": "ledger.read",
+      "humanGate": false,
+      "requestSchema": "contract.json#/$defs/ledger_accounts_list_request",
+      "responseSchema": "contract.json#/$defs/ledger_accounts_list_result"
+    },
+    {
+      "id": "ledger.account.ledger",
+      "method": "POST",
+      "scope": "ledger.read",
+      "humanGate": false,
+      "requestSchema": "contract.json#/$defs/ledger_account_ledger_request",
+      "responseSchema": "contract.json#/$defs/ledger_account_ledger_result"
+    },
+    {
+      "id": "ledger.journal.list",
+      "method": "POST",
+      "scope": "ledger.read",
+      "humanGate": false,
+      "requestSchema": "contract.json#/$defs/ledger_journal_list_request",
+      "responseSchema": "contract.json#/$defs/ledger_journal_list_result"
+    },
+    {
+      "id": "ledger.documents.list",
+      "method": "POST",
+      "scope": "ledger.read",
+      "humanGate": false,
+      "requestSchema": "contract.json#/$defs/ledger_documents_list_request",
+      "responseSchema": "contract.json#/$defs/ledger_documents_list_result"
+    },
+    {
+      "id": "ledger.parties.list",
+      "method": "POST",
+      "scope": "ledger.read",
+      "humanGate": false,
+      "requestSchema": "contract.json#/$defs/ledger_parties_list_request",
+      "responseSchema": "contract.json#/$defs/ledger_parties_list_result"
+    },
+    {
+      "id": "ledger.bank.unreconciled",
+      "method": "POST",
+      "scope": "ledger.read",
+      "humanGate": false,
+      "requestSchema": "contract.json#/$defs/ledger_bank_unreconciled_request",
+      "responseSchema": "contract.json#/$defs/ledger_bank_unreconciled_result"
+    },
+    {
+      "id": "ledger.periods.status",
+      "method": "POST",
+      "scope": "ledger.read",
+      "humanGate": false,
+      "requestSchema": "contract.json#/$defs/ledger_periods_status_request",
+      "responseSchema": "contract.json#/$defs/ledger_periods_status_result"
+    },
+    {
+      "id": "ledger.coding-rules.list",
+      "method": "POST",
+      "scope": "ledger.read",
+      "humanGate": false,
+      "requestSchema": "contract.json#/$defs/ledger_coding-rules_list_request",
+      "responseSchema": "contract.json#/$defs/ledger_coding-rules_list_result"
+    },
+    {
+      "id": "ledger.home.summary",
+      "method": "POST",
+      "scope": "ledger.read",
+      "humanGate": false,
+      "requestSchema": "contract.json#/$defs/ledger_home_summary_request",
+      "responseSchema": "contract.json#/$defs/ledger_home_summary_result"
+    },
+    {
+      "id": "ledger.close.checklist",
+      "method": "POST",
+      "scope": "ledger.read",
+      "humanGate": false,
+      "requestSchema": "contract.json#/$defs/ledger_close_checklist_request",
+      "responseSchema": "contract.json#/$defs/ledger_close_checklist_result"
+    },
+    {
+      "id": "ledger.ask",
+      "method": "POST",
+      "scope": "ledger.ask",
+      "humanGate": false,
+      "requestSchema": "contract.json#/$defs/ledger_ask_request",
+      "responseSchema": "contract.json#/$defs/ledger_ask_result"
+    },
+    {
+      "id": "ledger.job",
+      "method": "POST",
+      "scope": "ledger.read",
+      "humanGate": false,
+      "requestSchema": "contract.json#/$defs/ledger_job_request",
+      "responseSchema": "contract.json#/$defs/ledger_job_result"
+    },
+    {
+      "id": "ledger.proposal.decide",
+      "method": "POST",
+      "scope": "proposal.decide",
+      "humanGate": true,
+      "requestSchema": "contract.json#/$defs/ledger_proposal_decide_request",
+      "responseSchema": "contract.json#/$defs/ledger_proposal_decide_result"
+    }
+  ],
+  "permissions": [
+    "ledger.ask",
+    "ledger.read",
+    "proposal.decide"
+  ],
+  "humanGates": [
+    "proposal.decide"
+  ],
+  "events": {
+    "names": [
+      "job.opened"
+    ],
+    "limits": {
+      "MAX_BATCH": 16,
+      "MAX_KEYS": 8,
+      "MAX_KEY_LEN": 64,
+      "MAX_VAL_LEN": 500,
+      "MAX_SUBJECT": 128
+    }
+  }
+}

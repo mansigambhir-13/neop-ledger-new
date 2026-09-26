@@ -39,14 +39,15 @@ This whole sequence has been run end to end in Docker Compose. Every image sets 
    $OPS install <company_id> ledger
    ```
    Desk tokens are stored as a SHA-256 hash only; a lost token is replaced, not recovered.
-5. **Desk:** open `http://127.0.0.1:4780` — the platform-owned NEOS desk; each app's screens come from its blocks (put TLS in front and set `NEOS_WEB_SECURE_COOKIES=1` before exposing it). People sign in with their desk token; it lives in an httpOnly cookie and the page never sees it.
+5. **Test harness desk (development and CI only):** `docker compose -f deploy/compose.pilot.yml --profile test up -d web`, then open `http://127.0.0.1:4780`. It stands in for the NEOS app so a NEOP can be driven end to end; each app's screens come from its blocks. It refuses `NEOS_ENV=production` — people use the NEOS app. Sign in with a desk token; it lives in an httpOnly cookie and the page never sees it.
 6. **Smoke check:**
    - `GET /api/me` with the admin token.
    - `POST /api/apps/ledger/read/ledger.report.trial_balance {"as_of":"<today>"}`.
    - Ask something from the desk. The job should reach the agent, the LLM proxy and the provider.
 7. **Network check:** `scripts/netcheck.sh deploy/compose.pilot.yml` runs a probe inside every container and fails if any row of the network policy is broken. Run it after every deploy.
 8. **Chat (optional):** `scripts/matrix-setup.sh deploy/compose.pilot.yml` once, then start with `-f deploy/compose.chat.yml`. An admin binds the app's room (`POST /api/chat/rooms {app, room_id}` — invite the app's user `@neop_<app>_<company>` first) and links people (`PUT /api/users/<id>/chat {matrix_user_id}`).
-9. **Acceptance:** `NEOS_TOKEN_FILE=<an admin's token file> pnpm exec tsx scripts/pilot-acceptance.ts` sends 20 real requests and checks the plan's five acceptance criteria from the platform's records.
+9. **On today's NEOS platform** (`docs/pilot-ledger-integration.md`): set `NEOS_V1_PUBLIC_KEY_FILE` (the platform binding's Ed25519 public key, SPKI PEM) and `NEOS_V1_CUSTOMERS` (`{"<platform customer id>": "<company_id>"}`) on the backend, add the platform binding (`contractVersion: neop.v1`, loopback origin forwarded to L3), and register `apps/ledger/neos-v1/descriptor.json` + `contract.json` with `pnpm neop:register`. Regenerate them with `tsx scripts/neos-v1-descriptor.ts ledger` after any manifest change (CI fails on drift).
+10. **Acceptance:** `NEOS_TOKEN_FILE=<an admin's token file> pnpm exec tsx scripts/pilot-acceptance.ts` sends 20 real requests and checks the plan's five acceptance criteria from the platform's records.
 
 ## Configure a company's providers (admin, write-only)
 - **Email (Resend):**

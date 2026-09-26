@@ -11,7 +11,7 @@ import { LEDGER_ROOT } from '../src/index.ts';
 const compose = parse(readFileSync(path.join(LEDGER_ROOT, '../../deploy/compose.pilot.yml'), 'utf8'));
 const raw = compose.services as Record<string, { networks: string[] | Record<string, unknown>; environment?: Record<string, string>; secrets?: string[] }>;
 // Networks may be a list or a map (with per-network aliases); compare by name.
-const svc = Object.fromEntries(Object.entries(raw).map(([k, v]) => [k, { ...v, networks: Array.isArray(v.networks) ? v.networks : Object.keys(v.networks ?? {}) }])) as Record<string, { networks: string[]; environment?: Record<string, string>; secrets?: string[] }>;
+const svc = Object.fromEntries(Object.entries(raw).map(([k, v]) => [k, { ...v, networks: Array.isArray(v.networks) ? v.networks : Object.keys(v.networks ?? {}) }])) as Record<string, { networks: string[]; environment?: Record<string, string>; secrets?: string[]; profiles?: string[] }>;
 const envKeys = (s: string) => Object.keys(svc[s]!.environment ?? {}).join(' ') + ' ' + (svc[s]!.secrets ?? []).join(' ');
 const agents = Object.keys(svc).filter((k) => k.endsWith('-agent'));
 const backends = Object.keys(svc).filter((k) => k.endsWith('-backend'));
@@ -61,6 +61,8 @@ describe('network policy', () => {
   it('the console reaches only the platform, holds no credential, and is the only other published port', () => {
     expect(members('web')).toEqual(['platform', 'web']);
     expect(svc.web!.networks.sort()).toEqual(['edge', 'web']);
+    // The desk is a test harness: it only starts with the `test` profile.
+    expect(svc.web!.profiles).toEqual(['test']);
     expect(envKeys('web')).not.toMatch(/DB_URL|SECRET|TOKEN|KEY|app_url|runner_url/i);
     const published = Object.entries(svc).filter(([, s]: any) => s.ports?.length).map(([k]) => k).sort();
     expect(published).toEqual(['platform', 'web']);

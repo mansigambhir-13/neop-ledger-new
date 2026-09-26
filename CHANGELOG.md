@@ -1,5 +1,14 @@
 # Changelog
 
+## neop-ledger 1.3.0 · on the NEOS platform — 2026-09-26
+Aligns Ledger with the NEOS platform as it runs today (`docs/pilot-ledger-integration.md`, the plan's Phase 0 deliverable).
+- **`neop.v1` bridge:** Ledger installs on `neos-service-platform-api` from a generated descriptor (accepted unmodified by the platform's own validator) and answers its gateway's operation tokens at `/capabilities/<id>`: 17 reads, `ledger.ask` (a job), `ledger.job`, and `ledger.proposal.decide` (human-gated, never dispatched). No write is a capability.
+- **Closed output schemas** for every ability, so the platform validates results strictly.
+- **The desk is a test harness:** compose profile `test`, visible badge, refuses production. The product UI is the NEOS app.
+- **Migrations:** `migrate.json` per stream; production requires each migration proven on populated data.
+- **Borrowing:** semver ranges enforced at registration, both ways; deploy order is free.
+- **CI:** descriptor drift check; gitleaks over the full history.
+
 ## neop-ledger 1.2.0 · NEOS platform — 2026-09-26
 Closes the nine drifts found when validating the build against the plan (`docs/DRIFT-PLAN.md`).
 - **The NEOS desk is platform-owned and multi-app**; every app's screens are its validated blocks, drawn by one renderer. Ledger's console is now 31 blocks (pages, tables, statements, forms) — no app JavaScript.

@@ -5,6 +5,7 @@ import { bootstrapFamily, closeServer, migrate, templateFiles, type AppliedMigra
 import { Core } from './core.ts';
 import { Gate } from './gate/gate.ts';
 import { gateApp } from './gate/server.ts';
+import { neosV1App } from './l3/neos-v1.ts';
 import { l3App } from './l3/server.ts';
 import { Runner } from './runner/runner.ts';
 import { DEFAULT_TIMINGS, type AppDefinition, type NeopConfig } from './types.ts';
@@ -56,7 +57,10 @@ export async function startBackend(
   const gate = new Gate(core);
   const runner = new Runner(core);
   // L3 and the gate can each bind to one network only, so the gateway alone reaches L3 and the agent alone the gate.
-  const l3 = await listen(l3App(core), opts.l3Port ?? 0, opts.l3Host ?? host);
+  const l3Routes = l3App(core);
+  // Today's NEOS platform calls /capabilities/<id> on the same listener (only when configured).
+  if (full.neosV1) l3Routes.route('/', neosV1App(core, full.neosV1));
+  const l3 = await listen(l3Routes, opts.l3Port ?? 0, opts.l3Host ?? host);
   const g = await listen(
     gateApp(core, gate, (claims, reason) => runner.onSessionEnd(claims, reason)),
     opts.gatePort ?? 0,

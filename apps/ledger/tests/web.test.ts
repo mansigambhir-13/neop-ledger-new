@@ -4,7 +4,7 @@ import { serve } from '@hono/node-server';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { closeServer } from '@neop/pgkit';
 import { toolName } from '@neop/testkit';
-import { webApp } from '@neop/platform';
+import { startWeb, webApp } from '@neop/platform';
 import { bootPilot, type Pilot } from './harness.ts';
 
 let P: Pilot;
@@ -152,4 +152,13 @@ describe('the loop a person drives from the console', () => {
     expect(r.headers.get('set-cookie')).toMatch(/neos_desk=;|Max-Age=0/);
     cookie = saved;
   });
+});
+
+it('the desk is a test harness: it refuses to start in production', async () => {
+  process.env.NEOS_ENV = 'production';
+  try {
+    await expect(startWeb({ platformUrl: 'http://127.0.0.1:9', port: 0 })).rejects.toThrow(/test harness/);
+  } finally {
+    delete process.env.NEOS_ENV;
+  }
 });

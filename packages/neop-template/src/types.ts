@@ -139,6 +139,8 @@ export interface NeopConfig {
   jwksCacheMs?: number;
   /** Acked outbox events older than this are pruned (default 7 days). */
   outboxRetentionMs?: number;
+  /** The bridge to today's NEOS platform gateway (`/capabilities/<id>`); off unless set. */
+  neosV1?: import('./l3/neos-v1.ts').NeosV1Config;
   timings: Timings;
   log?: (msg: string, extra?: Record<string, unknown>) => void;
 }

@@ -1,0 +1,105 @@
+{
+  "$comment": "WP \u00a711: every migration, in order, the tables it touches, and when it was proven on a populated copy. Forward-only; never edit a line once it has run.",
+  "migrations": [
+    {
+      "file": "001_neos.sql",
+      "tables": [
+        "acl",
+        "activity",
+        "approvals",
+        "apps",
+        "audit",
+        "companies",
+        "conversation_messages",
+        "gateway_ledger",
+        "grants",
+        "outbox_cursors",
+        "switchboards",
+        "tasks",
+        "users",
+        "vault_secrets"
+      ],
+      "proven_on_populated_data": "2026-09-26 \u00b7 migration.test (populated copy) + pilot stacks"
+    },
+    {
+      "file": "002_flow.sql",
+      "tables": [
+        "companies",
+        "conversation_messages",
+        "conversations",
+        "installs",
+        "outbox_dead_letters",
+        "room_events",
+        "room_messages",
+        "rooms",
+        "tasks",
+        "users"
+      ],
+      "proven_on_populated_data": "2026-09-26 \u00b7 migration.test (populated copy) + pilot stacks"
+    },
+    {
+      "file": "003_hardening.sql",
+      "tables": [
+        "apps",
+        "switchboards",
+        "users"
+      ],
+      "proven_on_populated_data": "2026-09-26 \u00b7 migration.test (populated copy) + pilot stacks"
+    },
+    {
+      "file": "004_llm.sql",
+      "tables": [
+        "llm_days",
+        "llm_sessions",
+        "llm_usage"
+      ],
+      "proven_on_populated_data": "2026-09-26 \u00b7 migration.test (populated copy) + pilot stacks"
+    },
+    {
+      "file": "005_a2a.sql",
+      "tables": [
+        "tasks"
+      ],
+      "proven_on_populated_data": "2026-09-26 \u00b7 migration.test (populated copy) + pilot stacks"
+    },
+    {
+      "file": "006_registry.sql",
+      "tables": [
+        "package_migrations",
+        "registry_artifacts",
+        "registry_entries",
+        "registry_installs",
+        "registry_reviews"
+      ],
+      "proven_on_populated_data": "2026-09-26 \u00b7 migration.test (populated copy) + pilot stacks"
+    },
+    {
+      "file": "007_trace.sql",
+      "tables": [
+        "tasks"
+      ],
+      "proven_on_populated_data": "2026-09-26 \u00b7 migration.test (populated copy) + pilot stacks"
+    },
+    {
+      "file": "008_user_token_hash.sql",
+      "tables": [
+        "users"
+      ],
+      "proven_on_populated_data": "2026-09-26 \u00b7 migration.test (populated copy) + pilot stacks"
+    },
+    {
+      "file": "009_app_blocks.sql",
+      "tables": [
+        "apps"
+      ],
+      "proven_on_populated_data": "2026-09-26 \u00b7 migration.test (populated copy) + pilot stacks"
+    },
+    {
+      "file": "010_room_rebind.sql",
+      "tables": [
+        "rooms"
+      ],
+      "proven_on_populated_data": "2026-09-26 \u00b7 migration.test (populated copy) + pilot stacks"
+    }
+  ]
+}

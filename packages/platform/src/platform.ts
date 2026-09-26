@@ -4,7 +4,7 @@
 // app's outbox (S4).
 
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
-import { blocksProblem, isSetting, Metrics, rulesProblem, strictest, type Decision, type Manifest, type OutboxEvent, type ProposalCreatedPayload, type Setting, type TaskResult } from '@neop/contracts';
+import { blocksProblem, isSetting, Metrics, rulesProblem, satisfies, strictest, type Decision, type Manifest, type OutboxEvent, type ProposalCreatedPayload, type Setting, type TaskResult } from '@neop/contracts';
 import { pickApp } from './neuralchat.ts';
 import { isEnvelope, VaultCipher, type VaultKeys } from './vault.ts';
 import { KeyRing } from './keys.ts';
@@ -232,6 +232,26 @@ export class Platform {
     const blocks = a.blocks ?? {};
     const problem = blocksProblem(blocks, a.manifest);
     if (problem) throw new PlatformError(422, 'bad_blocks', problem);
+    // Borrowing (WP §10): what this app `uses` must exist at a version in its range…
+    const others = new Map((await this.db.query<{ key: string; manifest: Manifest }>('select key, manifest from neos.apps where key <> $1', [a.key])).rows.map((r) => [r.key, r.manifest]));
+    for (const u of a.manifest.uses ?? []) {
+      if (u.ability === 'tasks.open') continue;
+      const owner = others.get(u.app);
+      // Owner not registered yet: its own registration checks this range (below), and the call is refused until then.
+      if (!owner) continue;
+      const ab = owner.abilities.find((x) => x.key === u.ability);
+      if (!ab || ab.kind !== 'read') throw new PlatformError(422, 'uses_unknown_ability', `${u.app} has no read ${u.ability}`);
+      if (!satisfies(ab.version, u.range)) throw new PlatformError(422, 'uses_version', `${a.key} needs ${u.ability}@${u.range}; ${u.app} serves ${ab.version}`);
+    }
+    // …and an owner may not re-register in a way that breaks a version its borrowers pin.
+    for (const [key, m] of others) {
+      for (const u of (m.uses ?? []).filter((x) => x.app === a.key && x.ability !== 'tasks.open')) {
+        const ab = a.manifest.abilities.find((x) => x.key === u.ability);
+        if (!ab || !satisfies(ab.version, u.range)) {
+          throw new PlatformError(409, 'breaks_borrower', `${key} uses ${u.ability}@${u.range}; this manifest ${ab ? `serves ${ab.version}` : 'drops it'}`);
+        }
+      }
+    }
     await this.db.query(
       `insert into neos.apps (key, l3_url, manifest, contract_version, service_secret_hash, blocks) values ($1,$2,$3,$4,$5,$6)
        on conflict (key) do update set l3_url = excluded.l3_url, manifest = excluded.manifest,

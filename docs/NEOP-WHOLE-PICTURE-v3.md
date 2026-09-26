@@ -109,13 +109,23 @@ As v2, and v2's own rule now holds in the build: **`blocks/` are the app's scree
 JavaScript.** The platform validates them at registration — every source must be a read of the app, the
 only effect a block can cause is an ask, no markup anywhere — and **the NEOS desk (platform-owned, one
 for every app) draws them with one renderer**. My Desk, approvals, jobs, switchboards, standing yeses,
-doors, packages, apps, audit and team are platform surfaces, shared by every NEOP.
+doors, packages, apps, audit and team are platform surfaces, shared by every NEOP. The desk in this
+repo is a **test harness** for those surfaces; the product UI is the NEOS app, which adopts the one
+renderer. *(`docs/pilot-ledger-integration.md`.)*
+
+## 14. On the NEOS platform as it runs today
+
+Ledger installs on today's platform (`neos-service-platform-api`) through its descriptor registry and
+capability gateway, under contract `neop.v1`: its reads as capabilities, a person's request as a job
+(`ledger.ask`), and the yes as a human-gated capability the platform never dispatches. No write is a
+capability. The platform's own descriptor validator accepts the generated descriptor unmodified.
+*(`template/src/l3/neos-v1.ts` · neos-v1.test.)*
 *(`contracts/src/blocks.ts`, `platform/src/web/` · blocks.test, web.test.)*
 
 ## Deployment and the network
 
 Each app is two containers — backend (database role, borrowed keys, no model) and agent (model via the
-proxy, no keys, no database) — plus the platform, the LLM proxy, PgBouncer and the desk. Network policy
+proxy, no keys, no database) — plus the platform, the LLM proxy and PgBouncer (and, for testing only, the desk). Network policy
 is enforced by the listeners, not only by the networks: L3 binds only on the gateway network, the gate
 only on the agent network, the agent only on its own backend's network. A runtime probe
 (`scripts/netcheck.sh`) runs inside every container and fails if any row of the policy is broken.
