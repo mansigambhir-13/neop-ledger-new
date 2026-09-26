@@ -14,6 +14,7 @@ export type { JobBundle } from './agent/bundle.ts';
 export { loadAgentDir, loadBlocks } from './agent/load.ts';
 export { buildPackage } from './packages/build.ts';
 export { migratePackage, packageRole } from './packages/migrate.ts';
+export { hasSelftest, PackageSelftestError, selftestPackage } from './packages/selftest.ts';
 export type { PackageBundle, PackageManifest } from './packages/types.ts';
 export { EmailDoor } from './doors/email.ts';
 export { FileDoor, MemoryDoorJournal, PgDoorJournal, GSP_DEFAULT_PATHS, resetGspSessions, sameFigures, type DoorJournal, type GspCredential } from './doors/index.ts';

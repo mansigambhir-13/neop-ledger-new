@@ -110,8 +110,9 @@ export async function loadOrCreateSigningKeys(file: string): Promise<KeyRing> {
   if (raw) {
     const parsed = JSON.parse(raw) as Persisted | { kid: string; privateJwk: JWK; publicJwk: JWK };
     const list = 'keys' in parsed ? parsed.keys : [{ ...parsed, state: 'active' as const, created_at: new Date().toISOString() }];
+    // Extractable: the ring is written back to its file when a scheduled key activates after a restart.
     const keys = await Promise.all(
-      list.map(async (k) => ({ kid: k.kid, privateKey: (await importJWK(k.privateJwk, 'EdDSA')) as CryptoKey, publicJwk: k.publicJwk, state: k.state, created_at: k.created_at })),
+      list.map(async (k) => ({ kid: k.kid, privateKey: (await importJWK(k.privateJwk, 'EdDSA', { extractable: true })) as CryptoKey, publicJwk: k.publicJwk, state: k.state, created_at: k.created_at })),
     );
     return new KeyRing(keys, file);
   }

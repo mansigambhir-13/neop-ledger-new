@@ -74,7 +74,7 @@ async function approve(taskId: string, before?: () => Promise<void>) {
   const card = await P.waitFor(async () => (await P.desk()).find((c) => c.task_id === taskId && c.status === 'PENDING'), 'filing card', 30_000);
   await before?.();
   await P.api('POST', `/api/desk/${card.id}/answer`, { decision: 'yes', fingerprint_seen: card.fingerprint });
-  const a = await P.waitFor(async () => (await P.platform.db.query("select proof from neos.approvals where id = $1 and status in ('EXECUTED','REFUSED')", [card.id])).rows[0], 'executed', 30_000);
+  const a = await P.waitFor(async () => (await P.platform.db.query("select proof from neos.approvals where id = $1 and status in ('EXECUTED','FAILED','UNKNOWN','REFUSED')", [card.id])).rows[0], 'executed', 30_000);
   return { card, proof: a.proof };
 }
 

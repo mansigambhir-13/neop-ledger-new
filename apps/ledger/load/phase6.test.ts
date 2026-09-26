@@ -7,7 +7,8 @@ import { bootPilot, type Pilot } from '../tests/harness.ts';
 describe('load', () => {
   let P: Pilot;
   beforeAll(async () => {
-    P = await bootPilot({ poolSize: 20, platformDbPool: 20 }); // production-sized platform pool
+    // Production-sized pools on both sides: the template's default app/runner pools (5) queue 200 concurrent opens.
+    P = await bootPilot({ poolSize: 20, platformDbPool: 20, backendConfig: () => ({ appPoolSize: 20, runnerPoolSize: 20 }) });
   });
   afterAll(async () => P?.close());
 
@@ -28,7 +29,25 @@ describe('load', () => {
     console.log('app ack p95 bucket (s)', p95, 'end-to-end through the gateway (ms)', r);
     expect(total).toBe(200);
     expect(p95).toBeLessThanOrEqual(0.3);
-    expect(r.p95).toBeLessThan(1_000);
+    // Plan bar, end to end through the gateway (token, ledger, L3 open, audit): p95 < 300 ms.
+    expect(r.p95).toBeLessThan(300);
+  });
+
+  it('200 concurrent asks: /api/ask → task row → gateway → L3 tasks.open acknowledges with p95 under 300 ms', async () => {
+    P.setBrain(() => ({ tool: toolName('job.finish'), args: { outcome: 'done', summary: 'ok' } }));
+    const lat: number[] = [];
+    await Promise.all(
+      Array.from({ length: 200 }, async (_, i) => {
+        const t0 = performance.now();
+        const a = await P.api('POST', '/api/ask', { text: `ack ${i}`, app: 'ledger' });
+        if (a.status !== 200 || a.body.status !== 'ACKNOWLEDGED') throw new Error(`ask ${a.status} ${JSON.stringify(a.body)}`);
+        lat.push(performance.now() - t0);
+      }),
+    );
+    lat.sort((a, b) => a - b);
+    const pct = (p: number) => lat[Math.min(lat.length - 1, Math.floor((p / 100) * lat.length))]!;
+    console.log('ask → ack end to end (ms)', { p50: pct(50), p95: pct(95), p99: pct(99), max: lat.at(-1) });
+    expect(pct(95)).toBeLessThan(300);
   });
 
   it('200 concurrent asks all run to completion', async () => {

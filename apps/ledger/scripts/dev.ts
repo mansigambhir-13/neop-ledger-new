@@ -113,8 +113,7 @@ if ((process.env.NEOP_DEV_PACKAGES ?? '').split(',').includes('nep-gst')) {
   const admin = (await p.db.query("select id, company_id from neos.users where token_hash = $1", [hashSecret('dev_admin')])).rows[0];
   await p.registry.install({ ...admin, role: 'admin' }, { host_app: 'ledger', entry_key: 'nep-gst' });
   for (const pk of await p.pendingPackageMigrations()) {
-    await migratePackage(adminUrl, pk.host_app, pk.bundle);
-    await p.markPackageMigrated(pk.host_app, pk.entry_key, pk.version);
+    await p.applyPackageMigration(pk, () => migratePackage(adminUrl, pk.host_app, pk.bundle));
   }
   // GSTR-3B needs a GSP credential (provider 'gsp'); the dev-file door above cannot prepare or file one.
   log('nep-gst installed for Acme Traders (connect a GSP: PUT /api/vault/gst_portal, see docs/RUNBOOK.md)');

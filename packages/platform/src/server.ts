@@ -5,11 +5,11 @@ import { DECISIONS, strictest, type Manifest, type Setting } from '@neop/contrac
 import { Hono, type Context } from 'hono';
 import { streamSSE } from 'hono/streaming';
 import { GatewayError } from './gateway.ts';
-import { Platform, PlatformError } from './platform.ts';
+import { MONTH_START_SQL, Platform, PlatformError } from './platform.ts';
 
 const DESK_HTML = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), 'desk.html'), 'utf8');
 
-const PLATFORM_ENDPOINTS = ['tasks.open', 'inbox.deliver', 'proposals.resolve', 'proposals.execute', 'outbox.read', 'outbox.ack', 'switchboard.changed', 'tasks.cancel', 'tasks.result', 'manifest'];
+const PLATFORM_ENDPOINTS = ['tasks.open', 'inbox.deliver', 'proposals.resolve', 'proposals.execute', 'outbox.read', 'outbox.ack', 'switchboard.changed', 'tasks.cancel', 'tasks.result', 'schedules.set', 'schedules.list', 'manifest'];
 
 export function platformApp(p: Platform): Hono {
   const app = new Hono();
@@ -67,7 +67,7 @@ export function platformApp(p: Platform): Hono {
   app.post('/internal/registry/publish', async (c) => {
     const key = await service(c);
     const b = await c.req.json();
-    return c.json(await p.registry.submit(`app:${key}`, { kind: 'skill', key: b.key, version: b.version, owner_app: key, body: b.body, requires: b.requires ?? [] }));
+    return c.json(await p.registry.submit(`app:${key}`, { kind: 'skill', key: b.key, version: b.version, owner_app: key, body: b.body, requires: b.requires ?? [], author: { sig: b.author_sig } }));
   });
   app.get('/internal/registry/entries', async (c) => {
     const key = await service(c);
@@ -140,12 +140,31 @@ export function platformApp(p: Platform): Hono {
       const pk = pkg.find((a) => a.key === k);
       return own ? inForce(own) : pk ? inForce(pk) : null;
     };
-    const skills = (await p.skillLines(key, u.company_id, m)).map((sk) => {
-      const setting = sb.settings?.[`skill:${sk.key}`] === 'off' ? 'off' : 'on';
-      const needs = sk.requires.map((r) => ({ key: r, setting: settingOf(r) ?? 'elsewhere' }));
-      const missing = needs.filter((n) => n.setting === 'off').map((n) => n.key);
-      return { key: sk.key, from: sk.from, setting, needs, missing, loads: setting === 'on' && missing.length === 0 };
-    });
+    // A requirement another app owns loads only as the gate offers it: with an ACL row a person
+    // granted, at the strictest of the owner's setting there and this company's line here.
+    const borrowedSetting = async (r: string): Promise<{ setting: Setting; from: string | null }> => {
+      const acl = (await p.db.query<{ target_app: string }>('select target_app from neos.acl where caller_app = $1 and ability_key = $2 and company_id = $3 limit 1', [key, r, u.company_id])).rows[0];
+      if (!acl) return { setting: 'off', from: null };
+      const d = await p.borrowDescribe(key, { company_id: u.company_id, app: acl.target_app, ability: r }).catch(() => null);
+      if (!d || d.ability.kind !== 'read' || !d.acl) return { setting: 'off', from: acl.target_app };
+      const floor = (m.uses ?? []).find((x) => x.ability === r)?.floor ?? 'on';
+      return { setting: strictest(strictest(floor, d.owner_setting), sb.settings?.[r]), from: acl.target_app };
+    };
+    const skills = await Promise.all(
+      (await p.skillLines(key, u.company_id, m)).map(async (sk) => {
+        const setting = sb.settings?.[`skill:${sk.key}`] === 'off' ? 'off' : 'on';
+        const needs = await Promise.all(
+          sk.requires.map(async (r) => {
+            const here = settingOf(r);
+            if (here) return { key: r, setting: here, owner: key };
+            const b = await borrowedSetting(r);
+            return { key: r, setting: b.setting, owner: b.from };
+          }),
+        );
+        const missing = needs.filter((n) => n.setting === 'off').map((n) => n.key);
+        return { key: sk.key, from: sk.from, setting, needs, missing, loads: setting === 'on' && missing.length === 0 };
+      }),
+    );
     return c.json({
       switchboard_version: sb.version,
       abilities: [
@@ -262,6 +281,41 @@ export function platformApp(p: Platform): Hono {
     });
   });
 
+  // Timers (WP §7): an admin sets an app's schedules; the platform carries them to the app
+  // through the gateway (platform door), naming the admin as the requester of every run.
+  app.get('/api/apps/:app/schedules', async (c) => {
+    const u = await user(c);
+    if (u.role !== 'admin') throw new PlatformError(403, 'denied', 'admins only');
+    await p.assertInstalled(c.req.param('app'), u.company_id);
+    const res = await p.gateway.call({ caller: 'platform', app: c.req.param('app'), endpoint: 'schedules.list', company_id: u.company_id });
+    return c.json(res.body, res.status as 200);
+  });
+  app.put('/api/apps/:app/schedules', async (c) => {
+    const u = await user(c);
+    if (u.role !== 'admin') throw new PlatformError(403, 'denied', 'admins only');
+    const key = c.req.param('app');
+    await p.assertInstalled(key, u.company_id);
+    const b = await c.req.json().catch(() => null);
+    if (!b || typeof b.ask !== 'string' || !b.ask.trim() || !b.rule || typeof b.rule !== 'object') throw new PlatformError(400, 'bad_request', 'ask and rule ({every, at, weekday?, day?}) required');
+    if (b.id !== undefined && typeof b.id !== 'string') throw new PlatformError(400, 'bad_request', 'id must be a string');
+    const body = { ...(b.id ? { id: b.id } : {}), ask: b.ask, requester: `user:${u.id}`, rule: b.rule, ...(typeof b.enabled === 'boolean' ? { enabled: b.enabled } : {}) };
+    const res = await p.gateway.call({ caller: 'platform', app: key, endpoint: 'schedules.set', company_id: u.company_id, body, idem_key: `schedule:${crypto.randomUUID()}` });
+    if (res.status === 200) await p.gateway.audit({ company_id: u.company_id, actor: `user:${u.id}`, app_key: key, action: 'schedule.set', outcome: String(res.body?.schedule?.id ?? ''), detail: body });
+    return c.json(res.body, res.status as 200);
+  });
+
+  // The desk activity feed (C6): job steps and a2a hand-offs across the company's apps, newest first.
+  app.get('/api/activity', async (c) => {
+    const u = await user(c);
+    const r = await p.db.query(
+      `select id, app_key, job_id, seq, kind, summary, at from neos.activity
+        where company_id = $1 and ($2::text is null or kind = $2) and ($3::text is null or app_key = $3)
+        order by at desc, id desc limit $4`,
+      [u.company_id, c.req.query('kind') ?? null, c.req.query('app') ?? null, Math.min(Number(c.req.query('limit') ?? 100) || 100, 500)],
+    );
+    return c.json({ activity: r.rows.map((x) => ({ ...x, id: Number(x.id) })) });
+  });
+
   app.get('/api/dead-letters', async (c) => {
     const u = await user(c);
     if (u.role === 'member') throw new PlatformError(403, 'denied', 'admins only');
@@ -275,16 +329,28 @@ export function platformApp(p: Platform): Hono {
   });
 
   // Platform operators rotate the gateway signing key (R10).
-  app.post('/api/ops/keys/rotate', async (c) => {
+  const operator = async (c: Context) => {
     const u = await user(c);
     if (u.role !== 'operator') throw new PlatformError(403, 'denied', 'operators only');
+    return u;
+  };
+  app.post('/api/ops/keys/rotate', async (c) => {
+    const u = await operator(c);
     // Publish now; start signing only after every app's JWKS cache (≤ 60 s) has refreshed.
-    const k = await p.gateway.keys.rotate();
+    // The activation time is stored, so a restart inside the window cannot strand the key.
     const b = await c.req.json().catch(() => ({}));
-    const delay = Math.max(0, Number(b.activate_after_ms ?? 120_000));
-    setTimeout(() => void p.gateway.keys.activate().catch((e) => p.log('key activation failed', { e: String(e) })), delay).unref?.();
-    await p.gateway.audit({ company_id: null, actor: `user:${u.id}`, action: 'gateway.key_published', outcome: k.kid, detail: { activate_after_ms: delay } });
-    return c.json({ next: k.kid, activates_in_ms: delay });
+    const delay = Math.max(0, Number(b.activate_after_ms ?? 120_000) || 0);
+    const r = await p.rotateGatewayKey(`user:${u.id}`, delay);
+    return c.json({ next: r.next, activate_at: r.activate_at, activates_in_ms: delay });
+  });
+  app.post('/api/ops/keys/retire-previous', async (c) => {
+    const u = await operator(c);
+    const b = await c.req.json().catch(() => ({}));
+    return c.json(await p.retirePreviousGatewayKey(`user:${u.id}`, b.force === true));
+  });
+  app.get('/api/ops/keys', async (c) => {
+    await operator(c);
+    return c.json(await p.gatewayKeys());
   });
 
   app.post('/api/tasks/:id/cancel', async (c) => {
@@ -312,7 +378,7 @@ export function platformApp(p: Platform): Hono {
     if (!t.rows[0]) throw new PlatformError(404, 'not_found', 'no such task');
     const msgs = await p.db.query('select author, kind, body, task_id, at from neos.conversation_messages where task_id = $1 order by id', [t.rows[0].id]);
     const act = t.rows[0].job_id
-      ? await p.db.query('select seq, kind, summary, at from neos.activity where job_id = $1 and company_id = $2 order by seq', [t.rows[0].job_id, u.company_id])
+      ? await p.db.query('select seq, kind, summary, at from neos.activity where job_id = $1 and company_id = $2 order by at, seq nulls last', [t.rows[0].job_id, u.company_id])
       : { rows: [] };
     const job = t.rows[0].job_id;
     const approvals = job
@@ -402,7 +468,7 @@ export function platformApp(p: Platform): Hono {
     const u = await user(c);
     if (u.role !== 'operator') throw new PlatformError(403, 'denied', 'operators only');
     const b = await c.req.json();
-    return c.json(await p.registry.submit(`user:${u.id}`, { kind: 'package', key: b.bundle?.manifest?.key, version: b.bundle?.manifest?.version, bundle: b.bundle }));
+    return c.json(await p.registry.submit(`user:${u.id}`, { kind: 'package', key: b.bundle?.manifest?.key, version: b.bundle?.manifest?.version, bundle: b.bundle, author: b.author ?? null }));
   });
   app.get('/api/registry/reviews', async (c) => {
     const u = await user(c);
@@ -445,9 +511,9 @@ export function platformApp(p: Platform): Hono {
               cu.name as created_by_name,
               (select count(*)::int from neos.audit a where a.action = 'grant.used' and a.detail->>'grant_id' = g.id::text) as uses,
               (select coalesce(sum((a.detail->>'amount_minor')::bigint), 0)::bigint from neos.audit a
-                where a.action = 'grant.used' and a.detail->>'grant_id' = g.id::text and a.at >= date_trunc('month', now())) as used_this_month_minor,
+                where a.action = 'grant.used' and a.detail->>'grant_id' = g.id::text and a.at >= ${MONTH_START_SQL('co.time_zone')}) as used_this_month_minor,
               (select max(a.at) from neos.audit a where a.action = 'grant.used' and a.detail->>'grant_id' = g.id::text) as last_used_at
-         from neos.grants g left join neos.users cu on cu.id = g.created_by
+         from neos.grants g join neos.companies co on co.id = g.company_id left join neos.users cu on cu.id = g.created_by
         where g.company_id = $1 order by (g.status = 'ACTIVE') desc, g.created_at desc`,
       [u.company_id],
     );

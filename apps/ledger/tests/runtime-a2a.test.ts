@@ -37,7 +37,7 @@ describe('refusals from other parties are data', () => {
 });
 
 describe('borrowing', () => {
-  it('switchboard.changed drops the borrow cache: a new ACL is offered at once, not in 30 s', async () => {
+  it('switchboard.changed drops the borrow cache: an ACL grant or revoke takes effect at once, not in 30 s', async () => {
     let tools: string[] = [];
     P.setBrain((v) => {
       tools = v.tools;
@@ -49,10 +49,14 @@ describe('borrowing', () => {
       return tools;
     };
     expect(await ask()).not.toContain(BUDGET); // no ACL; the list is now cached
+    // Granting the ACL row notifies the borrower (switchboard.changed), which drops the cache: offered at once, not in 30 s.
     expect((await acl('ledger.budget.remaining')).status).toBe(200);
-    expect(await ask()).not.toContain(BUDGET); // cached for 30 s …
-    await P.platform.notifyApp('marketing', P.company.id); // … unless the platform says the board changed
     expect(await ask()).toContain(BUDGET);
+    // Revoking it does the same the other way.
+    expect((await P.api('DELETE', '/api/acl', { caller_app: 'marketing', target_app: 'ledger', ability_key: 'ledger.budget.remaining' })).status).toBe(200);
+    expect(await ask()).not.toContain(BUDGET);
+    await acl('ledger.budget.remaining'); // later tests borrow it …
+    expect(await ask()).toContain(BUDGET); // … and rely on Marketing's cached list offering it
   });
 
   it('the owner refusing a borrowed read: its message is wrapped as untrusted', async () => {

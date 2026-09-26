@@ -62,7 +62,7 @@ export class PlatformClient {
     throw new Error(`grant token request failed: ${r.status}`);
   }
 
-  async borrowDescribe(req: { company_id: string; app: string; ability: string }): Promise<{ ability: ManifestAbility; owner_setting: Setting; acl: boolean }> {
+  async borrowDescribe(req: { company_id: string; app?: string; ability: string }): Promise<{ ability: ManifestAbility; owner_setting: Setting; acl: boolean; owner?: string }> {
     const r = await this.call<any>('POST', '/internal/borrow/describe', req);
     if (r.status !== 200) throw new Error(`borrow describe ${req.app}.${req.ability}: ${r.status}`);
     return r.body;

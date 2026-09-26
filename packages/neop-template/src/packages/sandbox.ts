@@ -62,7 +62,7 @@ async function handle(m) {
   }
   if (m.type === "call") {
     try {
-      const a = mod?.abilities?.[m.ability];
+      const a = mod?.abilities?.[m.ability] ?? (m.ability === "selftest" && typeof mod?.selftest === "function" ? { run: (_args, ctx) => mod.selftest(ctx) } : undefined);
       const fn = a?.[m.method];
       // normalize is optional: without one, the args go to the gate unchanged.
       if (m.method === "normalize" && typeof fn !== "function") return out({ type: "result", id: m.id, result: m.args });
