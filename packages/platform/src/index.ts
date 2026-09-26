@@ -2,6 +2,8 @@ import { closeServer } from '@neop/pgkit';
 import { serve, type ServerType } from '@hono/node-server';
 import { ChatBridge, type RoomTransport } from './bridge/bridge.ts';
 import { matrixAppservice, MatrixTransport, type MatrixConfig } from './bridge/matrix.ts';
+import { startChatClients, type ChatClient, type ChatClientsConfig } from './bridge/client-sync.ts';
+import { chatClientRoutes } from './bridge/routes.ts';
 import { llmProxyApp, pricesFromEnv, type Price, type ProxyConfig } from './llm/proxy.ts';
 import { Platform, type PlatformOptions } from './platform.ts';
 import { platformApp } from './server.ts';
@@ -14,6 +16,8 @@ export { platformApp } from './server.ts';
 export { pickApp } from './neuralchat.ts';
 export * from './bridge/bridge.ts';
 export * from './bridge/matrix.ts';
+export * from './bridge/client-sync.ts';
+export { chatClientRoutes } from './bridge/routes.ts';
 export * from './llm/proxy.ts';
 export * from './vault.ts';
 export * from './registry.ts';
@@ -26,18 +30,19 @@ export async function startPlatform(
     host?: string;
     workers?: boolean;
     /** Chat bridge: a Matrix appservice, or any RoomTransport (tests). */
-    chat?: { matrix: MatrixConfig } | { transport: RoomTransport; serverName: string };
+    chat?: { matrix: MatrixConfig } | { transport: RoomTransport; serverName: string } | { client: ChatClientsConfig };
     bridgeSendEveryMs?: number;
     /** Run the LLM proxy in this process, mounted at /llm. */
     llm?: { upstream: ProxyConfig['upstream']; prices?: Record<string, Price> };
   },
-): Promise<{ platform: Platform; bridge: ChatBridge | null; port: number; url: string; stop: () => Promise<void> }> {
+): Promise<{ platform: Platform; bridge: ChatBridge | null; chatClients: ChatClient[]; port: number; url: string; stop: () => Promise<void> }> {
   const platform = new Platform(opts);
   await platform.ensureRegistry();
   const host = opts.host ?? '127.0.0.1';
   let bridge: ChatBridge | null = null;
   const app = platformApp(platform);
-  if (opts.chat) {
+  let chatClients: ChatClient[] = [];
+  if (opts.chat && !('client' in opts.chat)) {
     const transport = 'matrix' in opts.chat ? new MatrixTransport(opts.chat.matrix) : opts.chat.transport;
     const serverName = 'matrix' in opts.chat ? opts.chat.matrix.serverName : opts.chat.serverName;
     bridge = new ChatBridge(platform, transport, { serverName, sendEveryMs: opts.bridgeSendEveryMs, log: opts.log ? (m, e) => opts.log!(m, { e: String(e) }) : undefined });
@@ -76,6 +81,8 @@ export async function startPlatform(
       return c.json({ ok: true });
     });
   }
+  // The Matrix client road (MATRIX_MODE=client) and its allowlist admin API (bridge/routes.ts).
+  app.route('/', chatClientRoutes(platform, () => chatClients, { linkUsers: !bridge }));
   if (opts.llm) {
     app.route('/llm', llmProxyApp({ db: platform.db, jwks: () => platform.gateway.jwks(), upstream: opts.llm.upstream, prices: opts.llm.prices ?? pricesFromEnv(), log: opts.log ? (m, e) => opts.log!(m, { e: String(e) }) : undefined }));
   }
@@ -86,14 +93,19 @@ export async function startPlatform(
   if (opts.workers !== false) {
     platform.start();
     bridge?.start();
+    if (opts.chat && 'client' in opts.chat) chatClients = await startChatClients(platform, { log: opts.log, ...opts.chat.client });
   }
   return {
     platform,
     bridge,
+    get chatClients() {
+      return chatClients;
+    },
     port,
     url: `http://${host}:${port}`,
     stop: async () => {
       bridge?.stop();
+      for (const c of chatClients) await c.stop();
       await closeServer(server as any);
       await platform.stop();
     },

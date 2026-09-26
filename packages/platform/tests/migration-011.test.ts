@@ -16,9 +16,10 @@ beforeAll(async () => {
   db = await createTestDatabase();
   dir010 = await mkdtemp(path.join(os.tmpdir(), 'neos-010-'));
   await cp(PLATFORM_MIGRATIONS, dir010, { recursive: true });
-  await rm(path.join(dir010, '011_platform_gaps.sql'));
+  // Everything after 010 is cut, so the copy stops where 011 starts.
   const led = JSON.parse(await readFile(path.join(dir010, 'migrate.json'), 'utf8'));
-  led.migrations = led.migrations.filter((m: any) => m.file !== '011_platform_gaps.sql');
+  for (const m of led.migrations.filter((x: any) => x.file >= '011')) await rm(path.join(dir010, m.file));
+  led.migrations = led.migrations.filter((m: any) => m.file < '011');
   await writeFile(path.join(dir010, 'migrate.json'), JSON.stringify(led));
 });
 afterAll(async () => {
@@ -53,7 +54,7 @@ describe('011_platform_gaps on populated data', () => {
       const before = (await c.query('select (select count(*) from neos.approvals) a, (select count(*) from neos.activity) v, (select md5(string_agg(t::text, \',\' order by id)) from neos.approvals t) h')).rows[0];
 
       const applied = await migratePlatform(db.adminUrl);
-      expect(applied.map((m) => m.name)).toEqual(['011_platform_gaps.sql']);
+      expect(applied.map((m) => m.name)[0]).toBe('011_platform_gaps.sql'); // then any later file
 
       const after = (await c.query('select (select count(*) from neos.approvals) a, (select count(*) from neos.activity) v')).rows[0];
       expect(after).toEqual({ a: before.a, v: before.v });

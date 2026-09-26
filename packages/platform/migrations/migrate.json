@@ -115,6 +115,17 @@
       ],
       "baseline": false,
       "proven_on_populated_data": "2026-09-26 \u00b7 packages/platform/tests/migration-011.test.ts (populated through 010, then 011)"
+    },
+    {
+      "file": "012_chat_client.sql",
+      "baseline": false,
+      "tables": [
+        "chat_accounts",
+        "chat_allowlist",
+        "chat_client_events",
+        "chat_dms"
+      ],
+      "proven_on_populated_data": "2026-09-26 \u00b7 apps/ledger/tests/matrix-client.test.ts (migration 012 on a populated platform database)"
     }
   ]
 }
