@@ -24,5 +24,5 @@ volumes:
   synapse-data: {}
 
 secrets:
-  matrix_hs_token: { file: ./secrets/matrix_hs_token }
-  matrix_as_token: { file: ./secrets/matrix_as_token }
+  matrix_hs_token: { file: "${NEOS_SECRETS_DIR:-./secrets}/matrix_hs_token" }
+  matrix_as_token: { file: "${NEOS_SECRETS_DIR:-./secrets}/matrix_as_token" }

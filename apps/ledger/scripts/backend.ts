@@ -30,4 +30,26 @@ const b = await startBackend(
   { l3Port: Number(env('L3_PORT', '4101')), gatePort: Number(env('GATE_PORT', '4102')), host: '0.0.0.0', l3Host: await bindAddress('L3_HOST'), gateHost: await bindAddress('GATE_HOST') },
 );
 log('info', 'ledger backend up', { l3: b.ports.l3, gate: b.ports.gate, version: app.manifest.version });
-onShutdown(() => b.stop());
+
+// Metrics for the scraper on the telemetry network only (METRICS_HOST, e.g. the `ledger-metrics`
+// alias). L3 itself stays reachable only from the gateway's network; this listener answers one
+// path, relays /l3/metrics (same bearer token check) and nothing else.
+let metricsServer: import('node:http').Server | null = null;
+if (process.env.METRICS_HOST) {
+  const { createServer } = await import('node:http');
+  const l3 = `http://${process.env.L3_HOST || '127.0.0.1'}:${b.ports.l3}/l3/metrics`;
+  const host = await bindAddress('METRICS_HOST');
+  const port = Number(env('METRICS_PORT', '9464'));
+  metricsServer = createServer((req, res) => {
+    if (req.method !== 'GET' || req.url !== '/metrics') return void res.writeHead(404).end('not found');
+    fetch(l3, { headers: { authorization: String(req.headers.authorization ?? '') }, signal: AbortSignal.timeout(10_000) })
+      .then(async (r) => void res.writeHead(r.status, { 'content-type': r.headers.get('content-type') ?? 'text/plain' }).end(await r.text()))
+      .catch(() => void res.writeHead(502).end('metrics unavailable'));
+  });
+  await new Promise<void>((resolve) => metricsServer!.listen(port, host, resolve));
+  log('info', 'metrics listener up', { host, port });
+}
+onShutdown(async () => {
+  metricsServer?.close();
+  await b.stop();
+});

@@ -4,11 +4,19 @@
 //   NEOS_ADMIN_URL=... [NEOS_APPS=ledger] tsx scripts/migrate.ts
 // NEOS_APPS names the apps this install runs (default: ledger). Marketing is a
 // test fixture and is migrated only when listed.
+// D2 dedicated-DB tier: NEOS_ADMIN_URL_<APP> (or _FILE) sends that app's family (roles, schema,
+// package migrations) to its own cluster; every other app stays on NEOS_ADMIN_URL.
+import { readFileSync } from 'node:fs';
 import { adminUrlFromEnv, roleUrl } from '@neop/pgkit';
 import { migratePlatform, Platform, generateSigningKeys } from '@neop/platform';
 import { migrateApp, migratePackage } from '@neop/template';
 
 const admin = adminUrlFromEnv();
+const appAdmin = (app: string): string => {
+  const k = `NEOS_ADMIN_URL_${app.toUpperCase()}`;
+  const file = process.env[`${k}_FILE`];
+  return file ? readFileSync(file, 'utf8').trim() : (process.env[k] ?? admin);
+};
 const log = (m: string) => console.log(m);
 await migratePlatform(admin, log);
 const loaders: Record<string, () => Promise<Parameters<typeof migrateApp>[1]>> = {
@@ -18,13 +26,14 @@ const loaders: Record<string, () => Promise<Parameters<typeof migrateApp>[1]>> =
 for (const name of (process.env.NEOS_APPS ?? 'ledger').split(',').map((s) => s.trim()).filter(Boolean)) {
   const load = loaders[name];
   if (!load) throw new Error(`unknown app in NEOS_APPS: ${name} (known: ${Object.keys(loaders).join(', ')})`);
-  await migrateApp(admin, await load(), log);
+  if (appAdmin(name) !== admin) log(`[${name}] dedicated cluster ${new URL(appAdmin(name)).host}`);
+  await migrateApp(appAdmin(name), await load(), log);
 }
 
 const platform = new Platform({ dbUrl: roleUrl(admin, 'neos_app'), keys: await generateSigningKeys() });
 await platform.ensureRegistry();
 for (const p of await platform.pendingPackageMigrations()) {
-  for (const name of await migratePackage(admin, p.host_app, p.bundle)) log(`[${p.host_app}] applied ${name}`);
+  for (const name of await migratePackage(appAdmin(p.host_app), p.host_app, p.bundle)) log(`[${p.host_app}] applied ${name}`);
   await platform.markPackageMigrated(p.host_app, p.entry_key, p.version);
 }
 await platform.stop();

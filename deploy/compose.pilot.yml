@@ -5,20 +5,33 @@
 #   llm     agents ↔ llm-proxy                                     (session tokens only)
 #   ctl     llm-proxy ↔ platform (JWKS)                            (agents are not on it)
 #   web     operator console (BFF) ↔ platform desk API          (the browser's only way in)
-#   egress  llm-proxy → model provider; backend → email/GSP providers (doors)
+#   outbound llm-proxy, backends ↔ egress-proxy                 (internal: their only way out)
+#   egress  egress-proxy → the internet, allow-listed hosts only (NEOS_EGRESS_ALLOW)
+#   telemetry services → otel-collector; prometheus → platform /metrics, <app>-metrics
+#   obs     prometheus, jaeger ↔ grafana                           (observability profile)
 # The model and a database role are never in the same container; no agent holds a
 # provider key; package handlers run in Deno inside the backend with no permissions.
 #
 #   tsx scripts/gen-secrets.ts            # fills deploy/secrets/ (never overwrites)
 #   docker compose -f deploy/compose.pilot.yml run --rm migrate
 #   docker compose -f deploy/compose.pilot.yml up -d
-# Optional profile: `chat` (Matrix homeserver; also set MATRIX_* on platform).
+# Optional profiles: `chat` (Matrix homeserver; also set MATRIX_* on platform),
+# `observability` (collector → Jaeger, Prometheus + alert rules, Grafana with the NEOP dashboard).
 name: neops
 
 x-node: &node
   restart: unless-stopped
   stop_grace_period: 15s
   logging: { driver: json-file, options: { max-size: 20m, max-file: "5" } }
+
+# Outbound HTTP(S) from the LLM proxy and app backends: through the allow-listing egress proxy only
+# (they have no route to the internet of their own). Node 24 honours these with NODE_USE_ENV_PROXY=1.
+# Everything inside the stack is NO_PROXY.
+x-egress-env: &egress-env
+  NODE_USE_ENV_PROXY: "1"
+  HTTP_PROXY: http://egress-proxy:3128
+  HTTPS_PROXY: http://egress-proxy:3128
+  NO_PROXY: localhost,127.0.0.1,platform,llm-proxy,otel-collector,ledger-l3,ledger-gate,ledger-agent-rpc,ledger-agent,ledger-backend,ledger-metrics,pgbouncer,postgres
 
 services:
   postgres:
@@ -61,6 +74,27 @@ services:
     secrets: [pg_admin_url, pw_neos_migrator, pw_neos_app, pw_neos_runner, pw_ledger_migrator, pw_ledger_app, pw_ledger_runner, ledger_pkg_pw_key]
     networks: [db]
 
+  # Nightly per-schema logical exports (plan §Backups): pg_dump -Fc of neos + every app schema,
+  # plus one JSON export per company per app, into the `backups` volume; keeps NEOS_BACKUP_KEEP runs.
+  # Restores: docs/RUNBOOK.md "Backups and restore". Only the db network; it holds the admin URL.
+  backup:
+    build: { context: .., dockerfile: deploy/backup.Dockerfile }
+    command: ["tsx", "scripts/backup.ts", "schedule"]
+    restart: unless-stopped
+    depends_on: { postgres: { condition: service_healthy } }
+    environment:
+      NEOS_ADMIN_URL_FILE: /run/secrets/pg_admin_url
+      NEOS_BACKUP_DIR: /backups
+      NEOS_BACKUP_AT: ${NEOS_BACKUP_AT:-02:00}
+      NEOS_BACKUP_KEEP: ${NEOS_BACKUP_KEEP:-14}
+      NEOS_BACKUP_COMPANIES: "1"
+      NEOS_BACKUP_ON_START: ${NEOS_BACKUP_ON_START:-0}
+      TZ: ${TZ:-UTC}
+    secrets: [pg_admin_url]
+    volumes: [backups:/backups]
+    networks: [db]
+    logging: { driver: json-file, options: { max-size: 10m, max-file: "3" } }
+
   platform:
     <<: *node
     build: { context: .., dockerfile: deploy/platform.Dockerfile }
@@ -96,8 +130,11 @@ services:
       NEOP_LLM_UPSTREAM_MODEL_PREFIX: ${NEOP_LLM_UPSTREAM_MODEL_PREFIX:-}
       NEOP_LLM_UPSTREAM_KEY_FILE: /run/secrets/llm_upstream_key
       PORT: "4200"
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+      <<: *egress-env
     secrets: [neos_app_url, llm_upstream_key]
-    networks: [db, llm, ctl, egress]
+    # The provider is reached through egress-proxy (outbound); no route of its own to the internet.
+    networks: [db, llm, ctl, outbound, telemetry]
 
   ledger-backend:
     <<: *node
@@ -119,18 +156,22 @@ services:
       GATE_PORT: "4102"
       L3_HOST: ledger-l3
       GATE_HOST: ledger-gate
+      # Metrics relay for Prometheus, bound on the telemetry network only (alias ledger-metrics).
+      METRICS_HOST: ledger-metrics
+      METRICS_PORT: "9464"
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+      <<: *egress-env
     secrets: [ledger_app_url, ledger_runner_url, ledger_direct_url, ledger_service_secret, ledger_job_token_secret, ledger_pkg_pw_key, metrics_token]
     volumes: [ledger-packages:/var/lib/neop/packages]
     # L3 listens only on the l3 network (alias ledger-l3) and the gate only on the agent network
     # (alias ledger-gate): the gateway alone reaches L3; the agent alone reaches the gate.
-    # egress: the email and GST doors call their providers from here.
+    # outbound: the email and GST doors reach their providers through egress-proxy only.
     networks:
       db: {}
       l3: { aliases: [ledger-l3] }
       agent-ledger: { aliases: [ledger-gate] }
-      egress: {}
-      telemetry: {}
+      outbound: {}
+      telemetry: { aliases: [ledger-metrics] }
     healthcheck: { test: ["CMD", "node", "-e", "fetch('http://ledger-l3:4101/l3/ready').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"], interval: 10s, timeout: 5s, retries: 12 }
 
   ledger-agent:
@@ -162,10 +203,64 @@ services:
     ports: ["127.0.0.1:4780:4780"]
     healthcheck: { test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4780/healthz').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"], interval: 10s, timeout: 5s, retries: 12 }
 
+  # The stack's only door to the internet (plan: egress allow-lists). Exact host names; add the
+  # company's GST Suvidha Provider with NEOS_GSP_HOST, anything else deliberately with NEOS_EGRESS_EXTRA.
+  egress-proxy:
+    build: { context: .., dockerfile: deploy/egress-proxy.Dockerfile }
+    restart: unless-stopped
+    environment:
+      NEOS_EGRESS_ALLOW: api.anthropic.com,openrouter.ai,api.resend.com${NEOS_GSP_HOST:+,}${NEOS_GSP_HOST:-}${NEOS_EGRESS_EXTRA:+,}${NEOS_EGRESS_EXTRA:-}
+    networks: [outbound, egress]
+    healthcheck: { test: ["CMD", "sh", "-c", "nc -z 127.0.0.1 3128"], interval: 30s, timeout: 3s, retries: 5, start_period: 20s, start_interval: 2s }
+    logging: { driver: json-file, options: { max-size: 10m, max-file: "3" } }
+
+  # ── observability profile ─────────────────────────────────────────────────────────────────
+  # Without it, spans posted to the collector are dropped by the sender (nothing listens).
   otel-collector:
     image: otel/opentelemetry-collector:0.137.0
+    profiles: [observability]
     restart: unless-stopped
+    command: ["--config=/etc/otelcol/config.yaml"]
+    volumes: ["./observability/otel-collector.yml:/etc/otelcol/config.yaml:ro"]
     networks: [telemetry]
+
+  jaeger:
+    image: jaegertracing/jaeger:2.10.0
+    profiles: [observability]
+    restart: unless-stopped
+    networks: [telemetry, obs]
+
+  prometheus:
+    image: prom/prometheus:v3.6.0
+    profiles: [observability]
+    restart: unless-stopped
+    command: ["--config.file=/etc/prometheus/prometheus.yml", "--storage.tsdb.retention.time=30d", "--web.enable-lifecycle"]
+    secrets: [metrics_token]
+    volumes:
+      - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./observability/alerts.yml:/etc/prometheus/rules/alerts.yml:ro
+      - prometheus-data:/prometheus
+    networks: [telemetry, obs]
+
+  grafana:
+    image: grafana/grafana:12.2.0
+    profiles: [observability]
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD__FILE: /run/secrets/grafana_admin
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_ANALYTICS_CHECK_FOR_PLUGIN_UPDATES: "false"
+    secrets: [grafana_admin]
+    volumes:
+      - ./observability/grafana/datasources.yml:/etc/grafana/provisioning/datasources/neop.yml:ro
+      - ./observability/grafana/dashboards.yml:/etc/grafana/provisioning/dashboards/neop.yml:ro
+      - ./observability/neop-dashboard.json:/var/lib/grafana/dashboards/neop-dashboard.json:ro
+      - grafana-data:/var/lib/grafana
+    # obs: its data sources only. edge: so its UI can be published (loopback only).
+    networks: [obs, edge]
+    ports: ["127.0.0.1:3000:3000"]
 
   # The existing Matrix stack is deployed beside NEOS, never through it. Needs its own
   # homeserver.yaml and deploy/appservice.yaml registered; then set MATRIX_* on platform.
@@ -183,6 +278,8 @@ networks:
   chat: { internal: true }
   telemetry: { internal: true }
   web: { internal: true }
+  outbound: { internal: true }
+  obs: { internal: true }
   edge: {}
   egress: {}
 
@@ -190,25 +287,29 @@ volumes:
   pgdata: {}
   platform-keys: {}
   ledger-packages: {}
+  backups: {}
+  prometheus-data: {}
+  grafana-data: {}
 
 secrets:
-  pg_admin: { file: ./secrets/pg_admin }
-  pg_admin_url: { file: ./secrets/pg_admin_url }
-  pw_neos_migrator: { file: ./secrets/pw_neos_migrator }
-  pw_neos_app: { file: ./secrets/pw_neos_app }
-  pw_neos_runner: { file: ./secrets/pw_neos_runner }
-  pw_ledger_migrator: { file: ./secrets/pw_ledger_migrator }
-  pw_ledger_app: { file: ./secrets/pw_ledger_app }
-  pw_ledger_runner: { file: ./secrets/pw_ledger_runner }
-  neos_app_url: { file: ./secrets/neos_app_url }
-  vault_keys: { file: ./secrets/vault_keys }
-  metrics_token: { file: ./secrets/metrics_token }
-  llm_upstream_key: { file: ./secrets/llm_upstream_key }
-  ledger_app_url: { file: ./secrets/ledger_app_url }
-  ledger_runner_url: { file: ./secrets/ledger_runner_url }
-  ledger_direct_url: { file: ./secrets/ledger_direct_url }
-  pgbouncer_ini: { file: ./secrets/pgbouncer_ini }
-  pgbouncer_userlist: { file: ./secrets/pgbouncer_userlist }
-  ledger_service_secret: { file: ./secrets/ledger_service_secret }
-  ledger_job_token_secret: { file: ./secrets/ledger_job_token_secret }
-  ledger_pkg_pw_key: { file: ./secrets/ledger_pkg_pw_key }
+  pg_admin: { file: "${NEOS_SECRETS_DIR:-./secrets}/pg_admin" }
+  pg_admin_url: { file: "${NEOS_SECRETS_DIR:-./secrets}/pg_admin_url" }
+  pw_neos_migrator: { file: "${NEOS_SECRETS_DIR:-./secrets}/pw_neos_migrator" }
+  pw_neos_app: { file: "${NEOS_SECRETS_DIR:-./secrets}/pw_neos_app" }
+  pw_neos_runner: { file: "${NEOS_SECRETS_DIR:-./secrets}/pw_neos_runner" }
+  pw_ledger_migrator: { file: "${NEOS_SECRETS_DIR:-./secrets}/pw_ledger_migrator" }
+  pw_ledger_app: { file: "${NEOS_SECRETS_DIR:-./secrets}/pw_ledger_app" }
+  pw_ledger_runner: { file: "${NEOS_SECRETS_DIR:-./secrets}/pw_ledger_runner" }
+  neos_app_url: { file: "${NEOS_SECRETS_DIR:-./secrets}/neos_app_url" }
+  vault_keys: { file: "${NEOS_SECRETS_DIR:-./secrets}/vault_keys" }
+  metrics_token: { file: "${NEOS_SECRETS_DIR:-./secrets}/metrics_token" }
+  llm_upstream_key: { file: "${NEOS_SECRETS_DIR:-./secrets}/llm_upstream_key" }
+  ledger_app_url: { file: "${NEOS_SECRETS_DIR:-./secrets}/ledger_app_url" }
+  ledger_runner_url: { file: "${NEOS_SECRETS_DIR:-./secrets}/ledger_runner_url" }
+  ledger_direct_url: { file: "${NEOS_SECRETS_DIR:-./secrets}/ledger_direct_url" }
+  pgbouncer_ini: { file: "${NEOS_SECRETS_DIR:-./secrets}/pgbouncer_ini" }
+  pgbouncer_userlist: { file: "${NEOS_SECRETS_DIR:-./secrets}/pgbouncer_userlist" }
+  ledger_service_secret: { file: "${NEOS_SECRETS_DIR:-./secrets}/ledger_service_secret" }
+  ledger_job_token_secret: { file: "${NEOS_SECRETS_DIR:-./secrets}/ledger_job_token_secret" }
+  ledger_pkg_pw_key: { file: "${NEOS_SECRETS_DIR:-./secrets}/ledger_pkg_pw_key" }
+  grafana_admin: { file: "${NEOS_SECRETS_DIR:-./secrets}/grafana_admin" }

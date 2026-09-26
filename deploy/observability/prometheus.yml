@@ -1,0 +1,25 @@
+# Prometheus (compose profile `observability`). Both endpoints are closed without the scrape
+# token (NEOS_METRICS_TOKEN / NEOP_METRICS_TOKEN = the `metrics_token` secret).
+global:
+  scrape_interval: 15s
+  evaluation_interval: 30s
+
+rule_files:
+  - /etc/prometheus/rules/alerts.yml
+
+scrape_configs:
+  # Platform: gateway latency, approvals, dead letters, model spend.
+  - job_name: neos-platform
+    metrics_path: /metrics
+    authorization: { type: Bearer, credentials_file: /run/secrets/metrics_token }
+    static_configs:
+      - targets: ["platform:4000"]
+  # App backends: job ack latency, jobs, waits, execute outcomes, outbox backlog. Each backend
+  # relays its /l3/metrics on the telemetry network only (alias <app>-metrics), so the scraper
+  # never joins the gateway-only l3 network. Add one target per app.
+  - job_name: neop-backends
+    metrics_path: /metrics
+    authorization: { type: Bearer, credentials_file: /run/secrets/metrics_token }
+    static_configs:
+      - targets: ["ledger-metrics:9464"]
+        labels: { app: ledger }

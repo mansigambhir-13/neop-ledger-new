@@ -1,14 +1,40 @@
 // Generate every file deploy/compose.pilot.yml reads from deploy/secrets/, consistently
 // (each role's password matches the URL that role connects with). Never overwrites:
 // an existing file is kept, so re-running only fills gaps. Rotation is deliberate, not this.
-//   tsx scripts/gen-secrets.ts [dir=deploy/secrets] [apps=ledger]
+//   tsx scripts/gen-secrets.ts [dir=deploy/secrets] [apps=ledger] [--db-host postgres] [--db-port 5432]
+//                              [--dedicated <app>=<host>[:<port>]]...
+// --db-host/--db-port (or NEOS_DB_HOST/NEOS_DB_PORT): where the shared cluster lives.
+// --dedicated (or NEOS_DEDICATED_DB="ledger=pg-ledger:5432,…"): D2's dedicated-DB tier. That app's
+//   roles, its direct URLs, its PgBouncer entry and its own admin URL (pg_admin_url_<app>, read by the
+//   migrate runner as NEOS_ADMIN_URL_<APP>) point at its own cluster. Everything else stays shared.
 import { randomBytes } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 
-const dir = path.resolve(process.argv[2] ?? 'deploy/secrets');
-const apps = (process.argv[3] ?? 'ledger').split(',').map((s) => s.trim()).filter(Boolean);
-const db = { host: 'postgres', port: 5432, name: 'neos' };
+const positional: string[] = [];
+const flags: Record<string, string[]> = {};
+const argv = process.argv.slice(2);
+for (let i = 0; i < argv.length; i++) {
+  const a = argv[i]!;
+  if (a.startsWith('--')) {
+    const [k, inline] = a.slice(2).split('=', 2) as [string, string | undefined];
+    const v = inline ?? argv[++i];
+    if (v === undefined) throw new Error(`${a} needs a value`);
+    (flags[k] ??= []).push(v);
+  } else positional.push(a);
+}
+const flag = (k: string, envName: string, fallback: string) => flags[k]?.at(-1) || process.env[envName] || fallback;
+
+const dir = path.resolve(positional[0] ?? 'deploy/secrets');
+const apps = (positional[1] ?? 'ledger').split(',').map((s) => s.trim()).filter(Boolean);
+const db = { host: flag('db-host', 'NEOS_DB_HOST', 'postgres'), port: Number(flag('db-port', 'NEOS_DB_PORT', '5432')), name: 'neos' };
+const dedicated = new Map<string, { host: string; port: number }>();
+for (const spec of [...(flags.dedicated ?? []), ...(process.env.NEOS_DEDICATED_DB ?? '').split(',')].map((s) => s.trim()).filter(Boolean)) {
+  const m = /^([a-z][a-z0-9_]*)=([\w.-]+)(?::(\d+))?$/.exec(spec);
+  if (!m) throw new Error(`--dedicated ${spec}: expected <app>=<host>[:<port>]`);
+  if (!apps.includes(m[1]!)) throw new Error(`--dedicated ${m[1]}: not one of the apps (${apps.join(', ')})`);
+  dedicated.set(m[1]!, { host: m[2]!, port: Number(m[3] ?? 5432) });
+}
 mkdirSync(dir, { recursive: true, mode: 0o700 });
 
 const made: string[] = [];
@@ -25,22 +51,29 @@ function put(name: string, make: () => string): string {
   return v;
 }
 const random = (n = 32) => randomBytes(n).toString('base64url');
-const url = (user: string, pw: string) => `postgres://${user}:${encodeURIComponent(pw)}@${db.host}:${db.port}/${db.name}`;
+const where = (family: string) => dedicated.get(family) ?? db;
+const url = (family: string, user: string, pw: string) => `postgres://${user}:${encodeURIComponent(pw)}@${where(family).host}:${where(family).port}/${db.name}`;
 // Query pools go through PgBouncer (transaction mode); LISTEN and advisory locks go direct (S8).
-const pooled = (user: string, pw: string) => `postgres://${user}:${encodeURIComponent(pw)}@pgbouncer:6432/${db.name}`;
+// A dedicated app gets its own PgBouncer database entry (neos_<app>) pointing at its cluster.
+const pgbDb = (family: string) => (dedicated.has(family) ? `${db.name}_${family}` : db.name);
+const pooled = (family: string, user: string, pw: string) => `postgres://${user}:${encodeURIComponent(pw)}@pgbouncer:6432/${pgbDb(family)}`;
 const userlist: string[] = [];
 
 const adminPw = put('pg_admin', random);
-put('pg_admin_url', () => url('neos_admin', adminPw));
+put('pg_admin_url', () => url('neos', 'neos_admin', adminPw));
+for (const app of dedicated.keys()) {
+  const pw = put(`pg_admin_${app}`, random);
+  put(`pg_admin_url_${app}`, () => url(app, 'neos_admin', pw));
+}
 
 for (const family of ['neos', ...apps]) {
   const pw: Record<string, string> = {};
   for (const r of ['migrator', 'app', 'runner']) pw[r] = put(`pw_${family}_${r}`, random);
-  put(`${family}_app_url`, () => pooled(`${family}_app`, pw.app!));
+  put(`${family}_app_url`, () => pooled(family, `${family}_app`, pw.app!));
   userlist.push(`"${family}_app" "${pw.app}"`);
   if (family !== 'neos') {
-    put(`${family}_runner_url`, () => pooled(`${family}_runner`, pw.runner!));
-    put(`${family}_direct_url`, () => url(`${family}_runner`, pw.runner!));
+    put(`${family}_runner_url`, () => pooled(family, `${family}_runner`, pw.runner!));
+    put(`${family}_direct_url`, () => url(family, `${family}_runner`, pw.runner!));
     userlist.push(`"${family}_runner" "${pw.runner}"`);
     put(`${family}_service_secret`, () => random(32));
     put(`${family}_job_token_secret`, () => random(32));
@@ -49,11 +82,13 @@ for (const family of ['neos', ...apps]) {
 }
 put('vault_keys', () => JSON.stringify({ active: 'k1', keys: { k1: randomBytes(32).toString('base64') } }));
 put('metrics_token', () => random(24));
+put('grafana_admin', () => random(18)); // observability profile: Grafana's admin password
 put('pgbouncer_userlist', () => userlist.join('\n'));
 put('pgbouncer_ini', () =>
   [
     '[databases]',
     `${db.name} = host=${db.host} port=${db.port} dbname=${db.name}`,
+    ...[...dedicated].map(([app, d]) => `${pgbDb(app)} = host=${d.host} port=${d.port} dbname=${db.name}`),
     '[pgbouncer]',
     'listen_addr = 0.0.0.0',
     'listen_port = 6432',
@@ -67,7 +102,10 @@ put('pgbouncer_ini', () =>
   ].join('\n'),
 );
 
-console.log(JSON.stringify({ dir, created: made, kept }, null, 2));
+console.log(JSON.stringify({ dir, db: `${db.host}:${db.port}`, dedicated: Object.fromEntries([...dedicated].map(([a, d]) => [a, `${d.host}:${d.port}`])), created: made, kept }, null, 2));
+if (kept.length && (flags['db-host'] || flags['db-port'] || dedicated.size)) {
+  console.log('\nNote: existing files were kept as they are. To move a database, delete the URL files (and pgbouncer_ini) it should rewrite first.');
+}
 if (!existsSync(path.join(dir, 'llm_upstream_key'))) {
   console.log(`\nStill needed: put the model provider key in ${path.join(dir, 'llm_upstream_key')} (only the LLM proxy reads it).`);
 }

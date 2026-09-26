@@ -1,0 +1,50 @@
+# D2 dedicated-DB tier overlay: Ledger's family (roles, schema, package tables) on its own
+# Postgres cluster; the platform stays on the shared one. Secrets first:
+#   pnpm exec tsx scripts/gen-secrets.ts deploy/secrets ledger --dedicated ledger=pg-ledger:5432
+#   docker compose -f deploy/compose.pilot.yml -f deploy/compose.dedicated-ledger.yml run --rm migrate
+#   docker compose -f deploy/compose.pilot.yml -f deploy/compose.dedicated-ledger.yml up -d
+# (docs/RUNBOOK.md "Dedicated database for one app"; proven live on a throwaway project.)
+# For a managed cluster instead, drop pg-ledger and pass --dedicated ledger=<its host>.
+services:
+  pg-ledger:
+    image: postgres:17.6-bookworm
+    restart: unless-stopped
+    environment: { POSTGRES_USER: neos_admin, POSTGRES_DB: neos, POSTGRES_PASSWORD_FILE: /run/secrets/pg_admin_ledger }
+    command: ["postgres", "-c", "max_connections=200"]
+    secrets: [pg_admin_ledger]
+    networks: [db]
+    volumes: [pgdata-ledger:/var/lib/postgresql/data]
+    healthcheck: { test: ["CMD", "pg_isready", "-U", "neos_admin", "-d", "neos"], interval: 5s, timeout: 3s, retries: 20 }
+
+  pgbouncer:
+    depends_on: { pg-ledger: { condition: service_healthy } }
+
+  migrate:
+    depends_on: { pg-ledger: { condition: service_healthy } }
+    environment:
+      NEOS_ADMIN_URL_LEDGER_FILE: /run/secrets/pg_admin_url_ledger
+    secrets: [pg_admin_url, pg_admin_url_ledger, pw_neos_migrator, pw_neos_app, pw_neos_runner, pw_ledger_migrator, pw_ledger_app, pw_ledger_runner, ledger_pkg_pw_key]
+
+  # Nightly exports of the dedicated cluster (the shared `backup` covers neos).
+  backup-ledger:
+    build: { context: .., dockerfile: deploy/backup.Dockerfile }
+    command: ["tsx", "scripts/backup.ts", "schedule"]
+    restart: unless-stopped
+    depends_on: { pg-ledger: { condition: service_healthy } }
+    environment:
+      NEOS_ADMIN_URL_FILE: /run/secrets/pg_admin_url_ledger
+      NEOS_BACKUP_DIR: /backups
+      NEOS_BACKUP_AT: ${NEOS_BACKUP_AT:-02:00}
+      NEOS_BACKUP_KEEP: ${NEOS_BACKUP_KEEP:-14}
+      TZ: ${TZ:-UTC}
+    secrets: [pg_admin_url_ledger]
+    volumes: [backups-ledger:/backups]
+    networks: [db]
+
+volumes:
+  pgdata-ledger: {}
+  backups-ledger: {}
+
+secrets:
+  pg_admin_ledger: { file: "${NEOS_SECRETS_DIR:-./secrets}/pg_admin_ledger" }
+  pg_admin_url_ledger: { file: "${NEOS_SECRETS_DIR:-./secrets}/pg_admin_url_ledger" }

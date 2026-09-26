@@ -39,8 +39,8 @@ Each item is small; flag any you disagree with.
 24. **The ack hot path is load-tested:**
     - The gateway makes two round trips: checks plus ledger row in one statement, then ledger result plus audit.
     - The app opens a job in one statement: job, first step, mirror, ack and hint.
-    - **What the load test asserts** is the plan's metric, the app's own ack time: at 200 concurrent new jobs, p95 ≤ 200 ms.
-    - **End to end through the gateway** it is ~450–530 ms in the test harness. There the platform, app and agents share one Node process, so token signing and verification queue on one thread. Measure it again on the real topology before quoting it.
+    - **What the load test asserts** is the plan's metric, the app's own ack time (the `neop_job_ack_seconds` histogram): at 200 concurrent new jobs, the p95 bucket ≤ 300 ms (`apps/ledger/load/phase6.test.ts`). It does not assert anything tighter.
+    - **End to end through the gateway it is slower, and it misses the plan's 300 ms.** Measured p95 was 362–542 ms across runs in the test harness (platform, app and agents in one Node process, so token signing and verification queue on one thread). The load test only bounds it (< 1 s). Measure on the real topology before quoting a figure; do not quote 200 ms.
 25. **Shutdown is bounded** (2 s). Anything still in flight is abandoned as a crash would abandon it: connections close, advisory locks release, and the book lets the next process resume.
 26. **Ledger's writes check the books before anyone is asked** (template `validate` hook). An unknown customer, overpayment, duplicate bill, locked month, double reversal or unreconciled month is refused at the gate, with no card raised.
 
@@ -80,15 +80,30 @@ Each item is small; flag any you disagree with.
 45. **Rooms can be re-bound** without losing history (old room retired, migration 010); admins bind rooms and link chat identities over the API; the bot registers in the appservice namespace and joins before it speaks.
 46. **Reports always cite sources.** If the assistant does not list them, `job.finish` fills them from the reads the job made (each read step records its basis).
 47. **Borrowing ranges are checked at registration, both ways.** A `uses` entry must name a read at a version in its semver range; an owner cannot re-register in a way that breaks a borrower. An owner not registered yet is checked when it registers, so deploy order is free.
-48. **Every migration is listed in `migrate.json`**, in order; in production each must carry `proven_on_populated_data` (migration.test proves on a populated copy, then marks it). An unlisted, missing or out-of-order file is refused before anything runs.
+48. **Every migration is listed in `migrate.json`** (`{file, tables, baseline?, proven_on_populated_data?}`), in order. The first release's files are `"baseline": true`: they were applied to empty schemas, so they claim no proof (the earlier `proven_on_populated_data` strings on them were self-attested and are gone). Baseline files must come first and may not claim proof. In production every non-baseline file must carry `proven_on_populated_data`. An unlisted, missing or out-of-order file is refused before anything runs.
 49. **The `neop.v1` bridge to today's NEOS platform** (`docs/pilot-ledger-integration.md`): the descriptor is generated from the manifest; reads, `ledger.ask` and `ledger.job` are capabilities; `ledger.proposal.decide` is human-gated and never dispatched; every operation token is verified claim by claim against the exact body and burned.
 50. **Every output schema is closed** (`additionalProperties: false` at every level), so results can be validated strictly by the platform and a new field is a deliberate, versioned change.
 51. **The desk is a test harness** (compose profile `test`, refuses production); the product UI is the NEOS app.
+52. **Expand then contract is enforced, not advised** (`pgkit/migrate.ts`). A pending non-baseline migration containing DROP TABLE/SCHEMA/COLUMN, TRUNCATE, RENAME, ALTER COLUMN … TYPE, SET NOT NULL, or ADD COLUMN … NOT NULL without a DEFAULT is refused, before any file in the run applies, unless it carries `-- contract: <reason>; expanded by <earlier file>` naming an earlier migration in the same stream. The check is textual (comments ignored), so a false positive is resolved by a real contract marker, never by a bypass flag.
+53. **The tenant lint reads each policy.** Every permissive RLS policy on a business table must be keyed `company_id = current_setting('neos.company_id' …)` in USING (and WITH CHECK when present), with no OR. `using (true)`, another column, or a second loose permissive policy (they OR together) fails the migration. Restrictive policies may add conditions.
+54. **Nightly per-schema backups run** (compose `backup`, `scripts/backup.ts schedule`): `pg_dump -Fc` per migrated schema (neos + each app) plus one JSON export per company per app, sha256 in a manifest, retention by run count, pruned only after a complete run. It sits on the db network only. One schema restores with `pg_restore --clean --single-transaction --schema`; one company with `importCompany`. Both are proven in `backup.test` (the dump test needs pg_dump 17; CI installs it) and live in compose.
+55. **Egress is an allow-list.** The LLM proxy and backends are on internal networks only; their only way out is `egress-proxy` (tinyproxy, exact host names from `NEOS_EGRESS_ALLOW`, CONNECT to 443 only). Node 24 sends `fetch` through it with `NODE_USE_ENV_PROXY=1`; stack-internal names are `NO_PROXY`. Node tunnels plain `http://` with CONNECT as well, so a non-443 upstream needs `NEOS_EGRESS_PORTS` (the chaos overlay's fake provider uses 4900).
+56. **Backend metrics have their own listener.** The scraper must not join the gateway-only `l3` network, so the backend relays `/l3/metrics` (same bearer token) on `METRICS_HOST` (the `ledger-metrics` alias on the telemetry network) and answers nothing else there.
+57. **The dedicated-DB tier (D2) is a configuration, not a fork.** `gen-secrets --dedicated <app>=<host>[:port]` points that app's roles, direct URLs, PgBouncer entry (`neos_<app>`) and admin URL (`pg_admin_url_<app>` → `NEOS_ADMIN_URL_<APP>` for the migrate runner) at its own cluster; the platform stays on the shared one.
+58. **Chaos is also run live** (`scripts/chaos-live.sh`): `docker kill -s KILL` on real containers (backend repeatedly, the agent and the platform once each), checked from the platform API and the provider's own send count. The in-process chaos tests (`chaos.test`, `pnpm test:load`) stop the backend in-process; only the live run kills processes.
+    - **Measured (2026-09-26, 100 asks, 50 SIGKILLs: backend ×48, agent ×1, platform ×1, fake provider):**
+      - **Kills every ~5 s** (`CHAOS_INTERVAL_MS=10000`): 0 lost, 0 duplicate results, 49/49 approvals executed exactly once, and 49 emails sent for 49 keys.
+        - 99 tasks COMPLETED. One (a gated job) FAILED honestly: the assistant hit its session cap after repeated resumes, and no card was raised.
+        - **This is not the plan's "every task completes".**
+      - **Kills every ~1.7 s** (`3000`): 0 lost, 0 duplicate executions (46 emails, 46 keys), but only 92 COMPLETED.
+        - 6 tasks FAILED at the platform: `tasks.open` gave up after its 8 delivery attempts (1 s → 60 s backoff) while the backend was down almost continuously. Those 6 never reached the app.
+        - 2 more FAILED on the session cap.
+      - **Open item for the platform:** delivery gives up after 8 attempts instead of retrying for as long as the ask is valid. Nothing was ever executed twice or lost silently: every failure is a terminal task with a reason.
+59. **Vault secrets are encrypted at rest** (`packages/platform/src/vault.ts`): AES-256-GCM envelopes tagged with a key id (`NEOS_VAULT_KEYS`, the `vault_keys` secret); adding a key and making it active re-encrypts every secret at boot. They are still lent per call and audited.
 
 ## Stand-ins (pilot only)
 - **NeuralChat** — `pickApp()` matches the ask against manifest words. The real NeuralChat replaces it.
 - **Identity** — dev bearer tokens in `neos.users`. Real sign-in replaces it.
-- **Vault** — plaintext JSON in `neos.vault_secrets`; lent per call and audited. Needs encryption at rest before production.
 - **LLM proxy prices** — defaults are placeholders (`NEOP_LLM_PRICES` sets per-contract prices); unknown models are refused.
 - **The desk** — a test harness that renders blocks; the NEOS app adopts the renderer (`docs/pilot-ledger-integration.md`).
 - **Approvals on the NEOS platform** — My Desk there is read-only today; until it gains the fingerprint-bound decide route, yeses are answered on this repo's platform module.

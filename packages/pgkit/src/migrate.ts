@@ -35,6 +35,10 @@ export interface AppliedMigration {
 interface MigrationFile {
   name: string;
   file: string;
+  /** First-release file (migrate.json `baseline: true`): applied to empty schemas, exempt from expand/contract. */
+  baseline?: boolean;
+  /** Names before this one in its own stream (what a contract marker may point back to). */
+  earlier?: string[];
 }
 
 function checkStream(files: MigrationFile[], label: string): void {
@@ -48,20 +52,29 @@ function checkStream(files: MigrationFile[], label: string): void {
 }
 
 /**
- * `migrate.json` (WP §11): every migration in a directory, in order, with the tables it touches and
- * when it was proven on a populated copy. A file missing from it is refused; in production a
- * migration without its "proven" marker is refused too — nothing reaches a customer's books unproven.
+ * `migrate.json` (WP §11): every migration in a directory, in order, with the tables it touches.
+ *   {file, tables, baseline?, proven_on_populated_data?}
+ * `baseline: true` marks the first release's files. They are applied to empty schemas — there is
+ * no customer data yet to prove them on — and must come first. Every later file changes live
+ * books: in production it is refused without `proven_on_populated_data` (where and when it was run
+ * on a populated copy). A file missing from the ledger is refused everywhere.
  */
-export interface MigrateLedger {
-  migrations: { file: string; tables?: string[]; proven_on_populated_data?: string }[];
+export interface MigrateLedgerEntry {
+  file: string;
+  tables?: string[];
+  baseline?: boolean;
+  proven_on_populated_data?: string;
 }
-export async function checkMigrateLedger(dir: string, files: string[]): Promise<void> {
+export interface MigrateLedger {
+  migrations: MigrateLedgerEntry[];
+}
+export async function checkMigrateLedger(dir: string, files: string[]): Promise<MigrateLedgerEntry[] | null> {
   let raw: string;
   try {
     raw = await readFile(path.join(dir, 'migrate.json'), 'utf8');
   } catch {
     if (process.env.NEOS_ENV === 'production') throw new Error(`${dir}: migrate.json is required in production`);
-    return;
+    return null;
   }
   const led = JSON.parse(raw) as MigrateLedger;
   const listed = led.migrations.map((m) => m.file);
@@ -70,23 +83,90 @@ export async function checkMigrateLedger(dir: string, files: string[]): Promise<
   const gone = listed.filter((f) => !files.includes(f));
   if (gone.length) throw new Error(`${dir}/migrate.json lists missing files ${gone.join(', ')}`);
   if (listed.join() !== [...listed].sort().join()) throw new Error(`${dir}/migrate.json is not in migration order`);
+  // Baseline is the first release only: a baseline after a real change would dodge the proof rule.
+  const firstChange = led.migrations.findIndex((m) => !m.baseline);
+  const late = firstChange < 0 ? [] : led.migrations.slice(firstChange).filter((m) => m.baseline).map((m) => m.file);
+  if (late.length) throw new Error(`${dir}/migrate.json marks ${late.join(', ')} baseline after a non-baseline migration; only the first release is baseline`);
+  const claims = led.migrations.filter((m) => m.baseline && m.proven_on_populated_data).map((m) => m.file);
+  if (claims.length) throw new Error(`${dir}/migrate.json: ${claims.join(', ')} is baseline (applied to empty schemas) and cannot claim proven_on_populated_data`);
   if (process.env.NEOS_ENV === 'production') {
-    const unproven = led.migrations.filter((m) => !m.proven_on_populated_data).map((m) => m.file);
+    const unproven = led.migrations.filter((m) => !m.baseline && !m.proven_on_populated_data).map((m) => m.file);
     if (unproven.length) throw new Error(`not proven on populated data: ${unproven.join(', ')} — prove on a populated copy, then mark it in migrate.json`);
   }
+  return led.migrations;
+}
+
+/**
+ * Expand-then-contract (plan §Data model). A change to live books first adds the new shape
+ * (expand), the code moves over, and only a later migration takes the old shape away (contract).
+ * A non-baseline migration that destroys or reshapes existing data is refused unless it declares
+ * itself the contract step and names the earlier expand migration it completes:
+ *   -- contract: drop parties.region_old now that nothing reads it; expanded by 005_party_region.sql
+ */
+const DESTRUCTIVE: { what: string; re: RegExp }[] = [
+  { what: 'DROP TABLE', re: /\bdrop\s+table\b/ },
+  { what: 'DROP SCHEMA', re: /\bdrop\s+schema\b/ },
+  { what: 'TRUNCATE', re: /\btruncate\b/ },
+  { what: 'DROP COLUMN', re: /\bdrop\s+(?:column\s+)?(?:if\s+exists\s+)?(?!constraint\b|default\b|not\b|identity\b|expression\b|policy\b|trigger\b|index\b|view\b|function\b|type\b|role\b|owned\b|table\b|schema\b|sequence\b|materialized\b|extension\b|rule\b)[a-z_"][\w"]*\s*(?:cascade\b|restrict\b)?\s*[,;]/ },
+  { what: 'RENAME', re: /\balter\s+(?:table|view|materialized\s+view|type|index|sequence)\b[^;]*?\brename\b/ },
+  { what: 'ALTER COLUMN … TYPE', re: /\balter\s+(?:column\s+)?[a-z_"][\w"]*\s+(?:set\s+data\s+)?type\b/ },
+  { what: 'SET NOT NULL', re: /\bset\s+not\s+null\b/ },
+];
+
+function withoutComments(src: string): string {
+  return src.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(?:--|\/\/)[^\n]*/g, ' ').toLowerCase();
+}
+
+/** The destructive statements in a migration's source (comments ignored). */
+export function destructiveStatements(src: string): string[] {
+  let code = withoutComments(src);
+  const found = DESTRUCTIVE.filter((d) => d.re.test(code)).map((d) => d.what);
+  // ADD COLUMN … NOT NULL with no DEFAULT fails on a populated table (and is a backfill in disguise).
+  while (/\([^()]*\)/.test(code)) code = code.replace(/\([^()]*\)/g, ' ');
+  for (const m of code.matchAll(/\badd\s+(?:column\s+)?(?:if\s+not\s+exists\s+)?([a-z_"][\w"]*)\s+([^,;]*)/g)) {
+    if (/^(constraint|primary|unique|foreign|check|value|exclude)$/.test(m[1]!)) continue;
+    if (/\bnot\s+null\b/.test(m[2]!) && !/\bdefault\b|\bgenerated\b/.test(m[2]!)) {
+      found.push('ADD COLUMN … NOT NULL without DEFAULT');
+      break;
+    }
+  }
+  return found;
+}
+
+/** Refuse destructive DDL in a non-baseline migration unless it is a marked contract step. */
+export function expandContractLint(name: string, src: string, earlier: string[]): void {
+  const found = destructiveStatements(src);
+  if (!found.length) return;
+  const marker = /(?:--|\/\/)\s*contract:\s*(.+)/i.exec(src);
+  if (!marker) {
+    throw new Error(
+      `migration ${name} is destructive (${found.join(', ')}). Expand then contract: add the new shape first, move the code over, ` +
+        `then contract in a later file carrying "-- contract: <reason>; expanded by <earlier migration>"`,
+    );
+  }
+  const refs = [...marker[1]!.matchAll(/\b(t?\d{3}_[\w.-]+?\.(?:sql|ts))\b/g)].map((m) => m[1]!);
+  if (!refs.length) throw new Error(`migration ${name}: its contract marker must name the earlier expand migration it completes`);
+  const bad = refs.filter((r) => r === name || !earlier.includes(r));
+  if (bad.length) throw new Error(`migration ${name}: its contract marker names ${bad.join(', ')}, which is not an earlier migration in this stream`);
 }
 
 async function listFiles(src: MigrationSource): Promise<MigrationFile[]> {
-  const template = (src.prepend ?? []).map((f) => ({ name: path.basename(f), file: f })).sort((a, b) => a.name.localeCompare(b.name));
   const names = (await readdir(src.dir)).filter((n) => /^\d{3}_.+\.(sql|ts)$/.test(n)).sort();
-  const app = names.map((n) => ({ name: n, file: path.join(src.dir, n) }));
-  await checkMigrateLedger(src.dir, names);
+  const appLedger = await checkMigrateLedger(src.dir, names);
+  const baseline = new Set<string>();
+  for (const e of appLedger ?? []) if (e.baseline) baseline.add(path.join(src.dir, e.file));
   const tdirs = [...new Set((src.prepend ?? []).map((f) => path.dirname(f)))];
-  for (const d of tdirs) await checkMigrateLedger(d, (src.prepend ?? []).filter((f) => path.dirname(f) === d).map((f) => path.basename(f)));
+  for (const d of tdirs) {
+    const led = await checkMigrateLedger(d, (src.prepend ?? []).filter((f) => path.dirname(f) === d).map((f) => path.basename(f)));
+    for (const e of led ?? []) if (e.baseline) baseline.add(path.join(d, e.file));
+  }
+  const template: MigrationFile[] = (src.prepend ?? []).map((f) => ({ name: path.basename(f), file: f, baseline: baseline.has(f) })).sort((a, b) => a.name.localeCompare(b.name));
+  const app: MigrationFile[] = names.map((n) => ({ name: n, file: path.join(src.dir, n), baseline: baseline.has(path.join(src.dir, n)) }));
   checkStream(template, 'template');
   checkStream(app, 'app');
   const clash = template.find((t) => app.some((a) => a.name === t.name));
   if (clash) throw new Error(`migration ${clash.name} exists in both the template and the app`);
+  for (const stream of [template, app]) stream.forEach((f, i) => (f.earlier = stream.slice(0, i).map((x) => x.name)));
   return [...template, ...app];
 }
 
@@ -121,6 +201,11 @@ export async function migrate(opts: MigrateOptions): Promise<AppliedMigration[]>
         (r) => [r.name, r.checksum],
       ),
     );
+    // Expand-then-contract, checked for every pending change before any of them runs.
+    for (const f of files) {
+      if (f.baseline || done.has(f.name)) continue;
+      expandContractLint(f.name, await readFile(f.file, 'utf8'), f.earlier ?? []);
+    }
     for (const f of files) {
       const raw = await readFile(f.file, 'utf8');
       const checksum = createHash('sha256').update(raw).digest('hex');
@@ -163,8 +248,24 @@ export function render(sql: string, schema: string): string {
 }
 
 /**
+ * Is a policy expression (as Postgres prints it back) keyed off the company setting? It must
+ * contain `company_id = current_setting('neos.company_id' …)` as a conjunct and no OR, so the
+ * policy can only ever narrow to the caller's company. `true`, another column or an OR fails.
+ */
+export function policyKeyedOnCompany(expr: string | null): boolean {
+  if (!expr) return false;
+  const e = expr.toLowerCase().replace(/::(text|character varying)\b/g, '').replace(/[()]/g, ' ');
+  if (/\bor\b/.test(e)) return false;
+  const setting = String.raw`(?:nullif)?current_setting'neos\.company_id'(?:,true)?(?:,'')?(?:::uuid)?`;
+  const keyed = new RegExp(`^(?:company_id=${setting}|${setting}=company_id)$`);
+  return e.split(/\band\b/).some((c) => keyed.test(c.replace(/\s+/g, '')));
+}
+
+/**
  * B1: every business table in a family carries company_id NOT NULL and forced
- * row-level security. A migration that breaks this does not commit.
+ * row-level security, and every permissive policy on it is keyed off the
+ * company setting (permissive policies OR together, so one loose policy opens
+ * the table). A migration that breaks this does not commit.
  */
 export async function tenantLint(client: pg.Client | pg.PoolClient, schema: string, exempt: string[]): Promise<void> {
   const { rows } = await client.query<{
@@ -173,13 +274,15 @@ export async function tenantLint(client: pg.Client | pg.PoolClient, schema: stri
     company_not_null: boolean;
     rls: boolean;
     forced: boolean;
-    policies: number;
+    policies: { name: string; permissive: boolean; qual: string | null; check: string | null }[];
   }>(
     `select c.relname as table_name,
             exists(select 1 from pg_attribute a where a.attrelid = c.oid and a.attname = 'company_id' and not a.attisdropped) as has_company,
             exists(select 1 from pg_attribute a where a.attrelid = c.oid and a.attname = 'company_id' and a.attnotnull) as company_not_null,
             c.relrowsecurity as rls, c.relforcerowsecurity as forced,
-            (select count(*)::int from pg_policy p where p.polrelid = c.oid) as policies
+            coalesce((select json_agg(json_build_object('name', p.polname, 'permissive', p.polpermissive,
+                              'qual', pg_get_expr(p.polqual, p.polrelid), 'check', pg_get_expr(p.polwithcheck, p.polrelid)))
+                        from pg_policy p where p.polrelid = c.oid), '[]'::json) as policies
        from pg_class c join pg_namespace n on n.oid = c.relnamespace
       where n.nspname = $1 and c.relkind in ('r','p')`,
     [schema],
@@ -190,7 +293,13 @@ export async function tenantLint(client: pg.Client | pg.PoolClient, schema: stri
     const problems: string[] = [];
     if (!r.has_company || !r.company_not_null) problems.push('company_id uuid NOT NULL');
     if (!r.rls || !r.forced) problems.push('ENABLE + FORCE ROW LEVEL SECURITY');
-    if (r.policies === 0) problems.push('a company_id policy');
+    const permissive = r.policies.filter((p) => p.permissive);
+    if (permissive.length === 0) problems.push('a company_id policy');
+    for (const p of permissive) {
+      // USING governs reads/updates/deletes; WITH CHECK (or USING when absent) governs writes.
+      if (!policyKeyedOnCompany(p.qual) && !(p.qual === null && policyKeyedOnCompany(p.check))) problems.push(`policy ${p.name} keyed on company_id = current_setting('neos.company_id') (USING is ${p.qual ?? 'absent'})`);
+      if (p.check !== null && !policyKeyedOnCompany(p.check)) problems.push(`policy ${p.name} WITH CHECK keyed on company_id (it is ${p.check})`);
+    }
     if (problems.length) bad.push(`${schema}.${r.table_name} is missing ${problems.join(', ')}`);
   }
   if (bad.length) throw new Error(`tenant lint failed:\n  ${bad.join('\n  ')}`);

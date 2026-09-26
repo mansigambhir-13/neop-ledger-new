@@ -1,5 +1,5 @@
 {
-  "$comment": "WP \u00a711: every migration, in order, the tables it touches, and when it was proven on a populated copy. Forward-only; never edit a line once it has run.",
+  "$comment": "WP §11: every migration, in order, and the tables it touches. baseline: true = first release, applied to empty schemas (no populated data exists to prove it on). Every later file needs \"baseline\": false and, before it reaches production, proven_on_populated_data (where/when it ran on a populated copy). Forward-only; never edit a line once it has run.",
   "migrations": [
     {
       "file": "001_neos.sql",
@@ -19,7 +19,7 @@
         "users",
         "vault_secrets"
       ],
-      "proven_on_populated_data": "2026-09-26 \u00b7 migration.test (populated copy) + pilot stacks"
+      "baseline": true
     },
     {
       "file": "002_flow.sql",
@@ -35,7 +35,7 @@
         "tasks",
         "users"
       ],
-      "proven_on_populated_data": "2026-09-26 \u00b7 migration.test (populated copy) + pilot stacks"
+      "baseline": true
     },
     {
       "file": "003_hardening.sql",
@@ -44,7 +44,7 @@
         "switchboards",
         "users"
       ],
-      "proven_on_populated_data": "2026-09-26 \u00b7 migration.test (populated copy) + pilot stacks"
+      "baseline": true
     },
     {
       "file": "004_llm.sql",
@@ -53,14 +53,14 @@
         "llm_sessions",
         "llm_usage"
       ],
-      "proven_on_populated_data": "2026-09-26 \u00b7 migration.test (populated copy) + pilot stacks"
+      "baseline": true
     },
     {
       "file": "005_a2a.sql",
       "tables": [
         "tasks"
       ],
-      "proven_on_populated_data": "2026-09-26 \u00b7 migration.test (populated copy) + pilot stacks"
+      "baseline": true
     },
     {
       "file": "006_registry.sql",
@@ -71,35 +71,35 @@
         "registry_installs",
         "registry_reviews"
       ],
-      "proven_on_populated_data": "2026-09-26 \u00b7 migration.test (populated copy) + pilot stacks"
+      "baseline": true
     },
     {
       "file": "007_trace.sql",
       "tables": [
         "tasks"
       ],
-      "proven_on_populated_data": "2026-09-26 \u00b7 migration.test (populated copy) + pilot stacks"
+      "baseline": true
     },
     {
       "file": "008_user_token_hash.sql",
       "tables": [
         "users"
       ],
-      "proven_on_populated_data": "2026-09-26 \u00b7 migration.test (populated copy) + pilot stacks"
+      "baseline": true
     },
     {
       "file": "009_app_blocks.sql",
       "tables": [
         "apps"
       ],
-      "proven_on_populated_data": "2026-09-26 \u00b7 migration.test (populated copy) + pilot stacks"
+      "baseline": true
     },
     {
       "file": "010_room_rebind.sql",
       "tables": [
         "rooms"
       ],
-      "proven_on_populated_data": "2026-09-26 \u00b7 migration.test (populated copy) + pilot stacks"
+      "baseline": true
     }
   ]
 }

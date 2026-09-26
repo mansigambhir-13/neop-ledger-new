@@ -26,6 +26,9 @@ jobs:
           --health-cmd "pg_isready -U neos_admin -d neos" --health-interval 2s --health-retries 30
     env:
       NEOS_ADMIN_URL: postgres://neos_admin:neos_admin@localhost:5433/neos
+      # backup.test dumps and restores a schema with the server's own major version.
+      NEOS_PG_DUMP: /usr/lib/postgresql/17/bin/pg_dump
+      NEOS_PG_RESTORE: /usr/lib/postgresql/17/bin/pg_restore
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -33,6 +36,12 @@ jobs:
         with:
           node-version: 24
           cache: pnpm
+      - name: PostgreSQL 17 client (PGDG)
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-common
+          sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
+          sudo apt-get install -y -qq postgresql-client-17
+          /usr/lib/postgresql/17/bin/pg_dump --version
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
       # The descriptor today's NEOS platform installs Ledger from must match the manifest.
@@ -61,3 +70,44 @@ jobs:
       - run: docker run --rm -w /srv/packages/neop-template --entrypoint sh neop-ledger-backend:ci -c '"$(dirname "$(node -p "require.resolve(\"deno/package.json\")")")/deno" --version'
       # Production images refuse dev credentials.
       - run: "! docker run --rm neos-platform:ci tsx scripts/migrate.ts"
+
+  # The runtime half of network.test: build the images, bring the pilot stack up with throwaway
+  # secrets (no chat profile), probe every row of the network policy from inside the containers
+  # (scripts/netcheck.sh, including the egress allow-list), and tear it all down.
+  netcheck:
+    runs-on: ubuntu-latest
+    needs: test
+    timeout-minutes: 45
+    env:
+      COMPOSE: docker compose -p neops-ci -f deploy/compose.pilot.yml
+      COMPOSE_CHAOS: docker compose -p neops-ci -f deploy/compose.pilot.yml -f deploy/compose.chaos.yml
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Throwaway secrets
+        run: |
+          pnpm exec tsx scripts/gen-secrets.ts
+          echo "sk-ant-ci-throwaway-$(openssl rand -hex 8)" > deploy/secrets/llm_upstream_key
+          # CI only: the containers run as other uids than the runner, and compose file secrets are bind mounts.
+          chmod -R a+rX deploy/secrets
+      - run: $COMPOSE build
+      - run: $COMPOSE run --rm migrate
+      - name: Start the stack (no chat, no test desk)
+        run: $COMPOSE up -d --wait --wait-timeout 300 postgres pgbouncer platform llm-proxy ledger-backend ledger-agent egress-proxy backup
+      - run: bash scripts/netcheck.sh deploy/compose.pilot.yml neops-ci
+      # Phase 6 bar on demand: 50 SIGKILL restarts against the real containers (fake provider behind the egress proxy).
+      - if: ${{ inputs.load }}
+        name: Chaos (live)
+        run: |
+          $COMPOSE_CHAOS build fakes
+          $COMPOSE_CHAOS up -d --wait --wait-timeout 300 fakes egress-proxy llm-proxy
+          CHAOS_JOBS=100 CHAOS_RESTARTS=50 bash scripts/chaos-live.sh neops-ci deploy/compose.pilot.yml,deploy/compose.chaos.yml
+      - if: failure()
+        run: $COMPOSE_CHAOS logs --no-color --tail 200
+      - if: always()
+        run: $COMPOSE_CHAOS down -v --remove-orphans

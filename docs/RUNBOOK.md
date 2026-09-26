@@ -12,7 +12,7 @@ This whole sequence has been run end to end in Docker Compose. Every image sets 
    echo "<provider key>" > deploy/secrets/llm_upstream_key
    # OpenRouter instead of Anthropic: export NEOP_LLM_UPSTREAM_URL=https://openrouter.ai/api NEOP_LLM_UPSTREAM_AUTH=bearer NEOP_LLM_UPSTREAM_MODEL_PREFIX=anthropic/
    ```
-   It generates the Postgres admin, a password per role, matching connection URLs, Ledger's service, job-token and package keys, the vault key and the metrics token. The signing keyrings are not secrets files: they rotate in place, so they live on the `platform-keys` volume and are created on first boot. **Back that volume up.**
+   It generates the Postgres admin, a password per role, matching connection URLs, Ledger's service, job-token and package keys, the vault key, the metrics token and Grafana's admin password. The database defaults to `postgres:5432`; `--db-host`/`--db-port` (or `NEOS_DB_HOST`/`NEOS_DB_PORT`) move it, and `--dedicated <app>=<host>[:port]` gives one app its own cluster (see *Dedicated database for one app*). Compose reads the files from `deploy/secrets/` unless `NEOS_SECRETS_DIR` names another directory (absolute path). The signing keyrings are not secrets files: they rotate in place, so they live on the `platform-keys` volume and are created on first boot. **Back that volume up.**
 2. **Migrate:**
    ```
    docker compose -f deploy/compose.pilot.yml run --rm migrate
@@ -26,6 +26,9 @@ This whole sequence has been run end to end in Docker Compose. Every image sets 
    docker compose -f deploy/compose.pilot.yml up -d
    ```
    The platform and the backend report healthy on `/live` and `/l3/ready`. A missing setting makes a service exit with code 78 and a JSON log line naming every missing variable.
+   - This also starts `egress-proxy` (the stack's only way to the internet) and `backup` (nightly exports).
+   - If this company files GST through a GSP, start with `NEOS_GSP_HOST=<gsp api host>` so the egress proxy allows it.
+   - Dashboards and traces: add `--profile observability` (see *Observability*).
 4. **Bootstrap.** Run these once, in the platform image. `NEOS_DB_URL_FILE` and the service secret come from the same secrets directory.
    ```
    OPS="docker compose -f deploy/compose.pilot.yml run --rm --no-deps \
@@ -44,7 +47,11 @@ This whole sequence has been run end to end in Docker Compose. Every image sets 
    - `GET /api/me` with the admin token.
    - `POST /api/apps/ledger/read/ledger.report.trial_balance {"as_of":"<today>"}`.
    - Ask something from the desk. The job should reach the agent, the LLM proxy and the provider.
-7. **Network check:** `scripts/netcheck.sh deploy/compose.pilot.yml` runs a probe inside every container and fails if any row of the network policy is broken. Run it after every deploy.
+7. **Network check:** `scripts/netcheck.sh deploy/compose.pilot.yml [project]` runs a probe inside every container and fails if any row of the network policy is broken. Run it after every deploy; CI runs it on every push (job `netcheck`).
+   - It covers raw sockets (the agent reaches no database, platform or internet; the backup reaches only the database).
+   - It covers egress: from the backend and the LLM proxy, an allowed host answers through `egress-proxy` and `https://example.com` is refused. A direct connection to the internet fails.
+   - It needs internet access. Override the probe URLs with `NETCHECK_ALLOWED_URL` and `NETCHECK_DENIED_URL`.
+   - Pass overlays comma-separated: `scripts/netcheck.sh deploy/compose.pilot.yml,deploy/compose.chat.yml`.
 8. **Chat (optional):** `scripts/matrix-setup.sh deploy/compose.pilot.yml` once, then start with `-f deploy/compose.chat.yml`. An admin binds the app's room (`POST /api/chat/rooms {app, room_id}` — invite the app's user `@neop_<app>_<company>` first) and links people (`PUT /api/users/<id>/chat {matrix_user_id}`).
 9. **On today's NEOS platform** (`docs/pilot-ledger-integration.md`): set `NEOS_V1_PUBLIC_KEY_FILE` (the platform binding's Ed25519 public key, SPKI PEM) and `NEOS_V1_CUSTOMERS` (`{"<platform customer id>": "<company_id>"}`) on the backend, add the platform binding (`contractVersion: neop.v1`, loopback origin forwarded to L3), and register `apps/ledger/neos-v1/descriptor.json` + `contract.json` with `pnpm neop:register`. Regenerate them with `tsx scripts/neos-v1-descriptor.ts ledger` after any manifest change (CI fails on drift).
 10. **Acceptance:** `NEOS_TOKEN_FILE=<an admin's token file> pnpm exec tsx scripts/pilot-acceptance.ts` sends 20 real requests and checks the plan's five acceptance criteria from the platform's records.
@@ -65,9 +72,104 @@ This whole sequence has been run end to end in Docker Compose. Every image sets 
 Every provider must accept an `Idempotency-Key` and let us look the effect up afterwards. Ledger journals each call before sending, so "did it happen?" always has an answer.
 
 ## Everyday operations
-- **Backups.** Run a nightly `pg_dump --schema=ledger`, plus per-company logical exports: `pnpm backup export ledger <company_id> > file.json`. Restoring one company (`pnpm backup import file.json`) touches no other company.
-- **Metrics.** Compose already wires `metrics_token` to both services. Scrape `/metrics` (platform) and `/l3/metrics` (backend) with `Authorization: Bearer <metrics_token>`. The dashboard is `deploy/observability/neop-dashboard.json`; alerts are in `deploy/observability/alerts.yml`.
-- **Traces.** Set `OTEL_EXPORTER_OTLP_ENDPOINT`. One trace follows a request from the ask to the door.
+- **Backups** run nightly by themselves (see *Backups and restore*). Check that last night's run logged `backup complete`.
+- **Metrics, alerts, traces:** the `observability` profile (see *Observability*).
+- **Migrations:** see *Writing a migration* before adding one.
+
+## Backups and restore
+Point-in-time recovery of the cluster (your Postgres host's job) rewinds every app at once. The `backup` service adds per-schema logical exports so one app, or one company in one app, can come back alone.
+- **What runs:** `tsx scripts/backup.ts schedule`, every day at `NEOS_BACKUP_AT` (default `02:00`, `TZ` default UTC).
+  - It writes `/backups/<UTC stamp>/` in the `backups` volume: `<schema>.dump` per migrated schema (`pg_dump -Fc`: `neos`, `ledger`, …), `companies/<schema>/<company_id>.json` per company with rows, and `manifest.json` (sizes, sha256).
+  - It keeps `NEOS_BACKUP_KEEP` runs (default 14), pruning only after a complete run.
+  - A failed night logs `backup failed` and does not stop the service.
+- **Run one now:** `docker compose -f deploy/compose.pilot.yml exec backup tsx scripts/backup.ts nightly --dir /backups --keep 14 --companies`.
+- **Copy off the VM:** the volume lives on the same disk as the database. Ship it every day:
+  ```
+  docker run --rm -v neops_backups:/b -v "$PWD":/out alpine tar czf /out/neops-backups.tgz -C /b .
+  ```
+  Or mount a remote path in its place.
+- **Restore one company in one app** (nothing else is touched; the dump must belong to that company):
+  ```
+  docker compose -f deploy/compose.pilot.yml exec backup ls /backups                        # pick a run
+  docker compose -f deploy/compose.pilot.yml exec backup tsx scripts/backup.ts import /backups/<stamp>/companies/ledger/<company_id>.json
+  ```
+  That company's rows in that schema are replaced in one transaction, with deferred checks (e.g. balanced entries).
+- **Restore one app's whole schema** (every company in that app goes back to the dump; the platform and other apps do not):
+  ```
+  docker compose -f deploy/compose.pilot.yml stop ledger-backend
+  docker compose -f deploy/compose.pilot.yml exec backup tsx scripts/backup.ts restore-schema /backups/<stamp>/ledger.dump ledger
+  docker compose -f deploy/compose.pilot.yml start ledger-backend
+  ```
+  It runs `pg_restore --clean --if-exists --single-transaction --schema=ledger`, so it fails as a whole or not at all. Jobs and proposals rewind with the books. Anything the platform recorded after the dump (tasks, approvals) still refers to them: read the audit trail for that window before telling people.
+
+## Observability
+`docker compose -f deploy/compose.pilot.yml --profile observability up -d` adds:
+- **otel-collector**: services post spans to it; it forwards them to Jaeger. Config: `deploy/observability/otel-collector.yml`.
+  - Without the profile, spans are dropped by the sender.
+- **prometheus**: scrapes the platform's `/metrics` and the backend's metrics relay (`ledger-metrics:9464`, telemetry network only) with the `metrics_token`.
+  - Alert rules are `deploy/observability/alerts.yml`, loaded as-is.
+  - Point `alerting:` in `deploy/observability/prometheus.yml` at your Alertmanager to get paged.
+  - For a new app, add a `<app>-metrics` target.
+- **jaeger**: trace store and UI.
+- **grafana**: on `127.0.0.1:3000` (user `admin`, password in `deploy/secrets/grafana_admin`). Prometheus and Jaeger are provisioned, and the *NEOP pilot* dashboard comes from `deploy/observability/neop-dashboard.json`.
+
+`network.test` fails if a dashboard or alert uses a metric name that no code registers.
+
+## Egress (the stack's only way out)
+- The LLM proxy and app backends sit on internal networks only. Their HTTP(S) goes through `egress-proxy`, which allows exact host names only.
+  - The allow-list is `api.anthropic.com`, `openrouter.ai` and `api.resend.com`, plus `NEOS_GSP_HOST` and `NEOS_EGRESS_EXTRA` (comma-separated). Tunnels go to port 443 only.
+- **A refused host** shows in `docker compose logs egress-proxy` as `Proxying refused on filtered domain "<host>"`. Add a host only when a provider needs it.
+- **Changing the model provider's URL** (e.g. OpenRouter) needs no change: both providers are listed.
+
+## Dedicated database for one app (D2 dedicated tier)
+Shared by default; one app gets its own Postgres cluster only when a contract requires it.
+For Ledger this is packaged as `deploy/compose.dedicated-ledger.yml`. It adds a `pg-ledger` service on the `db` network, gives `migrate` the app's admin URL, and adds a `backup-ledger` service. Add `-f deploy/compose.dedicated-ledger.yml` to every compose command, then follow the steps below.
+1. Run a second Postgres 17: the overlay's `pg-ledger`, or a managed instance reachable from the `db` network. Its superuser password goes in `deploy/secrets/pg_admin_ledger` (gen-secrets writes one).
+2. Point the app's connection files at it. Delete that app's URL files first: gen-secrets never overwrites.
+   ```
+   rm deploy/secrets/{ledger_app_url,ledger_runner_url,ledger_direct_url,pgbouncer_ini}
+   pnpm exec tsx scripts/gen-secrets.ts deploy/secrets ledger --dedicated ledger=pg-ledger:5432
+   ```
+   This writes:
+   - `pg_admin_url_ledger`
+   - direct URLs to `pg-ledger`
+   - pooled URLs through PgBouncer's new `neos_ledger` entry (in `pgbouncer_ini`, pointing at `pg-ledger`)
+
+   Role passwords are kept, so the app keeps its identity.
+3. Run `migrate`. The overlay gives it `NEOS_ADMIN_URL_LEDGER_FILE`, so it logs `[ledger] dedicated cluster pg-ledger:5432`, creates Ledger's roles and schema there, and creates the platform's on the shared cluster.
+   - Check: `\dn` on `pg-ledger` shows `ledger`, the shared cluster has no `ledger` schema, and `/l3/ready` is healthy.
+4. Moving an existing app's data:
+   - Stop its backend.
+   - Take a `backup.ts nightly --schemas ledger` run.
+   - `pg_restore` the dump into the new cluster after step 3.
+   - Restart PgBouncer and the backend.
+5. Backups: the overlay's `backup-ledger` dumps the dedicated cluster into its own volume. The shared `backup` still covers `neos`.
+   - Per-company JSON exports need `neos.companies`, which lives on the shared cluster, so `backup-ledger` writes schema dumps only.
+   - Restore one company from the schema dump into a scratch database, then use `backup.ts export`/`import` against the dedicated admin URL.
+
+## Writing a migration
+- **Name it `NNN_<what>.sql` and list it in that directory's `migrate.json`** with `"baseline": false` and the tables it touches.
+  - Only the first release's files are `"baseline": true`. Those were applied to empty schemas and carry no proof.
+- **Before production, prove it on a populated copy.** Restore last night's dump into a scratch database, run `migrate` against it, then record where and when in `"proven_on_populated_data"`. Production refuses a non-baseline file without it.
+- **Expand, then contract.** Add the new column or table, ship code that uses it, and backfill. Only in a later file drop, rename, retype or `SET NOT NULL` the old one. That file must say so:
+  ```
+  -- contract: nothing reads parties.region since 1.4; expanded by 005_party_region.sql
+  ```
+  The runner refuses destructive DDL without such a marker naming an earlier migration.
+- **Every new business table** needs `company_id uuid not null`, `enable` + `force row level security`, and a policy `using (company_id = nullif(current_setting('neos.company_id', true), '')::uuid)` (same for `with check`). A policy keyed on anything else, or `using (true)`, fails the tenant lint.
+
+## Chaos, live (Phase 6 bar)
+Against a throwaway project, never a customer's:
+```
+docker compose -p neops-chaos -f deploy/compose.pilot.yml -f deploy/compose.chaos.yml run --rm migrate
+docker compose -p neops-chaos -f deploy/compose.pilot.yml -f deploy/compose.chaos.yml up -d
+scripts/chaos-live.sh neops-chaos deploy/compose.pilot.yml,deploy/compose.chaos.yml   # CHAOS_JOBS=100 CHAOS_RESTARTS=50
+docker compose -p neops-chaos -f deploy/compose.pilot.yml -f deploy/compose.chaos.yml down -v
+```
+- The overlay replaces the model provider and Resend with a fake behind the egress proxy.
+- The script bootstraps a company and sends asks in waves. It `docker kill -s KILL`s the backend again and again (the agent and the platform once each) and answers every card.
+- It then checks from the platform API that every task COMPLETED with exactly one result, and that every gated task has one approval, EXECUTED once. It also checks the provider's own count: one email per execution.
+- It prints a JSON report and exits 1 on any miss.
 
 ## Rotating secrets
 - **Gateway signing key:** `POST /api/ops/keys/rotate` (operator). This publishes the new key first; it starts signing after `activate_after_ms` (default 120 s). Call `retirePrevious` after a further 2 minutes.

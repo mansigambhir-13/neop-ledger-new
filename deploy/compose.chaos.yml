@@ -1,0 +1,23 @@
+# TEST ONLY overlay for scripts/chaos-live.sh: replaces the model provider and Resend with
+# deploy/chaos/fakes.ts, placed OUTSIDE the stack (egress network only), so every model call and
+# every email still leaves through the egress proxy's allow-list (NEOS_EGRESS_EXTRA=fakes).
+#   docker compose -p <proj> -f deploy/compose.pilot.yml -f deploy/compose.chaos.yml up -d
+# Never deploy this file to a customer.
+services:
+  fakes:
+    build: { context: .., dockerfile: deploy/platform.Dockerfile }
+    command: ["tsx", "deploy/chaos/fakes.ts"]
+    environment: { FAKE_LLM_KEY_FILE: /run/secrets/llm_upstream_key, NEOS_ENV: test }
+    secrets: [llm_upstream_key]
+    volumes: ["./chaos:/srv/deploy/chaos:ro"]
+    networks: [egress]
+
+  egress-proxy:
+    environment:
+      NEOS_EGRESS_ALLOW: api.anthropic.com,openrouter.ai,api.resend.com,fakes
+      NEOS_EGRESS_PORTS: "443,4900"
+
+  llm-proxy:
+    environment:
+      NEOP_LLM_UPSTREAM_URL: http://fakes:4900
+      NEOP_LLM_UPSTREAM_AUTH: x-api-key

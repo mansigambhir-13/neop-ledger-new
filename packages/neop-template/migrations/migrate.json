@@ -1,5 +1,5 @@
 {
-  "$comment": "WP \u00a711: every migration, in order, the tables it touches, and when it was proven on a populated copy. Forward-only; never edit a line once it has run.",
+  "$comment": "WP §11: every migration, in order, and the tables it touches. baseline: true = first release, applied to empty schemas (no populated data exists to prove it on). Every later file needs \"baseline\": false and, before it reaches production, proven_on_populated_data (where/when it ran on a populated copy). Forward-only; never edit a line once it has run.",
   "migrations": [
     {
       "file": "001_standard.sql",
@@ -14,7 +14,7 @@
         "steps",
         "waits"
       ],
-      "proven_on_populated_data": "2026-09-26 \u00b7 migration.test (populated copy) + pilot stacks"
+      "baseline": true
     },
     {
       "file": "t002_trace_and_acks.sql",
@@ -23,14 +23,14 @@
         "operations",
         "outbox_acked"
       ],
-      "proven_on_populated_data": "2026-09-26 \u00b7 migration.test (populated copy) + pilot stacks"
+      "baseline": true
     },
     {
       "file": "t003_door_journal.sql",
       "tables": [
         "door_journal"
       ],
-      "proven_on_populated_data": "2026-09-26 \u00b7 migration.test (populated copy) + pilot stacks"
+      "baseline": true
     }
   ]
 }
