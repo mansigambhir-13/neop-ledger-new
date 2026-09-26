@@ -25,6 +25,12 @@ const READ_ARGS: Record<string, unknown> = {
   'ledger.parties.list': {},
   'ledger.bank.unreconciled': {},
   'ledger.periods.status': {},
+  'ledger.settings.get': {},
+  'ledger.report.aging_analysis': { kind: 'payable', as_of: '2026-09-30' },
+  'ledger.report.cash_forecast': { as_of: '2026-09-30', weeks: 4 },
+  'ledger.report.tax_return': { from: '2026-09-01', to: '2026-09-30' },
+  'ledger.report.export': { report: 'trial_balance', format: 'md', as_of: '2026-09-30' },
+  'ledger.document.extract': { filename: 'lines.csv', content_type: 'text/csv', content_base64: Buffer.from('date,amount\n2026-09-01,100\n').toString('base64') },
 };
 
 describe('contract', () => {

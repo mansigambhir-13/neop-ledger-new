@@ -1,0 +1,44 @@
+{
+  "block": "table",
+  "title": "Cash forecast · from {{month_to}}",
+  "source": {
+    "ability": "ledger.report.cash_forecast",
+    "args": {
+      "as_of": "{{month_to}}"
+    }
+  },
+  "rows": "/weeks",
+  "empty_text": "No bank or cash balance and nothing open to forecast.",
+  "summary": "Starting cash {{opening_cash_minor|money}} · lowest {{lowest_balance_minor|money}} · buffer {{min_cash_buffer_minor|money}}",
+  "columns": [
+    {
+      "label": "Week",
+      "path": "/week",
+      "format": "number"
+    },
+    {
+      "label": "Week ending",
+      "path": "/week_ending",
+      "format": "date"
+    },
+    {
+      "label": "In",
+      "path": "/inflow_minor",
+      "format": "money_minor_exact",
+      "align": "right"
+    },
+    {
+      "label": "Out",
+      "path": "/outflow_minor",
+      "format": "money_minor_exact",
+      "align": "right"
+    },
+    {
+      "label": "Balance",
+      "path": "/balance_minor",
+      "format": "signed_money_minor",
+      "align": "right",
+      "strong": true
+    }
+  ]
+}

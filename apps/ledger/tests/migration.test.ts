@@ -19,7 +19,7 @@ describe('migrations', () => {
   it('apply once, then re-running is a no-op', async () => {
     const app = await ledgerApp();
     const first = await migrateApp(db.adminUrl, app);
-    expect(first.map((m) => m.name)).toEqual(['001_standard.sql', 't002_trace_and_acks.sql', 't003_door_journal.sql', 't004_timers_and_summary.sql', '002_ledger.sql', '003_budgets.sql', '004_bookkeeping.sql']);
+    expect(first.map((m) => m.name)).toEqual(['001_standard.sql', 't002_trace_and_acks.sql', 't003_door_journal.sql', 't004_timers_and_summary.sql', '002_ledger.sql', '003_budgets.sql', '004_bookkeeping.sql', '005_inherited.sql']);
     expect(await migrateApp(db.adminUrl, app)).toEqual([]);
   });
 
@@ -29,20 +29,20 @@ describe('migrations', () => {
     const dir = await mkdtemp(path.join(os.tmpdir(), 'neop-mig-'));
     await cp(path.join(LEDGER_ROOT, 'migrations'), dir, { recursive: true });
     await writeFile(
-      path.join(dir, '005_party_region.sql'),
+      path.join(dir, '099_party_region.sql'),
       `alter table {{schema}}.parties add column region text;`,
     );
     // Not in migrate.json yet: refused before anything runs.
     const prepend = await templateFiles(TEMPLATE_MIGRATIONS);
     const run = () => migrate({ adminUrl: db.adminUrl, schema: 'ledger', sources: { dir, prepend }, lintExempt: TEMPLATE_INFRA_TABLES });
-    await expect(run()).rejects.toThrow(/does not list 005_party_region\.sql/);
+    await expect(run()).rejects.toThrow(/does not list 099_party_region\.sql/);
     const led = JSON.parse(await readFile(path.join(dir, 'migrate.json'), 'utf8'));
-    led.migrations.push({ file: '005_party_region.sql', tables: ['parties'] });
+    led.migrations.push({ file: '099_party_region.sql', tables: ['parties'] });
     await writeFile(path.join(dir, 'migrate.json'), JSON.stringify(led));
     // In production an unproven migration is refused too; this test is the proof, so we mark it after.
     process.env.NEOS_ENV = 'production';
     try {
-      await expect(run()).rejects.toThrow(/not proven on populated data: 005_party_region\.sql/);
+      await expect(run()).rejects.toThrow(/not proven on populated data: 099_party_region\.sql/);
     } finally {
       delete process.env.NEOS_ENV;
     }
@@ -52,7 +52,7 @@ describe('migrations', () => {
       sources: { dir, prepend: await templateFiles(TEMPLATE_MIGRATIONS) },
       lintExempt: TEMPLATE_INFRA_TABLES,
     });
-    expect(applied.map((m) => m.name)).toEqual(['005_party_region.sql']);
+    expect(applied.map((m) => m.name)).toEqual(['099_party_region.sql']);
     const c = await pool.connect();
     await c.query('begin');
     await c.query("select set_config('neos.company_id', $1, true)", [CO]);
@@ -62,7 +62,7 @@ describe('migrations', () => {
     await pool.end();
 
     // Editing a migration that already ran is refused.
-    await writeFile(path.join(dir, '005_party_region.sql'), 'alter table {{schema}}.parties add column region2 text;');
+    await writeFile(path.join(dir, '099_party_region.sql'), 'alter table {{schema}}.parties add column region2 text;');
     await expect(
       migrate({ adminUrl: db.adminUrl, schema: 'ledger', sources: { dir, prepend: await templateFiles(TEMPLATE_MIGRATIONS) }, lintExempt: TEMPLATE_INFRA_TABLES }),
     ).rejects.toThrow(/changed after it ran/);

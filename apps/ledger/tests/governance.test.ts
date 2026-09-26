@@ -112,7 +112,7 @@ describe('skill lines on the switchboard (WP §10)', () => {
 
   it('lists the app’s skills with what each needs, all loading by default', async () => {
     const { skills } = (await admin('GET', '/api/apps/ledger/abilities')).body;
-    expect(skills.map((s: any) => s.key).sort()).toEqual(['bank-reconciliation', 'corrections', 'financial-reports', 'invoicing-and-collections', 'month-end-close']);
+    expect(skills.map((s: any) => s.key).sort()).toEqual(['bank-reconciliation', 'cash-and-tax', 'company-setup', 'corrections', 'documents-to-books', 'financial-reports', 'invoicing-and-collections', 'month-end-close']);
     expect(await skill('month-end-close')).toMatchObject({ setting: 'on', loads: true, missing: [] });
     expect(await systemFor('Close September')).toContain('# Month-end close');
   });

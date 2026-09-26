@@ -33,6 +33,15 @@
         "period_locks"
       ],
       "proven_on_populated_data": "2026-09-26 \u00b7 migration.test (populated copy) + pilot stacks"
+    },
+    {
+      "file": "005_inherited.sql",
+      "tables": [
+        "bank_transactions",
+        "settings"
+      ],
+      "baseline": false,
+      "proven_on_populated_data": "2026-09-26 \u00b7 apps/ledger/tests/inherited.test.ts \u203a 005 applies forward on a populated book"
     }
   ]
 }

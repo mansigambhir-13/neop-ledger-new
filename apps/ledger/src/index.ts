@@ -6,6 +6,7 @@ import { loadAgentDir, loadBlocks, type AppDefinition } from '@neop/template';
 import * as reads from './abilities/reads.ts';
 import { closePackEmail, journalPost } from './abilities/writes.ts';
 import * as books from './abilities/books.ts';
+import * as inherited from './abilities/inherited.ts';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 export const LEDGER_ROOT = path.resolve(here, '..');
@@ -50,8 +51,20 @@ export async function ledgerApp(): Promise<AppDefinition> {
       'ledger.entry.reverse': books.entryReverse,
       'ledger.period.close': books.periodClose,
       'ledger.period.reopen': books.periodReopen,
-      'ledger.account.create': books.accountCreate,
+      'ledger.account.create': inherited.accountCreate,
       'ledger.party.create': books.partyCreate,
+      // Inherited from the earlier Ledger (docs/INHERITED-FROM-SHIV.md).
+      'ledger.settings.get': inherited.settingsGet,
+      'ledger.report.aging_analysis': inherited.agingAnalysisRead,
+      'ledger.report.cash_forecast': inherited.cashForecastRead,
+      'ledger.report.tax_return': inherited.taxReturnRead,
+      'ledger.report.export': inherited.reportExport,
+      'ledger.document.extract': inherited.documentExtract,
+      'ledger.settings.update': inherited.settingsUpdate,
+      'ledger.opening_balances.set': inherited.openingBalancesSet,
+      'ledger.expense.record': inherited.expenseRecord,
+      'ledger.bank.match': inherited.bankMatch,
+      'ledger.bank.ignore': inherited.bankIgnore,
     },
   };
 }

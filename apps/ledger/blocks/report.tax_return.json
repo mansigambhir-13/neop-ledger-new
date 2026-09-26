@@ -1,0 +1,31 @@
+{
+  "block": "table",
+  "title": "Tax return · {{month_label}}",
+  "source": {
+    "ability": "ledger.report.tax_return",
+    "args": {
+      "from": "{{month_from}}",
+      "to": "{{month_to}}"
+    }
+  },
+  "rows": "/boxes",
+  "empty_text": "No entries in this period.",
+  "summary": "Net payable {{net_payable_minor|money}} · due {{due_date}}",
+  "columns": [
+    {
+      "label": "Box",
+      "path": "/box"
+    },
+    {
+      "label": "Description",
+      "path": "/label",
+      "strong": true
+    },
+    {
+      "label": "Amount",
+      "path": "/amount_minor",
+      "format": "money_minor_exact",
+      "align": "right"
+    }
+  ]
+}

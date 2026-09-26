@@ -692,35 +692,7 @@ export const periodReopen: WriteAbility = {
   },
 };
 
-type AcctArgs = { code: string; name: string; type: 'asset' | 'liability' | 'equity' | 'income' | 'expense'; subtype: string };
-const SUBTYPES: Record<AcctArgs['type'], string[]> = {
-  asset: ['cash', 'bank', 'receivable', 'inventory', 'fixed_asset', 'tax_input', 'other_asset'],
-  liability: ['payable', 'tax_output', 'loan', 'other_liability'],
-  equity: ['equity', 'retained_earnings'],
-  income: ['revenue', 'other_income'],
-  expense: ['cogs', 'opex', 'other_expense'],
-};
-
-export const accountCreate: WriteAbility = {
-  kind: 'write',
-  check: (a: AcctArgs) => (SUBTYPES[a.type]?.includes(a.subtype) ? null : `a ${a.type} account's subtype is one of ${SUBTYPES[a.type]?.join(', ')}`),
-  async validate(a: AcctArgs, ctx) {
-    return (await B.accountByCode(ctx.db, a.code)) ? `account code ${a.code} is taken` : null;
-  },
-  async execute(a: AcctArgs, ctx: ExecCtx) {
-    return ctx.withDb(async (db) => {
-      const r = await db.query<{ id: string }>(
-        `insert into ${S}.accounts (company_id, code, name, type, subtype) values ($1,$2,$3,$4,$5) on conflict (company_id, code) do nothing returning id`,
-        [ctx.company_id, a.code, a.name, a.type, a.subtype],
-      );
-      return { external_ref: r.rows[0]?.id ?? a.code };
-    });
-  },
-  async readBack(a: AcctArgs, ctx: ExecCtx) {
-    const r = await ctx.withDb((db) => B.accountByCode(db, a.code));
-    return { found: !!r && r.name === a.name, data: r };
-  },
-};
+// ledger.account.create lives in inherited.ts (1.1: Ledger may pick the code and subtype).
 
 type PartyArgs = { kind: 'customer' | 'vendor'; name: string; email?: string; gstin?: string };
 
