@@ -84,6 +84,10 @@ Each row is the plan's decision, what exists in this repo as the reference imple
 | `ledger.close`, `ledger.reopen`, `ledger.reconcile`, `ledger.import`, `ledger.configure` | `ledger.ask`. The assistant proposes `ledger.period.close`, `ledger.period.reopen`, `ledger.bank.categorize`, `ledger.bank.import` or `ledger.coding_rule.add`, and a person approves the exact card. |
 | `ledger.proposal.decide` (gated) | `ledger.proposal.decide` (gated), answered on the desk against the fingerprint |
 
+## 4b. Matrix: the client road (for the reasoning agent's DMs)
+
+The reasoning agent's handoff (Ledger is one ordinary Matrix account with an operator-issued token; bridges such as `@reasoning_agent` and `@neos-platform` send plain `m.text` in 1:1 DMs and get exactly one `m.notice` reply) runs in the **platform**, not in Ledger: `packages/platform/src/bridge/client-sync.ts`, selected by `MATRIX_MODE=client` (the appservice road stays the default). A DM becomes a task row and a signed `tasks.open` through the gateway, exactly like a desk ask, for the linked person (or, for a bridge, the person it relays for — `acts_for`, or `neos.on_behalf_of` in the message). The reply is written from the task's outbox-driven result; a card is stated in the reply and **waits for a person's yes** — on the desk, or as that person's reply to the card shown in their own DM (`platform.answer()` with the card's fingerprint). One deliberate difference from the handoff §6: a bridge's "go ahead" is never a yes. Allowlist: `neos.chat_allowlist` (migration 011), admin API in `bridge/routes.ts`. Tests: `apps/ledger/tests/matrix-client.test.ts`.
+
 ## 5. The test harness
 
 `packages/platform/src/web` is a stand-in for the NEOS app, so a NEOP can be driven end to end in development and CI: ask, watch the job, answer cards, set the switchboard, see blocks drawn. It carries a visible "Test harness" badge. It starts only with the compose profile `test` and refuses `NEOS_ENV=production` (web.test, network.test). It is not a second product UI. The product UI is `neos-app-platform`, which adopts row 2 above.

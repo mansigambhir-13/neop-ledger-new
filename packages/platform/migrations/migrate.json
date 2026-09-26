@@ -100,6 +100,17 @@
         "rooms"
       ],
       "proven_on_populated_data": "2026-09-26 \u00b7 migration.test (populated copy) + pilot stacks"
+    },
+    {
+      "file": "011_chat_client.sql",
+      "baseline": false,
+      "tables": [
+        "chat_accounts",
+        "chat_allowlist",
+        "chat_client_events",
+        "chat_dms"
+      ],
+      "proven_on_populated_data": "2026-09-26 \u00b7 apps/ledger/tests/matrix-client.test.ts (migration 011 on a populated platform database)"
     }
   ]
 }
