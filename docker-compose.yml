@@ -1,0 +1,20 @@
+# Local Postgres for the pilot. One cluster; one schema per app (D1).
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: neos_admin
+      POSTGRES_PASSWORD: neos_admin
+      POSTGRES_DB: neos
+    ports:
+      - "5433:5432"
+    command: ["postgres", "-c", "max_connections=300"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U neos_admin -d neos"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    volumes:
+      - neos-pg:/var/lib/postgresql/data
+volumes:
+  neos-pg:

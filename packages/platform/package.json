@@ -1,0 +1,15 @@
+{
+  "name": "@neop/platform",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": { ".": "./src/index.ts" },
+  "dependencies": {
+    "@hono/node-server": "^1.19.0",
+    "@neop/contracts": "workspace:*",
+    "@neop/pgkit": "workspace:*",
+    "hono": "^4.9.0",
+    "jose": "^6.1.0",
+    "pg": "^8.16.0"
+  }
+}

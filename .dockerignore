@@ -1,0 +1,9 @@
+node_modules
+**/node_modules
+var
+.git
+.github
+docs/source
+**/*.log
+.env
+deploy/secrets

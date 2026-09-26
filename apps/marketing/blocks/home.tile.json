@@ -1,0 +1,7 @@
+{
+  "block": "stat",
+  "title": "Leads this month",
+  "source": { "ability": "marketing.stats.read", "args": { "from": "{{month_start}}", "to": "{{today}}" } },
+  "value": { "path": "/totals/leads", "format": "integer" },
+  "empty_text": "No channel data this month"
+}

@@ -1,0 +1,11 @@
+{
+  "block": "table",
+  "title": "Profit and loss",
+  "source": { "ability": "ledger.report.pnl", "args": { "from": "{{period_from}}", "to": "{{period_to}}" } },
+  "columns": [
+    { "label": "Account", "path": "/name" },
+    { "label": "Amount", "path": "/amount_minor", "format": "money_minor" }
+  ],
+  "sections": [ { "label": "Income", "rows": "/income" }, { "label": "Expenses", "rows": "/expenses" } ],
+  "totals": [ { "label": "Net profit", "path": "/totals/net_profit_minor", "format": "money_minor" } ]
+}

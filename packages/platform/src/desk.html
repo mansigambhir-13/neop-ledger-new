@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NEOS Desk (pilot)</title>
+<style>
+  :root { --bg:#f7f7f5; --panel:#fff; --ink:#1b1b1a; --muted:#6b6b66; --line:#e3e2dd; --accent:#2f5bd3; --ok:#1d7a46; --bad:#b3261e; --warn:#8a5a00; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#141413; --panel:#1d1d1b; --ink:#ecebe6; --muted:#a3a29b; --line:#34332f; --accent:#7ea0ff; --ok:#5cc28a; --bad:#ff8a80; --warn:#e0b050; } }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:15px/1.45 system-ui, -apple-system, Segoe UI, sans-serif; }
+  header { padding:14px 16px; border-bottom:1px solid var(--line); display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
+  header h1 { font-size:16px; margin:0; font-weight:600; }
+  main { display:grid; grid-template-columns: 1fr 1fr; gap:16px; padding:16px; max-width:1200px; margin:0 auto; }
+  @media (max-width: 800px) { main { grid-template-columns: 1fr; } }
+  section { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:14px; min-width:0; }
+  h2 { font-size:13px; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); margin:0 0 10px; }
+  input, textarea, button { font:inherit; color:inherit; }
+  input, textarea { width:100%; background:var(--bg); border:1px solid var(--line); border-radius:8px; padding:8px 10px; }
+  button { border:1px solid var(--line); background:var(--bg); border-radius:8px; padding:6px 12px; cursor:pointer; }
+  button.primary { background:var(--accent); border-color:var(--accent); color:#fff; }
+  .row { display:flex; gap:8px; align-items:center; }
+  .card, .task { border:1px solid var(--line); border-radius:8px; padding:10px; margin-bottom:10px; }
+  .muted { color:var(--muted); font-size:13px; }
+  .pill { font-size:12px; border-radius:99px; padding:1px 8px; border:1px solid var(--line); }
+  .PENDING,.WAITING { color:var(--warn); } .EXECUTED,.COMPLETED { color:var(--ok); } .REFUSED,.FAILED,.EXPIRED { color:var(--bad); }
+  pre { white-space:pre-wrap; word-break:break-word; background:var(--bg); border-radius:6px; padding:8px; font-size:12px; margin:6px 0; max-height:200px; overflow:auto; }
+  ol { padding-left:20px; margin:6px 0; } li { font-size:13px; }
+  code { font-size:12px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>NEOS Desk · pilot</h1>
+  <div class="row" style="flex:1; min-width:240px"><input id="token" placeholder="dev token" autocomplete="off"><button id="save">Use</button></div>
+  <span id="who" class="muted"></span>
+</header>
+<main>
+  <section>
+    <h2>Ask</h2>
+    <div class="row"><input id="ask" placeholder="e.g. Show me the P&amp;L for last month"><button class="primary" id="send">Send</button></div>
+    <p id="asked" class="muted"></p>
+    <h2 style="margin-top:16px">Tasks</h2>
+    <div id="tasks"></div>
+  </section>
+  <section>
+    <h2>My desk</h2>
+    <div id="cards"></div>
+  </section>
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+let token = ''; try { token = localStorage.getItem('neos_token') || ''; } catch {}
+let conversationId = null;
+$('token').value = token;
+function el(tag, attrs = {}, ...kids) {
+  const e = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs)) { if (k === 'class') e.className = v; else if (k.startsWith('on')) e.addEventListener(k.slice(2), v); else e.setAttribute(k, v); }
+  for (const k of kids) e.append(k instanceof Node ? k : document.createTextNode(String(k ?? '')));
+  return e;
+}
+async function api(path, opts = {}) {
+  const r = await fetch(path, { ...opts, headers: { 'content-type': 'application/json', authorization: 'Bearer ' + token } });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j?.error?.message || r.status);
+  return j;
+}
+$('save').onclick = () => { token = $('token').value.trim(); try { localStorage.setItem('neos_token', token); } catch {} refresh(); };
+$('send').onclick = async () => {
+  const text = $('ask').value.trim(); if (!text) return;
+  try { const r = await api('/api/ask', { method: 'POST', body: JSON.stringify({ text, conversation_id: conversationId || undefined }) });
+    conversationId = r.conversation_id;
+    $('asked').textContent = r.handed_to ? `Handed to ${r.handed_to} · task ${r.task_id.slice(0,8)} · ${r.ack || r.status}` : r.message;
+    $('ask').value = ''; refresh();
+  } catch (e) { $('asked').textContent = 'Error: ' + e.message; }
+};
+async function answer(card, decision) {
+  let feedback;
+  if (decision === 'change') { feedback = $('fb-' + card.id).value.trim(); if (!feedback) { $('fb-' + card.id).focus(); return; } }
+  try { await api(`/api/desk/${card.id}/answer`, { method: 'POST', body: JSON.stringify({ decision, fingerprint_seen: card.fingerprint, feedback }) }); refresh(); }
+  catch (e) { alertBox(card.id, e.message); }
+}
+function alertBox(id, msg) { const b = $('err-' + id); if (b) b.textContent = msg; }
+function renderCard(c) {
+  const card = c.card || {};
+  const box = el('div', { class: 'card' },
+    el('div', { class: 'row' }, el('strong', {}, card.what || c.ability_key), el('span', { class: 'pill ' + c.status }, c.status)),
+    el('div', { class: 'muted' }, `${c.app_key} · ${c.ability_key} · expires ${new Date(c.expires_at).toLocaleString()}`),
+    el('p', {}, el('b', {}, 'Why: '), card.why || ''),
+    el('p', {}, el('b', {}, 'What changes: '), card.changes || ''),
+    el('p', {}, el('b', {}, 'If nobody answers: '), card.if_no_answer || ''),
+    el('pre', {}, JSON.stringify(c.args, null, 2)),
+    el('div', { class: 'muted' }, 'Fingerprint you are approving: ', el('code', {}, c.fingerprint)),
+  );
+  if (c.status === 'PENDING') {
+    box.append(
+      el('input', { id: 'fb-' + c.id, placeholder: 'What should change? (for "Change this first")', style: 'margin:8px 0' }),
+      el('div', { class: 'row' },
+        el('button', { class: 'primary', onclick: () => answer(c, 'yes') }, 'Yes'),
+        el('button', { onclick: () => answer(c, 'no') }, 'No'),
+        el('button', { onclick: () => answer(c, 'change') }, 'Change this first')),
+      el('div', { id: 'err-' + c.id, class: 'muted' }));
+  }
+  if (c.proof) box.append(el('div', { class: 'muted' }, 'Proof: '), el('pre', {}, JSON.stringify(c.proof, null, 2)));
+  if (c.last_error) box.append(el('div', { class: 'muted' }, 'Note: ' + c.last_error));
+  return box;
+}
+async function renderTask(t) {
+  const d = await api('/api/tasks/' + t.id);
+  const box = el('div', { class: 'task' },
+    el('div', { class: 'row' }, el('strong', {}, t.ask), el('span', { class: 'pill ' + t.status }, t.status)),
+    el('div', { class: 'muted' }, `${t.app_key} · task ${t.id.slice(0,8)}${t.job_id ? ' · job ' + t.job_id.slice(0,8) : ''} · from ${t.origin || 'app'}`));
+  if (['OPEN','ACKNOWLEDGED','WAITING'].includes(t.status)) box.append(el('button', { onclick: async () => { await api(`/api/tasks/${t.id}/cancel`, { method: 'POST', body: '{}' }); refresh(); } }, 'Stop'));
+  const steps = el('ol');
+  for (const a of d.activity) steps.append(el('li', {}, `[${a.kind}] ${a.summary}`));
+  if (d.activity.length) box.append(steps);
+  for (const m of d.messages.filter((m) => m.task_id === t.id && m.kind !== 'message')) box.append(el('p', {}, el('b', {}, m.author + ': '), m.body));
+  return box;
+}
+async function refresh() {
+  if (!token) return;
+  try {
+    const me = await api('/api/me'); $('who').textContent = `${me.name} (${me.role})`;
+    const [{ cards }, { tasks }] = await Promise.all([api('/api/desk'), api('/api/tasks')]);
+    if (!$('cards').contains(document.activeElement)) $('cards').replaceChildren(...(cards.length ? cards.map(renderCard) : [el('p', { class: 'muted' }, 'Nothing needs you.')]));
+    $('tasks').replaceChildren(...await Promise.all(tasks.slice(0, 10).map(renderTask)));
+  } catch (e) { $('who').textContent = 'Error: ' + e.message; }
+}
+refresh(); setInterval(refresh, 3000);
+</script>
+</body>
+</html>

@@ -1,0 +1,441 @@
+{
+  "app": "marketing",
+  "name": "Marketing",
+  "subject": "campaigns, social posts and ad spend",
+  "description": "Marketing plans and runs campaigns: campaign lists, channel stats (impressions, clicks, leads), social post drafts and scheduling, and committing ad spend against the budget Ledger keeps.",
+  "version": "0.1.0",
+  "contract_version": "1",
+  "abilities": [
+    {
+      "key": "marketing.campaigns.list",
+      "version": "1.0.0",
+      "title": "List campaigns",
+      "kind": "read",
+      "floor": "on",
+      "description": "Campaigns with their channel, dates, status and planned spend (minor units).",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "planned",
+              "active",
+              "done"
+            ]
+          }
+        }
+      },
+      "output": {
+        "type": "object",
+        "required": [
+          "generatedAt",
+          "empty",
+          "sources",
+          "campaigns"
+        ],
+        "properties": {
+          "generatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "empty": {
+            "type": "boolean"
+          },
+          "sources": {
+            "type": "object",
+            "required": [
+              "entries",
+              "entry_ids",
+              "basis"
+            ],
+            "properties": {
+              "entries": {
+                "type": "integer"
+              },
+              "entry_ids": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "basis": {
+                "type": "string"
+              }
+            }
+          },
+          "campaigns": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "id",
+                "name",
+                "channel",
+                "status",
+                "start_date",
+                "end_date",
+                "currency",
+                "planned_spend_minor",
+                "ledger_account_code"
+              ],
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "channel": {
+                  "type": "string"
+                },
+                "status": {
+                  "type": "string"
+                },
+                "start_date": {
+                  "type": "string",
+                  "format": "date"
+                },
+                "end_date": {
+                  "type": "string",
+                  "format": "date"
+                },
+                "currency": {
+                  "type": "string"
+                },
+                "planned_spend_minor": {
+                  "type": "integer"
+                },
+                "ledger_account_code": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "key": "marketing.stats.read",
+      "version": "1.0.0",
+      "title": "Channel stats",
+      "kind": "read",
+      "floor": "on",
+      "description": "Impressions, clicks and leads per channel for a date range, with totals.",
+      "input": {
+        "type": "object",
+        "required": [
+          "from",
+          "to"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "from": {
+            "type": "string",
+            "format": "date"
+          },
+          "to": {
+            "type": "string",
+            "format": "date"
+          },
+          "channel": {
+            "type": "string"
+          }
+        }
+      },
+      "output": {
+        "type": "object",
+        "required": [
+          "generatedAt",
+          "empty",
+          "sources",
+          "rows",
+          "totals"
+        ],
+        "properties": {
+          "generatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "empty": {
+            "type": "boolean"
+          },
+          "sources": {
+            "type": "object",
+            "required": [
+              "entries",
+              "entry_ids",
+              "basis"
+            ],
+            "properties": {
+              "entries": {
+                "type": "integer"
+              },
+              "entry_ids": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "basis": {
+                "type": "string"
+              }
+            }
+          },
+          "rows": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "channel",
+                "impressions",
+                "clicks",
+                "leads"
+              ],
+              "properties": {
+                "channel": {
+                  "type": "string"
+                },
+                "impressions": {
+                  "type": "integer"
+                },
+                "clicks": {
+                  "type": "integer"
+                },
+                "leads": {
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "totals": {
+            "type": "object",
+            "required": [
+              "impressions",
+              "clicks",
+              "leads"
+            ],
+            "properties": {
+              "impressions": {
+                "type": "integer"
+              },
+              "clicks": {
+                "type": "integer"
+              },
+              "leads": {
+                "type": "integer"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "key": "marketing.post.draft",
+      "version": "1.0.0",
+      "title": "Save a post draft",
+      "kind": "write",
+      "floor": "on",
+      "description": "Save a social post as a draft inside the company. Nothing is published.",
+      "input": {
+        "type": "object",
+        "required": [
+          "channel",
+          "text"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "channel": {
+            "type": "string",
+            "enum": [
+              "linkedin",
+              "instagram",
+              "x",
+              "facebook"
+            ]
+          },
+          "text": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 3000
+          },
+          "campaign_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "output": {
+        "type": "object",
+        "required": [
+          "outcome"
+        ],
+        "properties": {
+          "outcome": {
+            "type": "string"
+          }
+        }
+      },
+      "effects": {
+        "external": false
+      },
+      "verifyWith": "draft found by its reference"
+    },
+    {
+      "key": "marketing.post.schedule",
+      "version": "1.0.0",
+      "title": "Schedule a social post",
+      "kind": "write",
+      "floor": "ask_first",
+      "description": "Schedule a post to go out on a social channel at a time. It leaves the company.",
+      "input": {
+        "type": "object",
+        "required": [
+          "channel",
+          "text",
+          "at"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "channel": {
+            "type": "string",
+            "enum": [
+              "linkedin",
+              "instagram",
+              "x",
+              "facebook"
+            ]
+          },
+          "text": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 3000
+          },
+          "at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "campaign_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "output": {
+        "type": "object",
+        "required": [
+          "outcome"
+        ],
+        "properties": {
+          "outcome": {
+            "type": "string"
+          }
+        }
+      },
+      "effects": {
+        "external": true
+      },
+      "verifyWith": "post found on the channel by its idempotency key",
+      "doors": [
+        "social"
+      ]
+    },
+    {
+      "key": "marketing.spend.commit",
+      "version": "1.0.0",
+      "title": "Commit ad spend",
+      "kind": "write",
+      "floor": "ask_first",
+      "description": "Commit money to an ad vendor for a campaign. Amount in minor units.",
+      "input": {
+        "type": "object",
+        "required": [
+          "campaign_id",
+          "vendor",
+          "amount_minor",
+          "currency"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "campaign_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "vendor": {
+            "type": "string",
+            "minLength": 2
+          },
+          "amount_minor": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "currency": {
+            "type": "string",
+            "pattern": "^[A-Z]{3}$"
+          }
+        }
+      },
+      "output": {
+        "type": "object",
+        "required": [
+          "outcome"
+        ],
+        "properties": {
+          "outcome": {
+            "type": "string"
+          }
+        }
+      },
+      "effects": {
+        "external": true,
+        "amount_minor": "/amount_minor",
+        "currency": "/currency"
+      },
+      "verifyWith": "commitment found at the ad platform by its idempotency key",
+      "doors": [
+        "ads"
+      ]
+    }
+  ],
+  "doors": [
+    {
+      "key": "social",
+      "scopes": [
+        "post"
+      ]
+    },
+    {
+      "key": "ads",
+      "scopes": [
+        "commit"
+      ]
+    }
+  ],
+  "uses": [
+    {
+      "app": "ledger",
+      "ability": "ledger.budget.remaining",
+      "range": "^1.0.0"
+    },
+    {
+      "app": "ledger",
+      "ability": "tasks.open",
+      "range": "*"
+    }
+  ],
+  "skills": [
+    {
+      "key": "campaign-launch",
+      "path": "src/agent/skills/campaign-launch/SKILL.md",
+      "requires": [
+        "ledger.budget.remaining",
+        "marketing.spend.commit"
+      ]
+    }
+  ],
+  "packages": [],
+  "blocks": [
+    "blocks/home.tile.json"
+  ]
+}

@@ -1,0 +1,16 @@
+{
+  "name": "@neop/marketing",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": { ".": "./src/index.ts" },
+  "dependencies": {
+    "@neop/contracts": "workspace:*",
+    "@neop/pgkit": "workspace:*",
+    "@neop/template": "workspace:*"
+  },
+  "devDependencies": {
+    "@neop/ledger": "workspace:*",
+    "@neop/testkit": "workspace:*"
+  }
+}

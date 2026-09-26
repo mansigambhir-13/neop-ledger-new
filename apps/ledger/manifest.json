@@ -1,0 +1,2566 @@
+{
+  "app": "ledger",
+  "name": "Ledger",
+  "subject": "bookkeeping and financial reporting",
+  "description": "Ledger keeps the company's books: invoices and bills with GST, receipts and payments, bank import and reconciliation, journal entries and reversals, month close, and the reports people run the business on (P&L, balance sheet, cash flow, trial balance, aging, GST summary, budgets) plus the close pack.",
+  "version": "1.0.0",
+  "contract_version": "1",
+  "abilities": [
+    {
+      "key": "ledger.report.pnl",
+      "version": "1.0.0",
+      "title": "Profit and loss",
+      "description": "Income and expenses for a period, with gross profit and net profit. Amounts in minor units.",
+      "kind": "read",
+      "floor": "on",
+      "input": {
+        "type": "object",
+        "required": [
+          "from",
+          "to"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "from": {
+            "type": "string",
+            "format": "date"
+          },
+          "to": {
+            "type": "string",
+            "format": "date"
+          },
+          "currency": {
+            "type": "string",
+            "pattern": "^[A-Z]{3}$"
+          }
+        }
+      },
+      "output": {
+        "type": "object",
+        "required": [
+          "generatedAt",
+          "currency",
+          "sources",
+          "empty",
+          "period",
+          "income",
+          "expenses",
+          "totals"
+        ],
+        "properties": {
+          "generatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "currency": {
+            "type": "string",
+            "pattern": "^[A-Z]{3}$"
+          },
+          "sources": {
+            "type": "object",
+            "required": [
+              "entries",
+              "entry_ids",
+              "basis"
+            ],
+            "properties": {
+              "entries": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "entry_ids": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "basis": {
+                "type": "string"
+              }
+            }
+          },
+          "empty": {
+            "type": "boolean"
+          },
+          "period": {
+            "type": "object",
+            "required": [
+              "from",
+              "to"
+            ],
+            "properties": {
+              "from": {
+                "type": "string",
+                "format": "date"
+              },
+              "to": {
+                "type": "string",
+                "format": "date"
+              }
+            }
+          },
+          "income": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "code",
+                "name",
+                "amount_minor"
+              ],
+              "properties": {
+                "code": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "subtype": {
+                  "type": "string"
+                },
+                "amount_minor": {
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "expenses": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "code",
+                "name",
+                "amount_minor"
+              ],
+              "properties": {
+                "code": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "subtype": {
+                  "type": "string"
+                },
+                "amount_minor": {
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "totals": {
+            "type": "object",
+            "required": [
+              "revenue_minor",
+              "cogs_minor",
+              "gross_profit_minor",
+              "income_minor",
+              "expenses_minor",
+              "net_profit_minor"
+            ],
+            "properties": {
+              "revenue_minor": {
+                "type": "integer"
+              },
+              "cogs_minor": {
+                "type": "integer"
+              },
+              "gross_profit_minor": {
+                "type": "integer"
+              },
+              "income_minor": {
+                "type": "integer"
+              },
+              "expenses_minor": {
+                "type": "integer"
+              },
+              "net_profit_minor": {
+                "type": "integer"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "key": "ledger.report.balance_sheet",
+      "version": "1.0.0",
+      "title": "Balance sheet",
+      "description": "Assets, liabilities and equity at a date, including earnings to date, and whether it balances.",
+      "kind": "read",
+      "floor": "on",
+      "input": {
+        "type": "object",
+        "required": [
+          "as_of"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "as_of": {
+            "type": "string",
+            "format": "date"
+          },
+          "currency": {
+            "type": "string",
+            "pattern": "^[A-Z]{3}$"
+          }
+        }
+      },
+      "output": {
+        "type": "object",
+        "required": [
+          "generatedAt",
+          "currency",
+          "sources",
+          "empty",
+          "as_of",
+          "assets",
+          "liabilities",
+          "equity",
+          "totals",
+          "balanced"
+        ],
+        "properties": {
+          "generatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "currency": {
+            "type": "string",
+            "pattern": "^[A-Z]{3}$"
+          },
+          "sources": {
+            "type": "object",
+            "required": [
+              "entries",
+              "entry_ids",
+              "basis"
+            ],
+            "properties": {
+              "entries": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "entry_ids": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "basis": {
+                "type": "string"
+              }
+            }
+          },
+          "empty": {
+            "type": "boolean"
+          },
+          "as_of": {
+            "type": "string",
+            "format": "date"
+          },
+          "assets": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "code",
+                "name",
+                "amount_minor"
+              ],
+              "properties": {
+                "code": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "subtype": {
+                  "type": "string"
+                },
+                "amount_minor": {
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "liabilities": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "code",
+                "name",
+                "amount_minor"
+              ],
+              "properties": {
+                "code": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "subtype": {
+                  "type": "string"
+                },
+                "amount_minor": {
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "equity": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "code",
+                "name",
+                "amount_minor"
+              ],
+              "properties": {
+                "code": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "subtype": {
+                  "type": "string"
+                },
+                "amount_minor": {
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "balanced": {
+            "type": "boolean"
+          },
+          "totals": {
+            "type": "object",
+            "required": [
+              "assets_minor",
+              "liabilities_minor",
+              "equity_minor",
+              "earnings_to_date_minor"
+            ],
+            "properties": {
+              "assets_minor": {
+                "type": "integer"
+              },
+              "liabilities_minor": {
+                "type": "integer"
+              },
+              "equity_minor": {
+                "type": "integer"
+              },
+              "earnings_to_date_minor": {
+                "type": "integer"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "key": "ledger.report.cash_flow",
+      "version": "1.0.0",
+      "title": "Cash flow",
+      "description": "Cash in and out for a period by operating, investing and financing activity, with opening and closing cash.",
+      "kind": "read",
+      "floor": "on",
+      "input": {
+        "type": "object",
+        "required": [
+          "from",
+          "to"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "from": {
+            "type": "string",
+            "format": "date"
+          },
+          "to": {
+            "type": "string",
+            "format": "date"
+          },
+          "currency": {
+            "type": "string",
+            "pattern": "^[A-Z]{3}$"
+          }
+        }
+      },
+      "output": {
+        "type": "object",
+        "required": [
+          "generatedAt",
+          "currency",
+          "sources",
+          "empty",
+          "period",
+          "opening_cash_minor",
+          "closing_cash_minor",
+          "operating_minor",
+          "investing_minor",
+          "financing_minor"
+        ],
+        "properties": {
+          "generatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "currency": {
+            "type": "string",
+            "pattern": "^[A-Z]{3}$"
+          },
+          "sources": {
+            "type": "object",
+            "required": [
+              "entries",
+              "entry_ids",
+              "basis"
+            ],
+            "properties": {
+              "entries": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "entry_ids": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "basis": {
+                "type": "string"
+              }
+            }
+          },
+          "empty": {
+            "type": "boolean"
+          },
+          "period": {
+            "type": "object",
+            "required": [
+              "from",
+              "to"
+            ],
+            "properties": {
+              "from": {
+                "type": "string",
+                "format": "date"
+              },
+              "to": {
+                "type": "string",
+                "format": "date"
+              }
+            }
+          },
+          "opening_cash_minor": {
+            "type": "integer"
+          },
+          "closing_cash_minor": {
+            "type": "integer"
+          },
+          "operating_minor": {
+            "type": "integer"
+          },
+          "investing_minor": {
+            "type": "integer"
+          },
+          "financing_minor": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    {
+      "key": "ledger.report.trial_balance",
+      "version": "1.0.0",
+      "title": "Trial balance",
+      "description": "Debit and credit totals for every account at a date; the two totals must agree.",
+      "kind": "read",
+      "floor": "on",
+      "input": {
+        "type": "object",
+        "required": [
+          "as_of"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "as_of": {
+            "type": "string",
+            "format": "date"
+          },
+          "currency": {
+            "type": "string",
+            "pattern": "^[A-Z]{3}$"
+          }
+        }
+      },
+      "output": {
+        "type": "object",
+        "required": [
+          "generatedAt",
+          "currency",
+          "sources",
+          "empty",
+          "as_of",
+          "rows",
+          "total_debit_minor",
+          "total_credit_minor",
+          "balanced"
+        ],
+        "properties": {
+          "generatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "currency": {
+            "type": "string",
+            "pattern": "^[A-Z]{3}$"
+          },
+          "sources": {
+            "type": "object",
+            "required": [
+              "entries",
+              "entry_ids",
+              "basis"
+            ],
+            "properties": {
+              "entries": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "entry_ids": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "basis": {
+                "type": "string"
+              }
+            }
+          },
+          "empty": {
+            "type": "boolean"
+          },
+          "as_of": {
+            "type": "string",
+            "format": "date"
+          },
+          "balanced": {
+            "type": "boolean"
+          },
+          "total_debit_minor": {
+            "type": "integer"
+          },
+          "total_credit_minor": {
+            "type": "integer"
+          },
+          "rows": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "code",
+                "name",
+                "type",
+                "debit_minor",
+                "credit_minor",
+                "balance_minor"
+              ],
+              "properties": {
+                "code": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "type": {
+                  "type": "string"
+                },
+                "debit_minor": {
+                  "type": "integer"
+                },
+                "credit_minor": {
+                  "type": "integer"
+                },
+                "balance_minor": {
+                  "type": "integer"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "key": "ledger.report.aging",
+      "version": "1.0.0",
+      "title": "Receivables or payables aging",
+      "description": "Open customer invoices (receivable) or supplier bills (payable) at a date, bucketed by days past due.",
+      "kind": "read",
+      "floor": "on",
+      "input": {
+        "type": "object",
+        "required": [
+          "kind",
+          "as_of"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "receivable",
+              "payable"
+            ]
+          },
+          "as_of": {
+            "type": "string",
+            "format": "date"
+          },
+          "currency": {
+            "type": "string",
+            "pattern": "^[A-Z]{3}$"
+          }
+        }
+      },
+      "output": {
+        "type": "object",
+        "required": [
+          "generatedAt",
+          "currency",
+          "sources",
+          "empty",
+          "kind",
+          "as_of",
+          "buckets",
+          "items",
+          "total_outstanding_minor"
+        ],
+        "properties": {
+          "generatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "currency": {
+            "type": "string",
+            "pattern": "^[A-Z]{3}$"
+          },
+          "sources": {
+            "type": "object",
+            "required": [
+              "entries",
+              "entry_ids",
+              "basis"
+            ],
+            "properties": {
+              "entries": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "entry_ids": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "basis": {
+                "type": "string"
+              }
+            }
+          },
+          "empty": {
+            "type": "boolean"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "as_of": {
+            "type": "string",
+            "format": "date"
+          },
+          "total_outstanding_minor": {
+            "type": "integer"
+          },
+          "buckets": {
+            "type": "object",
+            "required": [
+              "current",
+              "d1_30",
+              "d31_60",
+              "d61_90",
+              "d90_plus"
+            ],
+            "properties": {
+              "current": {
+                "type": "integer"
+              },
+              "d1_30": {
+                "type": "integer"
+              },
+              "d31_60": {
+                "type": "integer"
+              },
+              "d61_90": {
+                "type": "integer"
+              },
+              "d90_plus": {
+                "type": "integer"
+              }
+            }
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "number",
+                "party",
+                "due_date",
+                "days_past_due",
+                "outstanding_minor",
+                "bucket"
+              ],
+              "properties": {
+                "number": {
+                  "type": "string"
+                },
+                "party": {
+                  "type": "string"
+                },
+                "due_date": {
+                  "type": "string",
+                  "format": "date"
+                },
+                "days_past_due": {
+                  "type": "integer"
+                },
+                "outstanding_minor": {
+                  "type": "integer"
+                },
+                "bucket": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "key": "ledger.report.vat_summary",
+      "version": "1.0.0",
+      "title": "VAT / GST summary",
+      "description": "Output tax collected, input tax paid and the net payable for a period.",
+      "kind": "read",
+      "floor": "on",
+      "input": {
+        "type": "object",
+        "required": [
+          "from",
+          "to"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "from": {
+            "type": "string",
+            "format": "date"
+          },
+          "to": {
+            "type": "string",
+            "format": "date"
+          },
+          "currency": {
+            "type": "string",
+            "pattern": "^[A-Z]{3}$"
+          }
+        }
+      },
+      "output": {
+        "type": "object",
+        "required": [
+          "generatedAt",
+          "currency",
+          "sources",
+          "empty",
+          "period",
+          "output_tax_minor",
+          "input_tax_minor",
+          "net_payable_minor"
+        ],
+        "properties": {
+          "generatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "currency": {
+            "type": "string",
+            "pattern": "^[A-Z]{3}$"
+          },
+          "sources": {
+            "type": "object",
+            "required": [
+              "entries",
+              "entry_ids",
+              "basis"
+            ],
+            "properties": {
+              "entries": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "entry_ids": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "basis": {
+                "type": "string"
+              }
+            }
+          },
+          "empty": {
+            "type": "boolean"
+          },
+          "period": {
+            "type": "object",
+            "required": [
+              "from",
+              "to"
+            ],
+            "properties": {
+              "from": {
+                "type": "string",
+                "format": "date"
+              },
+              "to": {
+                "type": "string",
+                "format": "date"
+              }
+            }
+          },
+          "output_tax_minor": {
+            "type": "integer"
+          },
+          "input_tax_minor": {
+            "type": "integer"
+          },
+          "net_payable_minor": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    {
+      "key": "ledger.budget.remaining",
+      "version": "1.0.0",
+      "title": "Budget remaining",
+      "kind": "read",
+      "floor": "on",
+      "description": "For one expense account and month: the budget, what has been spent (posted), and what remains. Other apps may borrow this.",
+      "input": {
+        "type": "object",
+        "required": [
+          "account_code",
+          "month"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "account_code": {
+            "type": "string"
+          },
+          "month": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}$"
+          },
+          "currency": {
+            "type": "string",
+            "pattern": "^[A-Z]{3}$"
+          }
+        }
+      },
+      "output": {
+        "type": "object",
+        "required": [
+          "generatedAt",
+          "currency",
+          "sources",
+          "empty",
+          "account_code",
+          "month",
+          "budget_minor",
+          "actual_minor",
+          "remaining_minor"
+        ],
+        "properties": {
+          "generatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "empty": {
+            "type": "boolean"
+          },
+          "sources": {
+            "type": "object",
+            "required": [
+              "entries",
+              "entry_ids",
+              "basis"
+            ],
+            "properties": {
+              "entries": {
+                "type": "integer"
+              },
+              "entry_ids": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "basis": {
+                "type": "string"
+              }
+            }
+          },
+          "account_code": {
+            "type": "string"
+          },
+          "month": {
+            "type": "string"
+          },
+          "budget_minor": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "actual_minor": {
+            "type": "integer"
+          },
+          "remaining_minor": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "key": "ledger.journal.post",
+      "version": "1.0.0",
+      "title": "Post a journal entry",
+      "description": "Post one balanced double-entry journal entry. Debits must equal credits. Posted entries are never edited; a correction is a new reversing entry.",
+      "kind": "write",
+      "floor": "ask_first",
+      "input": {
+        "type": "object",
+        "required": [
+          "date",
+          "memo",
+          "currency",
+          "lines"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "date": {
+            "type": "string",
+            "format": "date"
+          },
+          "memo": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 300
+          },
+          "currency": {
+            "type": "string",
+            "pattern": "^[A-Z]{3}$"
+          },
+          "lines": {
+            "type": "array",
+            "minItems": 2,
+            "maxItems": 50,
+            "items": {
+              "type": "object",
+              "required": [
+                "account_code",
+                "debit_minor",
+                "credit_minor"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "account_code": {
+                  "type": "string"
+                },
+                "debit_minor": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "credit_minor": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              }
+            }
+          }
+        }
+      },
+      "output": {
+        "type": "object",
+        "required": [
+          "outcome"
+        ],
+        "properties": {
+          "outcome": {
+            "type": "string"
+          }
+        }
+      },
+      "effects": {
+        "external": false,
+        "currency": "/currency",
+        "money": true
+      },
+      "verifyWith": "entry found by its idempotent reference"
+    },
+    {
+      "key": "ledger.close_pack.email",
+      "version": "1.0.0",
+      "title": "Email the month-end close pack",
+      "description": "Send the close pack for a period (P&L, balance sheet, cash flow, trial balance, aging, tax summary) to named recipients by email.",
+      "kind": "write",
+      "floor": "ask_first",
+      "input": {
+        "type": "object",
+        "required": [
+          "period",
+          "to"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "period": {
+            "type": "object",
+            "required": [
+              "from",
+              "to"
+            ],
+            "properties": {
+              "from": {
+                "type": "string",
+                "format": "date"
+              },
+              "to": {
+                "type": "string",
+                "format": "date"
+              }
+            }
+          },
+          "to": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 20,
+            "items": {
+              "type": "string",
+              "format": "email"
+            }
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 2000
+          }
+        }
+      },
+      "output": {
+        "type": "object",
+        "required": [
+          "outcome"
+        ],
+        "properties": {
+          "outcome": {
+            "type": "string"
+          }
+        }
+      },
+      "effects": {
+        "external": true,
+        "recipients": "/to"
+      },
+      "verifyWith": "message found in the mailbox by its idempotency key",
+      "doors": [
+        "email"
+      ]
+    },
+    {
+      "key": "ledger.accounts.list",
+      "title": "Chart of accounts",
+      "kind": "read",
+      "floor": "on",
+      "description": "Every account with its type and balance on a date.",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "as_of": {
+            "type": "string",
+            "format": "date"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "asset",
+              "liability",
+              "equity",
+              "income",
+              "expense"
+            ]
+          },
+          "include_inactive": {
+            "type": "boolean"
+          }
+        }
+      },
+      "output": {
+        "type": "object",
+        "required": [
+          "generatedAt",
+          "currency",
+          "empty",
+          "sources",
+          "as_of",
+          "accounts"
+        ],
+        "properties": {
+          "generatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "empty": {
+            "type": "boolean"
+          },
+          "sources": {
+            "type": "object",
+            "required": [
+              "entries",
+              "entry_ids",
+              "basis"
+            ],
+            "properties": {
+              "entries": {
+                "type": "integer"
+              },
+              "entry_ids": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "basis": {
+                "type": "string"
+              }
+            }
+          },
+          "as_of": {
+            "type": "string",
+            "format": "date"
+          },
+          "accounts": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "code",
+                "name",
+                "type",
+                "subtype",
+                "balance_minor",
+                "active"
+              ]
+            }
+          }
+        }
+      },
+      "version": "1.0.0"
+    },
+    {
+      "key": "ledger.account.ledger",
+      "title": "Account ledger",
+      "kind": "read",
+      "floor": "on",
+      "description": "One account's lines for a period with opening, running and closing balance.",
+      "input": {
+        "type": "object",
+        "required": [
+          "account_code",
+          "from",
+          "to"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "account_code": {
+            "type": "string"
+          },
+          "from": {
+            "type": "string",
+            "format": "date"
+          },
+          "to": {
+            "type": "string",
+            "format": "date"
+          }
+        }
+      },
+      "output": {
+        "type": "object",
+        "required": [
+          "generatedAt",
+          "currency",
+          "empty",
+          "sources",
+          "account_code",
+          "opening_minor",
+          "closing_minor",
+          "rows"
+        ],
+        "properties": {
+          "generatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "empty": {
+            "type": "boolean"
+          },
+          "sources": {
+            "type": "object",
+            "required": [
+              "entries",
+              "entry_ids",
+              "basis"
+            ],
+            "properties": {
+              "entries": {
+                "type": "integer"
+              },
+              "entry_ids": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "basis": {
+                "type": "string"
+              }
+            }
+          },
+          "account_code": {
+            "type": "string"
+          },
+          "account_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "opening_minor": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "closing_minor": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "rows": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "entry_id",
+                "date",
+                "memo",
+                "debit_minor",
+                "credit_minor",
+                "balance_minor"
+              ]
+            }
+          }
+        }
+      },
+      "version": "1.0.0"
+    },
+    {
+      "key": "ledger.journal.list",
+      "title": "Journal entries",
+      "kind": "read",
+      "floor": "on",
+      "description": "Journal entries with their lines for a period, optionally matching a word in the memo or reference.",
+      "input": {
+        "type": "object",
+        "required": [
+          "from",
+          "to"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "from": {
+            "type": "string",
+            "format": "date"
+          },
+          "to": {
+            "type": "string",
+            "format": "date"
+          },
+          "search": {
+            "type": "string",
+            "maxLength": 100
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200
+          }
+        }
+      },
+      "output": {
+        "type": "object",
+        "required": [
+          "generatedAt",
+          "currency",
+          "empty",
+          "sources",
+          "entries"
+        ],
+        "properties": {
+          "generatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "empty": {
+            "type": "boolean"
+          },
+          "sources": {
+            "type": "object",
+            "required": [
+              "entries",
+              "entry_ids",
+              "basis"
+            ],
+            "properties": {
+              "entries": {
+                "type": "integer"
+              },
+              "entry_ids": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "basis": {
+                "type": "string"
+              }
+            }
+          },
+          "entries": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "id",
+                "date",
+                "memo",
+                "reference",
+                "lines"
+              ]
+            }
+          }
+        }
+      },
+      "version": "1.0.0"
+    },
+    {
+      "key": "ledger.documents.list",
+      "title": "Invoices or bills",
+      "kind": "read",
+      "floor": "on",
+      "description": "Customer invoices or supplier bills: open, overdue, paid or all, with what is outstanding.",
+      "input": {
+        "type": "object",
+        "required": [
+          "kind"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "invoice",
+              "bill"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "open",
+              "overdue",
+              "paid",
+              "all"
+            ]
+          },
+          "party": {
+            "type": "string"
+          },
+          "as_of": {
+            "type": "string",
+            "format": "date"
+          }
+        }
+      },
+      "output": {
+        "type": "object",
+        "required": [
+          "generatedAt",
+          "currency",
+          "empty",
+          "sources",
+          "kind",
+          "documents"
+        ],
+        "properties": {
+          "generatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "empty": {
+            "type": "boolean"
+          },
+          "sources": {
+            "type": "object",
+            "required": [
+              "entries",
+              "entry_ids",
+              "basis"
+            ],
+            "properties": {
+              "entries": {
+                "type": "integer"
+              },
+              "entry_ids": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "basis": {
+                "type": "string"
+              }
+            }
+          },
+          "kind": {
+            "type": "string"
+          },
+          "as_of": {
+            "type": "string",
+            "format": "date"
+          },
+          "documents": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "number",
+                "party",
+                "issue_date",
+                "due_date",
+                "total_minor",
+                "paid_minor",
+                "outstanding_minor",
+                "status",
+                "overdue_days"
+              ]
+            }
+          }
+        }
+      },
+      "version": "1.0.0"
+    },
+    {
+      "key": "ledger.parties.list",
+      "title": "Customers and vendors",
+      "kind": "read",
+      "floor": "on",
+      "description": "Customers and vendors with contact details and what they owe or are owed.",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "customer",
+              "vendor"
+            ]
+          }
+        }
+      },
+      "output": {
+        "type": "object",
+        "required": [
+          "generatedAt",
+          "currency",
+          "empty",
+          "sources",
+          "parties"
+        ],
+        "properties": {
+          "generatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "empty": {
+            "type": "boolean"
+          },
+          "sources": {
+            "type": "object",
+            "required": [
+              "entries",
+              "entry_ids",
+              "basis"
+            ],
+            "properties": {
+              "entries": {
+                "type": "integer"
+              },
+              "entry_ids": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "basis": {
+                "type": "string"
+              }
+            }
+          },
+          "parties": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "id",
+                "kind",
+                "name",
+                "outstanding_minor",
+                "open_documents"
+              ]
+            }
+          }
+        }
+      },
+      "version": "1.0.0"
+    },
+    {
+      "key": "ledger.bank.unreconciled",
+      "title": "Unreconciled bank lines",
+      "kind": "read",
+      "floor": "on",
+      "description": "Imported bank lines not yet matched to the books, each with suggestions: a coding rule's account and open invoices or bills it could settle.",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "bank_account_code": {
+            "type": "string"
+          }
+        }
+      },
+      "output": {
+        "type": "object",
+        "required": [
+          "generatedAt",
+          "currency",
+          "empty",
+          "sources",
+          "transactions"
+        ],
+        "properties": {
+          "generatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "empty": {
+            "type": "boolean"
+          },
+          "sources": {
+            "type": "object",
+            "required": [
+              "entries",
+              "entry_ids",
+              "basis"
+            ],
+            "properties": {
+              "entries": {
+                "type": "integer"
+              },
+              "entry_ids": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "basis": {
+                "type": "string"
+              }
+            }
+          },
+          "transactions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "id",
+                "date",
+                "description",
+                "amount_minor",
+                "suggestions"
+              ]
+            }
+          }
+        }
+      },
+      "version": "1.0.0"
+    },
+    {
+      "key": "ledger.periods.status",
+      "title": "Closed periods",
+      "kind": "read",
+      "floor": "on",
+      "description": "Which months are closed (locked) and how many bank lines are still unreconciled per month.",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {}
+      },
+      "output": {
+        "type": "object",
+        "required": [
+          "generatedAt",
+          "currency",
+          "empty",
+          "sources",
+          "closed",
+          "unreconciled_by_month"
+        ],
+        "properties": {
+          "generatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "empty": {
+            "type": "boolean"
+          },
+          "sources": {
+            "type": "object",
+            "required": [
+              "entries",
+              "entry_ids",
+              "basis"
+            ],
+            "properties": {
+              "entries": {
+                "type": "integer"
+              },
+              "entry_ids": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "basis": {
+                "type": "string"
+              }
+            }
+          },
+          "closed": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "month",
+                "locked_at",
+                "locked_by"
+              ]
+            }
+          },
+          "unreconciled_by_month": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "month",
+                "n"
+              ]
+            }
+          }
+        }
+      },
+      "version": "1.0.0"
+    },
+    {
+      "key": "ledger.invoice.create",
+      "title": "Raise a customer invoice",
+      "kind": "write",
+      "floor": "ask_first",
+      "description": "Create a numbered customer invoice with GST and post it (receivable, revenue, GST output). Sending it is separate.",
+      "input": {
+        "type": "object",
+        "required": [
+          "customer",
+          "issue_date",
+          "due_date",
+          "currency",
+          "gst_rate_bps",
+          "lines"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "customer": {
+            "type": "string"
+          },
+          "issue_date": {
+            "type": "string",
+            "format": "date"
+          },
+          "due_date": {
+            "type": "string",
+            "format": "date"
+          },
+          "currency": {
+            "type": "string",
+            "enum": [
+              "INR"
+            ]
+          },
+          "gst_rate_bps": {
+            "type": "integer",
+            "enum": [
+              0,
+              500,
+              1200,
+              1800,
+              2800
+            ]
+          },
+          "lines": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 50,
+            "items": {
+              "type": "object",
+              "required": [
+                "description",
+                "amount_minor"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "description": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 300
+                },
+                "amount_minor": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "account_code": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 500
+          }
+        }
+      },
+      "output": {
+        "type": "object",
+        "required": [
+          "outcome"
+        ],
+        "properties": {
+          "outcome": {
+            "type": "string"
+          }
+        }
+      },
+      "effects": {
+        "external": false,
+        "money": true
+      },
+      "version": "1.0.0"
+    },
+    {
+      "key": "ledger.bill.record",
+      "title": "Record a supplier bill",
+      "kind": "write",
+      "floor": "ask_first",
+      "description": "Record a supplier bill with GST input credit and post it (expense or asset, GST input, payable).",
+      "input": {
+        "type": "object",
+        "required": [
+          "vendor",
+          "number",
+          "issue_date",
+          "due_date",
+          "currency",
+          "gst_rate_bps",
+          "lines"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "vendor": {
+            "type": "string"
+          },
+          "number": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 40
+          },
+          "issue_date": {
+            "type": "string",
+            "format": "date"
+          },
+          "due_date": {
+            "type": "string",
+            "format": "date"
+          },
+          "currency": {
+            "type": "string",
+            "enum": [
+              "INR"
+            ]
+          },
+          "gst_rate_bps": {
+            "type": "integer",
+            "enum": [
+              0,
+              500,
+              1200,
+              1800,
+              2800
+            ]
+          },
+          "lines": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 50,
+            "items": {
+              "type": "object",
+              "required": [
+                "description",
+                "amount_minor",
+                "account_code"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "description": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 300
+                },
+                "amount_minor": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "account_code": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      },
+      "output": {
+        "type": "object",
+        "required": [
+          "outcome"
+        ],
+        "properties": {
+          "outcome": {
+            "type": "string"
+          }
+        }
+      },
+      "effects": {
+        "external": false,
+        "money": true
+      },
+      "version": "1.0.0"
+    },
+    {
+      "key": "ledger.payment.record",
+      "title": "Record a receipt or payment",
+      "kind": "write",
+      "floor": "ask_first",
+      "description": "Record money received against an invoice or paid against a bill, through a bank account, optionally matching an imported bank line. Records what happened; it moves no money.",
+      "input": {
+        "type": "object",
+        "required": [
+          "kind",
+          "document_number",
+          "date",
+          "amount_minor"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "invoice",
+              "bill"
+            ]
+          },
+          "document_number": {
+            "type": "string"
+          },
+          "date": {
+            "type": "string",
+            "format": "date"
+          },
+          "amount_minor": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "bank_account_code": {
+            "type": "string"
+          },
+          "bank_transaction_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "output": {
+        "type": "object",
+        "required": [
+          "outcome"
+        ],
+        "properties": {
+          "outcome": {
+            "type": "string"
+          }
+        }
+      },
+      "effects": {
+        "external": false,
+        "money": true
+      },
+      "version": "1.0.0"
+    },
+    {
+      "key": "ledger.invoice.send",
+      "title": "Email an invoice",
+      "kind": "write",
+      "floor": "ask_first",
+      "description": "Email an invoice to the customer (their email on file, or named recipients). It leaves the company.",
+      "input": {
+        "type": "object",
+        "required": [
+          "document_number"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "document_number": {
+            "type": "string"
+          },
+          "to": {
+            "type": "array",
+            "maxItems": 10,
+            "items": {
+              "type": "string",
+              "format": "email"
+            }
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 2000
+          }
+        }
+      },
+      "output": {
+        "type": "object",
+        "required": [
+          "outcome"
+        ],
+        "properties": {
+          "outcome": {
+            "type": "string"
+          }
+        }
+      },
+      "effects": {
+        "external": true,
+        "recipients": "/to"
+      },
+      "doors": [
+        "email"
+      ],
+      "version": "1.0.0"
+    },
+    {
+      "key": "ledger.reminder.send",
+      "title": "Chase an overdue invoice",
+      "kind": "write",
+      "floor": "ask_first",
+      "description": "Email a payment reminder for an overdue invoice. It leaves the company.",
+      "input": {
+        "type": "object",
+        "required": [
+          "document_number"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "document_number": {
+            "type": "string"
+          },
+          "to": {
+            "type": "array",
+            "maxItems": 10,
+            "items": {
+              "type": "string",
+              "format": "email"
+            }
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 2000
+          }
+        }
+      },
+      "output": {
+        "type": "object",
+        "required": [
+          "outcome"
+        ],
+        "properties": {
+          "outcome": {
+            "type": "string"
+          }
+        }
+      },
+      "effects": {
+        "external": true,
+        "recipients": "/to"
+      },
+      "doors": [
+        "email"
+      ],
+      "version": "1.0.0"
+    },
+    {
+      "key": "ledger.bank.import",
+      "title": "Import bank statement lines",
+      "kind": "write",
+      "floor": "ask_first",
+      "description": "Stage bank statement lines for reconciliation (positive = money in); a person confirms the lines came from the bank. Duplicates by the bank's id are skipped. Nothing is posted.",
+      "input": {
+        "type": "object",
+        "required": [
+          "bank_account_code",
+          "currency",
+          "lines"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "bank_account_code": {
+            "type": "string"
+          },
+          "currency": {
+            "type": "string",
+            "enum": [
+              "INR"
+            ]
+          },
+          "lines": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 500,
+            "items": {
+              "type": "object",
+              "required": [
+                "external_id",
+                "date",
+                "description",
+                "amount_minor"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "external_id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "date": {
+                  "type": "string",
+                  "format": "date"
+                },
+                "description": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "amount_minor": {
+                  "type": "integer"
+                }
+              }
+            }
+          }
+        }
+      },
+      "output": {
+        "type": "object",
+        "required": [
+          "outcome"
+        ],
+        "properties": {
+          "outcome": {
+            "type": "string"
+          }
+        }
+      },
+      "effects": {
+        "external": false
+      },
+      "version": "1.0.0"
+    },
+    {
+      "key": "ledger.bank.categorize",
+      "title": "Post a bank line to an account",
+      "kind": "write",
+      "floor": "ask_first",
+      "description": "Post an unmatched bank line straight to an expense or income account (fees, subscriptions, interest) and mark it matched.",
+      "input": {
+        "type": "object",
+        "required": [
+          "bank_transaction_id",
+          "account_code"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "bank_transaction_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "account_code": {
+            "type": "string"
+          },
+          "memo": {
+            "type": "string",
+            "maxLength": 300
+          }
+        }
+      },
+      "output": {
+        "type": "object",
+        "required": [
+          "outcome"
+        ],
+        "properties": {
+          "outcome": {
+            "type": "string"
+          }
+        }
+      },
+      "effects": {
+        "external": false,
+        "money": true
+      },
+      "version": "1.0.0"
+    },
+    {
+      "key": "ledger.coding_rule.add",
+      "title": "Add a bank coding rule",
+      "kind": "write",
+      "floor": "on",
+      "description": "Teach Ledger a suggestion: bank lines whose description contains a word go to an account. It only suggests; nothing is posted.",
+      "input": {
+        "type": "object",
+        "required": [
+          "pattern",
+          "account_code"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "pattern": {
+            "type": "string",
+            "minLength": 2,
+            "maxLength": 100
+          },
+          "account_code": {
+            "type": "string"
+          },
+          "direction": {
+            "type": "string",
+            "enum": [
+              "in",
+              "out",
+              "any"
+            ]
+          },
+          "priority": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000
+          }
+        }
+      },
+      "output": {
+        "type": "object",
+        "required": [
+          "outcome"
+        ],
+        "properties": {
+          "outcome": {
+            "type": "string"
+          }
+        }
+      },
+      "effects": {
+        "external": false
+      },
+      "version": "1.0.0"
+    },
+    {
+      "key": "ledger.entry.reverse",
+      "title": "Reverse a journal entry",
+      "kind": "write",
+      "floor": "ask_first",
+      "description": "Correct a posted entry the only allowed way: a new entry with debits and credits swapped, linked to the original. An entry can be reversed once.",
+      "input": {
+        "type": "object",
+        "required": [
+          "entry",
+          "date"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "entry": {
+            "type": "string",
+            "description": "entry id or reference"
+          },
+          "date": {
+            "type": "string",
+            "format": "date"
+          },
+          "memo": {
+            "type": "string",
+            "maxLength": 300
+          }
+        }
+      },
+      "output": {
+        "type": "object",
+        "required": [
+          "outcome"
+        ],
+        "properties": {
+          "outcome": {
+            "type": "string"
+          }
+        }
+      },
+      "effects": {
+        "external": false,
+        "money": true
+      },
+      "version": "1.0.0"
+    },
+    {
+      "key": "ledger.period.close",
+      "title": "Close a month",
+      "kind": "write",
+      "floor": "ask_first",
+      "description": "Lock a month so nothing more can be posted into it. Refused while bank lines in that month are unreconciled.",
+      "input": {
+        "type": "object",
+        "required": [
+          "month"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "month": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}$"
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 300
+          }
+        }
+      },
+      "output": {
+        "type": "object",
+        "required": [
+          "outcome"
+        ],
+        "properties": {
+          "outcome": {
+            "type": "string"
+          }
+        }
+      },
+      "effects": {
+        "external": false
+      },
+      "version": "1.0.0"
+    },
+    {
+      "key": "ledger.period.reopen",
+      "title": "Reopen a closed month",
+      "kind": "write",
+      "floor": "ask_first",
+      "description": "Unlock a closed month, with a reason, so a correction can be posted.",
+      "input": {
+        "type": "object",
+        "required": [
+          "month",
+          "reason"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "month": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}$"
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 300
+          }
+        }
+      },
+      "output": {
+        "type": "object",
+        "required": [
+          "outcome"
+        ],
+        "properties": {
+          "outcome": {
+            "type": "string"
+          }
+        }
+      },
+      "effects": {
+        "external": false
+      },
+      "version": "1.0.0"
+    },
+    {
+      "key": "ledger.account.create",
+      "title": "Add an account",
+      "kind": "write",
+      "floor": "ask_first",
+      "description": "Add an account to the chart of accounts.",
+      "input": {
+        "type": "object",
+        "required": [
+          "code",
+          "name",
+          "type",
+          "subtype"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "type": "string",
+            "pattern": "^[0-9A-Za-z.-]{1,20}$"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 2,
+            "maxLength": 100
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "asset",
+              "liability",
+              "equity",
+              "income",
+              "expense"
+            ]
+          },
+          "subtype": {
+            "type": "string"
+          }
+        }
+      },
+      "output": {
+        "type": "object",
+        "required": [
+          "outcome"
+        ],
+        "properties": {
+          "outcome": {
+            "type": "string"
+          }
+        }
+      },
+      "effects": {
+        "external": false
+      },
+      "version": "1.0.0"
+    },
+    {
+      "key": "ledger.party.create",
+      "title": "Add a customer or vendor",
+      "kind": "write",
+      "floor": "on",
+      "description": "Add a customer or vendor record (name, email, GSTIN). Internal master data.",
+      "input": {
+        "type": "object",
+        "required": [
+          "kind",
+          "name"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "customer",
+              "vendor"
+            ]
+          },
+          "name": {
+            "type": "string",
+            "minLength": 2,
+            "maxLength": 200
+          },
+          "email": {
+            "type": "string",
+            "format": "email"
+          },
+          "gstin": {
+            "type": "string",
+            "pattern": "^[0-9A-Z]{15}$"
+          }
+        }
+      },
+      "output": {
+        "type": "object",
+        "required": [
+          "outcome"
+        ],
+        "properties": {
+          "outcome": {
+            "type": "string"
+          }
+        }
+      },
+      "effects": {
+        "external": false
+      },
+      "version": "1.0.0"
+    }
+  ],
+  "doors": [
+    {
+      "key": "email",
+      "scopes": [
+        "send"
+      ]
+    }
+  ],
+  "uses": [],
+  "skills": [
+    {
+      "key": "financial-reports",
+      "path": "src/agent/skills/financial-reports/SKILL.md",
+      "requires": [
+        "ledger.report.pnl",
+        "ledger.report.balance_sheet",
+        "ledger.report.trial_balance"
+      ]
+    },
+    {
+      "key": "month-end-close",
+      "path": "src/agent/skills/month-end-close/SKILL.md",
+      "requires": [
+        "ledger.report.trial_balance",
+        "ledger.period.close",
+        "ledger.close_pack.email"
+      ]
+    },
+    {
+      "key": "invoicing-and-collections",
+      "path": "src/agent/skills/invoicing-and-collections/SKILL.md",
+      "requires": [
+        "ledger.invoice.create",
+        "ledger.invoice.send",
+        "ledger.documents.list",
+        "ledger.reminder.send",
+        "ledger.payment.record"
+      ]
+    },
+    {
+      "key": "bank-reconciliation",
+      "path": "src/agent/skills/bank-reconciliation/SKILL.md",
+      "requires": [
+        "ledger.bank.unreconciled",
+        "ledger.payment.record",
+        "ledger.bank.categorize"
+      ]
+    },
+    {
+      "key": "corrections",
+      "path": "src/agent/skills/corrections/SKILL.md",
+      "requires": [
+        "ledger.entry.reverse",
+        "ledger.journal.post",
+        "ledger.journal.list"
+      ]
+    }
+  ],
+  "packages": [],
+  "blocks": [
+    "blocks/home.tile.json",
+    "blocks/desk.list.json",
+    "blocks/ledger.pnl.table.json",
+    "blocks/ledger.receivables.table.json",
+    "blocks/ledger.bank.table.json"
+  ]
+}

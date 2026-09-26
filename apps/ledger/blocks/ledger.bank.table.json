@@ -1,0 +1,14 @@
+{
+  "block": "table",
+  "title": "Bank lines to reconcile",
+  "source": { "ability": "ledger.bank.unreconciled", "args": {} },
+  "rows": "/transactions",
+  "columns": [
+    { "label": "Date", "path": "/date", "format": "date" },
+    { "label": "Description", "path": "/description" },
+    { "label": "Amount", "path": "/amount_minor", "format": "money_minor" },
+    { "label": "Suggested account", "path": "/suggestions/rule/account_code" },
+    { "label": "Could settle", "path": "/suggestions/documents/0/number" }
+  ],
+  "empty_text": "Bank is reconciled"
+}

@@ -1,0 +1,35 @@
+{
+  "key": "nep-gst",
+  "version": "1.0.0",
+  "name": "GST filing (India)",
+  "description": "Prepares the monthly GSTR-3B summary from the host's tax figures and files it on the GST portal after a person's yes.",
+  "doors": ["gst_portal"],
+  "tables": ["nep_gst_returns"],
+  "abilities": [
+    {
+      "key": "gst.returns.list", "version": "1.0.0", "title": "GST returns", "kind": "read", "floor": "on",
+      "description": "GSTR-3B returns this package has prepared or filed, with their status and portal acknowledgement.",
+      "input": { "type": "object", "additionalProperties": false, "properties": { "period": { "type": "string", "pattern": "^\\d{4}-\\d{2}$" } } },
+      "output": { "type": "object", "required": ["generatedAt", "empty", "sources", "returns"], "properties": {
+        "generatedAt": { "type": "string" }, "empty": { "type": "boolean" },
+        "sources": { "type": "object", "required": ["entries", "entry_ids", "basis"] },
+        "returns": { "type": "array", "items": { "type": "object", "required": ["id", "period", "status", "net_payable_minor", "credit_carried_minor"] } } } }
+    },
+    {
+      "key": "gst.gstr3b.prepare", "version": "1.0.0", "title": "Prepare the GSTR-3B draft", "kind": "write", "floor": "on",
+      "description": "Save a draft GSTR-3B for a month from output and input tax (minor units). Internal: nothing is filed.",
+      "input": { "type": "object", "required": ["period", "output_tax_minor", "input_tax_minor", "currency"], "additionalProperties": false, "properties": {
+        "period": { "type": "string", "pattern": "^\\d{4}-\\d{2}$" }, "output_tax_minor": { "type": "integer", "minimum": 0 },
+        "input_tax_minor": { "type": "integer", "minimum": 0 }, "currency": { "type": "string", "enum": ["INR"] } } },
+      "output": { "type": "object", "required": ["outcome"] },
+      "effects": { "external": false }
+    },
+    {
+      "key": "gst.gstr3b.file", "version": "1.0.0", "title": "File the GSTR-3B", "kind": "write", "floor": "ask_first",
+      "description": "File the month's draft GSTR-3B on the GST portal. It leaves the company and is binding.",
+      "input": { "type": "object", "required": ["period"], "additionalProperties": false, "properties": { "period": { "type": "string", "pattern": "^\\d{4}-\\d{2}$" } } },
+      "output": { "type": "object", "required": ["outcome"] },
+      "effects": { "external": true }, "doors": ["gst_portal"]
+    }
+  ]
+}

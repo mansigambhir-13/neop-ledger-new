@@ -1,0 +1,53 @@
+name: ci
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      load:
+        description: Run the Phase 6 load and chaos bars too
+        type: boolean
+        default: false
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: neos_admin
+          POSTGRES_PASSWORD: neos_admin
+          POSTGRES_DB: neos
+        ports: ["5433:5432"]
+        options: >-
+          --health-cmd "pg_isready -U neos_admin -d neos" --health-interval 2s --health-retries 30
+    env:
+      NEOS_ADMIN_URL: postgres://neos_admin:neos_admin@localhost:5433/neos
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm test
+      - if: ${{ inputs.load }}
+        run: pnpm test:load
+
+  images:
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -f deploy/backend.Dockerfile -t neop-ledger-backend:ci .
+      - run: docker build -f deploy/agent.Dockerfile -t neop-ledger-agent:ci .
+      - run: docker build -f deploy/platform.Dockerfile -t neos-platform:ci .
+      # The package sandbox needs a glibc Deno inside the backend image.
+      - run: docker run --rm -w /srv/packages/neop-template --entrypoint sh neop-ledger-backend:ci -c '"$(dirname "$(node -p "require.resolve(\"deno/package.json\")")")/deno" --version'
+      # Production images refuse dev credentials.
+      - run: "! docker run --rm neos-platform:ci tsx scripts/migrate.ts"

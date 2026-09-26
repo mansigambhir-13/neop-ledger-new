@@ -1,0 +1,15 @@
+# Matrix appservice registration for the NEOS chat bridge (Phase 3 wiring).
+# Register once with the homeserver; the platform serves /_matrix/app/v1/*.
+id: neos-chat-bridge
+url: http://platform:4000
+as_token: "<from secrets/matrix_as_token>"
+hs_token: "<from secrets/matrix_hs_token>"
+sender_localpart: neos_bridge
+rate_limited: false
+namespaces:
+  users:
+    # One chat user per app per company: @neop_<app>_<company>:server
+    - exclusive: true
+      regex: "@neop_.*"
+  rooms: []
+  aliases: []

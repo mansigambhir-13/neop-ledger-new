@@ -1,0 +1,19 @@
+{
+  "name": "@neop/testkit",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@hono/node-server": "^1.19.0",
+    "@mariozechner/pi-ai": "^0.73.1",
+    "@neop/contracts": "workspace:*",
+    "@neop/pgkit": "workspace:*",
+    "@neop/platform": "workspace:*",
+    "@neop/template": "workspace:*",
+    "hono": "^4.9.0",
+    "vitest": "^3.2.0"
+  }
+}

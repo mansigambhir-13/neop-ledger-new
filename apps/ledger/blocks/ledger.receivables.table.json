@@ -1,0 +1,14 @@
+{
+  "block": "table",
+  "title": "Who owes us",
+  "source": { "ability": "ledger.documents.list", "args": { "kind": "invoice", "status": "open" } },
+  "rows": "/documents",
+  "columns": [
+    { "label": "Invoice", "path": "/number" },
+    { "label": "Customer", "path": "/party" },
+    { "label": "Due", "path": "/due_date", "format": "date" },
+    { "label": "Overdue (days)", "path": "/overdue_days" },
+    { "label": "Outstanding", "path": "/outstanding_minor", "format": "money_minor" }
+  ],
+  "empty_text": "Nothing outstanding"
+}

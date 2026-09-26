@@ -1,0 +1,8 @@
+{
+  "block": "stat",
+  "title": "Net profit, month to date",
+  "source": { "ability": "ledger.report.pnl", "args": { "from": "{{month_start}}", "to": "{{today}}" } },
+  "value": { "path": "/totals/net_profit_minor", "format": "money_minor", "currency_path": "/currency" },
+  "empty_text": "No entries posted this month",
+  "footnote": { "path": "/sources/basis" }
+}

@@ -1,0 +1,1058 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>NEOP — End-to-End Technical Plan</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,800&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{
+  --paper:#F2F5F9; --panel:#FFFFFF; --ink:#16213A; --muted:#56627A; --line:#D5DCE7;
+  --cobalt:#2F5BFF; --cobalt-soft:#E3E9FF; --amber:#C97A14; --amber-soft:#FCEFD9;
+  --red:#C23B3B; --red-soft:#FBE3E3; --green:#23915F; --green-soft:#DDF2E7;
+  --code-bg:#0E1524; --code-ink:#E7ECF7; --inline-bg:#E8EDF5;
+  --display:"Bricolage Grotesque","Segoe UI",system-ui,sans-serif;
+  --body:"Source Serif 4",Georgia,"Times New Roman",serif;
+  --mono:"JetBrains Mono",ui-monospace,Menlo,Consolas,monospace;
+  color-scheme:light;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --paper:#0F1626; --panel:#172035; --ink:#E6EBF5; --muted:#9AA6BE; --line:#2A3651;
+    --cobalt:#7C97FF; --cobalt-soft:#1F2B52; --amber:#F2B155; --amber-soft:#3A2C17;
+    --red:#F08080; --red-soft:#3D1E22; --green:#4CC48C; --green-soft:#16362A;
+    --code-bg:#080D18; --inline-bg:#223052; color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --paper:#0F1626; --panel:#172035; --ink:#E6EBF5; --muted:#9AA6BE; --line:#2A3651;
+  --cobalt:#7C97FF; --cobalt-soft:#1F2B52; --amber:#F2B155; --amber-soft:#3A2C17;
+  --red:#F08080; --red-soft:#3D1E22; --green:#4CC48C; --green-soft:#16362A;
+  --code-bg:#080D18; --inline-bg:#223052; color-scheme:dark;
+}
+*,*::before,*::after{box-sizing:border-box}
+html{scroll-padding-top:4.5rem}
+body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--body);font-size:1.0625rem;line-height:1.62}
+.wrap{max-width:1040px;margin:0 auto;padding:0 16px}
+@media(min-width:700px){.wrap{padding:0 1.5rem}}
+h1,h2,h3{font-family:var(--display);line-height:1.12;margin:0}
+h1{font-size:clamp(2rem,5vw,3.2rem);font-weight:800;letter-spacing:-0.02em;max-width:20ch}
+h2{font-size:clamp(1.45rem,3vw,2rem);font-weight:800;margin-bottom:.9rem}
+p,ul,ol{max-width:72ch}
+p{margin:0 0 1rem}
+li{margin:.3rem 0}
+strong{font-weight:600}
+a{color:var(--cobalt)}
+code{font-family:var(--mono);font-size:.84em;background:var(--inline-bg);padding:.08em .35em;border-radius:4px;overflow-wrap:anywhere}
+section{padding:3rem 0;border-top:1px solid var(--line)}
+section > .wrap > p:first-of-type{font-size:1.1rem}
+:focus-visible{outline:3px solid var(--cobalt);outline-offset:2px}
+nav.toc{position:sticky;top:0;z-index:5;background:var(--paper);border-bottom:1px solid var(--line)}
+nav.toc .wrap{display:flex;gap:1.1rem;overflow-x:auto;padding:.75rem 16px;font-family:var(--display);font-size:.88rem;white-space:nowrap;align-items:center}
+nav.toc a{color:var(--muted);text-decoration:none}
+nav.toc a:hover{color:var(--ink)}
+.tbtn{margin-left:auto;flex:none;font:inherit;background:var(--panel);color:var(--ink);border:1px solid var(--line);border-radius:999px;padding:.25rem .8rem;cursor:pointer}
+.dia{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:1.2rem;overflow-x:auto;margin:1.2rem 0 1rem;text-align:center}
+.dia pre.mermaid{margin:0;font-family:var(--mono);font-size:.8rem;text-align:left;white-space:pre;color:var(--ink)}
+.dia svg{max-width:100%;height:auto}
+.tscroll{overflow-x:auto;margin:1.1rem 0 1.4rem;border:1px solid var(--line);border-radius:12px;background:var(--panel)}
+table{border-collapse:collapse;width:100%;min-width:620px;font-size:.93rem}
+th,td{text-align:left;padding:.65rem .9rem;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-family:var(--display);font-weight:600;background:var(--paper)}
+tr:last-child td{border-bottom:none}
+#scrutiny td:first-child{font-family:var(--display);font-weight:800;white-space:nowrap}
+.hero-meta{font-family:var(--display);color:var(--muted);margin-top:1.1rem;font-size:.95rem}
+.badges{display:flex;flex-wrap:wrap;gap:.6rem;margin-top:1.6rem}
+.badge{font-family:var(--display);font-size:.9rem;padding:.45rem .8rem;border-radius:10px}
+.badge b{font-weight:800;font-size:1.1rem;margin-right:.3rem}
+.b-red{background:var(--red-soft);color:var(--red)}
+.b-amber{background:var(--amber-soft);color:var(--amber)}
+.b-blue{background:var(--cobalt-soft);color:var(--cobalt)}
+.b-green{background:var(--green-soft);color:var(--green)}
+footer{padding:2.4rem 0 3rem;border-top:1px solid var(--line);color:var(--muted);font-family:var(--display);font-size:.9rem}
+@media print{
+  nav.toc,.tbtn{display:none}
+  body{background:#fff;color:#000;font-size:11pt}
+  section{padding:1.2rem 0;break-inside:auto}
+  .tscroll,.dia{break-inside:avoid;border-color:#ccc}
+  table{min-width:0}
+}
+</style>
+</head>
+<body>
+<nav class="toc" aria-label="Sections"><div class="wrap"><a href="#summary">Summary</a><a href="#scope-principles-and-trust-boundaries">Scope</a><a href="#component-architecture">Components</a><a href="#end-to-end-request-flow">Flow</a><a href="#data-model">Data model</a><a href="#contracts">Contracts</a><a href="#runner-waits-and-the-assistant-lifecycle">Runner</a><a href="#switchboard-gate-and-policy">Gate & policy</a><a href="#registry-skills-borrowing-and-packages">Registry</a><a href="#security-model-and-deployment">Security</a><a href="#scrutiny">Scrutiny</a><a href="#build-plan">Build plan</a><a href="#test-bar-and-acceptance">Tests</a><a href="#open-decisions">Decisions</a><button class="tbtn" id="tbtn" type="button" aria-label="Toggle light or dark theme">Theme</button></div></nav>
+
+<header class="wrap" style="padding:3rem 0 2.6rem">
+  <div style="font-family:var(--display);font-weight:800;color:var(--muted);margin-bottom:1.2rem">NEOS · <span style="color:var(--ink)">combined technical plan · consolidates the v2 whole picture and the platform user flow</span></div>
+  <h1>NEOP — End-to-End Technical Plan, with scrutiny</h1>
+  <p class="hero-meta">25 September 2026 · Mansi Gambhir · Companion to NEOP-ARCH-001</p>
+  <div class="badges">
+    <span class="badge b-red"><b>5</b>blocking findings</span>
+    <span class="badge b-amber"><b>9</b>before second app</span>
+    <span class="badge b-blue"><b>6</b>clean-ups</span>
+    <span class="badge b-green"><b>~17</b>weeks · 7 phases</span>
+  </div>
+</header>
+
+<section id="summary"><div class="wrap"><h2>Summary</h2>
+<p>The v2 picture is sound at its core and should be built, but not as drawn: it has five defects that will bite in the Ledger pilot and eight smaller contradictions. The core is right — a durable job/proposal book per app, a model-free execution path after a human yes, a gate the model cannot edit, and one platform gateway minting execution tokens.</p>
+<p><strong>What NEOP is, in one line:</strong> a per-subject app whose always-on runner turns every request into a job in its own Postgres table family, spawns a keyless assistant per job, routes every effect through a template-owned gate, and parks the job on a fingerprinted proposal until a person answers through the platform.</p>
+<p><strong>Top five fixes before implementation (detail in Scrutiny):</strong></p>
+<ol>
+<li><strong>Tenant isolation inside a family is missing.</strong> Roles isolate apps from each other, but every company's rows share <code>ledger__*</code>. Add <code>company_id NOT NULL</code> everywhere plus row-level security keyed off the verified gateway token.</li>
+<li><strong>The wake races the execution.</strong> Section 6 sets the wait to ready at <em>resolve</em>, before <em>carry out</em> runs. The assistant can wake with no proof. The wait must turn ready only on DONE, DROPPED or EXECUTION_FAILED.</li>
+<li><strong>Chat is a second, unauthenticated front door.</strong> Matrix pushes straight to the runner and results are lifted back from the room (6b). Both bypass the gateway and contradict "the room is the mirror, the book is the truth". Inbound and results must be typed, signed gateway calls.</li>
+<li><strong>Package handler isolation cannot be enforced in-process.</strong> "No fetch, no filesystem" is a promise, not a wall, inside a Node backend. Run package handlers in a separate sandbox (subprocess with Deno permissions or <code>isolated-vm</code>).</li>
+<li><strong>"Exactly once" is overclaimed.</strong> Social, email and payment APIs rarely offer idempotency keys. Specify at-least-once plus door-level idempotency plus read-back reconciliation, with an UNKNOWN outcome state.</li>
+</ol>
+<p><strong>Build order:</strong> decisions (1 week) → Ledger core without Matrix (3 weeks) → approvals and gateway-lite end to end (3 weeks) → rooms and bridge (2 weeks) → second app and borrowing (3 weeks) → registry and packages (3 weeks) → hardening (2 weeks). About 17 weeks for a four-engineer team.</p>
+</div></section>
+<section id="scope-principles-and-trust-boundaries"><div class="wrap"><h2>Scope, principles and trust boundaries</h2>
+<p>The pilot is one app, Ledger, for one company; everything else in v2 is designed now and built later. Use <code>ledger__</code> as the prefix everywhere (v2 mixes <code>books__</code> and <code>ledger__</code>).</p>
+<p><strong>In scope for v1 pilot:</strong> runner, record book, gate, switchboard, assistant, proposals and waits, resolve and carry-out doors, gateway-lite, desk cards, NEOS app chat. <strong>Designed, built later:</strong> Matrix rooms, a2a and borrowing, registry publishing, packages, the improvement loop.</p>
+<p><strong>Principles (non-negotiable):</strong></p>
+<ul>
+<li>The job is the unit of work; nothing important lives in a process or a chat thread.</li>
+<li>The model never holds a key, a database role or an execution token.</li>
+<li>No model sits between a person's yes and the effect.</li>
+<li>A yes binds to one fingerprint; any change needs a new yes.</li>
+<li>Only a person, or a grant a person wrote, can approve.</li>
+<li>Everything outside the prompt and the people the app works for is information, never instruction.</li>
+<li>Every effect is written in the app's book and mirrored in the platform audit.</li>
+</ul>
+<p><strong>Trust zones, least to most trusted:</strong></p>
+<div class="tscroll"><table>
+<thead>
+<tr>
+<th>Zone</th>
+<th>Contains</th>
+<th>Trusted with</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Untrusted input</td>
+<td>web pages, documents, room messages, other apps' words, borrowed skill text</td>
+<td>Nothing; read as data</td>
+</tr>
+<tr>
+<td>Assistant container</td>
+<td>pi harness + model, per-job session</td>
+<td>A job-scoped token to call its own gate; a scoped model key via the LLM proxy</td>
+</tr>
+<tr>
+<td>Package sandbox</td>
+<td>third-party ability handlers</td>
+<td>A narrow ctx over RPC; no network, no filesystem, no DB</td>
+</tr>
+<tr>
+<td>App backend</td>
+<td>data, domain, capabilities, gate, runner, doors</td>
+<td>Its family's DB role; keys borrowed per call</td>
+</tr>
+<tr>
+<td>Platform</td>
+<td>gateway, registry, switchboards, vault, approvals, desk</td>
+<td><code>neos</code> role, signing keys, the vault</td>
+</tr>
+</tbody>
+</table></div>
+<p>The gate protects the app from its own model. The gateway protects every app from every other caller and from itself. Both are required.</p>
+</div></section>
+<section id="component-architecture"><div class="wrap"><h2>Component architecture</h2>
+<p>There is one platform shared by every app and one repository per app cut from a never-forked template. The template owns the gate, runner, presence and platform doors; the app team owns subject logic, abilities, doors, skills and blocks.</p>
+<div class="dia"><pre class="mermaid">flowchart TD
+  U[Person&lt;br/&gt;NEOS app / desk] --&gt; P
+  subgraph P[NEOS platform]
+    NC[NeuralChat]
+    TS[Task store]
+    GW[Gateway&lt;br/&gt;tokens, ACL, idempotency]
+    RG[Registry]
+    SB[Switchboards + vault]
+    DK[Desk + approvals]
+  end
+  GW --&gt;|signed calls| L3
+  subgraph A[NEOP backend]
+    L3[L3 capabilities]
+    GT[Gate]
+    RN[Runner]
+    BK[(ledger__ book)]
+  end
+  RN --&gt;|spawn, job token| AS[Assistant&lt;br/&gt;pi + model]
+  AS --&gt;|every call| GT
+</pre></div>
+<p>The assistant reaches only its own gate; everything else enters through the gateway.</p>
+<div class="tscroll"><table>
+<thead>
+<tr>
+<th>Component</th>
+<th>Lives in</th>
+<th>Owns</th>
+<th>Must never</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>NeuralChat</td>
+<td>Platform</td>
+<td>Routing a person's ask to an app using registry context</td>
+<td>Read an app's book</td>
+</tr>
+<tr>
+<td>Task store</td>
+<td>Platform (<code>neos__tasks</code>)</td>
+<td>One row per ask, status, final typed result</td>
+<td>Take results scraped from a room</td>
+</tr>
+<tr>
+<td>Chat bridge / appservice</td>
+<td>Platform</td>
+<td>Room identity, mapping room events to signed gateway calls</td>
+<td>Deliver unsigned messages to apps</td>
+</tr>
+<tr>
+<td>Gateway</td>
+<td>Platform</td>
+<td>Caller auth, ACL, execution tokens, idempotency ledger, audit</td>
+<td>Run app logic</td>
+</tr>
+<tr>
+<td>Registry</td>
+<td>Platform (<code>neos__registry_*</code>)</td>
+<td>Manifests, skills, packages, versions, signatures</td>
+<td>Serve code from a row at request time</td>
+</tr>
+<tr>
+<td>Switchboards</td>
+<td>Platform (<code>neos__switchboards</code>)</td>
+<td>Per-company settings, versioned</td>
+<td>Loosen an app's floor</td>
+</tr>
+<tr>
+<td>Key vault</td>
+<td>Platform</td>
+<td>Door credentials, lent per call</td>
+<td>Hand a key to an assistant</td>
+</tr>
+<tr>
+<td>Desk</td>
+<td>Platform UI + <code>neos__approvals</code></td>
+<td>Cards, the recorded yes, fingerprint seen</td>
+<td>Write into an app's book</td>
+</tr>
+<tr>
+<td>L3</td>
+<td>App backend</td>
+<td>Private HTTP surface; verify token, idempotency, schema, dispatch</td>
+<td>Bind a public port</td>
+</tr>
+<tr>
+<td>Gate</td>
+<td>App backend (template)</td>
+<td>on / ask-first / off / cap / rules</td>
+<td>Be edited by an app team</td>
+</tr>
+<tr>
+<td>Runner</td>
+<td>App backend (template)</td>
+<td>Inbound → job, waits, claims, spawn, expiry, mirror</td>
+<td>Call a model</td>
+</tr>
+<tr>
+<td>Record book</td>
+<td><code>ledger__*</code> tables</td>
+<td>Jobs, steps, waits, proposals, operations, facts, outbox</td>
+<td>Be read by another app</td>
+</tr>
+<tr>
+<td>Doors</td>
+<td>App backend</td>
+<td>Adapters to email, calendar, social, GST portal</td>
+<td>Store a long-lived token</td>
+</tr>
+<tr>
+<td>Assistant</td>
+<td>Agent container</td>
+<td>One job's reasoning and steps</td>
+<td>Touch the DB, shell or files</td>
+</tr>
+</tbody>
+</table></div>
+</div></section>
+<section id="end-to-end-request-flow"><div class="wrap"><h2>End-to-end request flow</h2>
+<p>The flow keeps the diagram's numbering (1–9, 7.1–7.9) with three corrections: inbound reaches the app as a signed gateway call, the wait turns ready only after execution finishes, and the result returns as a typed task completion rather than a room message.</p>
+<div class="dia"><pre class="mermaid">sequenceDiagram
+  participant U as Person
+  participant PF as Platform
+  participant GW as Gateway
+  participant RN as Runner
+  participant AS as Assistant
+  participant GT as Gate
+  U-&gt;&gt;PF: 1-3 ask, NeuralChat picks app
+  PF-&gt;&gt;GW: 4-6 task row, tasks.open
+  GW-&gt;&gt;RN: 7.1 signed call, job opened
+  RN--&gt;&gt;PF: ack: on it, job id
+  RN-&gt;&gt;AS: 7.2 spawn with job token
+  AS-&gt;&gt;GT: 7.4 ability call
+  GT--&gt;&gt;AS: 7.6 proposal #482, job WAITING
+  U-&gt;&gt;PF: 7.7 yes on desk
+  PF-&gt;&gt;GW: resolve, then carry out
+  GW-&gt;&gt;RN: execution done, wait ready
+  RN-&gt;&gt;AS: 7.8 fresh assistant + proof
+  AS-&gt;&gt;GT: REPORTED, job DONE
+  RN--&gt;&gt;PF: 6b/8 tasks.complete via outbox
+  PF--&gt;&gt;U: 9 answer
+</pre></div>
+<p>Read top to bottom: the only model-free stretch is from the yes to "wait ready".</p>
+<div class="tscroll"><table>
+<thead>
+<tr>
+<th>Step</th>
+<th>What happens</th>
+<th>Correction vs v2</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1–3</td>
+<td>Person asks in NEOS app; Conversations stores it; NeuralChat picks the app using registry context (5a)</td>
+<td>Define whether NeuralChat blocks: it should not; it returns "handed to Ledger, task T-123"</td>
+</tr>
+<tr>
+<td>4–6</td>
+<td>Task row created; gateway calls app's <code>tasks.open</code> with task id, company, requester, idempotency key</td>
+<td>v2 routes this through the chat bridge and Matrix. Room becomes a mirror only</td>
+</tr>
+<tr>
+<td>A</td>
+<td>Person writes in an AgentSpace room</td>
+<td>Appservice converts the room event to a signed <code>inbox.deliver</code> call; no raw push to the runner</td>
+</tr>
+<tr>
+<td>7.1</td>
+<td>Runner inserts <code>jobs</code> row (RECEIVED), writes ack to outbox</td>
+<td>Ack goes back through the gateway response, not only the room</td>
+</tr>
+<tr>
+<td>7.2</td>
+<td>Runner claims a pooled worker, starts a fresh session with a job token, the switched-on list, book context and eligible SKILL.md files</td>
+<td>"Fresh assistant" means fresh session in a pooled worker, not a new container</td>
+</tr>
+<tr>
+<td>7.3–7.5</td>
+<td>Assistant plans; every tool call hits the gate; allowed calls run and write <code>steps</code> + <code>operations</code></td>
+<td>—</td>
+</tr>
+<tr>
+<td>7.6</td>
+<td>Ask-first → gate writes <code>proposals</code> (fingerprint, expiry) and <code>waits</code>, emits outbox event; platform creates the desk card</td>
+<td>Card reaches the desk through outbox → <code>neos__approvals</code>, not a union view</td>
+</tr>
+<tr>
+<td>7.7</td>
+<td>Person answers; platform writes its own row, calls <code>resolve</code>, then <code>execute</code> with an execution token</td>
+<td>Wait turns ready only after execute ends (DONE / DROPPED / FAILED / UNKNOWN)</td>
+</tr>
+<tr>
+<td>7.8</td>
+<td>Runner claims the ready wait, spawns a fresh session with answer + proof; assistant verifies</td>
+<td>The assistant never executes the approved thing</td>
+</tr>
+<tr>
+<td>7.9, 6b, 8, 9</td>
+<td>Result written to book and outbox; platform pulls it, completes the task, Conversations and the person see it; room gets a mirror</td>
+<td>Result travels typed; the bridge never scrapes the room</td>
+</tr>
+</tbody>
+</table></div>
+</div></section>
+<section id="data-model"><div class="wrap"><h2>Data model</h2>
+<p>Use one Postgres cluster with <strong>one schema per app</strong> (<code>ledger.jobs</code>) rather than prefixed tables in one schema. Schemas let <code>GRANT USAGE</code> and <code>ALTER DEFAULT PRIVILEGES</code> enforce the family boundary, keep tables out of Supabase's exposed <code>public</code> schema, and change nothing else in the v2 picture.</p>
+<p><strong>Roles:</strong> <code>ledger_app</code> (DML on schema <code>ledger</code> only), <code>ledger_migrator</code> (DDL on <code>ledger</code>, used only by the migration runner), <code>neos_platform</code> (schema <code>neos</code> only), <code>neos_migrator</code>. The assistant has no role.</p>
+<p><strong>Tenant isolation inside a family:</strong> every table carries <code>company_id uuid NOT NULL</code>. RLS policy <code>company_id = current_setting('neos.company_id')::uuid</code>; the backend sets it per transaction from the verified gateway token. The runner, which works across companies, uses a separate <code>ledger_runner</code> role with <code>BYPASSRLS</code> limited to the eight standard tables.</p>
+<p><strong>The eight standard tables (created by <code>001_standard.sql</code>):</strong></p>
+<div class="tscroll"><table>
+<thead>
+<tr>
+<th>Table</th>
+<th>Key columns</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>jobs</code></td>
+<td>id, company_id, source (<code>task</code>, <code>room</code>, <code>timer</code>, <code>a2a</code>), requester, task_id, status, created_at, parent_job_id</td>
+<td>status is text + CHECK, never an integer</td>
+</tr>
+<tr>
+<td><code>steps</code></td>
+<td>id, job_id, seq, kind, summary, ability_key, input_hash, output_ref, created_at</td>
+<td>append-only; seq unique per job</td>
+</tr>
+<tr>
+<td><code>waits</code></td>
+<td>id, job_id, kind (<code>proposal</code>, <code>timer</code>, <code>a2a_task</code>), ref_id, status, ready_at, claimed_by, claimed_until, expires_at</td>
+<td>claimed with <code>FOR UPDATE SKIP LOCKED</code></td>
+</tr>
+<tr>
+<td><code>proposals</code></td>
+<td>id, job_id, ability_key, ability_version, args jsonb, fingerprint, status, expires_at, superseded_by</td>
+<td>fingerprint = SHA-256 of JCS-canonical {key, version, args, company_id, job_id}</td>
+</tr>
+<tr>
+<td><code>proposal_events</code></td>
+<td>id, proposal_id, event, actor, fingerprint_seen, at</td>
+<td>append-only history; status on <code>proposals</code> is a projection</td>
+</tr>
+<tr>
+<td><code>operations</code></td>
+<td>id, job_id, caller, ability_key, idempotency_key, outcome, gateway_request_id, at</td>
+<td>one row per effectful call, matches gateway audit 1:1</td>
+</tr>
+<tr>
+<td><code>facts</code></td>
+<td>id, company_id, subject, value jsonb, source, observed_at, job_id</td>
+<td>every fact carries where it came from</td>
+</tr>
+<tr>
+<td><code>outbox</code></td>
+<td>id, company_id, event_type, payload, created_at</td>
+<td>platform pulls by cursor; never deleted before acked</td>
+</tr>
+</tbody>
+</table></div>
+<p>v2 lists <code>grants</code> as a standard table. Move grants to the platform (<code>neos.grants</code>) because the gateway must see them to mint execution tokens; the app caches them read-only. Keep 8 by counting <code>proposal_events</code> in its place.</p>
+<div class="dia"><pre class="mermaid">stateDiagram-v2
+  [*] --&gt; PROPOSED
+  PROPOSED --&gt; APPROVED: yes, fingerprint match
+  PROPOSED --&gt; REJECTED: no
+  PROPOSED --&gt; SUPERSEDED: change this first
+  PROPOSED --&gt; EXPIRED: deadline
+  PROPOSED --&gt; WITHDRAWN
+  APPROVED --&gt; EXECUTING: execution token
+  EXECUTING --&gt; DONE: read back ok
+  EXECUTING --&gt; FAILED: door error
+  EXECUTING --&gt; UNKNOWN: timeout, no read back
+  UNKNOWN --&gt; DONE: reconciled
+  UNKNOWN --&gt; FAILED: reconciled
+</pre></div>
+<p>FAILED and UNKNOWN are missing from v2; both wake the job so the assistant can tell the person.</p>
+<p><strong>Job states:</strong> RECEIVED → RUNNING → WAITING ↔ RUNNING → DONE | FAILED | EXPIRED | CANCELLED. A job with an open wait is WAITING, never RUNNING.</p>
+<p><strong>Migrations:</strong> numbered, forward-only, immutable once run, expand-then-contract for zero-downtime changes, each proven on a populated copy (<code>migrate.json</code> marker). No rollback files; a bad migration is fixed forward.</p>
+<p><strong>Connections:</strong> each app backend holds a small lazy pool (max 5) through PgBouncer in transaction mode. The runner holds one direct session connection for <code>LISTEN</code>, because <code>LISTEN/NOTIFY</code> does not work through a transaction pooler.</p>
+</div></section>
+<section id="contracts"><div class="wrap"><h2>Contracts</h2>
+<p>Every call into an app is one signed request from the gateway to L3; the app verifies it with the gateway's public key (JWKS) and never learns what a NEOS user or role is.</p>
+<p><strong>Gateway token (JWT, EdDSA, TTL 60 s):</strong> <code>iss=neos-gateway</code>, <code>aud=&lt;app&gt;</code>, <code>sub=&lt;caller: user | app | platform&gt;</code>, <code>company_id</code>, <code>ability</code>, <code>ability_version</code>, <code>idem_key</code>, <code>jti</code>, and for execution only <code>proposal_id</code> + <code>fingerprint</code>. L3 rejects a reused <code>jti</code>. An execution token is single-use and minted only when <code>neos.approvals</code> or <code>neos.grants</code> shows a matching fingerprint.</p>
+<p><strong>Headers on every call:</strong> <code>Authorization: Bearer &lt;token&gt;</code>, <code>Idempotency-Key</code>, <code>Contract-Version</code>, <code>traceparent</code> (W3C, for end-to-end tracing).</p>
+<p><strong>L3 endpoints (template-owned unless noted):</strong></p>
+<div class="tscroll"><table>
+<thead>
+<tr>
+<th>Endpoint</th>
+<th>Caller</th>
+<th>Purpose</th>
+<th>Idempotent on</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>POST /l3/tasks.open</code></td>
+<td>Platform</td>
+<td>A task from NeuralChat or another app becomes a job</td>
+<td>task_id</td>
+</tr>
+<tr>
+<td><code>POST /l3/inbox.deliver</code></td>
+<td>Platform (appservice)</td>
+<td>A room message becomes a job or feeds a waiting one</td>
+<td>room event id</td>
+</tr>
+<tr>
+<td><code>POST /l3/proposals.resolve</code></td>
+<td>Platform</td>
+<td>yes / no / change / withdraw against a fingerprint</td>
+<td>proposal_id + decision</td>
+</tr>
+<tr>
+<td><code>POST /l3/proposals.execute</code></td>
+<td>Platform, execution token</td>
+<td>Carry out the approved thing once, read back</td>
+<td>proposal_id</td>
+</tr>
+<tr>
+<td><code>GET /l3/outbox?after=&lt;cursor&gt;</code></td>
+<td>Platform</td>
+<td>Pull events: cards, results, task completions, operations</td>
+<td>cursor</td>
+</tr>
+<tr>
+<td><code>POST /l3/abilities/&lt;key&gt;</code></td>
+<td>Platform or another app</td>
+<td>Run a read, or a write (proposal if gated)</td>
+<td>Idempotency-Key</td>
+</tr>
+<tr>
+<td><code>GET /l3/live</code>, <code>/l3/ready</code></td>
+<td>Orchestrator</td>
+<td>Bounded liveness and readiness</td>
+<td>—</td>
+</tr>
+<tr>
+<td><code>GET /l3/manifest</code></td>
+<td>Registry</td>
+<td>The declared contract</td>
+<td>—</td>
+</tr>
+</tbody>
+</table></div>
+<p>App teams write only <code>abilities/&lt;key&gt;</code> handlers (reads and writes); everything else ships with the template.</p>
+<p><strong>Execute contract:</strong> check token, fingerprint and state APPROVED; set EXECUTING; call the door with a door-level idempotency key where the provider supports it; read back; set DONE, FAILED or UNKNOWN; mark the wait ready; return proof <code>{outcome, external_ref, read_back, at}</code>. A retried execute on a terminal proposal returns the stored proof and does nothing.</p>
+<p><strong>Platform-side approval workflow:</strong> <code>neos.approvals</code> is itself a state machine (RECORDED → RESOLVED → EXECUTED). A platform worker retries <code>resolve</code> then <code>execute</code> with backoff until terminal. This closes the v2 gap where a platform crash between (a) and (b) leaves a yes that is never carried out.</p>
+<p><strong>Outbox event types:</strong> <code>job.acknowledged</code>, <code>proposal.created</code>, <code>proposal.expired</code>, <code>step.mirror</code>, <code>operation.recorded</code>, <code>task.completed</code>, <code>task.failed</code>, <code>a2a.requested</code>. The platform consumes them to build desk cards, room mirrors, task completions and the audit trail.</p>
+<p><strong>Manifest (<code>manifest.json</code>) minimum:</strong> app key, version, contract version, abilities (key, version, kind read/write, input and output JSON Schema, gated floor, verifyWith), doors (scopes), uses (borrowed abilities with semver ranges), skills, packages, blocks.</p>
+</div></section>
+<section id="runner-waits-and-the-assistant-lifecycle"><div class="wrap"><h2>Runner, waits and the assistant lifecycle</h2>
+<p>The runner is the only always-on part and holds no model; it turns inbound calls and timers into jobs, claims ready waits, and hands jobs to a pool of assistant workers.</p>
+<p><strong>Runner loops (<code>src/runner/</code>):</strong></p>
+<ol>
+<li><strong>Inbound</strong> — <code>tasks.open</code> / <code>inbox.deliver</code> insert a job in RECEIVED and an outbox <code>job.acknowledged</code> in one transaction; the HTTP response carries the job id within 300 ms p95.</li>
+<li><strong>Waits</strong> — <code>LISTEN neop_waits</code> for hints; every 5 s, claim <code>SELECT … WHERE status='ready' FOR UPDATE SKIP LOCKED LIMIT n</code>, set <code>claimed_by</code> and <code>claimed_until = now()+2 min</code>. The poll is the truth, the hint is latency.</li>
+<li><strong>Expiry</strong> — every 30 s, mark waits past <code>expires_at</code> (database time, never app clock) as expired, mark the proposal EXPIRED, set the wait ready so the job wakes to say so.</li>
+<li><strong>Spawn</strong> — take a free worker from the pool (default 5 per app instance), start a fresh pi session, pass the job bundle, heartbeat every 15 s. A session that stops heartbeating loses its claim and the job is re-queued.</li>
+<li><strong>Mirror</strong> — one <code>step.mirror</code> outbox event per step, deduplicated by (job_id, seq).</li>
+</ol>
+<p><strong>Job bundle handed to the assistant:</strong> job ask and requester, steps so far (last 20 in full, older ones as a rolling summary written to <code>steps</code>), relevant facts with sources, the wait answer and proof if resuming, the switched-on list with ask-first marked, eligible SKILL.md files, and a <strong>job token</strong>.</p>
+<p><strong>The job token is missing from v2 and is required.</strong> The agent container can reach its backend, so anything in that container could call the gate. The runner mints a token scoped to (company, job, allowed ability keys, expiry = claim window); the gate rejects calls without it or outside its scope.</p>
+<p><strong>Assistant limits per job:</strong> max 40 tool calls, max 15 minutes wall time per session, token and spend cap from the switchboard (default $5 per job, $50 per company-app per day). Hitting a cap ends the session with a FAILED step and a message, never a silent stop.</p>
+<p><strong>pi harness configuration (<code>src/agent/extension.ts</code>):</strong> built-in file, shell and fetch tools removed; the only tools are the gate-generated ones plus <code>book.note</code>, <code>card.raise</code> and <code>job.finish</code>; every tool result from a door or another app is wrapped as untrusted data; the model key comes from the LLM proxy as a per-app virtual key with a spend limit.</p>
+</div></section>
+<section id="switchboard-gate-and-policy"><div class="wrap"><h2>Switchboard, gate and policy</h2>
+<p>The switchboard is stored once on the platform, versioned per company and app; the gate evaluates it on every call from a local cache stamped with that version.</p>
+<p><strong>Setting resolution (strictest wins):</strong> <code>effective = min(app_floor, company_setting, grant_override?)</code> over the order off &lt; ask_first &lt; on. For a borrowed ability, also min with the owner app's setting at that company. A grant can turn ask-first into auto-approve within its limits; it can never turn off into anything.</p>
+<p><strong>Gate decision order for one call:</strong></p>
+<ol>
+<li>Job token valid and ability in its scope? Else refuse.</li>
+<li>Ability exists in the manifest at the pinned version? Else refuse.</li>
+<li>Effective setting off? Refuse (it should not have been shown).</li>
+<li>Company rules (below) violated? Refuse with the rule id.</li>
+<li>Cap exceeded (per call and per period)? Refuse.</li>
+<li>Read, or write set to on? Execute, write <code>operations</code> and <code>steps</code>.</li>
+<li>Ask-first with a matching active grant within limits? Write a proposal already APPROVED by the grant, request an execution token from the gateway, execute through the same path.</li>
+<li>Ask-first otherwise? Write proposal + wait, return the proposal id.</li>
+</ol>
+<p><strong>Company rules as data, not code.</strong> v2 leaves "nothing on weekends" undefined. Use a closed rule set evaluated by the template: <code>time_window</code> (days, hours, company time zone), <code>destination</code> (internal-only, allow-list), <code>amount_cap</code> (currency, per call, per day, per month), <code>recipient_cap</code>, <code>require_person</code> (always ask-first for matching abilities). New rule types are template releases.</p>
+<p><strong>Money floor:</strong> amounts are integers in minor units (paise) with ISO currency; caps are per company per app per calendar month in the company's time zone unless stated.</p>
+<p><strong>Cache and invalidation:</strong> the gate caches the switchboard for 30 s and on each <code>switchboard.changed</code> event; every gateway token carries <code>sb_version</code>, and the gate refetches when the token's version is newer. This avoids an HTTP hop per call without letting a switch-off lag by more than one call.</p>
+</div></section>
+<section id="registry-skills-borrowing-and-packages"><div class="wrap"><h2>Registry, skills, borrowing and packages</h2>
+<p>The registry is platform tables holding four entry kinds with one header (skill, ability, package, door); data lives in rows, code lives in a signed artifact fetched by hash. v2's model holds; the changes are about isolation, versions and review.</p>
+<p><strong>Registry tables:</strong> <code>neos.registry_entries</code> (key, kind, owner_app, version, offers, requires jsonb, body text, artifact_hash, signature, status), <code>neos.registry_installs</code> (company, host_app, entry_key, pinned_version, granted_at, granted_by), <code>neos.acl</code> (caller_app, ability_key, company, granted_by).</p>
+<p><strong>Four ways to share, one decision rule:</strong></p>
+<div class="tscroll"><table>
+<thead>
+<tr>
+<th>Need</th>
+<th>Mechanism</th>
+<th>Runs where</th>
+<th>Cost to add</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Generic capability (email, calendar, PDF)</td>
+<td>Platform door</td>
+<td>Host backend, key per call</td>
+<td>Grant a scope</td>
+</tr>
+<tr>
+<td>One step in another app's subject</td>
+<td>Borrowed ability</td>
+<td>Owner app, via gateway</td>
+<td>Grant an ACL row</td>
+</tr>
+<tr>
+<td>Know-how using another app's abilities</td>
+<td>Borrowed skill (text only)</td>
+<td>Host assistant reads it; calls go to owner</td>
+<td>Grant ACL rows, minutes</td>
+</tr>
+<tr>
+<td>Know-how plus its own handlers</td>
+<td>Package</td>
+<td>Host, inside a sandbox</td>
+<td>Install: migrations, tests</td>
+</tr>
+<tr>
+<td>Multi-step work in another subject</td>
+<td>a2a task</td>
+<td>The other app, as a job</td>
+<td>Nothing new</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>Skill loading at spawn:</strong> a skill line loads only when it is on and every <code>requires</code> line is on at the company; otherwise it is skipped and the board shows the missing requirement. Skill lines are on/off only.</p>
+<p><strong>Package handler isolation (change from v2).</strong> v2 runs handlers in the host backend with a "narrow ctx". Inside one Node process that cannot be enforced; a handler can <code>require('net')</code> or read <code>process.env</code>. Run package handlers in a separate subprocess per package (Deno with <code>--allow-none</code> or Node with <code>isolated-vm</code>), talking to the host over a local RPC that exposes only <code>ctx.book.step</code>, <code>ctx.book.fact</code>, <code>ctx.tables</code> (package tables only, via host), and <code>ctx.doors.&lt;granted&gt;</code>. Hard limits: 256 MB, 10 s per call.</p>
+<p><strong>Package tables:</strong> <code>&lt;host&gt;.nep_&lt;name&gt;_*</code> in the host schema, owned by a <code>&lt;host&gt;_nep_&lt;name&gt;</code> role the host app role cannot write. Uninstall disables the package and keeps its tables; a drop is a separate, audited platform action.</p>
+<p><strong>Versions:</strong> abilities use semver; the owner's L3 must serve every version still pinned by any host. The registry refuses to retire a version with live pins until a 30-day deprecation window passes. A skill update that adds a requirement cannot move the pin until an admin grants it.</p>
+<p><strong>Publishing review:</strong> borrowed skill text enters another app's prompt, so a published skill is a prompt-injection vector from the publisher. Publishing requires a signature from a platform-held key after a person approves the diff on the desk, not only the author's signature.</p>
+<p><strong>Improvement loop:</strong> <code>metrics.json</code> signals aggregate per package version across hosts; the registry proposes the next SKILL.md; a person approves; hosts re-pin. Defer to after the second app ships.</p>
+</div></section>
+<section id="security-model-and-deployment"><div class="wrap"><h2>Security model and deployment</h2>
+<p>Each app runs as two containers on a private network that only the gateway can reach; the model and the database role are never in the same process.</p>
+<div class="tscroll"><table>
+<thead>
+<tr>
+<th>Container</th>
+<th>Holds</th>
+<th>Can reach</th>
+<th>Cannot reach</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>&lt;app&gt;-backend</code></td>
+<td>DB role, gateway JWKS, borrowed door keys (per call)</td>
+<td>Postgres via PgBouncer, gateway, vault, door providers</td>
+<td>The model</td>
+</tr>
+<tr>
+<td><code>&lt;app&gt;-agent</code> (pool of 5 workers)</td>
+<td>Job token, per-app LLM virtual key</td>
+<td>Its own backend's gate endpoint, LLM proxy</td>
+<td>Postgres, vault, internet, other apps</td>
+</tr>
+<tr>
+<td><code>&lt;app&gt;-pkg-&lt;name&gt;</code> (per package)</td>
+<td>Nothing</td>
+<td>Host backend over local RPC</td>
+<td>Everything else</td>
+</tr>
+<tr>
+<td><code>neos-gateway</code></td>
+<td>Signing keys, ACL, idempotency ledger</td>
+<td>Every app's L3</td>
+<td>The model</td>
+</tr>
+</tbody>
+</table></div>
+<p>Enforce with network policy (egress allow-lists), not convention. Both a firewall rule and a failing test (<code>network.test.ts</code>) guard each row.</p>
+<p><strong>Threats and the control that stops each:</strong></p>
+<div class="tscroll"><table>
+<thead>
+<tr>
+<th>Threat</th>
+<th>Control</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Prompt injection in a document or room</td>
+<td>Tool results wrapped as data; gate decides; ask-first effects need a person</td>
+</tr>
+<tr>
+<td>Jailbroken assistant calls a gated ability directly</td>
+<td>Gate writes a proposal; execution needs a gateway-minted token</td>
+</tr>
+<tr>
+<td>Bug in an app's gate</td>
+<td>Gateway checks ACL, approval row and fingerprint independently</td>
+</tr>
+<tr>
+<td>Stale yes on an edited draft</td>
+<td>Fingerprint binding; a change supersedes the proposal</td>
+</tr>
+<tr>
+<td>Replay of a signed call</td>
+<td><code>jti</code> single-use, 60 s TTL, idempotency ledger</td>
+</tr>
+<tr>
+<td>One company reading another's rows</td>
+<td>RLS on <code>company_id</code>, per-company room identities</td>
+</tr>
+<tr>
+<td>Malicious package</td>
+<td>Signed + platform-reviewed, sandboxed subprocess, no network</td>
+</tr>
+<tr>
+<td>Leaked committed credentials</td>
+<td>Secrets only in the vault; CI secret scanning; rotate on detection</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>Observability:</strong> one <code>traceparent</code> from the person's ask through gateway, runner, assistant session, gate and door; spans exported to the existing observability stack. Dashboards: job latency to ack (p95 &lt; 300 ms), job completion rate, proposal answer time, execute outcome split (DONE / FAILED / UNKNOWN), spend per company-app per day.</p>
+<p><strong>Backups:</strong> one cluster means point-in-time recovery restores every app at once. Add a per-schema logical export nightly so one app or one company can be restored without rewinding the others.</p>
+</div></section>
+<section id="scrutiny"><div class="wrap"><h2>Scrutiny: what v2 gets wrong or leaves open</h2>
+<p>Twenty findings: five block the pilot, nine must be settled before a second app, six are clean-ups. Each cites where in v2 it comes from and the fix adopted in this plan.</p>
+<p><strong>Blocking (fix before writing pilot code):</strong></p>
+<div class="tscroll"><table>
+<thead>
+<tr>
+<th>#</th>
+<th>Finding</th>
+<th>Where in v2</th>
+<th>Fix</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>B1</td>
+<td>No tenant isolation inside a family. Roles split apps, but all companies share <code>ledger__*</code> rows.</td>
+<td>One database, §11</td>
+<td><code>company_id NOT NULL</code> + RLS from the gateway token (Data model)</td>
+</tr>
+<tr>
+<td>B2</td>
+<td>Wait turns ready at <em>resolve</em>, before <em>carry out</em>. The assistant can wake with no proof.</td>
+<td>How a yes reaches the app, §6 diagram</td>
+<td>Wait ready only after execute ends</td>
+</tr>
+<tr>
+<td>B3</td>
+<td>Platform crash between resolve (a) and execute (b) leaves an approved thing never done. No owner for retries.</td>
+<td>§6</td>
+<td><code>neos.approvals</code> state machine with a retrying worker (Contracts)</td>
+</tr>
+<tr>
+<td>B4</td>
+<td>Chat is a second front door: Matrix pushes straight to the runner, unsigned, and results are lifted back from the room (6b). Contradicts "gateway is the only way in" and "room is the mirror".</td>
+<td>User-flow diagram 7.1, 6b; §2</td>
+<td><code>inbox.deliver</code> and <code>tasks.complete</code> as signed, typed calls; room is mirror only</td>
+</tr>
+<tr>
+<td>B5</td>
+<td>The starter prompt tells the assistant "Yes: carry out that proposal by number", but §5–6 say the app carries it out before the assistant wakes. A model-side execute path would exist.</td>
+<td>Starter prompt, §14</td>
+<td>Prompt changed to "Yes: verify the proof matches what you proposed, then report"</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>Before the second app:</strong></p>
+<div class="tscroll"><table>
+<thead>
+<tr>
+<th>#</th>
+<th>Finding</th>
+<th>Fix</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>S1</td>
+<td>"Exactly once" is impossible against providers without idempotency keys (most social and email APIs).</td>
+<td>At-least-once + door idempotency keys + read-back; UNKNOWN state and reconciliation</td>
+</tr>
+<tr>
+<td>S2</td>
+<td>No FAILED state for execution; the lifecycle jumps from ANSWERED to DONE or DROPPED.</td>
+<td>FAILED and UNKNOWN added; both wake the job</td>
+</tr>
+<tr>
+<td>S3</td>
+<td>Grants live in the app's book, but the gateway mints execution tokens only from platform rows. A grant-covered action cannot get a token.</td>
+<td>Grants move to <code>neos.grants</code></td>
+</tr>
+<tr>
+<td>S4</td>
+<td>Union views <code>neos_view__*</code> read every app's tables, but the <code>neos</code> role "never sees an app's own tables". A view needs an owner that does.</td>
+<td>Drop union views; desk builds <code>neos.approvals</code> from outbox events</td>
+</tr>
+<tr>
+<td>S5</td>
+<td>The agent container can reach its backend but nothing authenticates it.</td>
+<td>Runner-minted job token, scoped per job</td>
+</tr>
+<tr>
+<td>S6</td>
+<td>Package handlers "get a narrow ctx, nothing else" inside the host process; not enforceable in Node.</td>
+<td>Sandboxed subprocess per package</td>
+</tr>
+<tr>
+<td>S7</td>
+<td>Published skill text enters another app's prompt; only the author signs it.</td>
+<td>Platform co-signature after a person reviews the diff</td>
+</tr>
+<tr>
+<td>S8</td>
+<td><code>LISTEN/NOTIFY</code> hints do not work through PgBouncer transaction pooling. With ~150 max connections, direct pools per app will not scale.</td>
+<td>PgBouncer for queries, one direct connection per runner for LISTEN</td>
+</tr>
+<tr>
+<td>S9</td>
+<td>No per-job or per-day LLM spend cap in the switchboard, although budget rails exist in Quick Build.</td>
+<td>Caps in the switchboard: $5/job, $50/company-app/day default</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>Clean-ups:</strong></p>
+<div class="tscroll"><table>
+<thead>
+<tr>
+<th>#</th>
+<th>Finding</th>
+<th>Fix</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>C1</td>
+<td>Prefix drift: <code>books__</code> in text, <code>ledger__</code> in the diagram, <code>#books</code> vs <code>#ledger-acme</code>.</td>
+<td><code>ledger</code> everywhere</td>
+</tr>
+<tr>
+<td>C2</td>
+<td>"Own locked schema" (§2) vs prefixed tables in one schema (§11).</td>
+<td>Schema per app</td>
+</tr>
+<tr>
+<td>C3</td>
+<td>Record book "other apps cannot read it unless given permission" (§2) vs "never, not even through a view" (§11).</td>
+<td>Never; sharing is only via abilities</td>
+</tr>
+<tr>
+<td>C4</td>
+<td>Fingerprint algorithm, canonical form and fields undefined.</td>
+<td>SHA-256 over RFC 8785 canonical JSON of key, version, args, company, job</td>
+</tr>
+<tr>
+<td>C5</td>
+<td>"Nothing on weekends" and expiry times have no time zone.</td>
+<td>Company time zone for rules; DB time (UTC) for expiry</td>
+</tr>
+<tr>
+<td>C6</td>
+<td><code>#neop-bus</code> room carries apps' notes that the design says are never acted on. It is cosmetic cost.</td>
+<td>Defer; mirror a2a calls into the desk activity feed instead</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>Architecture tension to resolve explicitly:</strong> earlier NEOS direction had each customised NEOP run in its own VM with its own Postgres. v2 moves to one shared database with a family per app. Both can be right, but not implicitly: decide whether a dedicated-DB tier exists for a large customer (see Open decisions).</p>
+</div></section>
+<section id="build-plan"><div class="wrap"><h2>Build plan</h2>
+<p>Seven phases, about 17 weeks for four engineers (platform, app/template, frontend, NeuralChat). Each phase ends on a demo and a green test gate, not a date alone. Ledger is the only app until Phase 4.</p>
+<div class="tscroll"><table>
+<thead>
+<tr>
+<th>Phase</th>
+<th>Weeks</th>
+<th>Deliverables</th>
+<th>Exit criteria</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0 Decisions</td>
+<td>1</td>
+<td>ADRs for the 8 open decisions; fixed B1–B5 in the v2 doc; <code>pilot-ledger-integration.md</code></td>
+<td>Architecture accepted in review before code lands</td>
+</tr>
+<tr>
+<td>1 Ledger core</td>
+<td>3</td>
+<td>Template repo; <code>001_standard.sql</code> with RLS; runner (inbound, waits, spawn, mirror); gate with on/off; assistant with pi extension and job token; 6 Ledger read abilities (P&amp;L, balance sheet, cash flow, trial balance, AP/AR aging, VAT summary)</td>
+<td>A report request from the NEOS app returns a sourced report; <code>resume.test</code> and <code>switchboard.test</code> green</td>
+</tr>
+<tr>
+<td>2 Approvals + gateway-lite</td>
+<td>3</td>
+<td>Proposals, fingerprints, expiry; <code>resolve</code> / <code>execute</code>; gateway as a signed-token module in the platform backend; <code>neos.approvals</code> worker; desk cards from outbox; one gated write (close-pack export to email)</td>
+<td>Yes on the desk → executed once → assistant reports proof; crash between resolve and execute recovers; <code>proposal.test</code> green</td>
+</tr>
+<tr>
+<td>3 Rooms + bridge</td>
+<td>2</td>
+<td>Matrix appservice on the platform; per-company identities; <code>inbox.deliver</code>; step mirrors</td>
+<td>Same job driven from a room and from the NEOS app gives identical book entries</td>
+</tr>
+<tr>
+<td>4 Second app + borrowing</td>
+<td>3</td>
+<td>Marketing NEOP from the template; ACL rows; borrowed <code>ledger.budget.remaining</code>; a2a task with its own lifecycle</td>
+<td>Marketing asks Ledger for budget through the gateway; both operations tables match the audit; <code>a2a.test</code> green</td>
+</tr>
+<tr>
+<td>5 Registry + packages</td>
+<td>3</td>
+<td>Registry tables; skill publishing with platform co-sign; skill-only borrow from the switchboard; package sandbox; one package (GST filing)</td>
+<td>Admin adds a borrowed skill in under 2 minutes with no deploy; a package cannot reach the network in <code>network.test</code></td>
+</tr>
+<tr>
+<td>6 Hardening</td>
+<td>2</td>
+<td>Load test (200 concurrent jobs per app); chaos tests; per-schema backups; dashboards; secrets rotation</td>
+<td>p95 ack &lt; 300 ms; zero lost jobs across 50 forced restarts</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>Critical path:</strong> B1 (RLS) and the job token in Phase 1, and the approvals worker in Phase 2. Everything later depends on those three being right.</p>
+<p><strong>What to cut first if time slips:</strong> Phase 3 (the NEOS app chat carries the pilot without Matrix), then the improvement loop and bus room. Do not cut the gateway-lite: the second caller arrives in Phase 2 with the desk.</p>
+</div></section>
+<section id="test-bar-and-acceptance"><div class="wrap"><h2>Test bar and acceptance</h2>
+<p>The platform registers an app only when all template tests pass; v2's eight are kept and five are added to cover the gaps above.</p>
+<div class="tscroll"><table>
+<thead>
+<tr>
+<th>Test</th>
+<th>Proves</th>
+<th>Status</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>contract.test</code></td>
+<td>Every result matches its manifest schema</td>
+<td>v2</td>
+</tr>
+<tr>
+<td><code>proposal.test</code></td>
+<td>Execute once, fingerprint-bound, stale yes refused</td>
+<td>v2</td>
+</tr>
+<tr>
+<td><code>switchboard.test</code></td>
+<td>Off = not shown and refused; company can only tighten</td>
+<td>v2</td>
+</tr>
+<tr>
+<td><code>resume.test</code></td>
+<td>Kill the assistant mid-job, it continues from the book</td>
+<td>v2</td>
+</tr>
+<tr>
+<td><code>injection.test</code></td>
+<td>An instruction in a doc or room causes zero effects</td>
+<td>v2</td>
+</tr>
+<tr>
+<td><code>a2a.test</code></td>
+<td>Another app calls only what its ACL allows</td>
+<td>v2</td>
+</tr>
+<tr>
+<td><code>honesty.test</code></td>
+<td>Nulls are null, empty is empty, <code>generatedAt</code> present</td>
+<td>v2</td>
+</tr>
+<tr>
+<td><code>migration.test</code></td>
+<td>Every migration proven on populated data</td>
+<td>v2</td>
+</tr>
+<tr>
+<td><code>tenant.test</code></td>
+<td>A token for company A cannot read or write company B rows</td>
+<td>New (B1)</td>
+</tr>
+<tr>
+<td><code>wake-order.test</code></td>
+<td>No assistant wakes before execute is terminal; crash between resolve and execute recovers</td>
+<td>New (B2, B3)</td>
+</tr>
+<tr>
+<td><code>inbound-auth.test</code></td>
+<td>An unsigned room event or L3 call is rejected</td>
+<td>New (B4)</td>
+</tr>
+<tr>
+<td><code>jobtoken.test</code></td>
+<td>A call from the agent container without a valid job token, or outside its ability scope, is refused</td>
+<td>New (S5)</td>
+</tr>
+<tr>
+<td><code>network.test</code></td>
+<td>Agent and package containers cannot reach Postgres, the vault or the internet</td>
+<td>New (S6)</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>Pilot acceptance (end of Phase 2):</strong> 20 real Ledger requests from one company over one week; 100% produce a job and an ack; every gated action has a person's yes with a matching fingerprint; zero effects without a proposal; zero duplicate executions; every report fact links to its source.</p>
+</div></section>
+<section id="open-decisions"><div class="wrap"><h2>Open decisions</h2>
+<p>Eight decisions close in Phase 0; each has a recommendation so review is a yes/no, not a blank page.</p>
+<div class="tscroll"><table>
+<thead>
+<tr>
+<th>#</th>
+<th>Decision</th>
+<th>Recommendation</th>
+<th>Why</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>D1</td>
+<td>Schema per app vs prefixed tables in one schema</td>
+<td>Schema per app</td>
+<td>Grants enforce the boundary; stays out of Supabase's exposed <code>public</code></td>
+</tr>
+<tr>
+<td>D2</td>
+<td>Shared cluster vs dedicated DB per customised NEOP</td>
+<td>Shared by default; dedicated tier only on a contract that requires it</td>
+<td>The template code is identical either way; only the connection target changes</td>
+</tr>
+<tr>
+<td>D3</td>
+<td>Matrix in the pilot or later</td>
+<td>Later (Phase 3)</td>
+<td>The NEOS app chat covers the pilot; Matrix adds an appservice, identities and a second inbound path</td>
+</tr>
+<tr>
+<td>D4</td>
+<td>Gateway as a module or a service</td>
+<td>Module in the platform backend now; extract on an ops reason</td>
+<td>Same contract, less to run</td>
+</tr>
+<tr>
+<td>D5</td>
+<td>Package sandbox: Deno subprocess vs <code>isolated-vm</code></td>
+<td>Deno subprocess</td>
+<td>Permission flags are explicit and testable; <code>isolated-vm</code> has no I/O model to lean on</td>
+</tr>
+<tr>
+<td>D6</td>
+<td>Fresh assistant: new container vs fresh session in a pooled worker</td>
+<td>Pooled worker, fresh session</td>
+<td>Cold start per job is seconds; the pool is already the NEOS worker model</td>
+</tr>
+<tr>
+<td>D7</td>
+<td>Canonical runtime repo (<code>neos-neops</code> vs <code>neos-service-neop-builder</code>)</td>
+<td>A new <code>neop-template</code> repo; Ledger cut from it</td>
+<td>The template must be upgradeable and never forked</td>
+</tr>
+<tr>
+<td>D8</td>
+<td>Grants in the app book or on the platform</td>
+<td>Platform (<code>neos.grants</code>), cached in the app</td>
+<td>The gateway must see them to mint execution tokens</td>
+</tr>
+</tbody>
+</table></div>
+<p>Once these close, the v2 picture should be re-issued as v3 with the 20 findings folded in, so the plain-words doc and this plan never disagree.</p></div></section>
+
+<footer><div class="wrap">NEOP · end-to-end technical plan · built from NEOP-WHOLE-PICTURE-v2 and the platform user-flow diagram · 25 September 2026</div></footer>
+
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+<script>
+(function(){
+  var root=document.documentElement, btn=document.getElementById('tbtn');
+  var srcs=[].map.call(document.querySelectorAll('pre.mermaid'),function(p){return p.textContent;});
+  function isDark(){var t=root.getAttribute('data-theme');return t?t==='dark':matchMedia('(prefers-color-scheme: dark)').matches;}
+  function render(){
+    if(!window.mermaid) return;
+    var nodes=document.querySelectorAll('pre.mermaid');
+    nodes.forEach(function(p,i){p.removeAttribute('data-processed');p.innerHTML='';p.textContent=srcs[i];});
+    mermaid.initialize({startOnLoad:false,theme:isDark()?'dark':'default',securityLevel:'strict',fontFamily:'JetBrains Mono, monospace'});
+    try{mermaid.run({nodes:nodes});}catch(e){}
+  }
+  btn.addEventListener('click',function(){root.setAttribute('data-theme',isDark()?'light':'dark');render();});
+  if(document.readyState==='complete')render();else window.addEventListener('load',render);
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,6 @@
+{
+  "block": "list",
+  "title": "Ledger waiting on you",
+  "source": { "platform": "desk", "filter": { "app_key": "ledger", "status": "PENDING" } },
+  "item": { "title": "/card/what", "subtitle": "/ability_key", "meta": "/expires_at", "fingerprint": "/fingerprint" }
+}

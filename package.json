@@ -1,0 +1,36 @@
+{
+  "name": "neops",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@11.11.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "db:up": "docker compose up -d postgres",
+    "db:down": "docker compose down",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "dev": "tsx apps/ledger/scripts/dev.ts",
+    "seed": "tsx apps/ledger/scripts/seed.ts",
+    "test:load": "vitest run --config vitest.load.config.ts",
+    "migrate": "tsx scripts/migrate.ts",
+    "backup": "tsx scripts/backup.ts",
+    "publish-package": "tsx scripts/publish-package.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "@types/pg": "^8.11.0",
+    "tsx": "^4.20.0",
+    "typescript": "^5.9.0",
+    "vitest": "^3.2.0",
+    "yaml": "^2.9.1"
+  },
+  "dependencies": {
+    "@neop/ledger": "workspace:*",
+    "@neop/marketing": "workspace:*",
+    "@neop/platform": "workspace:*",
+    "@neop/template": "workspace:*",
+    "@neop/pgkit": "workspace:*"
+  }
+}

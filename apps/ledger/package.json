@@ -1,0 +1,24 @@
+{
+  "name": "@neop/ledger",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@neop/contracts": "workspace:*",
+    "@neop/pgkit": "workspace:*",
+    "@neop/platform": "workspace:*",
+    "@neop/template": "workspace:*",
+    "@mariozechner/pi-ai": "^0.73.1",
+    "jose": "^6.1.0",
+    "pg": "^8.16.0",
+    "hono": "^4.9.0",
+    "@hono/node-server": "^1.19.0"
+  },
+  "devDependencies": {
+    "@neop/testkit": "workspace:*",
+    "@neop/marketing": "workspace:*"
+  }
+}
