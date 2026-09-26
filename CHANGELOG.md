@@ -1,5 +1,13 @@
 # Changelog
 
+## neop-ledger 1.4.0 · validated against the plan — 2026-09-27
+Every plan item traced to working code and a test; each gap fixed and run live (`docs/DRIFT-PLAN.md`, third pass).
+- **Runtime:** job-keyed model budget; version and switch re-checked at execute; timers and schedules; rolling summary; untrusted wrapping for every outside text; the 40-call and session limits tested.
+- **Platform:** no stuck approvals; `ability_version` in tokens; model-based NeuralChat routing; conformance attestation at registration; durable key rotation; registry author signatures, four-eyes, install self-tests, audited drop; ACL and switchboard pushes retried; `tasks.open` retried for a window.
+- **GST:** GSTR-3B from the books, filed through a GSP after a person's yes.
+- **Ops:** nightly backups, Jaeger/Prometheus/Grafana, egress allow-list, CI netcheck, migration safety lints, dedicated-DB tier, live kill -9 chaos.
+- **Inherited from the arch-shiv Ledger:** Matrix client road (bridges never approve), opening balances, settings, aging analysis, cash forecast, tax return per regime, exports, paid expenses, bank match/ignore, documents door (PDF/XLSX/CSV, no model) wired through attachments on an ask, legacy import.
+
 ## neop-ledger 1.3.0 · on the NEOS platform — 2026-09-26
 Aligns Ledger with the NEOS platform as it runs today (`docs/pilot-ledger-integration.md`, the plan's Phase 0 deliverable).
 - **`neop.v1` bridge:** Ledger installs on `neos-service-platform-api` from a generated descriptor (accepted unmodified by the platform's own validator) and answers its gateway's operation tokens at `/capabilities/<id>`: 17 reads, `ledger.ask` (a job), `ledger.job`, and `ledger.proposal.decide` (human-gated, never dispatched). No write is a capability.

@@ -40,7 +40,12 @@ Each item is small; flag any you disagree with.
     - The gateway makes two round trips: checks plus ledger row in one statement, then ledger result plus audit.
     - The app opens a job in one statement: job, first step, mirror, ack and hint.
     - **What the load test asserts** is the plan's metric, the app's own ack time (the `neop_job_ack_seconds` histogram): at 200 concurrent new jobs, the p95 bucket ≤ 300 ms (`apps/ledger/load/phase6.test.ts`). It does not assert anything tighter.
-    - **End to end through the gateway it is slower, and it misses the plan's 300 ms.** Measured p95 was 362–542 ms across runs in the test harness (platform, app and agents in one Node process, so token signing and verification queue on one thread). The load test only bounds it (< 1 s). Measure on the real topology before quoting a figure; do not quote 200 ms.
+    - **End to end through the gateway it misses the plan's 300 ms for a simultaneous burst of 200.** Measured on the real Docker topology (`neops-v3`, 26 Sep 2026, laptop, Docker Desktop, 10 CPUs):
+      - one ask: 12–20 ms; 10 at once: p95 39 ms; 50 at once: p95 159–237 ms; 100 at once: p95 248–504 ms; 200 at once: p95 369–735 ms (every ask acknowledged).
+      - The app's own share (L3 `tasks.open`, `neop_job_ack_seconds`) is small: p50 10 ms, p95 48 ms. The gateway call: p50 23 ms, p95 60 ms.
+      - The rest is the platform queueing a burst: before the gateway (auth, conversation, registry context, task row) p95 ~260 ms, and HTTP handling before the ask's span starts.
+      - Tried: registry context projected in SQL (kept); platform pool 20 → 60 plus PgBouncer 60 (no clear change); `synchronous_commit = off` (no clear change, reverted). Noise between runs is ±150 ms on this machine.
+      - **Open:** profile the platform process under a burst on production-like hardware; likely levers are fewer round trips per ask (fold auth, conversation and task row into one statement) and running more than one platform process behind the load balancer. The in-process load test only bounds it (< 1 s).
 25. **Shutdown is bounded** (2 s). Anything still in flight is abandoned as a crash would abandon it: connections close, advisory locks release, and the book lets the next process resume.
 26. **Ledger's writes check the books before anyone is asked** (template `validate` hook). An unknown customer, overpayment, duplicate bill, locked month, double reversal or unreconciled month is refused at the gate, with no card raised.
 

@@ -45,3 +45,38 @@ A second pass read the plan's docs again together with `neos-service-platform-ap
 | 12 | The desk read as a second product UI | Test harness: compose profile `test`, badge, refuses production; product UI is the NEOS app | web.test, network.test |
 | 13 | "Every migration proven on populated data" was a test, not a gate | `migrate.json` per stream; production refuses an unproven file | migration.test |
 | 14 | Borrowed versions not checked | semver `uses` ranges at registration, both ways | a2a.test, semver.test |
+
+## Third pass · 26–27 September 2026 — "nothing claimed that does not work"
+
+Four read-only audits traced every item of the technical plan, the whole-picture v2 and the user-flow
+diagram to code and to a test that exercises it, and flagged anything stubbed, faked, untested or
+doc-only. Every gap found was then fixed with a test, and the result was run live on a fresh Docker
+stack (`neops-v3`) with a real model.
+
+| Area | Gap found | Closed by |
+| --- | --- | --- |
+| Budget (S9) | per-job cap keyed by session: a crashing job could spend 5 × $5; 402 retried | cap keyed by job, 402 final with the cap named; the proxy is the only meter (llm-proxy.test) |
+| Approvals (B3) | a stored `409 in_progress` could leave a card RESOLVED forever | the gateway ledgers only terminal answers; `proposal.executed` settles the card (stuck-approval.test) |
+| Execute | ran after a version change or a switch-off | version and setting re-checked at effect time (runtime-gate.test) |
+| Tokens | no `ability_version` claim | minted and checked |
+| a2a | result could beat the wait row; a 404 counted as delivered | wait written first, 503 → retried, bounded give-up that is visible (runtime-a2a, platform-gaps) |
+| Timers | no `timer` jobs, dead branch, `EXPIRED` never used | schedules + `job.wait_until`; missed slots EXPIRED (runtime-timers; live: a daily schedule fired and reported) |
+| Bundle | rolling summary rebuilt, never written; facts not job-relevant | `summary` step extended across resumes; job facts first |
+| NeuralChat (5a) | keyword stand-in | the model picks the app through the LLM proxy, keyword only as a recorded fallback (neuralchat.test; live through OpenRouter, including "none") |
+| Registration | conformance only in CI | attestation required in production (`scripts/conformance.ts`; live: registered `attested: true`) |
+| Registry (S7) | no author signature, no four-eyes, no install self-test, no audited drop | all four, with the "borrowed skill, no deploy" flow timed end to end (registry.test) |
+| Keys | gateway key activation lost on restart | durable activation + retire endpoint |
+| GST package | stand-in: invented endpoint, model-typed figures | GSTR-3B from the books, GSP login/save/file with the OTP from a person, filing ask-first (gst.test) |
+| Ops | no backup scheduler, no trace/metrics backend, open internet egress, netcheck not in CI | nightly per-schema backups, Jaeger/Prometheus/Grafana, tinyproxy allow-list, CI netcheck (live: all hold) |
+| Migrations | proofs self-attested; no expand-then-contract; RLS lint counted policies | baseline vs proven, destructive-DDL lint, policy expression checked (migration.test) |
+| Chaos | graceful restarts only | kill -9 of backend/agent/platform live: 0 lost, 0 duplicate; `tasks.open` now retries for a window, not 8 attempts (task-delivery.test) |
+| Inherited from the arch-shiv Ledger | — | Matrix client road (a bridge's "go ahead" is never a yes), 11 bookkeeping abilities, a no-model PDF/XLSX/CSV door wired through the ask, legacy import (docs/INHERITED-FROM-SHIV.md) |
+
+**Still open, stated plainly:**
+- A burst of 200 simultaneous asks acknowledges in p95 370–735 ms end to end on a laptop; the plan's
+  metric (the app's own response) is met at p95 48 ms. See IMPLEMENTATION-NOTES #24.
+- A person's GST OTP goes to a write-only vault slot, not a field on the desk card.
+- The agent container exports no spans (it has no telemetry network); its session is visible through
+  the gate and LLM-proxy spans around it.
+- Identity is desk tokens; the product sign-in is the NEOS app's.
+- The ADRs are still "Proposed" until the team accepts them.
