@@ -89,7 +89,10 @@ export async function readChoice(res: Response): Promise<unknown> {
   let started = false;
   for (const line of text.split('\n')) {
     if (!line.startsWith('data:')) continue;
-    const ev = JSON.parse(line.slice(5));
+    const data = line.slice(5).trim();
+    // OpenRouter (and OpenAI-style streams) end with a bare `data: [DONE]`: a terminator, not an event.
+    if (!data || data === '[DONE]') continue;
+    const ev = JSON.parse(data);
     if (ev.type === 'content_block_start' && ev.content_block?.type === 'tool_use') {
       if (ev.content_block.name !== 'choose_app') throw new Error(`the model called ${ev.content_block.name}`);
       started = true;

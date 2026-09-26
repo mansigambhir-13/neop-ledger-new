@@ -5,7 +5,7 @@
 // the task and the audit say so.
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { marketingApp, seedMarketing } from '@neop/marketing';
-import { pickApp } from '@neop/platform';
+import { pickApp, readChoice } from '@neop/platform';
 import { bootPilot, fakeAnthropic, ledgerUnderTest, toolName, type FakeUpstream, type Pilot, type UpstreamView } from './harness.ts';
 
 let P: Pilot;
@@ -106,4 +106,15 @@ describe('NeuralChat routing', () => {
     // Never listed or routed to as an app.
     expect((await P.api('GET', '/api/apps')).body.apps.map((a: any) => a.key)).not.toContain('neuralchat');
   });
+});
+
+it('reads the choice from an OpenRouter stream, which ends with a bare data: [DONE] (found live)', async () => {
+  const sse = [
+    'event: message_start', 'data: {"type":"message_start","message":{"usage":{"input_tokens":10,"output_tokens":0}}}', '',
+    'event: content_block_start', 'data: {"type":"content_block_start","index":0,"content_block":{"type":"tool_use","name":"choose_app","input":{}}}', '',
+    'event: content_block_delta', 'data: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\\"app\\":\\"ledger\\",\\"reason\\":\\"books\\"}"}}', '',
+    'data: [DONE]', '',
+  ].join('\n');
+  const choice = await readChoice(new Response(sse, { headers: { 'content-type': 'text/event-stream' } }));
+  expect(choice).toEqual({ app: 'ledger', reason: 'books' });
 });

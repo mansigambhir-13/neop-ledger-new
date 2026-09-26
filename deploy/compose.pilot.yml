@@ -108,6 +108,8 @@ services:
       NEOS_GATEWAY_KEY_PATH: /var/lib/neos/keys/gateway-key.json
       NEOS_REGISTRY_KEY_PATH: /var/lib/neos/keys/registry-key.json
       NEOS_LLM_PROXY_URL: http://llm-proxy:4200
+      # NeuralChat picks the app with this model through the proxy (keyword fallback if unset or down).
+      NEOS_ROUTER_MODEL: ${NEOS_ROUTER_MODEL:-claude-sonnet-5}
       PORT: "4000"
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
     secrets: [neos_app_url, vault_keys, metrics_token]
