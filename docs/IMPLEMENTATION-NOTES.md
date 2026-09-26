@@ -34,7 +34,7 @@ Each item is small; flag any you disagree with.
 19. **Gateway keys rotate in three phases** (publish → activate → retire); apps trust a fetched JWKS for 60 s. Registry co-signatures use a separate long-lived keyring so key rotation never invalidates published entries.
 20. **Borrowed reads** go through the gateway as `app:<host>`; effective setting = strictest(host floor from `uses`, host company setting, owner setting); without an ACL row it is off. Borrowed **writes** are never direct: they are a2a tasks.
 21. **a2a tasks** carry `lineage`; a target already in the chain, or depth > 3, is refused at the gateway. Four-eyes follows the chain to the person who started it.
-22. **Packages** run in one Deno process per package version with no permissions; the host serves `ctx.tables` (own `nep_<name>_*` tables, as the package's role, company-scoped), `ctx.book`, and declared doors on the approved path only. Artifacts are content-addressed and re-verified before every call.
+22. **Packages** run in one Deno process per package version with no permissions; the host serves `ctx.tables` (own `nep_<name>_*` tables, as the package's role, company-scoped), `ctx.book`, declared doors on the approved path only, and `ctx.reads[<key>](args)` — the host's own **reads** listed in the manifest's `requires` (never writes, never another app's), refused while the company has that read switched off, input/output checked like the gate checks them, and recorded as a step with its basis. A door's definite refusal stays definite across the RPC. Package writes may export `normalize` and `validate` (run at the gate, no doors). Artifacts are content-addressed and re-verified before every call.
 23. **Reads cannot be ask-first** (R7); **approver policy** per ability (roles, four-eyes) is set by the company (R8).
 24. **The ack hot path is load-tested:**
     - The gateway makes two round trips: checks plus ledger row in one statement, then ledger result plus audit.
@@ -44,7 +44,7 @@ Each item is small; flag any you disagree with.
 25. **Shutdown is bounded** (2 s). Anything still in flight is abandoned as a crash would abandon it: connections close, advisory locks release, and the book lets the next process resume.
 26. **Ledger's writes check the books before anyone is asked** (template `validate` hook). An unknown customer, overpayment, duplicate bill, locked month, double reversal or unreconciled month is refused at the gate, with no card raised.
 
-27. **Real providers.** Email uses Resend (`provider: resend`); other doors use an HTTP adapter (`provider: http`), which serves GSTR-3B filing through a GST Suvidha Provider. Every call is written to `door_journal` first. See ADR 0012.
+27. **Real providers.** Email uses Resend (`provider: resend`); GSTR-3B uses a GST Suvidha Provider (`provider: gsp`, `doors/gsp.ts`); other doors use a generic HTTP adapter (`provider: http`). Every effect is written to `door_journal` first. See ADR 0012 and item 52.
 28. **Pre-ship review fixes** (all have regression tests in `security.test.ts`):
     - the vault lends only to installed apps, for doors they declare
     - money abilities are always measured; grants never auto-approve an unmeasured amount
@@ -85,6 +85,15 @@ Each item is small; flag any you disagree with.
 50. **Every output schema is closed** (`additionalProperties: false` at every level), so results can be validated strictly by the platform and a new field is a deliberate, versioned change.
 51. **The desk is a test harness** (compose profile `test`, refuses production); the product UI is the NEOS app.
 
+52. **GSTR-3B through a GSP (nep-gst 2.0.0).** What is real and tested (`gst.test`, `gst-package.test`, `registry.test`):
+    - **Figures from the books.** `gst.gstr3b.prepare` takes only the month; it reads `ledger.report.vat_summary`, `ledger.report.pnl` and the tax accounts through `ctx.reads`, and its input schema refuses typed-in amounts. Each read is a step with its basis; the output tax, ITC, taxable value and split are facts with their source.
+    - **The GSTN GSTR-3B document** (`gstin`, `ret_period` MMYYYY, `sup_details` 3.1, `sup_inter` 3.2, `itc_elg` 4 with `itc_avl`/`itc_rev`/`itc_net`/`itc_inelg`, `inward_sup` 5, `intr_ltfee` 5.1), rupees to 2 decimals from paise, validated against `registry/nep-gst/gstr3b.schema.json` (the handlers embed the same schema; a test checks it, and Ajv plus the fake GSP's independent GSTN checks agree).
+    - **Tax heads.** Read per head from the books when every tax account names IGST/CGST/SGST/cess (must add up to the VAT summary). Ledger's standard chart keeps one output and one input account, so it **cannot** distinguish; then the door's `assume_supply` (intra_state → CGST = SGST, odd paisa to CGST; inter_state → IGST) applies and is stated on the return, the card and the facts. No assumption configured → prepare refuses. Also assumed and stated: taxable value = revenue; zero-rated/exempt/non-GST/reverse-charge, imports/ISD/reversals/ineligible ITC, the 3.2 place-of-supply table, interest and late fee are 0.
+    - **GSP flow** in the door: OTP login (OTPREQUEST → a person enters the OTP on the `gst_portal_otp` vault slot → AUTHTOKEN), token refresh and re-login on auth errors, RETSAVE → RETSTATUS, RETSUM read-back compared figure by figure, RETSUBMIT → RETFILE with EVC (`sid` = PAN|OTP) → ARN, RETTRACK read-back. Tokens live only in backend memory per company; OTPs are never in a tool result or the database, and a used OTP is not replayed. Paths and extra headers are configuration.
+    - **Filing is ask-first and bound to the saved document:** `normalize` puts the saved return's id, figures and sha256 into the proposal, so the fingerprint covers what is filed; execute refuses if the saved return changed or the portal's copy differs; a month already on RETTRACK is never filed again; a filed month cannot be proposed again.
+    - **Faults tested against the fake GSP:** auth expiry → refresh → retry; refused refresh → new OTP, definite failure; 4xx validation → FAILED, nothing saved; filing answered 503 with an outage → UNKNOWN → reconciled by RETTRACK → DONE, filed once; filing that times out → read-back confirms, not re-sent.
+    - **The person's OTP goes through the vault, not the desk card.** The desk answer carries only decision/fingerprint/feedback and feedback is shown to the model, so an OTP cannot travel there. Until the desk gains a write-only "door input" on a card (a platform change), the admin enters it on `PUT /api/vault/gst_portal_otp`. The console's door form (`platform/src/web/public/app.js`) still offers the old `http` GSP fields and needs the `gsp` fields.
+
 ## Stand-ins (pilot only)
 - **NeuralChat** — `pickApp()` matches the ask against manifest words. The real NeuralChat replaces it.
 - **Identity** — dev bearer tokens in `neos.users`. Real sign-in replaces it.
@@ -94,6 +103,13 @@ Each item is small; flag any you disagree with.
 - **Approvals on the NEOS platform** — My Desk there is read-only today; until it gains the fingerprint-bound decide route, yeses are answered on this repo's platform module.
 
 ## Not built yet
-- Confirming the GSP adapter's paths against the chosen GST Suvidha Provider's API (it is configurable; it needs a commercial account to test live).
+- **To confirm with a commercial GSP account** (cannot be tested without one; the fake GSP follows the public GSTN taxpayer API pattern):
+  - the GSP's exact paths, header names (client id/secret, any GSP API key), and whether it wants plain JSON (assumed: the GSP does GSTN's AES/RSA payload encryption and the EVC signing envelope) — a direct GSTN integration would need that encryption in `gsp.ts`;
+  - the OTP login semantics (API access enabled on the portal for the username, token lifetime, refresh window) and the `EVCOTP` call's exact form;
+  - the error codes it uses for an expired session (we treat HTTP 401/403 and any `AUTH*` code as an auth problem) and for validation failures;
+  - the filing sequence for the current GSTR-3B: we SAVE → SUBMIT → FILE; offsetting the liability (RETOFFSET) and paying tax (PMT-06 challan / cash ledger) are **not** implemented, so a return with net tax payable will be refused by the portal until the liability is offset;
+  - the shape of RETSUM (we compare only the figures we sent) and RETTRACK (`EFiledlist`, `status: Filed`);
+  - DSC signing (only EVC is implemented).
+- A desk card field for a person's write-only door input (OTP/EVC), instead of the vault slot.
 - The registry improvement loop (plan: after the second app ships).
 - Wage (if chosen as the second real NEOP).

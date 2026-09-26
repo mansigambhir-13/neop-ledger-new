@@ -8,6 +8,8 @@ export interface PackageManifest {
   abilities: ManifestAbility[];
   doors: string[];
   tables: string[];
+  /** Host reads the package may call through ctx.reads (read-only; the company's switchboard still applies). */
+  requires?: string[];
   skills: { key: string; requires: string[]; body: string }[];
   migrations: Record<string, string>;
 }

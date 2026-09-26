@@ -55,14 +55,24 @@ This whole sequence has been run end to end in Docker Compose. Every image sets 
   PUT /api/vault/email
   {"provider":"resend","api_key":"re_…","from":"Acme Books <books@acme.in>"}
   ```
-- **GST filing (a GST Suvidha Provider):** install `nep-gst`, then set the portal credential. The two paths below are the adapter's contract; confirm them against your GSP's API before go-live.
+- **GST filing (a GST Suvidha Provider):** install `nep-gst` (2.x), enable API access for the taxpayer's username on the GST portal, then set the GSP credential. Paths default to the GSTN taxpayer API layout; override them (and add any GSP-specific headers) to match your GSP.
   ```
   PUT /api/vault/gst_portal
-  {"provider":"http","base_url":"https://<gsp>","token":"…","send_path":"/v1/gstr3b/file","lookup_path":"/v1/gstr3b/filings/{key}"}
+  {"provider":"gsp","base_url":"https://<gsp>","client_id":"…","client_secret":"…","username":"<GST portal username>",
+   "gstin":"27AAPFU0939F1ZV","signatory_pan":"AAPFU0939F","assume_supply":"intra_state",
+   "paths":{"authenticate":"/taxpayerapi/v1.0/authenticate","gstr3b":"/taxpayerapi/v1.1/returns/gstr3b","returns":"/taxpayerapi/v0.3/returns"},
+   "headers":{}, "timeout_ms":5000}
   ```
+  `assume_supply` is used only when the chart keeps a single output and a single input GST account (the books then cannot tell CGST/SGST from IGST); name the tax accounts per head (IGST / CGST / SGST / cess) and the split is read from the books instead.
+  OTPs are entered by a person, never by the assistant: when the portal sends one (login, or the signatory's EVC OTP before a filing), an admin puts it on the OTP door:
+  ```
+  PUT /api/vault/gst_portal_otp
+  {"provider":"person","auth_otp":"123456"}        or        {"provider":"person","evc_otp":"654321"}
+  ```
+  The GSP session token lives only in the backend's memory (a restart means a new login OTP).
 - **Check what is configured:** `GET /api/vault` lists door names and dates only. Secrets are never returned.
 
-Every provider must accept an `Idempotency-Key` and let us look the effect up afterwards. Ledger journals each call before sending, so "did it happen?" always has an answer.
+Every provider must either accept an `Idempotency-Key` and let us look the effect up afterwards, or (the GST portal) let us ask the system of record directly (RETSUM for a save, RETTRACK for a filing). Ledger journals each call before sending, so "did it happen?" always has an answer.
 
 ## Everyday operations
 - **Backups.** Run a nightly `pg_dump --schema=ledger`, plus per-company logical exports: `pnpm backup export ledger <company_id> > file.json`. Restoring one company (`pnpm backup import file.json`) touches no other company.

@@ -1,8 +1,8 @@
 // Provider doubles with the semantics production depends on.
 //   Resend: POST /emails honours Idempotency-Key (same body → original id, no
 //   second send; different body → 409); GET /emails/:id returns the message.
-//   GSP (GST Suvidha Provider): POST filing with Idempotency-Key, GET by key.
-// Both can inject: a lost response after the provider acted, a definite
+//   (The GST Suvidha Provider double lives in fake-gsp.ts.)
+// It can inject: a lost response after the provider acted, a definite
 // refusal, and an outage.
 import { serve } from '@hono/node-server';
 import { Hono } from 'hono';
@@ -67,18 +67,6 @@ export async function fakeResend(): Promise<FakeProvider> {
     const p = state.performed.find((x) => x.id === c.req.param('id'));
     if (!p) return c.json({ message: 'not found' }, 404);
     return c.json({ object: 'email', id: p.id, to: p.body.to, from: p.body.from, subject: p.body.subject, created_at: new Date().toISOString(), last_event: 'delivered' });
-  });
-  const { url, server } = await start(app);
-  return Object.assign(state, { url, token, close: () => closeServer(server) }) as unknown as FakeProvider;
-}
-
-export async function fakeGsp(): Promise<FakeProvider> {
-  const token = 'gsp_' + Math.random().toString(36).slice(2);
-  const { state, app, create } = common(token);
-  app.post('/v1/gstr3b/file', (c) => create(c, 'ARN'));
-  app.get('/v1/gstr3b/filings/:key', (c) => {
-    const p = state.performed.find((x) => x.key === c.req.param('key'));
-    return p ? c.json({ reference: p.id, ...p.body, status: 'FILED' }) : c.json({ message: 'not found' }, 404);
   });
   const { url, server } = await start(app);
   return Object.assign(state, { url, token, close: () => closeServer(server) }) as unknown as FakeProvider;
