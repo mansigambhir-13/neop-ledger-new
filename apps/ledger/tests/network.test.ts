@@ -84,6 +84,8 @@ describe('network policy', () => {
     expect(svc.web!.networks.sort()).toEqual(['edge', 'web']);
     // The desk is a test harness: it only starts with the `test` profile.
     expect(svc.web!.profiles).toEqual(['test']);
+    // … and it must not inherit the image's NEOS_ENV=production, or it refuses to start.
+    expect(svc.web!.environment?.NEOS_ENV).toBe('test');
     expect(envKeys('web')).not.toMatch(/DB_URL|SECRET|TOKEN|KEY|app_url|runner_url/i);
     const published = Object.entries(svc).filter(([, s]: any) => s.ports?.length).map(([k]) => k).sort();
     expect(published).toEqual(['grafana', 'platform', 'web']);

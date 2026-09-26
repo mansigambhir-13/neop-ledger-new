@@ -197,6 +197,8 @@ services:
     environment:
       NEOS_PLATFORM_URL: http://platform:4000
       PORT: "4780"
+      # A test harness, never production: it refuses NEOS_ENV=production, which the image sets.
+      NEOS_ENV: test
       # Set to 1 once TLS terminates in front of it.
       NEOS_WEB_SECURE_COOKIES: "0"
     networks: [web, edge]
