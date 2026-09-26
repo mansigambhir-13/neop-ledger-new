@@ -2,6 +2,7 @@
 // secret. The assistant never reaches these; it has no route to the platform.
 
 import type { ManifestAbility, Setting } from '@neop/contracts';
+import { DoorError } from './doors/errors.ts';
 
 export interface SwitchboardDoc {
   version: number;
@@ -102,6 +103,8 @@ export class PlatformClient {
   /** Borrow a door credential for one call. */
   async lend(companyId: string, door: string): Promise<Record<string, unknown>> {
     const r = await this.call<{ secret: Record<string, unknown> }>('POST', '/internal/vault/lend', { company_id: companyId, door });
+    // No credential for this door (404) or not allowed (403): nothing was sent, so the outcome is definite.
+    if (r.status === 404 || r.status === 403) throw new DoorError(`${door} is not connected for this company (vault ${r.status})`, { definite: true });
     if (r.status !== 200) throw new Error(`vault refused ${door}: ${r.status}`);
     return r.body.secret;
   }
