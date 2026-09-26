@@ -56,6 +56,18 @@
           "description": "What you owe, by age",
           "icon": "clock",
           "open": "report.aging_ap"
+        },
+        {
+          "title": "Cash forecast",
+          "description": "Week by week, from open invoices and bills",
+          "icon": "wallet",
+          "open": "report.cash_forecast"
+        },
+        {
+          "title": "Tax return",
+          "description": "GST / VAT for the month, in your regime",
+          "icon": "chart",
+          "open": "report.tax_return"
         }
       ]
     }

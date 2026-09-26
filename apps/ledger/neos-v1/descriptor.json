@@ -144,6 +144,54 @@
       "responseSchema": "contract.json#/$defs/ledger_close_checklist_result"
     },
     {
+      "id": "ledger.settings.get",
+      "method": "POST",
+      "scope": "ledger.read",
+      "humanGate": false,
+      "requestSchema": "contract.json#/$defs/ledger_settings_get_request",
+      "responseSchema": "contract.json#/$defs/ledger_settings_get_result"
+    },
+    {
+      "id": "ledger.report.aging-analysis",
+      "method": "POST",
+      "scope": "ledger.read",
+      "humanGate": false,
+      "requestSchema": "contract.json#/$defs/ledger_report_aging-analysis_request",
+      "responseSchema": "contract.json#/$defs/ledger_report_aging-analysis_result"
+    },
+    {
+      "id": "ledger.report.cash-forecast",
+      "method": "POST",
+      "scope": "ledger.read",
+      "humanGate": false,
+      "requestSchema": "contract.json#/$defs/ledger_report_cash-forecast_request",
+      "responseSchema": "contract.json#/$defs/ledger_report_cash-forecast_result"
+    },
+    {
+      "id": "ledger.report.tax-return",
+      "method": "POST",
+      "scope": "ledger.read",
+      "humanGate": false,
+      "requestSchema": "contract.json#/$defs/ledger_report_tax-return_request",
+      "responseSchema": "contract.json#/$defs/ledger_report_tax-return_result"
+    },
+    {
+      "id": "ledger.report.export",
+      "method": "POST",
+      "scope": "ledger.read",
+      "humanGate": false,
+      "requestSchema": "contract.json#/$defs/ledger_report_export_request",
+      "responseSchema": "contract.json#/$defs/ledger_report_export_result"
+    },
+    {
+      "id": "ledger.document.extract",
+      "method": "POST",
+      "scope": "ledger.read",
+      "humanGate": false,
+      "requestSchema": "contract.json#/$defs/ledger_document_extract_request",
+      "responseSchema": "contract.json#/$defs/ledger_document_extract_result"
+    },
+    {
       "id": "ledger.ask",
       "method": "POST",
       "scope": "ledger.ask",

@@ -17,5 +17,6 @@ export { migratePackage, packageRole } from './packages/migrate.ts';
 export { hasSelftest, PackageSelftestError, selftestPackage } from './packages/selftest.ts';
 export type { PackageBundle, PackageManifest } from './packages/types.ts';
 export { EmailDoor } from './doors/email.ts';
+export * as documents from './doors/documents/index.ts';
 export { FileDoor, MemoryDoorJournal, PgDoorJournal, GSP_DEFAULT_PATHS, resetGspSessions, sameFigures, type DoorJournal, type GspCredential } from './doors/index.ts';
 export { neosV1App, neosV1Compile, neosV1Descriptor, strictSchema, capabilityId, NEOS_V1_CONTRACT, type NeosV1Config } from './l3/neos-v1.ts';
