@@ -122,8 +122,15 @@ export class Platform {
    * do, and which abilities need a yes there (effective setting, strictest wins).
    */
   async registryContext(companyId: string) {
-    const r = await this.db.query<{ key: string; manifest: Manifest; settings: Record<string, Setting> | null; rules: any[] | null }>(
-      `select a.key, a.manifest, sb.settings, sb.rules
+    // Hot path (every ask): project only what the context needs in SQL. The full manifest carries every
+    // ability's JSON Schemas (~10x larger); shipping and parsing it per ask dominated ack latency.
+    const r = await this.db.query<{ key: string; manifest: Pick<Manifest, 'name' | 'subject' | 'description' | 'version' | 'abilities'>; settings: Record<string, Setting> | null; rules: any[] | null }>(
+      `select a.key,
+              jsonb_build_object('name', a.manifest->'name', 'subject', a.manifest->'subject', 'description', a.manifest->'description',
+                'version', a.manifest->'version',
+                'abilities', coalesce((select jsonb_agg(jsonb_build_object('key', x->'key', 'title', x->'title', 'description', x->'description',
+                  'kind', x->'kind', 'floor', x->'floor') order by o) from jsonb_array_elements(a.manifest->'abilities') with ordinality as e(x, o)), '[]'::jsonb)) as manifest,
+              sb.settings, sb.rules
          from neos.installs i join neos.apps a on a.key = i.app_key
          left join lateral (select settings, rules from neos.switchboards s where s.company_id = i.company_id and s.app_key = a.key order by version desc limit 1) sb on true
         where i.company_id = $1 and i.status = 'active' and a.status = 'active' order by a.key`,

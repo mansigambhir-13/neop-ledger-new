@@ -12,6 +12,8 @@ const matrix = !client && process.env.MATRIX_HOMESERVER_URL
   : null;
 const p = await startPlatform({
   dbUrl: env('NEOS_DB_URL'),
+  // Every ask is several short queries; size to the burst the platform must absorb (PgBouncer multiplexes).
+  dbPoolSize: Number(env('NEOS_DB_POOL_SIZE', '20')),
   keys,
   port: Number(env('PORT', '4000')),
   host: '0.0.0.0',
