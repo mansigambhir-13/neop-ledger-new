@@ -2,7 +2,7 @@
 // minutes with no deploy; a package cannot reach the network; plus the
 // publishing, pinning and verification rules (S6, S7, R5, R6).
 process.env.NEOP_SANDBOX_TIMEOUT_MS = '2500';
-import { chmod, readdir, readFile, writeFile } from 'node:fs/promises';
+import { chmod, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { installAndMigrate, probeBundle, publishPackage, toolName } from '@neop/testkit';
@@ -38,36 +38,36 @@ describe('packages', () => {
     expect(role.rowCount).toBe(1);
   });
 
-  it('the assistant uses the package behind the host gate: prepare runs in the sandbox, filing waits for a yes', async () => {
+  it('the assistant uses the package behind the host gate: prepare reads the books in the sandbox; filing cannot be proposed before a save', async () => {
+    // A GSP credential (profile only: this test never reaches the GSP). The full GSP flow is gst.test.
+    await P.platform.setVaultSecret(P.company.id, 'gst_portal', {
+      provider: 'gsp', base_url: 'http://127.0.0.1:9', client_id: 'c', client_secret: 's', username: 'acme', gstin: '27AAPFU0939F1ZV', assume_supply: 'intra_state',
+    });
     let tools: string[] = [];
     let system = '';
+    let results: string[] = [];
     P.setBrain((v) => {
-      if (v.job.includes('WOKEN')) return finish('GSTR-3B for September filed; the portal acknowledged it.');
+      results = v.results.map((x) => x.text);
       if (v.calls === 0) {
         tools = v.tools;
         system = v.system;
-        return t('ledger.report.vat_summary', { from: '2026-09-01', to: '2026-09-30' });
+        return t('gst.gstr3b.prepare', { period: '2026-09' });
       }
-      if (v.calls === 1) {
-        const out = Number(/"output_tax_minor": (\d+)/.exec(v.results[0]!.text)![1]);
-        const inp = Number(/"input_tax_minor": (\d+)/.exec(v.results[0]!.text)![1]);
-        return t('gst.gstr3b.prepare', { period: '2026-09', output_tax_minor: out, input_tax_minor: inp, currency: 'INR' });
-      }
-      if (v.calls === 2)
+      if (v.calls === 1)
         return t('gst.gstr3b.file', { period: '2026-09', card: { what: 'File the September GSTR-3B', why: 'monthly return', changes: 'a binding filing on the GST portal', if_no_answer: 'nothing is filed' } });
-      return { text: 'waiting' };
+      return finish('September GSTR-3B prepared; it must be saved on the portal before filing.');
     });
     const r = await P.ask('File the September GST return');
-    const card = await P.waitFor(async () => (await P.desk()).find((c) => c.task_id === r.task_id && c.status === 'PENDING'), 'filing card', 30_000);
-    expect(tools).toEqual(expect.arrayContaining([toolName('gst.gstr3b.prepare'), toolName('gst.gstr3b.file'), toolName('gst.returns.list')]));
-    expect(system).toContain('From nep-gst@1.0.0');
-    await P.api('POST', `/api/desk/${card.id}/answer`, { decision: 'yes', fingerprint_seen: card.fingerprint });
-    await P.waitFor(async () => (await P.task(r.task_id)).task.status === 'COMPLETED', 'filed', 30_000);
-    const filed = await P.api('POST', '/api/apps/ledger/read/gst.returns.list', { period: '2026-09' });
-    expect(filed.body.result.returns).toHaveLength(1);
-    expect(filed.body.result.returns[0]).toMatchObject({ period: '2026-09', status: 'filed' });
-    const portal = await readdir(path.join(P.mailDir, '_gst_portal'));
-    expect(portal).toHaveLength(1);
+    await P.waitFor(async () => (await P.task(r.task_id)).task.status === 'COMPLETED', 'done', 30_000);
+    expect(tools).toEqual(expect.arrayContaining([toolName('gst.gstr3b.prepare'), toolName('gst.gstr3b.save'), toolName('gst.gstr3b.file'), toolName('gst.returns.list')]));
+    expect(system).toContain('From nep-gst@2.0.0');
+    expect(results[0]).toMatch(/"outcome": "DONE"/);
+    expect(results[1]).toMatch(/not_possible/);
+    expect((await P.desk()).filter((c) => c.task_id === r.task_id)).toHaveLength(0);
+    const vat = (await P.api('POST', '/api/apps/ledger/read/ledger.report.vat_summary', { from: '2026-09-01', to: '2026-09-30' })).body.result;
+    const listed = (await P.api('POST', '/api/apps/ledger/read/gst.returns.list', { period: '2026-09' })).body.result.returns;
+    expect(listed).toHaveLength(1);
+    expect(listed[0]).toMatchObject({ period: '2026-09', status: 'draft', output_tax_minor: vat.output_tax_minor, input_tax_minor: vat.input_tax_minor });
   });
 
   it('a package cannot reach the network, files, env, processes or other tables; and a runaway call is killed', async () => {

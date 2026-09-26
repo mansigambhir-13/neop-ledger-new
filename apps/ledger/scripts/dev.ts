@@ -101,9 +101,11 @@ const seeded = await seedLedger(backend.core.appPool, co.id);
 
 // Optional: the GST package, end to end (operator review -> admin install -> migration runner).
 if ((process.env.NEOP_DEV_PACKAGES ?? '').split(',').includes('nep-gst')) {
-  const entry = (await p.db.query("select status from neos.registry_entries where key = 'nep-gst' and version = '1.0.0'")).rows[0];
-  if (!entry) await p.registry.submit('user:dev', { kind: 'package', key: 'nep-gst', version: '1.0.0', bundle: await buildPackage(path.join(root, 'registry', 'nep-gst')) });
-  const pending = (await p.db.query("select id, fingerprint from neos.registry_reviews where key = 'nep-gst' and version = '1.0.0' and status = 'PENDING'")).rows[0];
+  const bundle = await buildPackage(path.join(root, 'registry', 'nep-gst'));
+  const version = bundle.manifest.version;
+  const entry = (await p.db.query("select status from neos.registry_entries where key = 'nep-gst' and version = $1", [version])).rows[0];
+  if (!entry) await p.registry.submit('user:dev', { kind: 'package', key: 'nep-gst', version, bundle });
+  const pending = (await p.db.query("select id, fingerprint from neos.registry_reviews where key = 'nep-gst' and version = $1 and status = 'PENDING'", [version])).rows[0];
   if (pending) {
     const op = (await p.db.query("select id from neos.users where token_hash = $1", [hashSecret('dev_operator')])).rows[0];
     await p.registry.review({ id: op.id, role: 'operator' }, pending.id, { decision: 'yes', fingerprint_seen: pending.fingerprint });
@@ -114,7 +116,8 @@ if ((process.env.NEOP_DEV_PACKAGES ?? '').split(',').includes('nep-gst')) {
     await migratePackage(adminUrl, pk.host_app, pk.bundle);
     await p.markPackageMigrated(pk.host_app, pk.entry_key, pk.version);
   }
-  log('nep-gst installed for Acme Traders');
+  // GSTR-3B needs a GSP credential (provider 'gsp'); the dev-file door above cannot prepare or file one.
+  log('nep-gst installed for Acme Traders (connect a GSP: PUT /api/vault/gst_portal, see docs/RUNBOOK.md)');
 }
 
 console.log(`

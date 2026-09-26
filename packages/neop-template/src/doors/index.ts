@@ -9,6 +9,7 @@ import type { DoorJournal } from './journal.ts';
 
 export { DoorError } from './errors.ts';
 export { FileDoor } from './file.ts';
+export { GspProvider, GSP_DEFAULT_PATHS, resetGspSessions, sameFigures, type GspCredential } from './gsp.ts';
 export { MemoryDoorJournal, PgDoorJournal, type DoorJournal } from './journal.ts';
 
 export interface Doors {
@@ -20,7 +21,7 @@ export interface Doors {
 export function createDoors(platform: PlatformClient, companyId: string, declared: string[] = [], journal: DoorJournal | null = null): Doors {
   const doors: Doors = { email: new EmailDoor(() => platform.lend(companyId, 'email'), journal) };
   for (const name of declared) {
-    if (name !== 'email') doors[name] = new FileDoor(name, () => platform.lend(companyId, name), journal);
+    if (name !== 'email') doors[name] = new FileDoor(name, () => platform.lend(companyId, name), journal, { companyId, lend: (d) => platform.lend(companyId, d) });
   }
   return doors;
 }

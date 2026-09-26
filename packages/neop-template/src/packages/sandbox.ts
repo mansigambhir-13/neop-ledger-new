@@ -33,8 +33,10 @@ function ctxFor(callId, base) {
   });
   const doors = new Proxy({}, { get: (_, door) => ({
     send: (record) => ask("doors.send", { door, record }),
-    lookup: () => ask("doors.lookup", { door }),
+    lookup: (query) => ask("doors.lookup", { door, query: query ?? null }),
   }) });
+  // Host reads the manifest "requires" (read-only, switchboard applies): ctx.reads["ledger.report.vat_summary"](args)
+  const reads = new Proxy({}, { get: (_, key) => (typeof key === "string" ? (args) => ask("reads.run", { key, args: args ?? {} }) : undefined) });
   return {
     ...base,
     book: { step: (summary) => ask("book.step", { summary }), fact: (subject, value, source) => ask("book.fact", { subject, value, source }) },
@@ -44,6 +46,7 @@ function ctxFor(callId, base) {
       update: (table, where, set) => ask("tables.update", { table, where, set }),
     },
     doors,
+    reads,
   };
 }
 async function handle(m) {
@@ -53,13 +56,18 @@ async function handle(m) {
   }
   if (m.type === "ctx_result") {
     const p = pending.get(m.id); pending.delete(m.id);
-    if (p) m.error ? p.reject(new Error(m.error)) : p.resolve(m.result);
+    // A host refusal that certainly did not act (e.g. a door's definite error) stays definite.
+    if (p) m.error ? p.reject(Object.assign(new Error(m.error), { definite: !!m.definite })) : p.resolve(m.result);
     return;
   }
   if (m.type === "call") {
     try {
       const a = mod?.abilities?.[m.ability];
       const fn = a?.[m.method];
+      // normalize is optional: without one, the args go to the gate unchanged.
+      if (m.method === "normalize" && typeof fn !== "function") return out({ type: "result", id: m.id, result: m.args });
+      // validate is optional too: without one, nothing is refused before the proposal.
+      if (m.method === "validate" && typeof fn !== "function") return out({ type: "result", id: m.id, result: null });
       if (typeof fn !== "function") throw new Error("no handler " + m.ability + "." + m.method);
       const result = await fn(m.args, ctxFor(m.id, m.ctx));
       out({ type: "result", id: m.id, result: result ?? null });
@@ -181,13 +189,13 @@ export class Sandbox {
       if (!pend) throw new Error('no such call');
       reply = { type: 'ctx_result', id: m.id, result: (await pend.onCtx(m.op, m.params)) ?? null };
     } catch (e) {
-      reply = { type: 'ctx_result', id: m.id, error: (e as Error).message };
+      reply = { type: 'ctx_result', id: m.id, error: (e as Error).message, definite: (e as { definite?: boolean }).definite === true };
     }
     this.proc?.stdin.write(JSON.stringify(reply) + '\n');
   }
 
   /** Call one handler method. Over the time limit the sandbox is killed and the call fails. */
-  async call(ability: string, method: 'run' | 'execute' | 'readBack', args: unknown, ctx: Record<string, unknown>, onCtx: CtxHandler): Promise<unknown> {
+  async call(ability: string, method: 'run' | 'execute' | 'readBack' | 'normalize' | 'validate', args: unknown, ctx: Record<string, unknown>, onCtx: CtxHandler): Promise<unknown> {
     if (!this.ready) this.ready = this.start();
     await this.ready;
     if (++this.calls % 1000 === 0) this.restart(); // no long-lived state between calls

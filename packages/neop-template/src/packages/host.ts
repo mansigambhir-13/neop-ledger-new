@@ -6,7 +6,7 @@
 
 import { chmod, mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { registryContentHash, sha256Tagged, type ManifestAbility } from '@neop/contracts';
+import { canonicalize, registryContentHash, sha256, sha256Tagged, type ManifestAbility } from '@neop/contracts';
 import { createPool, roleUrl, withCompany, type Pool } from '@neop/pgkit';
 import { Ajv, type ValidateFunction } from 'ajv';
 import addFormatsModule from 'ajv-formats';
@@ -198,16 +198,56 @@ export class PackageHost {
           if (!base.idempotency_key) throw new Error('doors are only open on the approved path');
           const door = this.core.doors(base.company_id, [params.door])[params.door];
           if (!door) throw new Error(`the host has no ${params.door} door`);
-          return op === 'doors.send' ? door.send(params.record, base.idempotency_key) : door.lookup(base.idempotency_key);
+          return op === 'doors.send' ? door.send(params.record, base.idempotency_key) : door.lookup(base.idempotency_key, params.query ?? undefined);
         }
+        case 'reads.run':
+          return this.hostRead(pkg, base, String(params.key), params.args ?? {});
         default:
           throw new Error(`unknown ctx op ${op}`);
       }
     };
   }
 
+  /**
+   * A host read on the package's behalf (ctx.reads). Only reads the manifest
+   * `requires`, only the host's own reads, never while the company has switched
+   * them off; input and output are checked like the gate checks them, and the
+   * read is a step in the job's book with its basis, so a report can cite it.
+   */
+  private async hostRead(pkg: LoadedPackage, base: { company_id: string; job_id: string | null }, key: string, args: unknown): Promise<unknown> {
+    if (!(pkg.bundle.manifest.requires ?? []).includes(key)) throw new Error(`${pkg.key} does not require ${key}; a package may only call the host reads its manifest requires`);
+    const own = this.core.ability(key);
+    if (!own || own.kind !== 'read') throw new Error(`${key} is not a read of ${this.core.key}`);
+    const board = await this.core.board.get(base.company_id);
+    if (board.setting(own) === 'off') throw new Error(`${key} is switched off for this company`);
+    const resolved = await this.core.resolve(base.company_id, key);
+    if (!resolved || resolved.handler.kind !== 'read') throw new Error(`${key} is not available`);
+    const bad = resolved.checkInput(args);
+    if (bad) throw new Error(`${key}: ${bad}`);
+    const handler = resolved.handler;
+    const output = await this.core.company(base.company_id, (db) =>
+      handler.run(args, { company_id: base.company_id, caller: `package:${pkg.key}`, job_id: base.job_id, now: new Date(), db }),
+    );
+    const badOut = resolved.checkOutput(output);
+    if (badOut) throw new Error(`${key} result failed its schema: ${badOut}`);
+    if (base.job_id) {
+      await this.core.company(base.company_id, (c) =>
+        this.core.book.addStep(c, {
+          company_id: base.company_id,
+          job_id: base.job_id!,
+          kind: 'ability',
+          summary: `[${pkg.key}] Read ${own.title}`,
+          ability_key: key,
+          input_hash: sha256(canonicalize(args)),
+          output_ref: { basis: (output as any)?.sources?.basis ?? null, entries: (output as any)?.sources?.entries ?? null, generatedAt: (output as any)?.generatedAt ?? null },
+        }),
+      );
+    }
+    return output;
+  }
+
   private adapter(pkg: LoadedPackage, a: ManifestAbility): ReadAbility | WriteAbility {
-    const call = async (method: 'run' | 'execute' | 'readBack', args: unknown, base: { company_id: string; job_id: string | null; idempotency_key?: string }) => {
+    const call = async (method: 'run' | 'execute' | 'readBack' | 'normalize' | 'validate', args: unknown, base: { company_id: string; job_id: string | null; idempotency_key?: string }) => {
       await this.load({ key: pkg.key, version: pkg.version, artifact_hash: pkg.artifactHash } as RegistryEntryRow); // re-verify on disk
       try {
         return await this.sandbox(pkg, base.company_id).call(a.key, method, args, base, this.ctxHandler(pkg, base));
@@ -221,6 +261,9 @@ export class PackageHost {
     }
     return {
       kind: 'write',
+      // Runs at the gate before anything is proposed (no doors: there is no idempotency key yet).
+      normalize: (args, ctx: ReadCtx) => call('normalize', args, { company_id: ctx.company_id, job_id: ctx.job_id }),
+      validate: async (args, ctx: ReadCtx) => ((await call('validate', args, { company_id: ctx.company_id, job_id: ctx.job_id })) as string | null) ?? null,
       execute: async (args, ctx: ExecCtx) => (await call('execute', args, { company_id: ctx.company_id, job_id: ctx.job_id, idempotency_key: ctx.idempotencyKey })) as { external_ref: string | null },
       readBack: async (args, ctx: ExecCtx, ref) =>
         (await call('readBack', { args, external_ref: ref }, { company_id: ctx.company_id, job_id: ctx.job_id, idempotency_key: ctx.idempotencyKey })) as { found: boolean; data: unknown },

@@ -1,36 +1,24 @@
 // providers.test · Ledger's real provider doors (ship readiness): Resend for
-// email and a GST Suvidha Provider for GSTR-3B filing. Each call is journaled
+// email. (GSTR-3B through a GST Suvidha Provider: gst.test.) Each call is journaled
 // before it goes out; read-back is exact even when the provider's answer is
 // lost; a definite refusal fails cleanly; an outage ends UNKNOWN and is
 // reconciled. Nothing is ever sent twice.
 process.env.NEOP_SANDBOX_TIMEOUT_MS = '5000';
-import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { fakeGsp, fakeResend, installAndMigrate, publishPackage, toolName, type FakeProvider } from '@neop/testkit';
+import { fakeResend, toolName, type FakeProvider } from '@neop/testkit';
 import { withCompany } from '@neop/pgkit';
 import { bootPilot, type Pilot } from './harness.ts';
-import { LEDGER_ROOT } from '../src/index.ts';
 
 let P: Pilot;
 let RS: FakeProvider;
-let GSP: FakeProvider;
 beforeAll(async () => {
   RS = await fakeResend();
-  GSP = await fakeGsp();
   P = await bootPilot();
   await P.platform.setVaultSecret(P.company.id, 'email', { provider: 'resend', api_key: RS.token, from: 'Acme Books <books@acme.example>', base_url: RS.url });
-  await P.platform.setVaultSecret(P.company.id, 'gst_portal', {
-    provider: 'http',
-    base_url: GSP.url,
-    token: GSP.token,
-    send_path: '/v1/gstr3b/file',
-    lookup_path: '/v1/gstr3b/filings/{key}',
-  });
 });
 afterAll(async () => {
   await P?.close();
   await RS?.close();
-  await GSP?.close();
 });
 
 const CARD = { what: 'send', why: 'asked', changes: 'one message leaves the company', if_no_answer: 'nothing' };
@@ -116,28 +104,5 @@ describe('email via Resend', () => {
     expect(await settle(card.proposal_id)).toBe('FAILED');
     expect(RS.performed.length).toBe(before);
     delete process.env.NEOP_DOOR_RECOVERY_MS;
-  });
-});
-
-describe('GSTR-3B filing via a GST Suvidha Provider', () => {
-  it('prepares in the sandbox, files once through the GSP with the proposal’s key, reads back the ARN', async () => {
-    await publishPackage(P, path.resolve(LEDGER_ROOT, '../../registry/nep-gst'));
-    await installAndMigrate(P, 'ledger', 'nep-gst');
-    P.setBrain((v) => {
-      if (v.job.includes('WOKEN')) return { tool: toolName('job.finish'), args: { outcome: 'done', summary: 'filed' } };
-      if (v.calls === 0) return { tool: toolName('gst.gstr3b.prepare'), args: { period: '2026-09', output_tax_minor: 12_000_000, input_tax_minor: 4_000_000, currency: 'INR' } };
-      if (v.calls === 1) return { tool: toolName('gst.gstr3b.file'), args: { period: '2026-09', card: CARD } };
-      return { text: 'waiting' };
-    });
-    const t = await P.ask('File September GSTR-3B');
-    const card = await P.waitFor(async () => (await P.desk()).find((c) => c.task_id === t.task_id && c.status === 'PENDING'), 'card', 30_000);
-    await P.api('POST', `/api/desk/${card.id}/answer`, { decision: 'yes', fingerprint_seen: card.fingerprint });
-    const a = await P.waitFor(async () => (await P.platform.db.query("select proof from neos.approvals where id = $1 and status = 'EXECUTED'", [card.id])).rows[0], 'filed', 30_000);
-    expect(a.proof.outcome).toBe('DONE');
-    expect(GSP.performed).toHaveLength(1);
-    expect(GSP.performed[0]!.body).toMatchObject({ form: 'GSTR-3B', period: '2026-09', net_payable_minor: 8_000_000 });
-    expect(a.proof.read_back.status).toBe('FILED');
-    const ret = (await P.api('POST', '/api/apps/ledger/read/gst.returns.list', { period: '2026-09' })).body.result.returns[0];
-    expect(ret).toMatchObject({ status: 'filed', ack_ref: GSP.performed[0]!.id });
   });
 });

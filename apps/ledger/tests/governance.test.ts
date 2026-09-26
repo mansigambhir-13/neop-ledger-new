@@ -93,7 +93,7 @@ describe('company rules and the switchboard', () => {
     const after = (await admin('GET', '/api/apps/ledger/abilities')).body.abilities.find((a: any) => a.key === 'gst.gstr3b.prepare');
     expect(after).toMatchObject({ company: 'ask_first', setting: 'ask_first' });
     const pinned = (await member('GET', '/api/registry/catalog')).body.entries.find((e: any) => e.key === 'nep-gst');
-    expect(pinned.installs[0]).toMatchObject({ host_app: 'ledger', pinned_version: '1.0.0', status: 'active' });
+    expect(pinned.installs[0]).toMatchObject({ host_app: 'ledger', pinned_version: '2.0.0', status: 'active' });
   });
 });
 

@@ -2,14 +2,18 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { DoorError } from './errors.ts';
 import { providerCall, providerError } from './http.ts';
+import { GspProvider } from './gsp.ts';
 import type { DoorJournal } from './journal.ts';
 
 /**
  * A generic door with the contract every door must meet (S1): an effect sent
  * with a door-level idempotency key, and a lookup by that key for read-back.
  * Providers, chosen by the credential the vault lends per call:
- *   { provider: 'http', base_url, token, send_path, lookup_path }   an HTTP provider (e.g. a GST Suvidha
- *       Provider for GSTR-3B filing): POST send_path with Idempotency-Key → { id };
+ *   { provider: 'gsp', base_url, client_id, client_secret, username, gstin, … }
+ *       a GST Suvidha Provider speaking the GSTN taxpayer API (auth/OTP, save,
+ *       status, submit, file with EVC, track) — see gsp.ts
+ *   { provider: 'http', base_url, token, send_path, lookup_path }   a generic HTTP provider:
+ *       POST send_path with Idempotency-Key → { id };
  *       GET lookup_path ({key} substituted) → the record, 404 when absent
  *   { provider: 'dev-file', dir }                                   records effects to a directory (dev/tests)
  */
@@ -17,21 +21,36 @@ export class FileDoor {
   readonly name: string;
   private readonly borrow: () => Promise<Record<string, unknown>>;
   private readonly journal: DoorJournal | null;
-  constructor(name: string, borrow: () => Promise<Record<string, unknown>>, journal: DoorJournal | null = null) {
+  private readonly scope: { companyId: string; lend: (door: string) => Promise<Record<string, unknown>> } | null;
+  constructor(
+    name: string,
+    borrow: () => Promise<Record<string, unknown>>,
+    journal: DoorJournal | null = null,
+    scope: { companyId: string; lend: (door: string) => Promise<Record<string, unknown>> } | null = null,
+  ) {
     this.name = name;
     this.borrow = borrow;
     this.journal = journal;
+    this.scope = scope;
+  }
+
+  private gsp(cred: Record<string, unknown>): GspProvider {
+    if (!this.scope) throw new DoorError(`${this.name}: a GSP door needs a company scope`, { definite: true });
+    return new GspProvider(cred, { door: this.name, companyId: this.scope.companyId, journal: this.journal, lend: this.scope.lend });
   }
 
   async send(record: Record<string, unknown>, idempotencyKey: string): Promise<{ id: string }> {
     const cred = await this.borrow();
+    if (cred.provider === 'gsp') return this.gsp(cred).send(record, idempotencyKey);
     if (cred.provider === 'http') return this.httpSend(cred, record, idempotencyKey);
     if (cred.provider === 'dev-file') return this.fileSend(cred, record, idempotencyKey);
     throw new DoorError(`${this.name} provider ${String(cred.provider)} is not supported`, { definite: true });
   }
 
-  async lookup(idempotencyKey: string): Promise<(Record<string, unknown> & { id: string }) | null> {
+  /** `query` is provider-specific (GSP: profile, status, summary, track); other providers ignore it. */
+  async lookup(idempotencyKey: string, query?: Record<string, unknown>): Promise<(Record<string, unknown> & { id: string }) | null> {
     const cred = await this.borrow();
+    if (cred.provider === 'gsp') return this.gsp(cred).lookup(idempotencyKey, query);
     if (cred.provider === 'http') return this.httpLookup(cred, idempotencyKey);
     if (cred.provider === 'dev-file') return this.fileLookup(cred, idempotencyKey);
     throw new DoorError(`${this.name} provider ${String(cred.provider)} is not supported`, { definite: true });
