@@ -17,6 +17,21 @@ function bearer(c: Context): string | null {
   return h?.startsWith('Bearer ') ? h.slice(7) : null;
 }
 
+/** A schedule as the platform sends it: {id?, ask, requester, rule: {every, at, weekday?, day?}, enabled?}. */
+export function validateSchedule(b: any): string | null {
+  if (!b || typeof b !== 'object') return 'body required';
+  if (b.id !== undefined && (typeof b.id !== 'string' || !/^[0-9a-f-]{36}$/i.test(b.id))) return 'id must be a uuid';
+  if (typeof b.ask !== 'string' || !b.ask.trim() || b.ask.length > 8000) return 'ask (1..8000 chars) required';
+  if (typeof b.requester !== 'string' || !/^(user|app):.+/.test(b.requester)) return 'requester (user:<id> | app:<key>) required';
+  const r = b.rule;
+  if (!r || !['day', 'week', 'month'].includes(r.every)) return "rule.every must be 'day', 'week' or 'month'";
+  if (typeof r.at !== 'string' || !/^([01][0-9]|2[0-3]):[0-5][0-9]$/.test(r.at)) return 'rule.at must be HH:MM (company time)';
+  if (r.every === 'week' && !(Number.isInteger(r.weekday) && r.weekday >= 1 && r.weekday <= 7)) return 'rule.weekday (1 = Monday … 7) required';
+  if (r.every === 'month' && !(Number.isInteger(r.day) && r.day >= 1 && r.day <= 31)) return 'rule.day (1..31) required';
+  if (b.enabled !== undefined && typeof b.enabled !== 'boolean') return 'enabled must be a boolean';
+  return null;
+}
+
 export function l3App(core: Core): Hono {
   const app = new Hono();
 
@@ -136,6 +151,7 @@ export function l3App(core: Core): Hono {
     const proof = await executeProposal(core, pre.company_id, body.proposal_id, {
       fingerprint: pre.fingerprint,
       sub: pre.sub,
+      ability_version: pre.ability_version ?? null,
       request_id: c.req.header('x-request-id') ?? null,
       trace: trace(c),
     });
@@ -158,7 +174,12 @@ export function l3App(core: Core): Hono {
     if (!b || typeof b.task_id !== 'string' || typeof b.status !== 'string') return c.json({ error: { code: 'bad_request', message: 'task_id and status required' } }, 400);
     const woke = await core.company(claims.company_id!, async (db) => {
       const w = await db.query<{ job_id: string }>(`select job_id from ${core.key}.waits where ref_id = $1 and kind = 'a2a_task'`, [b.task_id]);
-      if (!w.rows[0]) return null;
+      if (!w.rows[0]) {
+        // A hand-off still being written (its wait exists, its task id not yet): not ours to
+        // drop. Answer "try again" so the platform redelivers instead of marking it done (item 5).
+        const inflight = await db.query(`select 1 from ${core.key}.waits where kind = 'a2a_task' and ref_id is null and status = 'pending' limit 1`);
+        return inflight.rowCount ? 'retry' : null;
+      }
       const ok = await core.book.readyWait(db, b.task_id, b.status, { task_id: b.task_id, status: b.status, from_app: b.from_app ?? null, result: b.result ?? null });
       if (ok) {
         await core.book.addStep(db, {
@@ -172,6 +193,9 @@ export function l3App(core: Core): Hono {
       return ok;
     });
     if (woke === null) return c.json({ error: { code: 'not_found', message: 'no job waits on that task' } }, 404);
+    // 503, not 4xx: the gateway stores 4xx answers against the idempotency key and replays them;
+    // a 5xx is retried, so the platform's next delivery reaches the wait once it has its task id.
+    if (woke === 'retry') return c.json({ error: { code: 'handoff_in_progress', message: 'a hand-off is still being recorded; deliver again' } }, 503);
     return c.json({ ok: true, woke });
   });
 
@@ -191,9 +215,51 @@ export function l3App(core: Core): Hono {
     return c.json({ ok: true, pruned: pruned.rowCount ?? 0 });
   });
 
+  // WP §7 timers: the platform sets a schedule on a person's behalf; the runner opens a
+  // source='timer' job at each slot (company time zone, database time). Platform only.
+  app.post('/l3/schedules.set', async (c) => {
+    const claims = await authed(c, 'schedules.set');
+    if (claims.sub !== 'platform') return c.json({ error: { code: 'denied', message: 'only the platform sets schedules' } }, 403);
+    const b = await c.req.json().catch(() => null);
+    const bad = validateSchedule(b);
+    if (bad) return c.json({ error: { code: 'bad_request', message: bad } }, 400);
+    const board = await core.board.get(claims.company_id!);
+    const tz = board.company.time_zone;
+    const row = await core.company(claims.company_id!, async (db) => {
+      const rule = JSON.stringify(b.rule);
+      const enabled = b.enabled !== false;
+      if (b.id) {
+        const r = await db.query(
+          `update ${core.key}.schedules set ask = $2, requester = $3, rule = $4, time_zone = $5, enabled = $6,
+                  next_run_at = case when $6 then ${core.key}.next_run($4::jsonb, $5, now()) end, updated_at = now()
+            where id = $1 returning *`,
+          [b.id, b.ask, b.requester, rule, tz, enabled],
+        );
+        return r.rows[0] ?? null;
+      }
+      const r = await db.query(
+        `insert into ${core.key}.schedules (company_id, ask, requester, rule, time_zone, enabled, next_run_at)
+         values ($1, $2, $3, $4, $5, $6, case when $6 then ${core.key}.next_run($4::jsonb, $5, now()) end) returning *`,
+        [claims.company_id, b.ask, b.requester, rule, tz, enabled],
+      );
+      return r.rows[0];
+    });
+    if (!row) return c.json({ error: { code: 'not_found', message: 'no such schedule' } }, 404);
+    return c.json({ schedule: row });
+  });
+
+  app.get('/l3/schedules', async (c) => {
+    const claims = await authed(c, 'schedules.list');
+    if (claims.sub !== 'platform') return c.json({ error: { code: 'denied', message: 'platform only' } }, 403);
+    const rows = await core.company(claims.company_id!, async (db) => (await db.query(`select * from ${core.key}.schedules order by created_at`)).rows);
+    return c.json({ schedules: rows });
+  });
+
   app.post('/l3/switchboard.changed', async (c) => {
     const claims = await authed(c, 'switchboard.changed');
     core.board.invalidate(claims.company_id!);
+    // A changed ACL or line changes what may be borrowed: drop that cache too (item 6).
+    core.borrowed.invalidate(claims.company_id!);
     // Installs and uninstalls change which package lines and skills exist: reload them now.
     core.packages.invalidate(claims.company_id!);
     return c.json({ ok: true });

@@ -2,7 +2,7 @@
 
 import type { PoolClient } from '@neop/pgkit';
 import type { Core } from '../core.ts';
-import type { JobRow, ProposalRow, WaitRow } from '../data/book.ts';
+import type { JobRow, ProposalRow, StepRow, WaitRow } from '../data/book.ts';
 import { MAX_TOOL_CALLS } from '../gate/gate.ts';
 import type { EffectiveBoard } from '../gate/switchboard.ts';
 import { buildTools } from '../gate/tools.ts';
@@ -10,11 +10,41 @@ import type { JobBundle } from './bundle.ts';
 
 const RECENT_STEPS = 20;
 
-export async function buildBundle(core: Core, c: PoolClient, job: JobRow, board: EffectiveBoard): Promise<JobBundle> {
-  const steps = await core.book.listSteps(c, job.id);
+const SUMMARY_MAX = 1_800;
+
+/**
+ * The rolling summary (plan: the last 20 steps in full, "older ones as a rolling
+ * summary written to steps"). Steps past the window are folded into a `summary`
+ * step once; later sessions extend it with only what rolled out since.
+ */
+async function rollingSummary(core: Core, c: PoolClient, job: JobRow, all: StepRow[], persist: boolean): Promise<{ recent: StepRow[]; summary: string | null }> {
+  const steps = all.filter((s) => s.kind !== 'summary');
+  const last = all.filter((s) => s.kind === 'summary').at(-1);
   const recent = steps.slice(-RECENT_STEPS);
   const older = steps.slice(0, -RECENT_STEPS);
-  const facts = await core.book.recentFacts(c, 20);
+  const prev = (last?.output_ref ?? {}) as { through_seq?: number; covers?: number; body?: string };
+  const fresh = older.filter((s) => s.seq > (prev.through_seq ?? 0));
+  if (!fresh.length) return { recent, summary: last?.summary ?? null };
+  let body = [prev.body, ...fresh.filter((s) => s.kind !== 'ability').map((s) => `[${s.kind}] ${s.summary.slice(0, 80)}`)].filter(Boolean).join(' · ');
+  if (body.length > SUMMARY_MAX) body = `${body.slice(0, 400)} … ${body.slice(body.length - (SUMMARY_MAX - 403))}`;
+  const covers = (prev.covers ?? 0) + fresh.length;
+  const summary = `${covers} earlier steps (through step ${fresh.at(-1)!.seq}): ${body || 'reads only'}`;
+  if (!persist) return { recent, summary };
+  await core.book.addStep(c, {
+    company_id: job.company_id,
+    job_id: job.id,
+    kind: 'summary',
+    summary,
+    output_ref: { through_seq: fresh.at(-1)!.seq, covers, body },
+    mirror: false,
+  });
+  return { recent, summary };
+}
+
+/** `persist: false` builds without writing the summary step (the runner's look before it writes why it woke). */
+export async function buildBundle(core: Core, c: PoolClient, job: JobRow, board: EffectiveBoard, opts: { persist?: boolean } = {}): Promise<JobBundle> {
+  const { recent, summary } = await rollingSummary(core, c, job, await core.book.listSteps(c, job.id), opts.persist !== false);
+  const facts = await core.book.factsFor(c, job, 20);
   const waits = (await core.book.openWaits(c, job.id)).filter((w: WaitRow) => w.status === 'ready');
   let wake: JobBundle['wake'] = null;
   const w = waits[0];
@@ -65,13 +95,7 @@ export async function buildBundle(core: Core, c: PoolClient, job: JobRow, board:
       attempts: job.attempts,
     },
     steps: recent.map((s) => ({ seq: s.seq, kind: s.kind, summary: s.summary, at: s.created_at.toISOString() })),
-    older_steps_summary: older.length
-      ? `${older.length} earlier steps: ${older
-          .filter((s) => s.kind !== 'ability')
-          .map((s) => s.summary.slice(0, 80))
-          .join(' · ')
-          .slice(0, 1500)}`
-      : null,
+    older_steps_summary: summary,
     facts: facts.map((f) => ({ subject: f.subject, value: f.value, source: f.source, observed_at: f.observed_at.toISOString() })),
     wake,
     tools,

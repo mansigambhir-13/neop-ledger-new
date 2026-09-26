@@ -7,7 +7,8 @@
 //   2. ability exists in the manifest at the pinned version
 //   3. effective setting off → refuse
 //   4. company rules violated → refuse with the rule id
-//   5. caps (tool calls, spend) exceeded → refuse
+//   5. tool-call cap exceeded → refuse (job.finish still passes, so the person gets a
+//      report). Model spend is capped where it is metered: the LLM proxy (S9).
 //   6. read, or write set to on → execute, write operations and steps
 //   7. ask-first with a grant covering it → proposal APPROVED by the grant,
 //      execution token from the platform, same execute path
@@ -18,6 +19,7 @@ import { canonicalize, fingerprint, sha256, type JobTokenClaims, type ProposalCa
 import { executeProposal, measure, runEffect } from '../capabilities/execute.ts';
 import { ruleUsage } from '../capabilities/usage.ts';
 import type { Core } from '../core.ts';
+import type { PoolClient } from '@neop/pgkit';
 import type { JobRow } from '../data/book.ts';
 import { checkRules } from '../domain/rules.ts';
 import type { ExecCtx } from '../types.ts';
@@ -28,11 +30,16 @@ export type GateResult =
   | { status: 'done_by_grant'; ability: string; proposal_id: string; proof: Proof }
   | { status: 'proposed'; ability: string; proposal_id: string; fingerprint: string; expires_at: string }
   | { status: 'waiting_on_app'; app: string; task_id: string }
-  | { status: 'refused'; code: string; reason: string }
+  | { status: 'waiting_until'; at: string }
+  /** `detail` is what another party said (owner app, platform): shown to the model as untrusted data (item 10). */
+  | { status: 'refused'; code: string; reason: string; detail?: unknown; detail_source?: string }
   | { status: 'ok'; detail?: unknown };
 
 export const MAX_TOOL_CALLS = 40;
-const DEFAULT_JOB_BUDGET_USD = 5;
+/** job.finish attempts allowed past the cap, so a capped job can still report. */
+const FINISH_GRACE = 5;
+/** job.wait_until: how far ahead a job may park itself. */
+const MAX_WAIT_MS = 31 * 86_400_000;
 
 export class SessionLost extends Error {}
 
@@ -58,8 +65,8 @@ export class Gate {
 
   async call(claims: JobTokenClaims, key: string, rawArgs: unknown): Promise<GateResult> {
     const job = await this.liveJob(claims, true);
-    if (job.tool_calls > MAX_TOOL_CALLS) {
-      return { status: 'refused', code: 'cap_tool_calls', reason: `this job has used its ${MAX_TOOL_CALLS} tool calls` };
+    if (job.tool_calls > MAX_TOOL_CALLS && !(key === 'job.finish' && job.tool_calls <= MAX_TOOL_CALLS + FINISH_GRACE)) {
+      return { status: 'refused', code: 'cap_tool_calls', reason: `this job has used its ${MAX_TOOL_CALLS} tool calls; call job.finish to report` };
     }
 
     if (key in BUILTIN_TOOLS) return this.builtin(claims, job, key, rawArgs);
@@ -113,12 +120,6 @@ export class Gate {
       const usage = await this.core.company(claims.company_id, (c) => ruleUsage(this.core, c, board, (m as any).currency));
       const v = checkRules(board.rules, { ability_key: key, external: !!ability.effects?.external, ...m }, new Date(), board.company.time_zone, usage);
       if (v) return this.refuse(claims, key, `rule:${v.rule_id}`, v.reason);
-    }
-
-    // 5. spend cap
-    const perJob = board.budget.per_job_usd ?? DEFAULT_JOB_BUDGET_USD;
-    if (job.spend_micros > perJob * 1_000_000) {
-      return this.refuse(claims, key, 'cap_budget', `this job has spent its $${perJob} model budget`);
     }
 
     // 6. reads, and writes that are on
@@ -209,6 +210,7 @@ export class Gate {
           ttl_ms: this.core.cfg.timings.proposalTtlMs,
         });
         await this.core.book.proposalEvent(c, { company_id: claims.company_id, proposal_id: proposalId, event: 'approved_by_grant', actor: `grant:${grant.grant_id}`, fingerprint_seen: fp });
+        await this.linkSuperseded(c, claims, key, proposalId);
         await this.core.book.addStep(c, {
           company_id: claims.company_id,
           job_id: claims.sub,
@@ -218,7 +220,7 @@ export class Gate {
           output_ref: { proposal_id: proposalId },
         });
       });
-      const proof = await executeProposal(this.core, claims.company_id, proposalId, { fingerprint: fp, sub: exec.sub });
+      const proof = await executeProposal(this.core, claims.company_id, proposalId, { fingerprint: fp, sub: exec.sub, ability_version: exec.ability_version ?? null });
       return { status: 'done_by_grant', ability: key, proposal_id: proposalId, proof };
     }
 
@@ -236,6 +238,7 @@ export class Gate {
         ttl_ms: this.core.cfg.timings.proposalTtlMs,
       });
       await this.core.book.proposalEvent(c, { company_id: claims.company_id, proposal_id: p.id, event: 'proposed', actor: `assistant:${claims.sub}`, fingerprint_seen: fp });
+      await this.linkSuperseded(c, claims, key, p.id);
       await this.core.book.insertWait(c, {
         company_id: claims.company_id,
         job_id: claims.sub,
@@ -276,6 +279,24 @@ export class Gate {
     return { status: 'proposed', ability: key, proposal_id: out.id, fingerprint: fp, expires_at: out.expires_at.toISOString() };
   }
 
+  /**
+   * "Change this first" ends a proposal SUPERSEDED; the one the assistant writes next in
+   * the same job for the same ability replaces it: record which (superseded_by).
+   */
+  private async linkSuperseded(c: PoolClient, claims: JobTokenClaims, key: string, replacement: string): Promise<void> {
+    const r = await c.query<{ id: string }>(
+      `update ${this.core.key}.proposals set superseded_by = $3, updated_at = now()
+        where id = (select id from ${this.core.key}.proposals
+                     where job_id = $1 and ability_key = $2 and status = 'SUPERSEDED' and superseded_by is null and id <> $3
+                     order by updated_at desc limit 1)
+        returning id`,
+      [claims.sub, key, replacement],
+    );
+    for (const row of r.rows) {
+      await this.core.book.proposalEvent(c, { company_id: claims.company_id, proposal_id: row.id, event: 'superseded_by', actor: `assistant:${claims.sub}`, detail: { replacement } });
+    }
+  }
+
   /** A borrowed read: through the gateway as this app; recorded in this book with the gateway's request id (R4). */
   private async borrow(claims: JobTokenClaims, key: string, args: unknown): Promise<GateResult> {
     const board = await this.core.board.get(claims.company_id);
@@ -286,7 +307,8 @@ export class Gate {
     const idem = `${this.core.key}:borrow:${claims.sub}:${sha256(canonicalize({ key, args }))}`;
     const res = await this.core.platform.gatewayCall({ company_id: claims.company_id, app: b.owner, endpoint: key, body: args, idem_key: idem });
     if (res.status !== 200) {
-      return this.refuse(claims, key, 'owner_refused', `${b.owner} answered ${res.status}: ${res.body?.error?.message ?? 'refused'}`);
+      // The owner's words are outside text: data for the model, never instruction (item 10).
+      return this.refuse(claims, key, 'owner_refused', `${b.owner} answered ${res.status}`, { detail: res.body?.error?.message ?? 'refused', detail_source: b.owner });
     }
     const out = res.body?.result;
     if (!v.output(out)) return this.refuse(claims, key, 'contract_violation', `${b.owner} returned a result outside its schema`);
@@ -305,19 +327,37 @@ export class Gate {
     return { status: 'done', ability: key, output: out, untrusted: true };
   }
 
-  /** Hand a task to another app; the job waits on it like it waits on a person (Phase 4). */
+  /**
+   * Hand a task to another app; the job waits on it like it waits on a person (Phase 4).
+   * The wait is written BEFORE the platform is asked (item 5): a result that comes back
+   * faster than this call returns finds a hand-off in flight and is retried, never lost.
+   */
   private async a2a(claims: JobTokenClaims, job: JobRow, args: any): Promise<GateResult> {
     const targets = this.core.borrowed.a2aTargets();
     if (!args || typeof args.app !== 'string' || !targets.includes(args.app) || typeof args.ask !== 'string' || args.ask.trim().length < 3) {
       return this.refuse(claims, 'a2a.request', 'invalid_args', `app must be one of ${targets.join(', ') || '(none)'} and ask is required`);
     }
-    const res = await this.core.platform.openA2A({ company_id: claims.company_id, target: args.app, ask: args.ask, parent_task_id: job.task_id, host_job_id: claims.sub });
+    const wait = await this.core.company(claims.company_id, (c) =>
+      this.core.book.insertWait(c, { company_id: claims.company_id, job_id: claims.sub, kind: 'a2a_task', ref_id: null, expires_at_sql: `now() + interval '24 hours'` }),
+    );
+    let res: { status: number; body: any };
+    try {
+      res = await this.core.platform.openA2A({ company_id: claims.company_id, target: args.app, ask: args.ask, parent_task_id: job.task_id, host_job_id: claims.sub });
+    } catch (e) {
+      res = { status: 502, body: { error: { code: 'a2a_unreachable', message: String(e) } } };
+    }
     if (res.status !== 200) {
-      return this.refuse(claims, 'a2a.request', res.body?.error?.code ?? 'a2a_refused', res.body?.error?.message ?? `the platform answered ${res.status}`);
+      await this.core.company(claims.company_id, (c) =>
+        c.query(`update ${this.core.key}.waits set status = 'consumed', ready_at = now(), outcome = 'NOT_OPENED' where id = $1 and status = 'pending'`, [wait.id]),
+      );
+      return this.refuse(claims, 'a2a.request', res.body?.error?.code ?? 'a2a_refused', `the platform answered ${res.status}`, {
+        detail: res.body?.error?.message ?? null,
+        detail_source: 'platform',
+      });
     }
     const taskId = res.body.task_id as string;
     await this.core.company(claims.company_id, async (c) => {
-      await this.core.book.insertWait(c, { company_id: claims.company_id, job_id: claims.sub, kind: 'a2a_task', ref_id: taskId, expires_at_sql: `now() + interval '24 hours'` });
+      await c.query(`update ${this.core.key}.waits set ref_id = $2 where id = $1`, [wait.id, taskId]);
       const consumed = await this.core.book.consumeReadyWaits(c, claims.sub);
       await this.core.book.markReported(c, claims.company_id, consumed, `assistant:${claims.sub}`, { next_task: taskId });
       await this.core.book.setJobStatus(c, claims.sub, 'WAITING');
@@ -327,16 +367,16 @@ export class Gate {
     return { status: 'waiting_on_app', app: args.app, task_id: taskId };
   }
 
-  private async refuse(claims: JobTokenClaims, key: string, code: string, reason: string): Promise<GateResult> {
+  private async refuse(claims: JobTokenClaims, key: string, code: string, reason: string, outside?: { detail: unknown; detail_source: string }): Promise<GateResult> {
     await this.core
       .company(claims.company_id, (c) =>
         this.core.book.addStep(c, { company_id: claims.company_id, job_id: claims.sub, kind: 'refused', summary: `Refused ${key}: ${reason}`, ability_key: key }),
       )
       .catch(() => {});
-    return { status: 'refused', code, reason };
+    return outside ? { status: 'refused', code, reason, ...outside } : { status: 'refused', code, reason };
   }
 
-  // ── built-in tools: book.note, card.raise, job.finish ─────────────────────
+  // ── built-in tools: book.note, card.raise, job.wait_until, job.finish ─────
   private async builtin(claims: JobTokenClaims, job: JobRow, key: string, args: any): Promise<GateResult> {
     const co = claims.company_id;
     switch (key) {
@@ -362,6 +402,23 @@ export class Gate {
           await this.core.book.emit(c, co, 'card.raised', { job_id: claims.sub, task_id: job.task_id, kind, text: args.text }, `card:${claims.sub}:${seq}`);
         });
         return { status: 'ok' };
+      }
+      case 'job.wait_until': {
+        // WP §7: the job parks itself until a time; the runner wakes it then (waits.kind 'timer').
+        const at = typeof args?.at === 'string' ? new Date(args.at) : null;
+        if (!at || Number.isNaN(at.getTime()) || typeof args?.reason !== 'string' || !args.reason.trim()) {
+          return { status: 'refused', code: 'invalid_args', reason: 'at (ISO date-time) and reason are required' };
+        }
+        return this.core.company(co, async (c) => {
+          const ok = (await c.query<{ ok: boolean }>('select $1::timestamptz > now() and $1::timestamptz <= now() + ($2 || \' milliseconds\')::interval as ok', [at.toISOString(), String(MAX_WAIT_MS)])).rows[0]!.ok;
+          if (!ok) return { status: 'refused', code: 'invalid_args', reason: 'at must be in the future and within 31 days' } as GateResult;
+          await this.core.book.insertWait(c, { company_id: co, job_id: claims.sub, kind: 'timer', ref_id: null, expires_at: at.toISOString(), answer: { at: at.toISOString(), reason: args.reason } });
+          const consumed = await this.core.book.consumeReadyWaits(c, claims.sub);
+          await this.core.book.markReported(c, co, consumed, `assistant:${claims.sub}`, { waiting_until: at.toISOString() });
+          await this.core.book.setJobStatus(c, claims.sub, 'WAITING');
+          await this.core.book.addStep(c, { company_id: co, job_id: claims.sub, kind: 'system', summary: `Waiting until ${at.toISOString()}: ${args.reason}` });
+          return { status: 'waiting_until', at: at.toISOString() } as GateResult;
+        });
       }
       case 'job.finish': {
         const outcomes = ['done', 'failed', 'blocked', 'needs_input'];
@@ -395,18 +452,6 @@ export class Gate {
       }
     }
     return { status: 'refused', code: 'unknown_ability', reason: key };
-  }
-
-  /** The agent reports model spend; the gate records it against the job. */
-  async usage(claims: JobTokenClaims, costUsd: number): Promise<void> {
-    if (!(costUsd >= 0)) return;
-    await this.core.company(claims.company_id, (c) =>
-      c.query(`update ${this.core.key}.jobs set spend_micros = spend_micros + $3 where id = $1 and claimed_by = $2`, [
-        claims.sub,
-        claims.sid,
-        Math.round(costUsd * 1_000_000),
-      ]),
-    );
   }
 
   async heartbeat(claims: JobTokenClaims): Promise<void> {

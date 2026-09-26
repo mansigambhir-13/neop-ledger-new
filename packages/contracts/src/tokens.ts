@@ -17,6 +17,11 @@ export interface GatewayClaims {
   company_id: string | null;
   /** The L3 endpoint or ability key this token is good for. */
   ability: string;
+  /**
+   * The ability version a yes was given to (plan gate step 2). Execution tokens carry
+   * the proposal's version; the app refuses to run it (version_changed) if it no
+   * longer runs that version.
+   */
   ability_version?: string;
   idem_key: string;
   jti: string;

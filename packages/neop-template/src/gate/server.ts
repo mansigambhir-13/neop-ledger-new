@@ -49,14 +49,6 @@ export function gateApp(core: Core, gate: Gate, onSessionEnd: (claims: JobTokenC
     return c.json({ ok: true });
   });
 
-  app.post('/gate/usage', async (c) => {
-    const claims = await claimsOf(c);
-    if (!claims) return c.json({ error: { code: 'unauthenticated', message: 'job token required' } }, 401);
-    const b = await c.req.json().catch(() => ({}));
-    await gate.usage(claims, Number(b.cost_usd));
-    return c.json({ ok: true });
-  });
-
   app.post('/gate/session.end', async (c) => {
     const claims = await claimsOf(c);
     if (!claims) return c.json({ error: { code: 'unauthenticated', message: 'job token required' } }, 401);

@@ -62,6 +62,17 @@ export const BUILTIN_TOOLS: Record<string, Omit<ToolSpec, 'name' | 'key' | 'vers
       properties: { kind: { type: 'string', enum: ['heads_up', 'question'] }, text: { type: 'string' } },
     },
   },
+  'job.wait_until': {
+    title: 'Wait until a time, then carry on',
+    description:
+      'Park this job until a date-time (ISO 8601, within 31 days), e.g. to check again after a due date. The job is woken then with your reason. Nothing happens meanwhile.',
+    kind: 'builtin',
+    input: {
+      type: 'object',
+      required: ['at', 'reason'],
+      properties: { at: { type: 'string', description: 'ISO 8601 date-time with offset' }, reason: { type: 'string' } },
+    },
+  },
   'job.finish': {
     title: 'Finish the job and report',
     description:

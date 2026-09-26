@@ -3,7 +3,10 @@
 // session, one company and one app with a budget. Every call reserves its
 // worst case against the job budget and the company-app daily cap before
 // going upstream, then settles the real usage. Over budget → 402, before any
-// upstream call. The agent's own spend report is informational only.
+// upstream call. The proxy is the single meter (S9): the per-job budget is
+// held across every session of the job (a crashed session's successor does
+// not get a fresh budget), and the app reads the metered spend from here
+// (GET /v1/spend), never from the agent's own report.
 
 import { Hono } from 'hono';
 import { createLocalJWKSet, createRemoteJWKSet, jwtVerify, type JWTVerifyGetKey } from 'jose';
@@ -78,11 +81,16 @@ export function llmProxyApp(cfg: ProxyConfig): Hono {
     }
   }
 
-  /** Reserve `est` against the session and the day, atomically; false if either would go over. */
-  async function reserve(s: SessionClaims, app: string, est: number): Promise<boolean> {
+  /**
+   * Reserve `est` against the job and the day, atomically. The job budget is
+   * per job, not per session (S9): every session row of the job counts, under
+   * a per-job lock. Returns which cap refused it, or null when it fits.
+   */
+  async function reserve(s: SessionClaims, app: string, est: number): Promise<'job' | 'day' | null> {
     const c = await cfg.db.connect();
     try {
       await c.query('begin');
+      await c.query('select pg_advisory_xact_lock(hashtext($1))', [`llm-job:${app}:${s.job_id}`]);
       await c.query(
         `insert into neos.llm_sessions (sid, company_id, app_key, job_id, budget_micros) values ($1,$2,$3,$4,$5) on conflict (sid) do nothing`,
         [s.sid, s.company_id, app, s.job_id, s.budget_micros],
@@ -92,6 +100,14 @@ export function llmProxyApp(cfg: ProxyConfig): Hono {
         `insert into neos.llm_days (company_id, app_key, day, cap_micros) values ($1,$2,$3,$4) on conflict (company_id, app_key, day) do update set cap_micros = excluded.cap_micros`,
         [s.company_id, app, day, s.day_cap_micros],
       );
+      const used = await c.query<{ n: string }>(
+        `select coalesce(sum(spent_micros + reserved_micros), 0)::bigint as n from neos.llm_sessions where app_key = $1 and job_id = $2`,
+        [app, s.job_id],
+      );
+      if (Number(used.rows[0]!.n) + est > s.budget_micros) {
+        await c.query('rollback');
+        return 'job';
+      }
       const a = await c.query(
         `update neos.llm_sessions set reserved_micros = reserved_micros + $2, calls = calls + 1
           where sid = $1 and spent_micros + reserved_micros + $2 <= budget_micros`,
@@ -104,16 +120,39 @@ export function llmProxyApp(cfg: ProxyConfig): Hono {
       );
       if (!a.rowCount || !b.rowCount) {
         await c.query('rollback');
-        return false;
+        return a.rowCount ? 'day' : 'job';
       }
       await c.query('commit');
-      return true;
+      return null;
     } catch (e) {
       await c.query('rollback').catch(() => {});
       throw e;
     } finally {
       c.release();
     }
+  }
+
+  /** What this job and this company-app day have spent, metered here (S9). */
+  async function spend(s: SessionClaims, app: string) {
+    const j = await cfg.db.query<{ spent: string; reserved: string }>(
+      `select coalesce(sum(spent_micros), 0)::bigint as spent, coalesce(sum(reserved_micros), 0)::bigint as reserved
+         from neos.llm_sessions where app_key = $1 and job_id = $2`,
+      [app, s.job_id],
+    );
+    const d = await cfg.db.query<{ spent: string; reserved: string }>(
+      `select spent_micros as spent, reserved_micros as reserved from neos.llm_days
+        where company_id = $1 and app_key = $2 and day = (now() at time zone $3)::date`,
+      [s.company_id, app, s.tz],
+    );
+    return {
+      job_id: s.job_id,
+      job_spent_micros: Number(j.rows[0]!.spent),
+      job_reserved_micros: Number(j.rows[0]!.reserved),
+      job_budget_micros: s.budget_micros,
+      day_spent_micros: Number(d.rows[0]?.spent ?? 0),
+      day_reserved_micros: Number(d.rows[0]?.reserved ?? 0),
+      day_cap_micros: s.day_cap_micros,
+    };
   }
 
   async function settle(s: SessionClaims, app: string, est: number, model: string, inTok: number, outTok: number, cost: number, outcome: 'settled' | 'upstream_error') {
@@ -141,8 +180,17 @@ export function llmProxyApp(cfg: ProxyConfig): Hono {
     }
   }
 
+  const bearer = (c: { req: { header: (n: string) => string | undefined } }) => c.req.header('x-api-key') ?? c.req.header('authorization')?.replace(/^Bearer /, '');
+
+  // The app's view of the meter: what its job and its day have spent (S9, item 12).
+  app.get('/v1/spend', async (c) => {
+    const s = await verify(bearer(c));
+    if (!s || !s.sub?.startsWith('app:')) return anthropicError(401, 'authentication_error', 'a valid NEOS session token is required');
+    return c.json(await spend(s, s.sub.slice(4)));
+  });
+
   app.post('/v1/messages', async (c) => {
-    const s = await verify(c.req.header('x-api-key') ?? c.req.header('authorization')?.replace(/^Bearer /, ''));
+    const s = await verify(bearer(c));
     if (!s || !s.sub?.startsWith('app:')) return anthropicError(401, 'authentication_error', 'a valid NEOS session token is required');
     const appKey = s.sub.slice(4);
     const raw = await c.req.text();
@@ -157,12 +205,21 @@ export function llmProxyApp(cfg: ProxyConfig): Hono {
     body.max_tokens = Math.min(Number(body.max_tokens) || ceiling, ceiling);
     // Worst case: every prompt byte a token (over-counts), plus max_tokens of output.
     const est = micros(raw.length, price.input) + micros(body.max_tokens, price.output);
-    if (!(await reserve(s, appKey, est))) {
+    const over = await reserve(s, appKey, est);
+    if (over) {
       await cfg.db.query(
         `insert into neos.llm_usage (sid, company_id, app_key, job_id, model, outcome) values ($1,$2,$3,$4,$5,'refused_budget')`,
         [s.sid, s.company_id, appKey, s.job_id, body.model],
       );
-      return anthropicError(402, 'budget_exceeded', 'the model budget for this job or for today is used up');
+      // Final, not transient: the runner ends the job and says which cap (S9).
+      const usd = (m: number) => `$${(m / 1_000_000).toFixed(2)}`;
+      return anthropicError(
+        402,
+        'budget_exceeded',
+        over === 'job'
+          ? `NEOS budget reached: the model budget for this job (${usd(s.budget_micros)}) is used up`
+          : `NEOS budget reached: today's model budget for this app (${usd(s.day_cap_micros)}) is used up`,
+      );
     }
 
     let upstream: Response;
@@ -213,34 +270,70 @@ export function llmProxyApp(cfg: ProxyConfig): Hono {
         span.set('llm.input_tokens', inTok).set('llm.output_tokens', outTok).set('llm.cost_micros', cost(inTok, outTok)).end();
       };
     })();
-    const tap = new TransformStream<Uint8Array, Uint8Array>({
-      transform(chunk, ctl) {
-        ctl.enqueue(chunk);
-        buf += decoder.decode(chunk, { stream: true });
-        let i: number;
-        while ((i = buf.indexOf('\n')) >= 0) {
-          const line = buf.slice(0, i).trim();
-          buf = buf.slice(i + 1);
-          if (!line.startsWith('data:')) continue;
-          try {
-            const ev = JSON.parse(line.slice(5));
-            if (ev.type === 'message_start') {
-              const u = ev.message?.usage ?? {};
-              inTok = (u.input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0);
-              outTok = u.output_tokens ?? 0;
-            } else if (ev.type === 'message_delta' && ev.usage) {
-              outTok = ev.usage.output_tokens ?? outTok;
-            }
-          } catch {
-            /* not JSON; pass through */
+    const parse = (chunk: Uint8Array) => {
+      buf += decoder.decode(chunk, { stream: true });
+      let i: number;
+      while ((i = buf.indexOf('\n')) >= 0) {
+        const line = buf.slice(0, i).trim();
+        buf = buf.slice(i + 1);
+        if (!line.startsWith('data:')) continue;
+        try {
+          const ev = JSON.parse(line.slice(5));
+          if (ev.type === 'message_start') {
+            const u = ev.message?.usage ?? {};
+            inTok = (u.input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0);
+            outTok = u.output_tokens ?? 0;
+          } else if (ev.type === 'message_delta' && ev.usage) {
+            outTok = ev.usage.output_tokens ?? outTok;
           }
+        } catch {
+          /* not JSON; pass through */
         }
+      }
+    };
+    // Pass bytes through untouched. If the client goes away (a killed or timed-out
+    // session), keep draining upstream: the provider still bills the call, so the
+    // meter settles what it really cost and the reservation never leaks (S9).
+    const reader = upstream.body.getReader();
+    let ctl!: ReadableStreamDefaultController<Uint8Array>;
+    let clientGone = false;
+    const out = new ReadableStream<Uint8Array>({
+      start(c) {
+        ctl = c;
       },
-      async flush() {
-        await settleOnce();
+      cancel() {
+        clientGone = true;
       },
     });
-    return new Response(upstream.body.pipeThrough(tap), {
+    void (async () => {
+      try {
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          parse(value);
+          if (!clientGone) {
+            try {
+              ctl.enqueue(value);
+            } catch {
+              clientGone = true;
+            }
+          }
+        }
+      } catch (e) {
+        cfg.log?.('llm upstream stream broke', e);
+      } finally {
+        // Settle before the client sees the end, so the usage row exists when the call is over.
+        await settleOnce();
+        if (!clientGone) {
+          try {
+            ctl.close();
+          } catch {
+            /* already closed */
+          }
+        }
+      }
+    })();
+    return new Response(out, {
       status: 200,
       headers: { 'content-type': 'text/event-stream', 'cache-control': 'no-cache' },
     });

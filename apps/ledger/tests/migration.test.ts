@@ -19,7 +19,7 @@ describe('migrations', () => {
   it('apply once, then re-running is a no-op', async () => {
     const app = await ledgerApp();
     const first = await migrateApp(db.adminUrl, app);
-    expect(first.map((m) => m.name)).toEqual(['001_standard.sql', 't002_trace_and_acks.sql', 't003_door_journal.sql', '002_ledger.sql', '003_budgets.sql', '004_bookkeeping.sql']);
+    expect(first.map((m) => m.name)).toEqual(['001_standard.sql', 't002_trace_and_acks.sql', 't003_door_journal.sql', 't004_timers_and_summary.sql', '002_ledger.sql', '003_budgets.sql', '004_bookkeeping.sql']);
     expect(await migrateApp(db.adminUrl, app)).toEqual([]);
   });
 

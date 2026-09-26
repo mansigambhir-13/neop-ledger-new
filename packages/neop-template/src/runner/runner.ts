@@ -1,7 +1,8 @@
 // THE RUNNER · template-only · always on · holds no model.
-// Turns inbound calls and timers into jobs (via L3), claims runnable jobs,
-// hands each to a fresh assistant session with a job token, expires the late,
-// reconciles UNKNOWN outcomes. The poll is the truth; NOTIFY is latency.
+// Turns inbound calls and timers into jobs (via L3 and schedules), claims
+// runnable jobs, hands each to a fresh assistant session with a job token,
+// expires the late, reconciles UNKNOWN outcomes. The poll is the truth; NOTIFY
+// is latency.
 
 import type { JobTokenClaims, TaskResult } from '@neop/contracts';
 import pg from 'pg';
@@ -10,10 +11,23 @@ import { reconcileUnknown } from '../capabilities/execute.ts';
 import type { Core } from '../core.ts';
 import type { JobRow, ProposalRow } from '../data/book.ts';
 
+/** A timer job not started within this long of its slot is EXPIRED, not run stale (WP §7, t004). */
+export const TIMER_WINDOW = '1 hour';
+
+interface Meter {
+  job_spent_micros: number;
+  job_reserved_micros: number;
+  job_budget_micros: number;
+  day_spent_micros: number;
+  day_reserved_micros: number;
+  day_cap_micros: number;
+}
+const usd = (m: number) => `$${(m / 1_000_000).toFixed(2)}`;
+
 export class Runner {
   readonly core: Core;
   /** Sessions this runner started and that have not ended yet. */
-  readonly active = new Map<string, { job_id: string; company_id: string }>();
+  readonly active = new Map<string, { job_id: string; company_id: string; llm: { base_url: string; token: string } | null }>();
   private timers: NodeJS.Timeout[] = [];
   private listener: pg.Client | null = null;
   private ticking = false;
@@ -38,6 +52,7 @@ export class Runner {
     await this.listener.query(`listen ${this.core.book.channel}`);
     this.timers.push(setInterval(() => this.kick(), t.pollMs));
     this.every(t.expiryMs, () => this.expire(), 'expiry');
+    this.every(t.expiryMs, () => this.fireSchedules(), 'schedules');
     this.every(t.reconcileMs, () => this.reconcile(), 'reconcile');
     this.every(60_000, () => this.core.gatewayAuth.pruneSeen(), 'prune');
     this.kick();
@@ -101,6 +116,7 @@ export class Runner {
         `with c as (
            select j.id, j.status as prev_status from ${this.s}.jobs j
             where (j.claimed_until is null or j.claimed_until < now())
+              and (j.status <> 'RECEIVED' or j.run_by is null or j.run_by >= now())
               and (j.status in ('RECEIVED', 'RUNNING')
                    or (j.status = 'WAITING' and exists (select 1 from ${this.s}.waits w where w.job_id = j.id and w.status = 'ready')))
             order by j.updated_at
@@ -163,21 +179,28 @@ export class Runner {
         return;
       }
       const board = await this.core.board.get(job.company_id);
-      const perDay = board.budget.per_day_usd ?? 50;
-      const spent = await this.core.company(job.company_id, async (c) => {
-        const r = await c.query<{ micros: number }>(
-          `select coalesce(sum(spend_micros), 0)::bigint as micros from ${this.s}.jobs
-            where created_at >= date_trunc('day', now() at time zone $1) at time zone $1`,
-          [board.company.time_zone],
-        );
-        return r.rows[0]!.micros;
+      // The agent's only model credential: a platform-signed, budgeted session token (R1).
+      const llm = await this.core.platform.llmSession({
+        company_id: job.company_id,
+        job_id: job.id,
+        sid,
+        ttl_seconds: Math.ceil(this.core.cfg.timings.sessionMaxMs / 1000) + 60,
       });
-      if (spent > perDay * 1_000_000) {
-        await this.fail(job, `The daily model budget for ${this.core.manifest.name} ($${perDay}) is used up; the job was not started.`);
-        return;
+      // Spend is what the proxy metered for this job, across all its sessions (S9, item 12).
+      const m = llm ? await this.meter(llm) : null;
+      if (m) {
+        await this.core.runnerPool.query(`update ${this.s}.jobs set spend_micros = $2 where id = $1`, [job.id, m.job_spent_micros]);
+        if (m.job_spent_micros + m.job_reserved_micros >= m.job_budget_micros) {
+          await this.fail(job, `Stopped: NEOS budget reached — the model budget for this job (${usd(m.job_budget_micros)}) is used up. Nothing further was done.`);
+          return;
+        }
+        if (m.day_spent_micros + m.day_reserved_micros >= m.day_cap_micros) {
+          await this.fail(job, `Stopped: NEOS budget reached — today's model budget for ${this.core.manifest.name} (${usd(m.day_cap_micros)}) is used up; the job was not started.`);
+          return;
+        }
       }
       const bundle = await this.core.company(job.company_id, async (c) => {
-        const first = await buildBundle(this.core, c, job, board);
+        const first = await buildBundle(this.core, c, job, board, { persist: false });
         // Write why this session exists before the assistant reads the book.
         if (first.wake) {
           const p = first.wake.proposal;
@@ -190,9 +213,10 @@ export class Runner {
           });
         } else if (job.attempts > 0) {
           await this.core.book.addStep(c, { company_id: job.company_id, job_id: job.id, kind: 'resume', summary: `Resumed after an interrupted session (attempt ${job.attempts + 1})` });
-        } else {
-          return first;
+        } else if (!first.older_steps_summary) {
+          return first; // a fresh job: nothing to write, no second build on the hot path
         }
+        // Built again once the resume step is written, and only now is the rolling summary written (once per session).
         return buildBundle(this.core, c, job, board);
       });
       const abilities = bundle.tools.filter((t) => t.kind !== 'builtin').map((t) => t.key);
@@ -200,14 +224,7 @@ export class Runner {
         { sub: job.id, sid, company_id: job.company_id, abilities },
         this.core.cfg.timings.sessionMaxMs + 60_000,
       );
-      // The agent's only model credential: a platform-signed, budgeted session token (R1).
-      const llm = await this.core.platform.llmSession({
-        company_id: job.company_id,
-        job_id: job.id,
-        sid,
-        ttl_seconds: Math.ceil(this.core.cfg.timings.sessionMaxMs / 1000) + 60,
-      });
-      this.active.set(sid, { job_id: job.id, company_id: job.company_id });
+      this.active.set(sid, { job_id: job.id, company_id: job.company_id, llm });
       const res = await fetch(`${this.core.cfg.agentUrl.replace(/\/$/, '')}/sessions`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
@@ -224,10 +241,27 @@ export class Runner {
     }
   }
 
+  /** The proxy's meter for this job and day; null when unreachable (the proxy still enforces). */
+  private async meter(llm: { base_url: string; token: string }): Promise<Meter | null> {
+    try {
+      const res = await fetch(`${llm.base_url.replace(/\/$/, '')}/v1/spend`, { headers: { 'x-api-key': llm.token }, signal: AbortSignal.timeout(5_000) });
+      return res.ok ? ((await res.json()) as Meter) : null;
+    } catch {
+      return null;
+    }
+  }
+
   /** Called by the gate when an assistant session ends, however it ended. */
   async onSessionEnd(claims: JobTokenClaims, reason: string): Promise<void> {
+    const llm = this.active.get(claims.sid)?.llm ?? null;
     this.active.delete(claims.sid);
+    if (llm) {
+      const m = await this.meter(llm);
+      if (m) await this.core.runnerPool.query(`update ${this.s}.jobs set spend_micros = $2 where id = $1`, [claims.sub, m.job_spent_micros]).catch(() => {});
+    }
     const transient = reason.startsWith('transient');
+    // A 402 from the proxy is final (S9): retrying would spend nothing and say nothing.
+    const budget = reason.startsWith('budget:') ? reason.slice('budget:'.length) : null;
     await this.core.company(claims.company_id, async (c) => {
       const job = await this.core.book.getJob(c, claims.sub, true);
       if (!job || job.claimed_by !== claims.sid) return;
@@ -237,8 +271,10 @@ export class Runner {
           return;
         }
         const pending = (await this.core.book.openWaits(c, job.id)).filter((w) => w.status === 'pending');
-        if (!pending.length) {
-          const summary = `The assistant stopped without reporting (${reason}). Nothing further was done.`;
+        if (!pending.length || budget) {
+          const summary = budget
+            ? `Stopped: NEOS budget reached — ${budget} is used up. Nothing further was done; a person can raise the budget and ask again.`
+            : `The assistant stopped without reporting (${reason}). Nothing further was done.`;
           const result: TaskResult = { outcome: 'failed', summary, changed: [], could_not: [job.ask], sources: [] };
           await this.core.book.consumeReadyWaits(c, job.id);
           await this.core.book.addStep(c, { company_id: job.company_id, job_id: job.id, kind: 'failed', summary });
@@ -275,11 +311,64 @@ export class Runner {
       );
       n += a2a.rowCount ?? 0;
       const timers = await client.query(
-        `update ${this.s}.waits set status = 'ready', ready_at = now(), outcome = 'TIMER', answer = '{"timer":true}'
+        `update ${this.s}.waits set status = 'ready', ready_at = now(), outcome = 'TIMER', answer = coalesce(answer, '{}'::jsonb) || '{"timer":true}'
           where kind = 'timer' and status = 'pending' and expires_at < now()`,
       );
       n += timers.rowCount ?? 0;
+      // A timer job that did not start inside its window (an outage) is skipped, not run late.
+      const stale = await client.query<JobRow>(
+        `update ${this.s}.jobs set status = 'EXPIRED', updated_at = now(), claimed_by = null, claimed_until = null
+          where status = 'RECEIVED' and run_by < now() and (claimed_until is null or claimed_until < now())
+          returning *`,
+      );
+      for (const j of stale.rows) {
+        const summary = `Skipped: this scheduled run was due by ${j.run_by!.toISOString()} and did not start in time, so it was not run late. The next one runs as scheduled.`;
+        const result: TaskResult = { outcome: 'failed', summary, changed: [], could_not: [j.ask], sources: [] };
+        await client.query(`update ${this.s}.jobs set result = $2 where id = $1`, [j.id, JSON.stringify(result)]);
+        await this.core.book.addStep(client, { company_id: j.company_id, job_id: j.id, kind: 'failed', summary });
+        await this.core.book.emit(client, j.company_id, 'task.failed', { job_id: j.id, task_id: j.task_id, result, expired: true }, `finish:${j.id}`);
+        n++;
+      }
       if (n) await this.core.book.notify(client, 'expiry');
+      await client.query('commit');
+    } catch (e) {
+      await client.query('rollback').catch(() => {});
+      throw e;
+    } finally {
+      client.release();
+    }
+    return n;
+  }
+
+  /**
+   * WP §7: a scheduled time arriving starts a job. One job per (schedule, slot):
+   * the task id is derived from both, so a second tick, a second runner or a
+   * restart finds the same job. next_run_at advances on database time.
+   */
+  async fireSchedules(): Promise<number> {
+    const client = await this.core.runnerPool.connect();
+    let n = 0;
+    try {
+      await client.query('begin');
+      const due = await client.query<{ id: string; company_id: string; ask: string; requester: string; task_id: string; run_by: Date }>(
+        `select id, company_id, ask, requester,
+                md5(id::text || ':' || extract(epoch from next_run_at)::bigint::text)::uuid::text as task_id,
+                next_run_at + interval '${TIMER_WINDOW}' as run_by
+           from ${this.s}.schedules where enabled and next_run_at <= now()
+          order by next_run_at for update skip locked limit 50`,
+      );
+      for (const s of due.rows) {
+        const { job, created } = await this.core.book.openJobAtomic(client, { company_id: s.company_id, source: 'timer', requester: s.requester, task_id: s.task_id, ask: s.ask });
+        if (created) {
+          await client.query(`update ${this.s}.jobs set run_by = $2 where id = $1`, [job.id, s.run_by]);
+          n++;
+        }
+        await client.query(
+          `update ${this.s}.schedules set last_run_at = next_run_at, next_run_at = ${this.s}.next_run(rule, time_zone, greatest(now(), next_run_at)), updated_at = now()
+            where id = $1`,
+          [s.id],
+        );
+      }
       await client.query('commit');
     } catch (e) {
       await client.query('rollback').catch(() => {});

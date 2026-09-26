@@ -131,7 +131,7 @@ export async function executeProposal(
   core: Core,
   companyId: string,
   proposalId: string,
-  claims: { fingerprint: string; sub: string; request_id?: string | null; trace?: string | null },
+  claims: { fingerprint: string; sub: string; ability_version?: string | null; request_id?: string | null; trace?: string | null },
 ): Promise<Proof> {
   // Liveness, not a timer: whoever carries this proposal out holds a session-level
   // advisory lock for the whole effect. If that process dies, its connection closes
@@ -162,7 +162,7 @@ async function executeLocked(
   core: Core,
   companyId: string,
   proposalId: string,
-  claims: { fingerprint: string; sub: string; request_id?: string | null; trace?: string | null },
+  claims: { fingerprint: string; sub: string; ability_version?: string | null; request_id?: string | null; trace?: string | null },
 ): Promise<Proof> {
   // 1. Lock the row, check, move to EXECUTING.
   const start = await core.company(companyId, async (c) => {
@@ -192,8 +192,24 @@ async function executeLocked(
     return finish(core, p, { outcome: 'FAILED', external_ref: null, read_back: null, error: `ability ${p.ability_key} is not a write in this version` }, claims);
   }
 
-  // 2. Company rules are checked again at effect time ("nothing goes out on weekends").
+  // Gate step 2 at effect time: the yes was given to one version of the ability. If the
+  // app now runs another (or the token was minted for another), nothing runs; the job
+  // wakes to tell the person and propose again. A resumed execute has already begun.
+  if (!start.resumed) {
+    const approved = claims.ability_version ?? p.ability_version;
+    if (p.ability_version !== ability.version || approved !== p.ability_version) {
+      return finish(core, p, { outcome: 'FAILED', external_ref: null, read_back: null, error: `version_changed: proposed against ${p.ability_key}@${p.ability_version}${approved !== p.ability_version ? ` (approved as ${approved})` : ''}, this app now runs ${ability.version}` }, claims);
+    }
+  }
+
+  // The setting is re-read, not trusted from a cache: switched off since the yes → it does not run.
+  core.board.invalidate(companyId);
   const board = await core.board.get(companyId);
+  if (!start.resumed && board.setting(ability) === 'off') {
+    return finish(core, p, { outcome: 'FAILED', external_ref: null, read_back: null, error: `switched_off: ${p.ability_key} was switched off before it could run` }, claims);
+  }
+
+  // 2. Company rules are checked again at effect time ("nothing goes out on weekends").
   const m = await core.company(companyId, (c) => measure(ability, handler, p.args, c));
   const usage = await core.company(companyId, (c) => ruleUsage(core, c, board, m.currency, p.id));
   const violation = checkRules(board.rules, { ability_key: p.ability_key, external: !!ability.effects?.external, ...m }, new Date(), board.company.time_zone, usage);

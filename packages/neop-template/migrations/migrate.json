@@ -31,6 +31,16 @@
         "door_journal"
       ],
       "proven_on_populated_data": "2026-09-26 \u00b7 migration.test (populated copy) + pilot stacks"
+    },
+    {
+      "file": "t004_timers_and_summary.sql",
+      "tables": [
+        "jobs",
+        "schedules",
+        "steps"
+      ],
+      "baseline": false,
+      "proven_on_populated_data": "2026-09-26 \u00b7 apps/ledger/tests/runtime-timers.test.ts \u203a t004 applies forward on a populated book"
     }
   ]
 }

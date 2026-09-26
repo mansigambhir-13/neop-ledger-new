@@ -9,6 +9,7 @@ export { checkRules, parseRules, zonedParts, type Rule } from './domain/rules.ts
 export { canTransition, WAKES_JOB } from './domain/proposals.ts';
 export { buildTools, toolName, BUILTIN_TOOLS, type ToolSpec } from './gate/tools.ts';
 export { MAX_TOOL_CALLS } from './gate/gate.ts';
+export { ruleUsage } from './capabilities/usage.ts';
 export type { JobBundle } from './agent/bundle.ts';
 export { loadAgentDir, loadBlocks } from './agent/load.ts';
 export { buildPackage } from './packages/build.ts';

@@ -20,7 +20,7 @@ export type ProposalStatus =
   | 'FAILED'
   | 'UNKNOWN';
 
-export type StepKind = 'received' | 'resume' | 'note' | 'ability' | 'refused' | 'proposal' | 'card' | 'report' | 'failed' | 'system';
+export type StepKind = 'received' | 'resume' | 'note' | 'ability' | 'refused' | 'proposal' | 'card' | 'report' | 'failed' | 'system' | 'summary';
 
 export interface JobRow {
   id: string;
@@ -38,6 +38,8 @@ export interface JobRow {
   tool_calls: number;
   result: unknown;
   trace_id: string | null;
+  /** Timer jobs only: not started by then → EXPIRED, never run stale (t004). */
+  run_by: Date | null;
   created_at: Date;
   updated_at: Date;
 }
@@ -169,7 +171,7 @@ export class Book {
   // ── steps (+ mirror, deduplicated by (job_id, seq)) ─────────────────────
   async addStep(
     c: PoolClient,
-    s: { company_id: string; job_id: string; kind: StepKind; summary: string; ability_key?: string | null; input_hash?: string | null; output_ref?: unknown },
+    s: { company_id: string; job_id: string; kind: StepKind; summary: string; ability_key?: string | null; input_hash?: string | null; output_ref?: unknown; mirror?: boolean },
   ): Promise<number> {
     // Serialise seq allocation per job.
     await c.query(`select 1 from ${this.s}.jobs where id = $1 for update`, [s.job_id]);
@@ -180,6 +182,8 @@ export class Book {
       [s.company_id, s.job_id, s.kind, s.summary.slice(0, 2000), s.ability_key ?? null, s.input_hash ?? null, s.output_ref === undefined ? null : JSON.stringify(s.output_ref)],
     );
     const seq = rows[0]!.seq;
+    // The rolling summary is the assistant's memory, not a step a person follows.
+    if (s.mirror === false) return seq;
     await this.emit(c, s.company_id, 'step.mirror', { job_id: s.job_id, seq, kind: s.kind, summary: s.summary.slice(0, 500) }, `step:${s.job_id}:${seq}`);
     return seq;
   }
@@ -283,12 +287,13 @@ export class Book {
   // ── waits ───────────────────────────────────────────────────────────────
   async insertWait(
     c: PoolClient,
-    w: { company_id: string; job_id: string; kind: WaitRow['kind']; ref_id: string | null; expires_at_sql: string },
+    w: { company_id: string; job_id: string; kind: WaitRow['kind']; ref_id: string | null; expires_at_sql?: string; expires_at?: string; answer?: unknown },
   ): Promise<WaitRow> {
+    // A timer wait carries what it waits for in `answer` while pending (t004: job.wait_until).
     const r = await c.query<WaitRow>(
-      `insert into ${this.s}.waits (company_id, job_id, kind, ref_id, expires_at)
-       values ($1, $2, $3, $4, ${w.expires_at_sql}) returning *`,
-      [w.company_id, w.job_id, w.kind, w.ref_id],
+      `insert into ${this.s}.waits (company_id, job_id, kind, ref_id, expires_at, answer)
+       values ($1, $2, $3, $4, coalesce($5::timestamptz, ${w.expires_at_sql ?? 'now()'}), $6) returning *`,
+      [w.company_id, w.job_id, w.kind, w.ref_id, w.expires_at ?? null, w.answer === undefined ? null : JSON.stringify(w.answer)],
     );
     return r.rows[0]!;
   }
@@ -359,6 +364,20 @@ export class Book {
       f.source,
       f.job_id,
     ]);
+  }
+
+  /**
+   * Facts for one job's bundle: those this job (or its parent) wrote and those whose
+   * subject the ask names come first, then the company's most recent (item 7).
+   */
+  async factsFor(c: PoolClient, job: { id: string; ask: string; parent_job_id: string | null }, limit = 20): Promise<{ subject: string; value: unknown; source: string; observed_at: Date }[]> {
+    const r = await c.query(
+      `select subject, value, source, observed_at from ${this.s}.facts
+        order by coalesce(job_id = $1 or job_id = $2::uuid or (length(subject) > 2 and strpos(lower($3), lower(subject)) > 0), false) desc, observed_at desc
+        limit $4`,
+      [job.id, job.parent_job_id, job.ask, limit],
+    );
+    return r.rows;
   }
 
   async recentFacts(c: PoolClient, limit = 20): Promise<{ subject: string; value: unknown; source: string; observed_at: Date }[]> {
