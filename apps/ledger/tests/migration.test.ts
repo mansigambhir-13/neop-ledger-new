@@ -128,23 +128,23 @@ describe('migrations', () => {
       await writeFile(path.join(dir, 'migrate.json'), JSON.stringify(led));
     };
     const run = async () => migrate({ adminUrl: db.adminUrl, schema: 'ledger', sources: { dir, prepend: await templateFiles(TEMPLATE_MIGRATIONS) }, lintExempt: TEMPLATE_INFRA_TABLES });
-    await add('005_party_region.sql', 'alter table {{schema}}.parties add column region text;');
+    await add('099_party_region.sql', 'alter table {{schema}}.parties add column region text;');
     // (005 already ran in the test above; the same file is a no-op here.)
-    await add('006_region_code.sql', 'alter table {{schema}}.parties add column region_code text;\nalter table {{schema}}.parties drop column region;');
-    await expect(run()).rejects.toThrow(/006_region_code\.sql is destructive \(DROP COLUMN\)/);
+    await add('100_region_code.sql', 'alter table {{schema}}.parties add column region_code text;\nalter table {{schema}}.parties drop column region;');
+    await expect(run()).rejects.toThrow(/100_region_code\.sql is destructive \(DROP COLUMN\)/);
     // Refused before anything ran: the safe half of 006 did not apply either.
     const c = createPool(roleUrl(db.adminUrl, 'ledger_app'));
     const cols = async () => (await c.query("select column_name from information_schema.columns where table_schema='ledger' and table_name='parties' and column_name like 'region%' order by 1")).rows.map((r) => r.column_name);
     expect(await cols()).toEqual(['region']);
     // A marker that names no earlier migration (or a later one) is not enough.
-    await writeFile(path.join(dir, '006_region_code.sql'), '-- contract: region is replaced\nalter table {{schema}}.parties drop column region;');
+    await writeFile(path.join(dir, '100_region_code.sql'), '-- contract: region is replaced\nalter table {{schema}}.parties drop column region;');
     await expect(run()).rejects.toThrow(/must name the earlier expand migration/);
-    await writeFile(path.join(dir, '006_region_code.sql'), '-- contract: region is replaced; expanded by 007_later.sql\nalter table {{schema}}.parties drop column region;');
+    await writeFile(path.join(dir, '100_region_code.sql'), '-- contract: region is replaced; expanded by 007_later.sql\nalter table {{schema}}.parties drop column region;');
     await expect(run()).rejects.toThrow(/names 007_later\.sql, which is not an earlier migration/);
     // Split properly: expand in 006, contract in 007 pointing back at it.
-    await writeFile(path.join(dir, '006_region_code.sql'), 'alter table {{schema}}.parties add column region_code text;');
-    await add('007_drop_region.sql', '-- contract: nothing reads region since 1.4; expanded by 006_region_code.sql\nalter table {{schema}}.parties drop column region;');
-    expect((await run()).map((m) => m.name)).toEqual(['006_region_code.sql', '007_drop_region.sql']);
+    await writeFile(path.join(dir, '100_region_code.sql'), 'alter table {{schema}}.parties add column region_code text;');
+    await add('101_drop_region.sql', '-- contract: nothing reads region since 1.4; expanded by 100_region_code.sql\nalter table {{schema}}.parties drop column region;');
+    expect((await run()).map((m) => m.name)).toEqual(['100_region_code.sql', '101_drop_region.sql']);
     expect(await cols()).toEqual(['region_code']);
     await c.end();
   });
