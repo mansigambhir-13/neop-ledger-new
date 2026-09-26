@@ -8,8 +8,8 @@ import type { Pilot } from './pilot.ts';
 export async function runPackageMigrations(adminUrl: string, platform: Platform): Promise<string[]> {
   const applied: string[] = [];
   for (const p of await platform.pendingPackageMigrations()) {
-    applied.push(...(await migratePackage(adminUrl, p.host_app, p.bundle)));
-    await platform.markPackageMigrated(p.host_app, p.entry_key, p.version);
+    // Migrations, then the package's self-test; a failure settles the install (failed / rolled back) and throws.
+    applied.push(...(await platform.applyPackageMigration(p, () => migratePackage(adminUrl, p.host_app, p.bundle))));
   }
   return applied;
 }
@@ -19,7 +19,7 @@ export async function publishPackage(P: Pilot, dirOrBundle: string | PackageBund
   const sub = await P.api('POST', '/api/registry/packages', { bundle }, P.operator.token);
   if (sub.status !== 200) throw new Error(`submit: ${JSON.stringify(sub.body)}`);
   const review = (await P.api('GET', '/api/registry/reviews', undefined, P.operator.token)).body.reviews.find((r: any) => r.key === bundle.manifest.key && r.version === bundle.manifest.version);
-  const ok = await P.api('POST', `/api/registry/reviews/${review.id}/answer`, { decision: 'yes', fingerprint_seen: review.fingerprint }, P.operator.token);
+  const ok = await P.api('POST', `/api/registry/reviews/${review.id}/answer`, { decision: 'yes', fingerprint_seen: review.fingerprint }, P.operator2.token); // four eyes
   if (ok.status !== 200) throw new Error(`review: ${JSON.stringify(ok.body)}`);
   return { key: bundle.manifest.key, version: bundle.manifest.version };
 }

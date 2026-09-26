@@ -17,6 +17,8 @@ export * from './bridge/matrix.ts';
 export * from './llm/proxy.ts';
 export * from './vault.ts';
 export * from './registry.ts';
+export * from './conformance.ts';
+export { modelRoute, routeRequest, validateChoice, ROUTER_PRINCIPAL, type RouteDecision, type RouteMethod } from './neuralchat.ts';
 
 export async function startPlatform(
   opts: PlatformOptions & {

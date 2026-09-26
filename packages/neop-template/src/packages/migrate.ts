@@ -6,6 +6,7 @@
 import { createHash } from 'node:crypto';
 import pg from 'pg';
 import { assertIdent, familyRoles, rolePassword, render, tenantLint } from '@neop/pgkit';
+import { selftestPackage } from './selftest.ts';
 import type { PackageBundle } from './types.ts';
 
 export function packageRole(host: string, packageKey: string): string {
@@ -23,6 +24,7 @@ export async function migratePackage(adminUrl: string, host: string, bundle: Pac
   const client = new pg.Client({ connectionString: adminUrl });
   await client.connect();
   const applied: string[] = [];
+  const createdAll: string[] = [];
   try {
     await client.query('select pg_advisory_lock(hashtext($1))', [`migrate:${host}`]);
     const exists = await client.query('select 1 from pg_roles where rolname = $1', [role]);
@@ -44,6 +46,7 @@ export async function migratePackage(adminUrl: string, host: string, bundle: Pac
         await client.query(render(sql, host));
         const after = (await client.query<{ t: string }>(`select tablename as t from pg_tables where schemaname = $1`, [host])).rows.map((r) => r.t);
         const created = after.filter((t) => !before.has(t));
+        createdAll.push(...created);
         const stray = created.filter((t) => !t.startsWith(prefix));
         if (stray.length) throw new Error(`a package may only create ${prefix}* tables (created ${stray.join(', ')})`);
         await tenantLint(client, host, ['schema_migrations', 'seen_tokens', 'outbox_acked']);
@@ -61,6 +64,16 @@ export async function migratePackage(adminUrl: string, host: string, bundle: Pac
         await client.query('rollback');
         throw new Error(`package migration ${name} failed: ${(e as Error).message}`, { cause: e });
       }
+    }
+    // Install runs the package's own self-test on what was just migrated; a failure undoes this run.
+    try {
+      await selftestPackage(adminUrl, host, bundle);
+    } catch (e) {
+      await client.query('begin');
+      for (const t of createdAll) await client.query(`drop table if exists ${host}.${t} cascade`);
+      if (applied.length) await client.query(`delete from ${host}.schema_migrations where name = any($1)`, [applied]);
+      await client.query('commit');
+      throw e;
     }
   } finally {
     await client.query('select pg_advisory_unlock(hashtext($1))', [`migrate:${host}`]).catch(() => {});

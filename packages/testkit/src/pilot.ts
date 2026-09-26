@@ -138,6 +138,8 @@ export interface Pilot {
   member: { id: string; token: string };
   /** A platform operator (registry reviews, key rotation). */
   operator: { id: string; token: string };
+  /** A second operator: registry reviews are four-eyes (the submitter cannot co-sign). */
+  operator2: { id: string; token: string };
   mailDir: string;
   worker: Awaited<ReturnType<typeof startAgentWorker>>;
   workers: Record<string, Awaited<ReturnType<typeof startAgentWorker>>>;
@@ -197,6 +199,7 @@ export async function bootPilot(opts: BootOptions): Promise<Pilot> {
   const admin = await plat.platform.createUser(company.id, { name: 'Priya', email: 'priya@acme.example', role: 'admin' });
   const member = await plat.platform.createUser(company.id, { name: 'Rahul', email: 'rahul@acme.example', role: 'member' });
   const operator = await plat.platform.createUser(company.id, { name: 'Ops', email: 'ops@neos.example', role: 'operator' });
+  const operator2 = await plat.platform.createUser(company.id, { name: 'Reviewer', email: 'review@neos.example', role: 'operator' });
   const mailDir = await mkdtemp(path.join(os.tmpdir(), 'neop-mail-'));
   await plat.platform.setVaultSecret(company.id, 'email', { provider: 'dev-mailbox', dir: mailDir });
   for (const door of ['social', 'ads', 'gst_portal']) {
@@ -280,6 +283,7 @@ export async function bootPilot(opts: BootOptions): Promise<Pilot> {
     admin,
     member,
     operator,
+    operator2,
     mailDir,
     worker: workers[first]!,
     workers,

@@ -19,8 +19,8 @@ export interface GatewayCall {
   body?: unknown;
   query?: Record<string, string | number>;
   idem_key?: string;
-  /** Extra claims (execution tokens only). */
-  exec?: { proposal_id: string; fingerprint: string };
+  /** Extra claims (execution tokens only); ability_version is the proposal's. */
+  exec?: { proposal_id: string; fingerprint: string; ability_version?: string };
   /** W3C traceparent of the caller's span; the call continues that trace. */
   trace?: string | null;
 }
@@ -52,6 +52,8 @@ const PATHS: Record<string, { method: 'GET' | 'POST'; path: string }> = {
   'tasks.cancel': { method: 'POST', path: '/l3/tasks.cancel' },
   'outbox.ack': { method: 'POST', path: '/l3/outbox.ack' },
   'tasks.result': { method: 'POST', path: '/l3/tasks.result' },
+  'schedules.set': { method: 'POST', path: '/l3/schedules.set' },
+  'schedules.list': { method: 'GET', path: '/l3/schedules' },
   manifest: { method: 'GET', path: '/l3/manifest' },
 };
 
@@ -62,9 +64,12 @@ export class Gateway {
   metrics = new Metrics();
   /** Test hook: a transport failure after the app answered (simulates a crash). */
   fetchImpl: typeof fetch = fetch;
-  constructor(db: Pool, keys: SigningKeys) {
+  /** How long the gateway waits for an app before treating the call as unanswered (retryable). */
+  timeoutMs: number;
+  constructor(db: Pool, keys: SigningKeys, opts: { timeoutMs?: number } = {}) {
     this.db = db;
     this.keys = keys;
+    this.timeoutMs = opts.timeoutMs ?? 30_000;
   }
 
   jwks(): { keys: unknown[] } {
@@ -105,8 +110,9 @@ export class Gateway {
   }
 
   async call<T = any>(req: GatewayCall): Promise<GatewayResponse<T>> {
-    const PLATFORM_DOORS = ['proposals.resolve', 'proposals.execute', 'outbox.read', 'inbox.deliver', 'switchboard.changed', 'tasks.cancel', 'outbox.ack', 'tasks.result'];
+    const PLATFORM_DOORS = ['proposals.resolve', 'proposals.execute', 'outbox.read', 'inbox.deliver', 'switchboard.changed', 'tasks.cancel', 'outbox.ack', 'tasks.result', 'schedules.set', 'schedules.list'];
     const callerApp = req.caller.startsWith('app:') ? req.caller.slice(4) : null;
+    const isAbility = !PATHS[req.endpoint];
     const route = PATHS[req.endpoint] ?? { method: 'POST' as const, path: `/l3/abilities/${encodeURIComponent(req.endpoint)}` };
     const ledgered = route.method === 'POST' && !(req.company_id === null && req.endpoint === 'outbox.ack'); // acks are monotonic; no ledger row
     if (ledgered && !req.idem_key) throw new GatewayError(400, 'idempotency_required', 'Idempotency-Key is required on writes');
@@ -117,20 +123,26 @@ export class Gateway {
     // One round trip (hot path, load-tested): every check the gateway makes, and — only
     // when they all pass — the idempotency-ledger row for this call.
     const pre = (
-      await this.db.query<{ l3_url: string; status: string; installed: boolean; acl_ok: boolean; sb_version: number | null; inserted: string | null }>(
+      await this.db.query<{ l3_url: string; status: string; installed: boolean; acl_ok: boolean; sb_version: number | null; ability_version: string | null; inserted: string | null }>(
         `with a as (
            select a.key, a.l3_url, a.status,
                   ($2::uuid is null or exists (select 1 from neos.installs i where i.company_id = $2 and i.app_key = a.key and i.status = 'active')) as installed,
                   ($3::text is null or ($2::uuid is not null and exists (select 1 from neos.acl x where x.caller_app = $3 and x.target_app = a.key and x.ability_key = $4 and x.company_id = $2))) as acl_ok,
-                  (select max(version) from neos.switchboards s where s.company_id = $2 and s.app_key = a.key) as sb_version
+                  (select max(version) from neos.switchboards s where s.company_id = $2 and s.app_key = a.key) as sb_version,
+                  case when $10 then coalesce(
+                    (select x->>'version' from jsonb_array_elements(a.manifest->'abilities') x where x->>'key' = $4 limit 1),
+                    (select o->>'version' from neos.registry_installs ri
+                       join neos.registry_entries e on e.key = ri.entry_key and e.version = ri.pinned_version
+                       cross join lateral jsonb_array_elements(e.offers) o
+                      where ri.company_id = $2 and ri.host_app = a.key and ri.status = 'active' and o->>'key' = $4 limit 1)) end as ability_version
              from neos.apps a where a.key = $1),
          ins as (
            insert into neos.gateway_ledger (caller, target_app, idem_key, endpoint, request_hash, request_id)
            select $5, a.key, $6, $4, $7, $8 from a
             where $9 and a.status = 'active' and a.installed and a.acl_ok
            on conflict do nothing returning request_id)
-         select a.l3_url, a.status, a.installed, a.acl_ok, a.sb_version, (select request_id::text from ins) as inserted from a`,
-        [req.app, req.company_id, callerApp, req.endpoint, req.caller, req.idem_key ?? null, requestHash, requestId, ledgered],
+         select a.l3_url, a.status, a.installed, a.acl_ok, a.sb_version, a.ability_version, (select request_id::text from ins) as inserted from a`,
+        [req.app, req.company_id, callerApp, req.endpoint, req.caller, req.idem_key ?? null, requestHash, requestId, ledgered, isAbility],
       )
     ).rows[0];
     if (!pre || pre.status !== 'active') throw new GatewayError(404, 'app_unavailable', `app ${req.app} is not registered or not active`);
@@ -160,7 +172,10 @@ export class Gateway {
       ability: req.endpoint,
       idem_key: req.idem_key ?? requestId,
       sb_version: pre.sb_version ?? undefined,
-      ...(req.exec ? { exec: true as const, proposal_id: req.exec.proposal_id, fingerprint: req.exec.fingerprint } : {}),
+      // Contracts: the version the caller was offered (ability calls, from the app's manifest or its
+      // pinned package) or the version the person approved (execution, from the proposal).
+      ...(isAbility && pre.ability_version ? { ability_version: pre.ability_version } : {}),
+      ...(req.exec ? { exec: true as const, proposal_id: req.exec.proposal_id, fingerprint: req.exec.fingerprint, ...(req.exec.ability_version ? { ability_version: req.exec.ability_version } : {}) } : {}),
     });
     const span = this.tracer.start(`gateway ${req.endpoint}`, req.trace ?? null, { 'neop.app': req.app, 'neop.caller': req.caller, 'neop.request_id': requestId });
     const t0 = process.hrtime.bigint();
@@ -178,7 +193,7 @@ export class Gateway {
           ...(req.idem_key ? { 'idempotency-key': req.idem_key } : {}),
         },
         body: route.method === 'POST' ? JSON.stringify(req.body ?? {}) : undefined,
-        signal: AbortSignal.timeout(30_000),
+        signal: AbortSignal.timeout(this.timeoutMs),
         redirect: 'error',
       });
     } catch (e) {
@@ -187,14 +202,29 @@ export class Gateway {
       await this.audit({ company_id: req.company_id, actor: req.caller, app_key: req.app, action: `l3.${req.endpoint}`, idem_key: req.idem_key, request_id: requestId, outcome: 'unreachable' });
       throw new GatewayError(502, 'unreachable', `${req.app} did not answer: ${(e as Error).message}`);
     }
-    const text = await res.text();
-    const body = text ? JSON.parse(text) : null;
+    let text: string;
+    try {
+      text = await res.text();
+    } catch (e) {
+      // The body did not arrive in time: as unanswered as no answer at all (never ledgered).
+      span.set('http.status', 0).end('error', 'body timeout');
+      await this.audit({ company_id: req.company_id, actor: req.caller, app_key: req.app, action: `l3.${req.endpoint}`, idem_key: req.idem_key, request_id: requestId, outcome: 'unreachable' });
+      throw new GatewayError(502, 'unreachable', `${req.app} did not finish answering: ${(e as Error).message}`);
+    }
+    let body: any;
+    try {
+      body = text ? JSON.parse(text) : null;
+    } catch {
+      body = { error: { code: 'bad_response', message: text.slice(0, 200) } };
+    }
     span.set('http.status', res.status).end(res.status >= 500 ? 'error' : 'ok');
     const endpointLabel = PATHS[req.endpoint] ? req.endpoint : 'ability';
     this.metrics.inc('neop_gateway_calls_total', 'Gateway calls into apps', { app: req.app, endpoint: endpointLabel, status: String(res.status) });
     this.metrics.observe('neop_gateway_latency_seconds', 'Gateway call latency', Number(process.hrtime.bigint() - t0) / 1e9, { app: req.app, endpoint: endpointLabel });
-    // 4xx answers are deterministic and stored; 5xx may succeed on retry. Ledger + audit in one round trip.
-    const store = ledgered && res.status < 500;
+    // Only terminal answers are stored and replayed. A retryable one (5xx, 408, 429, or 409
+    // in_progress while a slow execute still holds its lock) must reach the app again on retry,
+    // or a retry after a gateway timeout would replay "in progress" forever. Ledger + audit in one round trip.
+    const store = ledgered && !retryableStatus(res.status, body);
     const audit = req.endpoint !== 'outbox.read';
     if (store || audit) {
       await this.db.query(
@@ -208,4 +238,10 @@ export class Gateway {
     }
     return { status: res.status, body: body as T, request_id: requestId, replayed: false };
   }
+}
+
+/** An answer that may change if asked again: never stored in the idempotency ledger. */
+export function retryableStatus(status: number, body: any): boolean {
+  if (status >= 500 || status === 408 || status === 429) return true;
+  return status === 409 && body?.error?.code === 'in_progress';
 }

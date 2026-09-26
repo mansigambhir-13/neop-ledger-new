@@ -19,7 +19,7 @@ export interface Borrowed {
 }
 
 export class BorrowCache {
-  private cache = new Map<string, { at: number; list: Borrowed[] }>();
+  private cache = new Map<string, { at: number; list: Borrowed[]; entries: unknown }>();
   private ajv = new Ajv({ allErrors: true, strict: false });
   private compiled = new Map<string, { input: ValidateFunction; output: ValidateFunction }>();
   readonly core: Core;
@@ -34,11 +34,16 @@ export class BorrowCache {
   }
 
   async list(companyId: string, board: EffectiveBoard): Promise<Borrowed[]> {
+    // The registry pins (cached by the package host, dropped on switchboard.changed) are part of the key:
+    // an install or uninstall changes what is borrowed at once, with no deploy and no hand-cleared cache.
+    const entries = await this.core.packages.entriesFor(companyId).catch(() => null);
     const hit = this.cache.get(companyId);
-    if (hit && Date.now() - hit.at < 30_000) return hit.list.map((b) => ({ ...b, setting: strictest(b.setting, board.hostSetting(b.key)) }));
+    if (hit && hit.entries === entries && Date.now() - hit.at < 30_000) return hit.list.map((b) => ({ ...b, setting: strictest(b.setting, board.hostSetting(b.key)) }));
     const out: Borrowed[] = [];
+    const seen = new Set<string>();
     for (const u of this.core.manifest.uses) {
       if (u.ability === 'tasks.open') continue;
+      seen.add(u.ability);
       try {
         const d = await this.core.platform.borrowDescribe({ company_id: companyId, app: u.app, ability: u.ability });
         if (d.ability.kind !== 'read') continue; // borrowed writes go as a2a tasks, never direct
@@ -48,7 +53,24 @@ export class BorrowCache {
         // owner not installed or unreachable: not offered
       }
     }
-    this.cache.set(companyId, { at: Date.now(), list: out });
+    // What installed registry entries require from other apps is borrowable without a manifest `uses`
+    // line: the ACL rows the admin granted at install are the authority (plan: borrowed skill, no deploy).
+    const own = new Set(this.core.manifest.abilities.map((a) => a.key));
+    for (const e of entries ?? []) if (e.kind === 'package') for (const o of (Array.isArray(e.offers) ? e.offers : []) as { key: string }[]) own.add(o.key);
+    for (const e of entries ?? []) {
+      for (const key of e.requires ?? []) {
+        if (own.has(key) || seen.has(key)) continue;
+        seen.add(key);
+        try {
+          const d = await this.core.platform.borrowDescribe({ company_id: companyId, ability: key });
+          if (d.ability.kind !== 'read' || !d.acl || !d.owner) continue;
+          out.push({ key, owner: d.owner, ability: d.ability, setting: strictest('on', d.owner_setting) });
+        } catch {
+          // no ACL row or owner unavailable: not offered
+        }
+      }
+    }
+    this.cache.set(companyId, { at: Date.now(), list: out, entries });
     return out.map((b) => ({ ...b, setting: strictest(b.setting, board.hostSetting(b.key)) }));
   }
 

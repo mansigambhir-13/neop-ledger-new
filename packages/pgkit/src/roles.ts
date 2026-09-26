@@ -90,21 +90,32 @@ async function roleDefaults(client: pg.Client, role: string): Promise<void> {
 }
 
 /** Create the family roles (cluster-wide) and let the migrator create a schema in this database. */
-export async function bootstrapFamily(adminUrl: string, schema: string): Promise<FamilyRoles> {
+export async function bootstrapFamily(adminUrl: string, schema: string, opts: { runner?: boolean } = {}): Promise<FamilyRoles> {
   const roles = familyRoles(schema);
+  // A family that never uses a BYPASSRLS runner (the platform's `neos`) does not get one.
+  const withRunner = opts.runner !== false;
   const client = new pg.Client({ connectionString: adminUrl });
   await client.connect();
   try {
     await client.query("select pg_advisory_lock(hashtext('neos.roles'))");
     await ensureRole(client, roles.migrator, 'nobypassrls nosuperuser nocreaterole');
     await ensureRole(client, roles.app, 'nobypassrls nosuperuser nocreaterole');
-    await ensureRole(client, roles.runner, 'bypassrls nosuperuser nocreaterole');
+    if (withRunner) await ensureRole(client, roles.runner, 'bypassrls nosuperuser nocreaterole');
     // Timeouts as role defaults: they hold however the role connects, including through
     // PgBouncer, which drops per-connection startup settings (S8).
-    for (const r of [roles.app, roles.runner]) await roleDefaults(client, r);
+    for (const r of withRunner ? [roles.app, roles.runner] : [roles.app]) await roleDefaults(client, r);
     const db = (await client.query<{ db: string }>('select current_database() as db')).rows[0]!.db;
     await client.query(`grant create, connect on database "${db}" to ${roles.migrator}`);
-    await client.query(`grant connect on database "${db}" to ${roles.app}, ${roles.runner}`);
+    await client.query(`grant connect on database "${db}" to ${withRunner ? `${roles.app}, ${roles.runner}` : roles.app}`);
+    if (!withRunner) {
+      // A runner left over from an earlier bootstrap: no way in here, and disarmed cluster-wide
+      // (no login, no BYPASSRLS). Dropping it needs every database's grant revoked first (ops).
+      const old = await client.query('select 1 from pg_roles where rolname = $1', [roles.runner]);
+      if (old.rowCount) {
+        await client.query(`revoke all on database "${db}" from ${roles.runner}`);
+        await client.query(`alter role ${roles.runner} nologin nobypassrls`).catch(() => {});
+      }
+    }
     await client.query("select pg_advisory_unlock(hashtext('neos.roles'))");
   } finally {
     await client.end();

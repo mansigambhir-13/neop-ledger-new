@@ -23,9 +23,16 @@ for (const name of (process.env.NEOS_APPS ?? 'ledger').split(',').map((s) => s.t
 
 const platform = new Platform({ dbUrl: roleUrl(admin, 'neos_app'), keys: await generateSigningKeys() });
 await platform.ensureRegistry();
+let failedPackages = 0;
 for (const p of await platform.pendingPackageMigrations()) {
-  for (const name of await migratePackage(admin, p.host_app, p.bundle)) log(`[${p.host_app}] applied ${name}`);
-  await platform.markPackageMigrated(p.host_app, p.entry_key, p.version);
+  try {
+    // Migrations, then the package's self-test; a failure undoes the run and settles the install.
+    for (const name of await platform.applyPackageMigration(p, () => migratePackage(admin, p.host_app, p.bundle))) log(`[${p.host_app}] applied ${name}`);
+  } catch (e) {
+    failedPackages++;
+    log(`[${p.host_app}] ${p.entry_key}@${p.version} NOT installed: ${(e as Error).message}`);
+  }
 }
+if (failedPackages) process.exitCode = 1;
 await platform.stop();
 log('migrations complete');

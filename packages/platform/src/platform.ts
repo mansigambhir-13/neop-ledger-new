@@ -5,13 +5,14 @@
 
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { blocksProblem, isSetting, Metrics, rulesProblem, satisfies, strictest, type Decision, type Manifest, type OutboxEvent, type ProposalCreatedPayload, type Setting, type TaskResult } from '@neop/contracts';
-import { pickApp } from './neuralchat.ts';
+import { modelRoute, pickApp, ROUTER_PRINCIPAL, type RouteDecision } from './neuralchat.ts';
 import { isEnvelope, VaultCipher, type VaultKeys } from './vault.ts';
 import { KeyRing } from './keys.ts';
 import { Registry, type PackageBundle } from './registry.ts';
 import { roomText } from './bridge/format.ts';
+import { attestationProblem, manifestSha256, type ConformanceAttestation } from './conformance.ts';
 import { createPool, tx, type Pool, type PoolClient } from '@neop/pgkit';
-import { Gateway, GatewayError } from './gateway.ts';
+import { Gateway, GatewayError, retryableStatus } from './gateway.ts';
 import type { SigningKeys } from './keys.ts';
 
 export interface PlatformOptions {
@@ -26,7 +27,11 @@ export interface PlatformOptions {
   /** Long-lived registry co-signing keys (separate from the gateway's short-lived tokens). */
   registryKeys?: KeyRing;
   log?: (msg: string, extra?: Record<string, unknown>) => void;
-  timings?: { approvalsMs?: number; outboxMs?: number; tasksMs?: number };
+  timings?: { approvalsMs?: number; outboxMs?: number; tasksMs?: number; keysMs?: number; a2aResultGiveUpMs?: number };
+  /** How long the gateway waits for an app's answer (default 30 s). */
+  gatewayTimeoutMs?: number;
+  /** Model NeuralChat routes asks with, through the LLM proxy (default NEOS_ROUTER_MODEL; none = keyword fallback). */
+  routerModel?: string | null;
 }
 
 export interface ApproverPolicy {
@@ -56,13 +61,16 @@ export class Platform {
   registry!: Registry;
   readonly opts: PlatformOptions;
   private timers: NodeJS.Timeout[] = [];
+  /** NeuralChat's routing model (null: keyword fallback, recorded as such). */
+  routerModel: string | null;
   /** Test/fault-injection hooks. */
   readonly hooks: { afterResolve?: (approvalId: string) => Promise<void> } = {};
 
   constructor(opts: PlatformOptions) {
     this.opts = opts;
     this.db = createPool(opts.dbUrl, opts.dbPoolSize ?? 20);
-    this.gateway = new Gateway(this.db, opts.keys);
+    this.gateway = new Gateway(this.db, opts.keys, { timeoutMs: opts.gatewayTimeoutMs });
+    this.routerModel = opts.routerModel !== undefined ? opts.routerModel : (process.env.NEOS_ROUTER_MODEL ?? null);
     this.vault = new VaultCipher(opts.vaultKeys ?? VaultCipher.generate());
     if (opts.registryKeys) this.registry = new Registry(this, opts.registryKeys);
   }
@@ -161,22 +169,34 @@ export class Platform {
   }
 
   private async askTraced(user: { id: string; company_id: string }, text: string, opts: { app?: string; conversation_id?: string }, trace: string) {
-    let conversationId = opts.conversation_id ?? null;
-    if (conversationId) {
-      const own = await this.db.query('select 1 from neos.conversations where id = $1 and user_id = $2 and company_id = $3', [conversationId, user.id, user.company_id]);
-      if (!own.rowCount) throw new PlatformError(404, 'not_found', 'no such conversation');
-    } else {
-      conversationId = (await this.db.query<{ id: string }>('insert into neos.conversations (company_id, user_id) values ($1, $2) returning id', [user.company_id, user.id])).rows[0]!.id;
-    }
-    await this.say(conversationId, user.company_id, `user:${user.id}`, text, 'message');
-    const ctx = await this.registryContext(user.company_id);
-    let appKey = opts.app ?? null;
-    if (appKey && !ctx.some((a) => a.key === appKey)) throw new PlatformError(403, 'not_installed', `${appKey} is not installed for your company`);
-    if (!appKey) appKey = pickApp(text, ctx);
+    // Hot path (ack latency): storing the ask and reading the registry context are independent — run them together.
+    const store = async (): Promise<string> => {
+      let id = opts.conversation_id ?? null;
+      if (id) {
+        const own = await this.db.query('select 1 from neos.conversations where id = $1 and user_id = $2 and company_id = $3', [id, user.id, user.company_id]);
+        if (!own.rowCount) throw new PlatformError(404, 'not_found', 'no such conversation');
+        await this.say(id, user.company_id, `user:${user.id}`, text, 'message');
+        return id;
+      }
+      // New conversation and its first message in one round trip.
+      id = (
+        await this.db.query<{ id: string }>(
+          `with c as (insert into neos.conversations (company_id, user_id) values ($1, $2) returning id),
+                m as (insert into neos.conversation_messages (company_id, conversation_id, task_id, author, body, kind) select $1, c.id, null, $3, $4, 'message' from c)
+           select id from c`,
+          [user.company_id, user.id, `user:${user.id}`, text],
+        )
+      ).rows[0]!.id;
+      return id;
+    };
+    const [conversationId, ctx] = await Promise.all([store(), this.registryContext(user.company_id)]);
+    if (opts.app && !ctx.some((a) => a.key === opts.app)) throw new PlatformError(403, 'not_installed', `${opts.app} is not installed for your company`);
+    const route: RouteDecision = opts.app ? { app: opts.app, method: 'explicit', reason: 'the person named the app' } : await this.route(user.company_id, conversationId, text, ctx);
+    const appKey = route.app;
     if (!appKey) {
       const msg = 'No app here looks after that yet.';
       await this.say(conversationId, user.company_id, 'neuralchat', msg, 'notice');
-      return { conversation_id: conversationId, handed_to: null, message: msg };
+      return { conversation_id: conversationId, handed_to: null, message: msg, routed_by: route.method, route_reason: route.reason };
     }
     const name = ctx.find((a) => a.key === appKey)!.name;
     const t = await this.openTask({
@@ -186,9 +206,56 @@ export class Platform {
       ask: text,
       conversation_id: conversationId,
       trace_parent: trace,
+      routed_by: route.method,
+      route_reason: route.reason,
       beforeDeliver: (id) => this.say(conversationId, user.company_id, 'neuralchat', `Handed to ${name} (task ${id.slice(0, 8)}).`, 'handoff', id),
     });
-    return { conversation_id: conversationId, handed_to: appKey, ...t };
+    return { conversation_id: conversationId, handed_to: appKey, routed_by: route.method, route_reason: route.reason, ...t };
+  }
+
+  /**
+   * NeuralChat picks the app: a model reasons over the registry context through the LLM proxy
+   * (platform budget); without a model, or when the call fails or answers outside the installed
+   * apps, the keyword picker decides. Either way the method and reason are audited.
+   */
+  private async route(companyId: string, conversationId: string, ask: string, ctx: Awaited<ReturnType<Platform['registryContext']>>): Promise<RouteDecision> {
+    let decision: RouteDecision;
+    if (!this.routerModel || !this.llmProxyUrl) {
+      decision = { app: pickApp(ask, ctx), method: 'keyword', reason: `keyword fallback: ${!this.routerModel ? 'no routing model is configured' : 'this platform runs no LLM proxy'}` };
+    } else {
+      try {
+        await this.ensureRouterPrincipal();
+        const tz = (await this.db.query<{ time_zone: string }>('select time_zone from neos.companies where id = $1', [companyId])).rows[0]?.time_zone ?? 'UTC';
+        const token = await this.gateway.sign(
+          {
+            company_id: companyId,
+            job_id: conversationId,
+            sid: `route:${randomUUID()}`,
+            budget_micros: Math.round(Number(process.env.NEOS_ROUTER_ASK_USD ?? 0.05) * 1_000_000),
+            day_cap_micros: Math.round(Number(process.env.NEOS_ROUTER_DAY_USD ?? 5) * 1_000_000),
+            tz,
+          },
+          'llm-proxy',
+          `app:${ROUTER_PRINCIPAL}`,
+          120,
+        );
+        const c = await modelRoute({ proxyUrl: this.llmProxyUrl, token, model: this.routerModel, ask, apps: ctx });
+        decision = { app: c.app, method: 'model', reason: c.reason };
+      } catch (e) {
+        decision = { app: pickApp(ask, ctx), method: 'keyword', reason: `keyword fallback: the routing model failed (${String((e as Error).message ?? e).slice(0, 300)})` };
+      }
+    }
+    await this.gateway.audit({ company_id: companyId, actor: 'neuralchat', app_key: decision.app ?? undefined, action: 'neuralchat.routed', outcome: decision.method, detail: { app: decision.app, reason: decision.reason, conversation_id: conversationId } });
+    return decision;
+  }
+
+  /** The platform-owned principal NeuralChat's model spend is metered under (never routed to). */
+  private async ensureRouterPrincipal(): Promise<void> {
+    await this.db.query(
+      `insert into neos.apps (key, l3_url, manifest, contract_version, service_secret_hash, status)
+       values ($1, 'platform:internal', $2, '1', $3, 'platform') on conflict (key) do nothing`,
+      [ROUTER_PRINCIPAL, JSON.stringify({ app: ROUTER_PRINCIPAL, name: 'NeuralChat', subject: 'routing', description: 'platform router', abilities: [] }), hashSecret(randomBytes(32).toString('hex'))],
+    );
   }
 
   async conversation(user: { id: string; company_id: string }, id: string) {
@@ -226,7 +293,25 @@ export class Platform {
     return { id: r.rows[0]!.id, token };
   }
 
-  async registerApp(a: { key: string; l3_url: string; manifest: Manifest; service_secret: string; blocks?: Record<string, unknown> }): Promise<void> {
+  async registerApp(a: {
+    key: string;
+    l3_url: string;
+    manifest: Manifest;
+    service_secret: string;
+    blocks?: Record<string, unknown>;
+    /** The conformance attestation (scripts/conformance.ts) for exactly this manifest. Required in production. */
+    conformance?: unknown;
+    /** The app's registry author key (Ed25519 public JWK): what it publishes must be signed with its private half. */
+    author_public_key?: unknown;
+  }): Promise<void> {
+    if (a.key === ROUTER_PRINCIPAL) throw new PlatformError(422, 'reserved_key', `${a.key} is reserved by the platform`);
+    // Plan, test bar: an app is registered on green, not on promises.
+    const unattested = attestationProblem(a.conformance, a.key, a.manifest);
+    if (unattested && process.env.NEOS_ENV === 'production') {
+      await this.gateway.audit({ company_id: null, actor: 'platform', app_key: undefined, action: 'app.register_refused', outcome: 'unattested', detail: { app: a.key, problem: unattested } });
+      throw new PlatformError(422, 'unattested', `${a.key} is not registered: ${unattested}`);
+    }
+    if (a.author_public_key !== undefined && !isEd25519Jwk(a.author_public_key)) throw new PlatformError(422, 'bad_author_key', 'the author key must be an Ed25519 public JWK ({kty:"OKP", crv:"Ed25519", x})');
     const bad = a.manifest.abilities.find((x) => x.kind === 'read' && x.floor === 'ask_first');
     if (bad) throw new PlatformError(422, 'read_cannot_ask_first', `${bad.key}: a read cannot be ask-first`);
     const blocks = a.blocks ?? {};
@@ -253,12 +338,31 @@ export class Platform {
       }
     }
     await this.db.query(
-      `insert into neos.apps (key, l3_url, manifest, contract_version, service_secret_hash, blocks) values ($1,$2,$3,$4,$5,$6)
+      `insert into neos.apps (key, l3_url, manifest, contract_version, service_secret_hash, blocks, conformance, author_key) values ($1,$2,$3,$4,$5,$6,$7,$8)
        on conflict (key) do update set l3_url = excluded.l3_url, manifest = excluded.manifest,
-         contract_version = excluded.contract_version, service_secret_hash = excluded.service_secret_hash, blocks = excluded.blocks`,
-      [a.key, a.l3_url, JSON.stringify(a.manifest), a.manifest.contract_version, hashSecret(a.service_secret), JSON.stringify(blocks)],
+         contract_version = excluded.contract_version, service_secret_hash = excluded.service_secret_hash, blocks = excluded.blocks,
+         conformance = excluded.conformance, author_key = coalesce(excluded.author_key, neos.apps.author_key)
+       where neos.apps.status <> 'platform'`,
+      [
+        a.key,
+        a.l3_url,
+        JSON.stringify(a.manifest),
+        a.manifest.contract_version,
+        hashSecret(a.service_secret),
+        JSON.stringify(blocks),
+        unattested ? null : JSON.stringify(a.conformance),
+        a.author_public_key === undefined ? null : JSON.stringify(a.author_public_key),
+      ],
     );
     await this.db.query('insert into neos.outbox_cursors (app_key) values ($1) on conflict do nothing', [a.key]);
+    // Dev accepts an app without a green attestation, but never silently.
+    await this.gateway.audit({
+      company_id: null,
+      actor: 'platform',
+      action: 'app.registered',
+      outcome: unattested ? 'unattested' : 'attested',
+      detail: { app: a.key, manifest_sha256: manifestSha256(a.manifest), ...(unattested ? { problem: unattested } : { commit: (a.conformance as ConformanceAttestation).commit }) },
+    });
   }
 
   async authService(header: string | undefined): Promise<string | null> {
@@ -382,10 +486,8 @@ export class Platform {
       return next;
     });
     await this.gateway.audit({ company_id: companyId, actor: `user:${by}`, app_key: app, action: 'switchboard.changed', outcome: String(version), detail: patch });
-    // Tell the app so its gate drops its cache now, not in 30 s.
-    await this.gateway
-      .call({ caller: 'platform', app, endpoint: 'switchboard.changed', company_id: companyId, body: { version }, idem_key: `sb:${companyId}:${app}:${version}` })
-      .catch((e) => this.log('switchboard.changed not delivered', { e: String(e) }));
+    // Tell the app so its gate drops its cache now, not in 30 s — and keep telling it until it answers.
+    await this.notifyApp(app, companyId);
     return version;
   }
 
@@ -399,7 +501,7 @@ export class Platform {
   }
 
   /** Mint an execution token for a gate-proposed action a grant covers; null if none does. */
-  async grantExecutionToken(app: string, req: { company_id: string; job_id: string; proposal_id: string; ability_key: string; fingerprint: string; amount_minor?: number; currency?: string; recipients?: string[] }) {
+  async grantExecutionToken(app: string, req: { company_id: string; job_id: string; proposal_id: string; ability_key: string; ability_version?: string; fingerprint: string; amount_minor?: number; currency?: string; recipients?: string[] }) {
     await this.assertInstalled(app, req.company_id);
     const grants = await this.db.query(
       `select * from neos.grants where company_id = $1 and app_key = $2 and ability_key = $3 and status = 'ACTIVE' and expires_at > now() order by created_at`,
@@ -414,12 +516,15 @@ export class Platform {
       if (L.per_call_minor !== undefined && req.amount_minor! > L.per_call_minor) continue;
       if (L.recipients_allow && (!req.recipients?.length || req.recipients.some((r) => !L.recipients_allow!.includes(r)))) continue;
       if (L.per_month_minor !== undefined) {
-        const used = await this.db.query<{ s: number }>(
-          `select coalesce(sum((detail->>'amount_minor')::bigint), 0)::bigint as s from neos.audit
-            where action = 'grant.used' and detail->>'grant_id' = $1 and at >= date_trunc('month', now())`,
-          [g.id],
+        // "This month" is the company's month (C5: company time zone), not the database's UTC month.
+        const used = await this.db.query<{ s: string }>(
+          `select coalesce(sum((a.detail->>'amount_minor')::bigint), 0)::bigint as s
+             from neos.audit a, neos.companies co
+            where co.id = $2 and a.action = 'grant.used' and a.detail->>'grant_id' = $1
+              and a.at >= ${MONTH_START_SQL('co.time_zone')}`,
+          [g.id, req.company_id],
         );
-        if (used.rows[0]!.s + (req.amount_minor ?? 0) > L.per_month_minor) continue;
+        if (Number(used.rows[0]!.s) + (req.amount_minor ?? 0) > L.per_month_minor) continue;
       }
       const token = await this.gateway.mint({
         aud: app,
@@ -427,6 +532,7 @@ export class Platform {
         company_id: req.company_id,
         ability: 'proposals.execute',
         idem_key: `grant:${req.proposal_id}`,
+        ...(req.ability_version ? { ability_version: req.ability_version } : {}),
         exec: true,
         proposal_id: req.proposal_id,
         fingerprint: req.fingerprint,
@@ -446,18 +552,28 @@ export class Platform {
   }
 
   /** A grant suspends itself the moment something goes wrong under it. */
-  private async suspendGrantIfFailed(approvalOrProposal: { proposal_id: string; outcome: string }): Promise<void> {
+  private async suspendGrantIfFailed(approvalOrProposal: { proposal_id: string; outcome: string }, c: { query: Pool['query'] } = this.db): Promise<void> {
     if (approvalOrProposal.outcome === 'DONE') return;
-    const r = await this.db.query<{ grant_id: string }>(
+    const r = await c.query<{ grant_id: string }>(
       `select detail->>'grant_id' as grant_id from neos.audit where action = 'grant.used' and detail->>'proposal_id' = $1 limit 1`,
       [approvalOrProposal.proposal_id],
     );
     const gid = r.rows[0]?.grant_id;
     if (gid) {
-      await this.db.query(`update neos.grants set status = 'SUSPENDED', suspended_reason = $2 where id = $1 and status = 'ACTIVE'`, [
+      const s = await c.query(`update neos.grants set status = 'SUSPENDED', suspended_reason = $2 where id = $1 and status = 'ACTIVE' returning company_id, app_key, ability_key`, [
         gid,
         `execution ${approvalOrProposal.outcome} for proposal ${approvalOrProposal.proposal_id}`,
       ]);
+      const g = s.rows[0];
+      if (g) {
+        await c.query(`insert into neos.audit (company_id, actor, app_key, action, ability_key, outcome, detail) values ($1, 'platform', $2, 'grant.suspended', $3, $4, $5)`, [
+          g.company_id,
+          g.app_key,
+          g.ability_key,
+          approvalOrProposal.outcome,
+          JSON.stringify({ grant_id: gid, proposal_id: approvalOrProposal.proposal_id }),
+        ]);
+      }
     }
   }
 
@@ -473,11 +589,14 @@ export class Platform {
       [g.caller_app, g.target_app, g.ability_key, user.company_id, user.id],
     );
     await this.gateway.audit({ company_id: user.company_id, actor: `user:${user.id}`, app_key: g.target_app, action: 'acl.granted', ability_key: g.ability_key, detail: g });
+    // The borrower's gate re-reads what it may borrow now, not when its cache expires.
+    await this.notifyApp(g.caller_app, user.company_id).catch(() => {});
   }
 
   async revokeAcl(user: { id: string; company_id: string }, g: { caller_app: string; target_app: string; ability_key: string }): Promise<void> {
     await this.db.query('delete from neos.acl where caller_app = $1 and target_app = $2 and ability_key = $3 and company_id = $4', [g.caller_app, g.target_app, g.ability_key, user.company_id]);
     await this.gateway.audit({ company_id: user.company_id, actor: `user:${user.id}`, app_key: g.target_app, action: 'acl.revoked', ability_key: g.ability_key, detail: g });
+    await this.notifyApp(g.caller_app, user.company_id).catch(() => {});
   }
 
   // ── package migrations (run by the ops migration runner, never at request time) ──
@@ -495,17 +614,68 @@ export class Platform {
     return out;
   }
 
-  async markPackageMigrated(host: string, key: string, version: string): Promise<void> {
+  async markPackageMigrated(host: string, key: string, version: string, detail: Record<string, unknown> = {}): Promise<void> {
     await tx(this.db, async (c) => {
       await c.query('insert into neos.package_migrations (host_app, entry_key, version) values ($1,$2,$3) on conflict do nothing', [host, key, version]);
-      await c.query(`update neos.registry_installs set status = 'active' where host_app = $1 and entry_key = $2 and pinned_version = $3 and status = 'pending_migration'`, [host, key, version]);
+      await c.query(`update neos.registry_installs set status = 'active', last_error = null where host_app = $1 and entry_key = $2 and pinned_version = $3 and status = 'pending_migration'`, [host, key, version]);
+      await c.query(`insert into neos.audit (actor, app_key, action, outcome, detail) values ('platform', $1, 'registry.package_migrated', 'ok', $2)`, [host, JSON.stringify({ entry: key, version, ...detail })]);
     });
+  }
+
+  /**
+   * A package's migrations or self-test failed: the install does not go active. An update goes back
+   * to the version it replaced (still migrated); a first install is marked failed. Audited.
+   */
+  async failPackageInstall(host: string, key: string, version: string, error: string): Promise<void> {
+    await tx(this.db, async (c) => {
+      const rows = (
+        await c.query<{ company_id: string; previous_version: string | null }>(
+          `select company_id, previous_version from neos.registry_installs where host_app = $1 and entry_key = $2 and pinned_version = $3 and status = 'pending_migration' for update`,
+          [host, key, version],
+        )
+      ).rows;
+      for (const r of rows) {
+        const back = r.previous_version
+          ? (await c.query('select 1 from neos.package_migrations where host_app = $1 and entry_key = $2 and version = $3', [host, key, r.previous_version])).rowCount
+          : 0;
+        await c.query(
+          `update neos.registry_installs set status = $5, pinned_version = $6, previous_version = null, last_error = $4
+            where company_id = $1 and host_app = $2 and entry_key = $3`,
+          [r.company_id, host, key, error.slice(0, 1000), back ? 'active' : 'failed', back ? r.previous_version : version],
+        );
+        await c.query(`insert into neos.audit (company_id, actor, app_key, action, outcome, detail) values ($1, 'platform', $2, 'registry.install_failed', $3, $4)`, [
+          r.company_id,
+          host,
+          back ? 'rolled_back' : 'failed',
+          JSON.stringify({ entry: key, version, back_to: back ? r.previous_version : null, error: error.slice(0, 500) }),
+        ]);
+      }
+    });
+  }
+
+  /** Run one pending package migration (with its self-test) and settle the install either way. */
+  async applyPackageMigration(p: { host_app: string; entry_key: string; version: string; bundle: PackageBundle }, run: () => Promise<string[]>): Promise<string[]> {
+    let applied: string[];
+    try {
+      applied = await run();
+    } catch (e) {
+      await this.failPackageInstall(p.host_app, p.entry_key, p.version, String((e as Error).message ?? e));
+      throw e;
+    }
+    await this.markPackageMigrated(p.host_app, p.entry_key, p.version, { applied, selftest: /\bselftest\b/.test(p.bundle.handlers) ? 'passed' : 'none' });
+    return applied;
   }
 
   // ── borrowing and a2a (Phase 4) ───────────────────────────────────────────
   /** What a host needs to offer a borrowed ability: the owner's contract and its setting at this company. */
-  async borrowDescribe(host: string, req: { company_id: string; app: string; ability: string }) {
+  async borrowDescribe(host: string, req: { company_id: string; app?: string | null; ability: string }) {
     await this.assertInstalled(host, req.company_id);
+    if (!req.app) {
+      // A requirement of an installed registry entry: its owner is whoever the admin's ACL row names.
+      const row = (await this.db.query<{ target_app: string }>('select target_app from neos.acl where caller_app = $1 and ability_key = $2 and company_id = $3 order by granted_at limit 1', [host, req.ability, req.company_id])).rows[0];
+      if (!row) throw new PlatformError(404, 'not_granted', `no ACL row lets ${host} borrow ${req.ability}`);
+      req = { ...req, app: row.target_app };
+    }
     const owner = (await this.registryContext(req.company_id)).find((a) => a.key === req.app);
     if (!owner) throw new PlatformError(404, 'not_installed', `${req.app} is not installed for this company`);
     const line = owner.abilities.find((a) => a.key === req.ability);
@@ -518,13 +688,13 @@ export class Platform {
       req.ability,
       req.company_id,
     ]);
-    return { ability, owner_setting: line?.setting ?? 'off', acl: (acl.rowCount ?? 0) > 0 };
+    return { ability, owner: req.app, owner_setting: line?.setting ?? 'off', acl: (acl.rowCount ?? 0) > 0 };
   }
 
   /** A call from one app's backend to another app, through the gateway, as `app:<host>`. */
   async internalCall(host: string, req: { company_id: string; app: string; endpoint: string; body?: unknown; idem_key: string }) {
     await this.assertInstalled(host, req.company_id);
-    if (['tasks.open', 'proposals.resolve', 'proposals.execute', 'outbox.read', 'inbox.deliver', 'tasks.cancel', 'tasks.result'].includes(req.endpoint)) {
+    if (['tasks.open', 'proposals.resolve', 'proposals.execute', 'outbox.read', 'inbox.deliver', 'tasks.cancel', 'tasks.result', 'switchboard.changed', 'outbox.ack', 'schedules.set', 'schedules.list', 'manifest'].includes(req.endpoint)) {
       throw new PlatformError(403, 'denied', `${req.endpoint} is not callable this way`);
     }
     return this.gateway.call({ caller: `app:${host}`, app: req.app, endpoint: req.endpoint, company_id: req.company_id, body: req.body, idem_key: req.idem_key });
@@ -567,23 +737,60 @@ export class Platform {
     const due = await this.db.query(
       `select t.*, split_part(t.requester, ':', 2) as host_app from neos.tasks t
         where t.requester like 'app:%' and t.result_delivered_at is null and t.status in ('COMPLETED', 'FAILED', 'CANCELLED')
+          and t.result_failed_at is null and (t.result_next_at is null or t.result_next_at <= now())
         order by t.updated_at limit 20`,
     );
+    const giveUpMs = this.opts.timings?.a2aResultGiveUpMs ?? 10 * 60_000;
     for (const t of due.rows) {
+      let why: string;
       try {
         const res = await this.gateway.call({
           caller: 'platform',
           app: t.host_app,
           endpoint: 'tasks.result',
           company_id: t.company_id,
+          // The idempotency key names the attempt: a 404 is never stored, but a fresh key keeps each retry a real call.
           body: { task_id: t.id, status: t.status, from_app: t.app_key, result: t.result },
-          idem_key: `result:${t.id}`,
+          idem_key: `result:${t.id}:${t.result_attempts}`,
         });
-        if (res.status === 200 || res.status === 404) await this.db.query('update neos.tasks set result_delivered_at = now() where id = $1', [t.id]);
+        if (res.status === 200) {
+          await this.db.query('update neos.tasks set result_delivered_at = now(), last_error = null where id = $1', [t.id]);
+          continue;
+        }
+        // 404 "no job waits on that task" is not an answer: the host may not have recorded its wait yet.
+        why = `tasks.result answered ${res.status}: ${JSON.stringify(res.body).slice(0, 300)}`;
       } catch (e) {
-        this.log('a2a result delivery failed', { task: t.id, e: String(e) });
+        why = String(e);
       }
+      await this.resultRetryOrGiveUp(t, why, giveUpMs);
     }
+  }
+
+  /** Back off and retry an undelivered a2a result; past the window, give up loudly (audit + task failure). */
+  private async resultRetryOrGiveUp(t: any, why: string, giveUpMs: number): Promise<void> {
+    const first = t.result_first_try_at ? new Date(t.result_first_try_at).getTime() : Date.now();
+    const n = Number(t.result_attempts) + 1;
+    if (Date.now() - first >= giveUpMs) {
+      const msg = `result could not be delivered to ${t.host_app} after ${n} attempts: ${why}`.slice(0, 500);
+      await tx(this.db, async (c) => {
+        await c.query(
+          `update neos.tasks set status = 'FAILED', result_failed_at = now(), result_attempts = $2, last_error = $3, updated_at = now() where id = $1`,
+          [t.id, n, msg],
+        );
+        await c.query(`insert into neos.audit (company_id, actor, app_key, action, outcome, detail) values ($1, 'platform', $2, 'a2a.result_undeliverable', 'gave_up', $3)`, [
+          t.company_id,
+          t.host_app,
+          JSON.stringify({ task_id: t.id, from_app: t.app_key, task_status: t.status, attempts: n, error: why.slice(0, 300) }),
+        ]);
+      });
+      this.log('a2a result undeliverable; task failed', { task: t.id, host: t.host_app });
+      return;
+    }
+    await this.db.query(
+      `update neos.tasks set result_attempts = $2, result_first_try_at = coalesce(result_first_try_at, now()),
+         result_next_at = now() + ($3 || ' milliseconds')::interval, last_error = $4 where id = $1`,
+      [t.id, n, String(BACKOFF_MS[Math.min(n - 1, BACKOFF_MS.length - 1)]), why.slice(0, 500)],
+    );
   }
 
   // ── LLM session tokens (R1) ───────────────────────────────────────────────
@@ -641,10 +848,53 @@ export class Platform {
 
   /** Tell an app its board changed (settings, installs): it drops its caches for that company. */
   async notifyApp(app: string, companyId: string): Promise<void> {
-    const sb = await this.switchboard(companyId, app).catch(() => ({ version: 0 }));
-    await this.gateway
-      .call({ caller: 'platform', app, endpoint: 'switchboard.changed', company_id: companyId, body: { version: sb.version }, idem_key: `sb:${companyId}:${app}:${sb.version}:${Date.now()}` })
-      .catch((e) => this.log('switchboard.changed not delivered', { e: String(e) }));
+    const v = (await this.db.query<{ v: number }>('select coalesce(max(version), 0)::int as v from neos.switchboards where company_id = $1 and app_key = $2', [companyId, app])).rows[0]!.v;
+    // Durable first: the push is owed until the app acknowledges it, across retries and restarts.
+    const row = (
+      await this.db.query(
+        `insert into neos.app_notifications (company_id, app_key, version, idem_key) values ($1,$2,$3,$4)
+         on conflict (company_id, app_key) do update set version = excluded.version, idem_key = excluded.idem_key, attempts = 0, next_attempt_at = now(), last_error = null
+         returning *`,
+        [companyId, app, v, `sb:${companyId}:${app}:${v}:${randomUUID()}`],
+      )
+    ).rows[0];
+    await this.deliverNotification(row);
+  }
+
+  /** Push one owed switchboard.changed; the row goes only when the app answered 200. */
+  private async deliverNotification(n: { company_id: string; app_key: string; version: number; idem_key: string; attempts: number }): Promise<boolean> {
+    let err: string;
+    try {
+      const res = await this.gateway.call({ caller: 'platform', app: n.app_key, endpoint: 'switchboard.changed', company_id: n.company_id, body: { version: n.version }, idem_key: n.idem_key });
+      const final = res.status !== 200 && !retryableStatus(res.status, res.body);
+      if (res.status === 200 || final) {
+        await this.db.query('delete from neos.app_notifications where company_id = $1 and app_key = $2 and idem_key = $3', [n.company_id, n.app_key, n.idem_key]);
+        if (final) await this.gateway.audit({ company_id: n.company_id, actor: 'platform', app_key: n.app_key, action: 'switchboard.notify_refused', outcome: String(res.status), detail: res.body });
+        return res.status === 200;
+      }
+      err = `answered ${res.status}`;
+    } catch (e) {
+      if (e instanceof GatewayError && e.status < 500) {
+        // Not installed / not active: nothing to tell, and retrying cannot change that.
+        await this.db.query('delete from neos.app_notifications where company_id = $1 and app_key = $2 and idem_key = $3', [n.company_id, n.app_key, n.idem_key]);
+        return false;
+      }
+      err = String(e);
+    }
+    const a = n.attempts + 1;
+    // Short, capped backoff: a switch-off must not lag behind an app that was briefly away.
+    const wait = [250, 500, 1_000, 2_000, 5_000][Math.min(a - 1, 4)]!;
+    await this.db.query(
+      `update neos.app_notifications set attempts = $4, last_error = $5, next_attempt_at = now() + ($6 || ' milliseconds')::interval where company_id = $1 and app_key = $2 and idem_key = $3`,
+      [n.company_id, n.app_key, n.idem_key, a, err.slice(0, 500), String(wait)],
+    );
+    this.log('switchboard.changed not delivered; will retry', { app: n.app_key, attempts: a, e: err });
+    return false;
+  }
+
+  async notificationsTick(): Promise<void> {
+    const due = await this.db.query(`select * from neos.app_notifications where next_attempt_at <= now() order by next_attempt_at limit 50`);
+    await Promise.all(due.rows.map((n) => this.deliverNotification(n).catch(() => false)));
   }
 
   /** Skill lines on the board (WP §10): the app's own skills and registry skills pinned for it. */
@@ -699,27 +949,34 @@ export class Platform {
     room_id?: string | null;
     room_event_id?: string | null;
     trace_parent?: string | null;
+    routed_by?: 'explicit' | 'model' | 'keyword' | null;
+    route_reason?: string | null;
     /** Runs after the task row exists and before it is handed to the app. */
     beforeDeliver?: (taskId: string) => Promise<void>;
   }): Promise<{ task_id: string; status: string; job_id: string | null; ack: string | null }> {
-    const r = await this.db.query<{ id: string }>(
-      'insert into neos.tasks (company_id, app_key, requester, ask, conversation_id, origin, room_id, trace_parent) values ($1,$2,$3,$4,$5,$6,$7,$8) returning id',
-      [t.company_id, t.app_key, t.requester, t.ask, t.conversation_id ?? null, t.origin ?? 'app', t.room_id ?? null, t.trace_parent ?? null],
+    // Handed over inline right below; the retry worker only looks at it if that fails (no double delivery under load).
+    const r = await this.db.query(
+      `insert into neos.tasks (company_id, app_key, requester, ask, conversation_id, origin, room_id, trace_parent, routed_by, route_reason, next_attempt_at)
+       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10, now() + interval '10 seconds') returning *`,
+      [t.company_id, t.app_key, t.requester, t.ask, t.conversation_id ?? null, t.origin ?? 'app', t.room_id ?? null, t.trace_parent ?? null, t.routed_by ?? null, t.route_reason ?? null],
     );
-    const id = r.rows[0]!.id;
+    const row = r.rows[0]!;
+    const id: string = row.id;
     if (t.room_event_id) await this.db.query('update neos.room_events set task_id = $2 where event_id = $1', [t.room_event_id, id]);
     await t.beforeDeliver?.(id);
-    const ack = await this.deliverTask(id).catch(() => null);
-    const row = await this.db.query('select status, job_id from neos.tasks where id = $1', [id]);
-    return { task_id: id, status: row.rows[0].status, job_id: row.rows[0].job_id, ack };
+    const out = await this.deliverTask(row, t.room_event_id ?? undefined).catch(() => null);
+    if (out) return { task_id: id, status: out.status, job_id: out.job_id, ack: out.ack };
+    const cur = await this.db.query('select status, job_id from neos.tasks where id = $1', [id]);
+    return { task_id: id, status: cur.rows[0].status, job_id: cur.rows[0].job_id, ack: null };
   }
 
-  private async deliverTask(taskId: string): Promise<string | null> {
-    const t = (await this.db.query('select * from neos.tasks where id = $1', [taskId])).rows[0];
+  /** Hand a task to its app (tasks.open, or inbox.deliver for a room message). Takes the row or its id. */
+  private async deliverTask(taskOrId: string | any, roomEventId?: string): Promise<{ ack: string; status: string; job_id: string } | null> {
+    const t = typeof taskOrId === 'string' ? (await this.db.query('select * from neos.tasks where id = $1', [taskOrId])).rows[0] : taskOrId;
     if (!t || t.status !== 'OPEN') return null;
     try {
       const fromRoom = t.origin === 'room';
-      const ev = fromRoom ? (await this.db.query<{ event_id: string }>('select event_id from neos.room_events where task_id = $1 limit 1', [t.id])).rows[0] : null;
+      const ev = fromRoom ? (roomEventId ? { event_id: roomEventId } : (await this.db.query<{ event_id: string }>('select event_id from neos.room_events where task_id = $1 limit 1', [t.id])).rows[0]) : null;
       const res = await this.gateway.call<{ job_id: string; ack: string }>({
         caller: t.requester.startsWith('app:') ? t.requester : 'platform',
         app: t.app_key,
@@ -732,11 +989,11 @@ export class Platform {
         trace: t.trace_parent,
       });
       if (res.status !== 200) throw new Error(`tasks.open answered ${res.status}: ${JSON.stringify(res.body)}`);
-      await this.db.query(
-        `update neos.tasks set status = case when status = 'OPEN' then 'ACKNOWLEDGED' else status end, job_id = $2, updated_at = now() where id = $1`,
+      const u = await this.db.query<{ status: string; job_id: string }>(
+        `update neos.tasks set status = case when status = 'OPEN' then 'ACKNOWLEDGED' else status end, job_id = $2, updated_at = now() where id = $1 returning status, job_id`,
         [t.id, res.body.job_id],
       );
-      return res.body.ack;
+      return { ack: res.body.ack, status: u.rows[0]!.status, job_id: u.rows[0]!.job_id };
     } catch (e) {
       const attempts = t.open_attempts + 1;
       await this.db.query(
@@ -877,7 +1134,7 @@ export class Platform {
           company_id: a.company_id,
           body: { proposal_id: a.proposal_id },
           idem_key: `execute:${a.id}`,
-          exec: { proposal_id: a.proposal_id, fingerprint: a.fingerprint },
+          exec: { proposal_id: a.proposal_id, fingerprint: a.fingerprint, ability_version: a.ability_version },
           trace: a.trace_parent,
         });
       } catch (e) {
@@ -888,7 +1145,12 @@ export class Platform {
         await this.db.query(`update neos.approvals set status = 'REFUSED', last_error = $2, updated_at = now() where id = $1`, [a.id, JSON.stringify(res.body)]);
         return;
       }
-      await this.db.query(`update neos.approvals set status = 'EXECUTED', proof = $2, updated_at = now() where id = $1`, [a.id, JSON.stringify(res.body)]);
+      // The outbox consumer may already have settled the card from proposal.executed; never undo that.
+      await this.db.query(`update neos.approvals set status = $3, proof = $2, updated_at = now() where id = $1 and status = 'RESOLVED'`, [
+        a.id,
+        JSON.stringify(res.body),
+        approvalStatusFor(res.body?.outcome),
+      ]);
     }
   }
 
@@ -1035,11 +1297,15 @@ export class Platform {
           p.outcome,
           JSON.stringify(p),
         ]);
-        await this.suspendGrantIfFailed({ proposal_id: p.proposal_id, outcome: p.outcome }).catch(() => {});
-        // Reconciliation settles an UNKNOWN later: the desk must show the settled proof, not the stale one.
-        if (p.reconciled && p.proof) {
-          await c.query(`update neos.approvals set proof = $3, updated_at = now() where app_key = $1 and proposal_id = $2`, [app, p.proposal_id, JSON.stringify(p.proof)]);
-        }
+        await this.suspendGrantIfFailed({ proposal_id: p.proposal_id, outcome: p.outcome }, c);
+        // The app's own record of the execution settles the card, even when the platform's execute call
+        // timed out and every retry is still pending. Reconciliation later moves an UNKNOWN to where it
+        // really ended, with the settled proof.
+        await c.query(
+          `update neos.approvals set status = $3, proof = coalesce($4::jsonb, proof), last_error = null, updated_at = now()
+            where app_key = $1 and proposal_id = $2 and status in (${p.reconciled ? "'RESOLVED', 'EXECUTED', 'FAILED', 'UNKNOWN'" : "'RESOLVED'"})`,
+          [app, p.proposal_id, approvalStatusFor(p.outcome), p.proof ? JSON.stringify(p.proof) : null],
+        );
         const task = await this.taskFor(c, app, p, e.company_id);
         // The job is working again until it reports.
         if (task) await c.query(`update neos.tasks set status = 'ACKNOWLEDGED', updated_at = now() where id = $1 and status = 'WAITING'`, [task.id]);
@@ -1063,6 +1329,21 @@ export class Platform {
           const task = await this.taskFor(c, app, p, e.company_id);
           await this.mirror(c, await this.roomFor(c, e.company_id, app, task), { dedupe_key: `step:${p.job_id}:${p.seq}`, kind: 'step', body: `· ${p.summary}` });
         }
+        break;
+      }
+      case 'a2a.requested': {
+        // C6: a2a calls are mirrored into the desk activity feed (there is no bus room).
+        const target = (await c.query<{ ask: string; app_key: string; name: string | null }>(
+          `select t.ask, t.app_key, a.manifest->>'name' as name from neos.tasks t left join neos.apps a on a.key = t.app_key where t.id = $1 and t.company_id = $2`,
+          [p.task_id, e.company_id],
+        )).rows[0];
+        const who = target?.name ?? p.target ?? 'another app';
+        const summary = `${appName} asked ${who} (task ${String(p.task_id).slice(0, 8)})${target ? `: ${target.ask.slice(0, 300)}` : ''}`;
+        await c.query(
+          `insert into neos.activity (company_id, app_key, job_id, seq, kind, summary, dedupe_key) values ($1,$2,$3,null,'a2a',$4,$5)
+           on conflict (app_key, dedupe_key) where dedupe_key is not null do nothing`,
+          [e.company_id, app, p.job_id, summary, `a2a:${p.task_id}`],
+        );
         break;
       }
       case 'card.raised': {
@@ -1177,6 +1458,63 @@ export class Platform {
     return (await this.gateway.metrics.render()) + g.join('\n') + '\n';
   }
 
+  // ── gateway key rotation (R10), durable ──────────────────────────────────
+  /**
+   * Publish a new signing key now and schedule its activation in the database, so a
+   * restart inside the window (verifiers' JWKS caches refreshing) still activates it on
+   * time: whichever process holds the keyring activates it on its next tick.
+   */
+  async rotateGatewayKey(by: string, activateAfterMs = 120_000): Promise<{ next: string; activate_at: string }> {
+    const cur = this.gateway.keys.active;
+    await this.db.query(`insert into neos.gateway_keys (kid, state, activated_at) values ($1, 'active', now()) on conflict (kid) do nothing`, [cur.kid]);
+    const pending = await this.db.query(`select kid from neos.gateway_keys where state = 'next'`);
+    if (pending.rowCount) throw new PlatformError(409, 'rotation_in_progress', `key ${pending.rows[0].kid} is already waiting to activate`);
+    const k = await this.gateway.keys.rotate();
+    const r = await this.db.query<{ activate_at: Date }>(
+      `insert into neos.gateway_keys (kid, state, activate_at) values ($1, 'next', now() + ($2 || ' milliseconds')::interval) returning activate_at`,
+      [k.kid, String(Math.max(0, Math.round(activateAfterMs)))],
+    );
+    await this.gateway.audit({ company_id: null, actor: by, action: 'gateway.key_published', outcome: k.kid, detail: { activate_after_ms: activateAfterMs } });
+    return { next: k.kid, activate_at: r.rows[0]!.activate_at.toISOString() };
+  }
+
+  /** Activate any published key whose time has come (runs on the worker tick and at start). */
+  async keysTick(): Promise<string | null> {
+    const due = (await this.db.query<{ kid: string }>(`select kid from neos.gateway_keys where state = 'next' and activate_at <= now() order by activate_at limit 1`)).rows[0];
+    if (!due) return null;
+    const ring = this.gateway.keys;
+    const k = ring.keys.find((x) => x.kid === due.kid);
+    if (!k) {
+      this.log('scheduled gateway key is not in this keyring; cannot activate it here', { kid: due.kid });
+      return null;
+    }
+    if (k.state === 'next') await ring.activate();
+    await tx(this.db, async (c) => {
+      await c.query(`update neos.gateway_keys set state = 'retired', retired_at = now() where state = 'previous'`);
+      await c.query(`update neos.gateway_keys set state = 'previous' where state = 'active' and kid <> $1`, [due.kid]);
+      await c.query(`update neos.gateway_keys set state = 'active', activated_at = now() where kid = $1`, [due.kid]);
+      await c.query(`insert into neos.audit (actor, action, outcome) values ('platform', 'gateway.key_activated', $1)`, [due.kid]);
+    });
+    return due.kid;
+  }
+
+  /** Stop publishing the previous key once every token it signed has expired (2× token TTL after activation). */
+  async retirePreviousGatewayKey(by: string, force = false): Promise<{ retired: string[] }> {
+    const act = (await this.db.query<{ age_s: number }>(`select extract(epoch from now() - activated_at)::float as age_s from neos.gateway_keys where state = 'active'`)).rows[0];
+    const minS = 2 * 60; // 2 × GATEWAY_TOKEN_TTL_S
+    if (!force && act && act.age_s < minS) throw new PlatformError(409, 'too_soon', `the active key signed its first token ${Math.round(act.age_s)} s ago; tokens from the previous key may still be live (wait ${minS} s)`);
+    const prev = this.gateway.keys.keys.filter((k) => k.state === 'previous').map((k) => k.kid);
+    await this.gateway.keys.retirePrevious();
+    await this.db.query(`update neos.gateway_keys set state = 'retired', retired_at = now() where state = 'previous'`);
+    await this.gateway.audit({ company_id: null, actor: by, action: 'gateway.key_retired', outcome: prev.join(',') || 'none', detail: { force } });
+    return { retired: prev };
+  }
+
+  async gatewayKeys() {
+    const rows = (await this.db.query('select kid, state, published_at, activate_at, activated_at, retired_at from neos.gateway_keys order by published_at')).rows;
+    return { keys: this.gateway.keys.keys.map((k) => ({ kid: k.kid, state: k.state, created_at: k.created_at, schedule: rows.find((r) => r.kid === k.kid) ?? null })) };
+  }
+
   // ── lifecycle ────────────────────────────────────────────────────────────
   start(): void {
     const t = { approvalsMs: 1_000, outboxMs: 1_000, tasksMs: 5_000, ...(this.opts.timings ?? {}) };
@@ -1196,6 +1534,8 @@ export class Platform {
     loop(() => this.outboxTick(), t.outboxMs);
     loop(() => this.tasksTick(), t.tasksMs);
     loop(() => this.a2aResultsTick(), t.approvalsMs);
+    loop(() => this.notificationsTick(), t.approvalsMs);
+    loop(() => this.keysTick(), t.keysMs ?? 1_000);
     loop(() => this.ackOutboxes(), 60_000);
     loop(() => this.retention(), 3_600_000);
   }
@@ -1205,6 +1545,19 @@ export class Platform {
     this.timers = [];
     await this.db.end().catch(() => {});
   }
+}
+
+export function isEd25519Jwk(k: unknown): boolean {
+  const j = k as { kty?: unknown; crv?: unknown; x?: unknown; d?: unknown } | null;
+  return !!j && typeof j === 'object' && j.kty === 'OKP' && j.crv === 'Ed25519' && typeof j.x === 'string' && /^[A-Za-z0-9_-]{43}$/.test(j.x) && j.d === undefined;
+}
+
+/** The first instant of the current month in a time zone, as SQL over a tz expression. */
+export const MONTH_START_SQL = (tz: string) => `(date_trunc('month', now() at time zone ${tz}) at time zone ${tz})`;
+
+/** Where a card ends once its execution reports: DONE → EXECUTED; FAILED and UNKNOWN say so. */
+export function approvalStatusFor(outcome: unknown): 'EXECUTED' | 'FAILED' | 'UNKNOWN' {
+  return outcome === 'FAILED' ? 'FAILED' : outcome === 'UNKNOWN' ? 'UNKNOWN' : 'EXECUTED';
 }
 
 export function hashSecret(s: string): string {

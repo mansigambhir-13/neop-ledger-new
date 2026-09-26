@@ -58,7 +58,7 @@ async function handle(m) {
   }
   if (m.type === "call") {
     try {
-      const a = mod?.abilities?.[m.ability];
+      const a = mod?.abilities?.[m.ability] ?? (m.ability === "selftest" && typeof mod?.selftest === "function" ? { run: (_args, ctx) => mod.selftest(ctx) } : undefined);
       const fn = a?.[m.method];
       if (typeof fn !== "function") throw new Error("no handler " + m.ability + "." + m.method);
       const result = await fn(m.args, ctxFor(m.id, m.ctx));

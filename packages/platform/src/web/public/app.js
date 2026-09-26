@@ -1268,7 +1268,7 @@ VIEWS.connections = async () => {
         const refused = n.filter((r) => /refused/.test(r.outcome ?? '')).length;
         const on = has(d.key);
         return `<div class="card"><div class="card-h"><span class="ico ${on ? 'green' : 'amber'}">${ic(icon, 18)}</span><h3>${esc(title)}</h3>${on ? pill(`key in vault · set ${ago(on.updated_at)}`, 'green') : pill('no key · closed', 'amber')}
-          <div class="right">${admin ? `<button class="btn sm${on ? '' : ' lime'}" data-door="${esc(d.key)}">${on ? 'Replace key' : 'Connect'}</button>` : ''}</div></div>
+          <div class="right">${admin && d.key === 'gst_portal' && on ? `<button class="btn sm" data-otp="${esc(d.key)}">Enter OTP</button>` : ''}${admin ? `<button class="btn sm${on ? '' : ' lime'}" data-door="${esc(d.key)}">${on ? 'Replace key' : 'Connect'}</button>` : ''}</div></div>
           <div class="card-b"><p class="muted">${esc(text)}</p><div class="kv"><span>Declared by</span><b>${d.declared_by === 'own' ? esc(appName(app)) : 'an installed package'}${d.scopes?.length ? ` · scopes ${esc(d.scopes.join(', '))}` : ''}</b></div>
           <div class="kv"><span>Used by</span><b>${users.length ? esc(users.map((u) => u.title).join(', ')) : 'the package’s abilities'}</b></div>
           ${admin ? `<div class="kv"><span>Keys lent (recent)</span><b>${n.length - refused}${refused ? ` · ${refused} refused` : ''}</b></div>` : ''}</div></div>`;
@@ -1276,6 +1276,7 @@ VIEWS.connections = async () => {
       .join('') +
     bind(() => {
       for (const b of $$('[data-door]')) b.onclick = () => doorForm(b.dataset.door);
+      for (const b of $$('[data-otp]')) b.onclick = () => otpForm(b.dataset.otp);
     })
   );
 };
@@ -1288,9 +1289,16 @@ function doorForm(door) {
         ? `<label class="f">Provider</label><select class="i" name="provider" id="prov"><option value="resend">Resend</option><option value="dev-mailbox">Development mailbox (files on the backend)</option></select>
            <div id="p-real"><label class="f">API key</label><input class="i mono" name="api_key" type="password" autocomplete="off"><label class="f">From</label><input class="i" name="from" placeholder="Acme Books &lt;books@acme.in&gt;"></div>
            <div id="p-dev" class="hidden"><label class="f">Directory on the backend</label><input class="i mono" name="dir" value="/srv/var/mailbox"></div>`
-        : `<label class="f">Provider</label><select class="i" name="provider" id="prov"><option value="http">Your GSP (HTTP API)</option><option value="dev-file">Development (files on the backend)</option></select>
-           <div id="p-real"><label class="f">GSP base URL</label><input class="i mono" name="base_url" type="url" placeholder="https://gsp.example"><label class="f">API token</label><input class="i mono" name="token" type="password" autocomplete="off">
-           <div class="row2"><div><label class="f">File path</label><input class="i mono" name="send_path" value="/v1/gstr3b/file"></div><div><label class="f">Look-up path</label><input class="i mono" name="lookup_path" value="/v1/gstr3b/filings/{key}"></div></div></div>
+        : `<label class="f">Provider</label><select class="i" name="provider" id="prov"><option value="gsp">Your GST Suvidha Provider (GSTN taxpayer API)</option><option value="dev-file">Development (files on the backend)</option></select>
+           <div id="p-real"><label class="f">GSP base URL</label><input class="i mono" name="base_url" type="url" placeholder="https://gsp.example">
+           <div class="row2"><div><label class="f">Client id</label><input class="i mono" name="client_id" autocomplete="off"></div><div><label class="f">Client secret</label><input class="i mono" name="client_secret" type="password" autocomplete="off"></div></div>
+           <div class="row2"><div><label class="f">GST portal username (API access on)</label><input class="i mono" name="username" autocomplete="off"></div><div><label class="f">GSTIN</label><input class="i mono" name="gstin" placeholder="27AAPFU0939F1ZV" pattern="[0-9A-Z]{15}"></div></div>
+           <div class="row2"><div><label class="f">Signatory PAN (EVC filing)</label><input class="i mono" name="signatory_pan" placeholder="AAPFU0939F"></div><div><label class="f">When the books cannot tell intra/inter-state</label><select class="i" name="assume_supply"><option value="">Refuse to guess</option><option value="intra_state">Assume intra-state (CGST+SGST)</option><option value="inter_state">Assume inter-state (IGST)</option></select></div></div>
+           <details><summary class="muted">Paths and headers (defaults follow the GSTN taxpayer API)</summary>
+           <div class="row2"><div><label class="f">Authenticate path</label><input class="i mono" name="p_auth" placeholder="/taxpayerapi/v1.0/authenticate"></div><div><label class="f">GSTR-3B path</label><input class="i mono" name="p_3b" placeholder="/taxpayerapi/v1.1/returns/gstr3b"></div></div>
+           <label class="f">Returns path</label><input class="i mono" name="p_ret" placeholder="/taxpayerapi/v0.3/returns">
+           <label class="f">Extra headers (JSON)</label><input class="i mono" name="headers" placeholder='{"x-gsp-key":"…"}'></details>
+           <p class="note">OTPs are never stored here: when the portal sends one, an admin enters it with “Enter OTP”.</p></div>
            <div id="p-dev" class="hidden"><label class="f">Directory on the backend</label><input class="i mono" name="dir" value="/srv/var/gst-portal"></div>`
     }</form><p class="note">Write-only: once saved, nobody can read it back — not even an admin.</p>`,
     `<button class="btn" id="dc">Cancel</button><button class="btn lime" id="ds">Save to vault</button>`,
@@ -1304,13 +1312,50 @@ function doorForm(door) {
     let body;
     if (dev()) body = { provider: d.provider, dir: d.dir };
     else if (email) body = { provider: 'resend', api_key: d.api_key, from: d.from };
-    else body = { provider: 'http', base_url: d.base_url, token: d.token, send_path: d.send_path, lookup_path: d.lookup_path };
-    if (!dev() && Object.values(body).some((x) => !x)) return toast('Fill in every field.', true);
+    else {
+      body = { provider: 'gsp', base_url: d.base_url, client_id: d.client_id, client_secret: d.client_secret, username: d.username, gstin: (d.gstin || '').toUpperCase() };
+      if (Object.values(body).some((x) => !x)) return toast('Base URL, client id and secret, username and GSTIN are required.', true);
+      if (d.signatory_pan) body.signatory_pan = d.signatory_pan.toUpperCase();
+      if (d.assume_supply) body.assume_supply = d.assume_supply;
+      const paths = Object.fromEntries([['authenticate', d.p_auth], ['gstr3b', d.p_3b], ['returns', d.p_ret]].filter(([, v]) => v));
+      if (Object.keys(paths).length) body.paths = paths;
+      if (d.headers) {
+        try {
+          body.headers = JSON.parse(d.headers);
+        } catch {
+          return toast('Extra headers must be JSON.', true);
+        }
+      }
+    }
+    if (email && !dev() && Object.values(body).some((x) => !x)) return toast('Fill in every field.', true);
     try {
       await api(`/api/vault/${door}`, { method: 'PUT', body });
       closeLayer();
       toast('Saved to the vault. The app borrows it per call.');
       render(true);
+    } catch (e) {
+      fail(e);
+    }
+  };
+}
+
+// A one-time code the portal sent a person (login OTP, or the signatory's EVC OTP): written straight
+// to the write-only OTP slot, never to a card, a note or the assistant.
+function otpForm(door) {
+  modal(
+    'Enter a GST portal OTP',
+    `<form id="of"><label class="f">Which code</label><select class="i" name="kind"><option value="auth_otp">Login OTP (the portal asked to sign in)</option><option value="evc_otp">EVC OTP (the signatory, before a filing)</option></select>
+     <label class="f">Code</label><input class="i mono" name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{4,8}"></form><p class="note">Used once by the app for the next portal call, then discarded. Never shown to the assistant.</p>`,
+    `<button class="btn" id="oc">Cancel</button><button class="btn lime" id="os">Save code</button>`,
+  );
+  $('#oc').onclick = closeLayer;
+  $('#os').onclick = async () => {
+    const d = Object.fromEntries(new FormData($('#of')).entries());
+    if (!/^[0-9]{4,8}$/.test(d.code || '')) return toast('Enter the 4–8 digit code.', true);
+    try {
+      await api(`/api/vault/${door}_otp`, { method: 'PUT', body: { provider: 'person', [d.kind]: d.code } });
+      closeLayer();
+      toast('Code saved for the next portal call.');
     } catch (e) {
       fail(e);
     }

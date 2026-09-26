@@ -100,6 +100,21 @@
         "rooms"
       ],
       "proven_on_populated_data": "2026-09-26 \u00b7 migration.test (populated copy) + pilot stacks"
+    },
+    {
+      "file": "011_platform_gaps.sql",
+      "tables": [
+        "activity",
+        "app_notifications",
+        "approvals",
+        "apps",
+        "gateway_keys",
+        "registry_entries",
+        "registry_installs",
+        "tasks"
+      ],
+      "baseline": false,
+      "proven_on_populated_data": "2026-09-26 \u00b7 packages/platform/tests/migration-011.test.ts (populated through 010, then 011)"
     }
   ]
 }
