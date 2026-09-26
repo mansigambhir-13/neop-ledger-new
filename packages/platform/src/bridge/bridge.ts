@@ -5,6 +5,7 @@
 // signed inbox.deliver call through the gateway (B4). The room is a mirror;
 // everything it shows comes from typed outbox events, never the other way.
 
+import { tx } from '@neop/pgkit';
 import type { Decision } from '@neop/contracts';
 import type { Platform } from '../platform.ts';
 import { PlatformError } from '../platform.ts';
@@ -12,6 +13,8 @@ import { PlatformError } from '../platform.ts';
 export interface RoomTransport {
   /** Post as `asUser` into `roomId`; `txnId` makes a retried send idempotent. */
   send(roomId: string, asUser: string, body: string, txnId: string): Promise<{ event_id: string }>;
+  /** Make sure the app's identity exists on the homeserver and has joined the room. */
+  prepare?(roomId: string, asUser: string): Promise<void>;
 }
 
 export interface InboundRoomMessage {
@@ -79,11 +82,15 @@ export class ChatBridge {
     const co = await this.platform.db.query<{ slug: string }>('select slug from neos.companies where id = $1', [companyId]);
     if (!co.rows[0]) throw new PlatformError(404, 'not_found', 'no such company');
     const bot = this.botUser(app, co.rows[0].slug);
-    await this.platform.db.query(
-      `insert into neos.rooms (room_id, company_id, app_key, bot_user) values ($1,$2,$3,$4)
-       on conflict (company_id, app_key, kind) do update set room_id = excluded.room_id, bot_user = excluded.bot_user`,
-      [roomId, companyId, app, bot],
-    );
+    await tx(this.platform.db, async (c) => {
+      await c.query(`update neos.rooms set status = 'retired' where company_id = $1 and app_key = $2 and kind = 'app' and status = 'active' and room_id <> $3`, [companyId, app, roomId]);
+      await c.query(
+        `insert into neos.rooms (room_id, company_id, app_key, bot_user, status) values ($1,$2,$3,$4,'active')
+         on conflict (room_id) do update set status = 'active', bot_user = excluded.bot_user`,
+        [roomId, companyId, app, bot],
+      );
+    });
+    await this.transport.prepare?.(roomId, bot);
     return bot;
   }
 
@@ -114,7 +121,7 @@ export class ChatBridge {
     );
     if (!fresh.rowCount) return 'duplicate';
 
-    const room = (await this.platform.db.query<{ company_id: string; app_key: string }>('select company_id, app_key from neos.rooms where room_id = $1', [ev.room_id])).rows[0];
+    const room = (await this.platform.db.query<{ company_id: string; app_key: string }>("select company_id, app_key from neos.rooms where room_id = $1 and status = 'active'", [ev.room_id])).rows[0];
     if (!room) {
       await this.audit(ev, 'unknown_room');
       return 'unknown_room';

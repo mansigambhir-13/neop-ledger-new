@@ -36,3 +36,13 @@ export async function loadAgentDir(dir: string): Promise<{ prompt: PromptFillins
   }
   return { prompt, skills };
 }
+
+/**
+ * An app's screens (WP §13 blocks/): the JSON files its manifest lists, keyed by file name
+ * without `.json`. They are data only; the platform validates them at registration.
+ */
+export async function loadBlocks(root: string, files: string[]): Promise<Record<string, unknown>> {
+  const out: Record<string, unknown> = {};
+  for (const f of files) out[path.basename(f).replace(/\.json$/, '')] = JSON.parse(await readFile(path.join(root, f), 'utf8'));
+  return out;
+}

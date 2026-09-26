@@ -40,6 +40,39 @@ export async function startPlatform(
     const serverName = 'matrix' in opts.chat ? opts.chat.matrix.serverName : opts.chat.serverName;
     bridge = new ChatBridge(platform, transport, { serverName, sendEveryMs: opts.bridgeSendEveryMs, log: opts.log ? (m, e) => opts.log!(m, { e: String(e) }) : undefined });
     if ('matrix' in opts.chat) app.route('/', matrixAppservice(bridge, opts.chat.matrix));
+    // Admins bind an app's room for their company and link people's chat identities (Phase 3).
+    const chatBridge = bridge;
+    const admin = async (c: any) => {
+      const u = await platform.authUser(c.req.header('authorization'));
+      if (!u) return { error: c.json({ error: { code: 'unauthenticated', message: 'sign in required' } }, 401) };
+      if (u.role !== 'admin') return { error: c.json({ error: { code: 'denied', message: 'admins only' } }, 403) };
+      return { u };
+    };
+    app.post('/api/chat/rooms', async (c) => {
+      const a = await admin(c);
+      if (a.error) return a.error;
+      const b = await c.req.json().catch(() => ({}));
+      if (typeof b.app !== 'string' || typeof b.room_id !== 'string' || !/^![^:]+:.+$/.test(b.room_id)) return c.json({ error: { code: 'bad_request', message: 'app and a room id like !abc:server' } }, 400);
+      try {
+        await platform.assertInstalled(b.app, a.u!.company_id);
+        const bot = await chatBridge.createAppRoom(a.u!.company_id, b.app, b.room_id);
+        await platform.gateway.audit({ company_id: a.u!.company_id, actor: `user:${a.u!.id}`, app_key: b.app, action: 'chat.room_bound', outcome: b.room_id });
+        return c.json({ room_id: b.room_id, bot });
+      } catch (e: any) {
+        return c.json({ error: { code: e.code ?? 'chat_error', message: String(e.message ?? e) } }, e.status ?? 502);
+      }
+    });
+    app.put('/api/users/:id/chat', async (c) => {
+      const a = await admin(c);
+      if (a.error) return a.error;
+      const b = await c.req.json().catch(() => ({}));
+      if (typeof b.matrix_user_id !== 'string' || !/^@[^:]+:.+$/.test(b.matrix_user_id)) return c.json({ error: { code: 'bad_request', message: 'a chat id like @priya:server' } }, 400);
+      const same = await platform.db.query('select 1 from neos.users where id = $1 and company_id = $2', [c.req.param('id'), a.u!.company_id]);
+      if (!same.rowCount) return c.json({ error: { code: 'not_found', message: 'no such person in your company' } }, 404);
+      await chatBridge.linkUser(c.req.param('id'), b.matrix_user_id);
+      await platform.gateway.audit({ company_id: a.u!.company_id, actor: `user:${a.u!.id}`, action: 'chat.user_linked', outcome: b.matrix_user_id });
+      return c.json({ ok: true });
+    });
   }
   if (opts.llm) {
     app.route('/llm', llmProxyApp({ db: platform.db, jwks: () => platform.gateway.jwks(), upstream: opts.llm.upstream, prices: opts.llm.prices ?? pricesFromEnv(), log: opts.log ? (m, e) => opts.log!(m, { e: String(e) }) : undefined }));
@@ -64,3 +97,4 @@ export async function startPlatform(
     },
   };
 }
+export { startWeb, webApp, type WebOptions } from './web/server.ts';

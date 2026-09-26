@@ -1,0 +1,44 @@
+{
+  "block": "statement",
+  "title": "Profit & Loss · {{month_label}}",
+  "source": {
+    "ability": "ledger.report.pnl",
+    "args": {
+      "from": "{{month_from}}",
+      "to": "{{month_to}}"
+    }
+  },
+  "sections": [
+    {
+      "label": "Income",
+      "rows": "/income",
+      "label_template": "{{code}} {{name}}",
+      "amount": "/amount_minor"
+    },
+    {
+      "label": "Expenses",
+      "rows": "/expenses",
+      "label_template": "{{code}} {{name}}",
+      "amount": "/amount_minor"
+    }
+  ],
+  "totals": [
+    {
+      "label": "Total income",
+      "path": "/totals/income_minor"
+    },
+    {
+      "label": "Total expenses",
+      "path": "/totals/expenses_minor"
+    },
+    {
+      "label": "Gross profit",
+      "path": "/totals/gross_profit_minor"
+    },
+    {
+      "label": "Net profit",
+      "path": "/totals/net_profit_minor",
+      "strong": true
+    }
+  ]
+}

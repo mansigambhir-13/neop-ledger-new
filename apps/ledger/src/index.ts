@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Manifest } from '@neop/contracts';
-import { loadAgentDir, type AppDefinition } from '@neop/template';
+import { loadAgentDir, loadBlocks, type AppDefinition } from '@neop/template';
 import * as reads from './abilities/reads.ts';
 import { closePackEmail, journalPost } from './abilities/writes.ts';
 import * as books from './abilities/books.ts';
@@ -18,6 +18,7 @@ export async function ledgerApp(): Promise<AppDefinition> {
     migrationsDir: path.join(LEDGER_ROOT, 'migrations'),
     prompt,
     skills,
+    blocks: await loadBlocks(LEDGER_ROOT, manifest.blocks ?? []),
     abilities: {
       'ledger.report.pnl': reads.pnl,
       'ledger.report.balance_sheet': reads.balanceSheet,
@@ -36,6 +37,8 @@ export async function ledgerApp(): Promise<AppDefinition> {
       'ledger.bank.unreconciled': books.bankUnreconciled,
       'ledger.periods.status': books.periodsStatus,
       'ledger.coding_rules.list': books.codingRulesList,
+      'ledger.home.summary': books.homeSummary,
+      'ledger.close.checklist': books.closeChecklist,
       'ledger.invoice.create': books.invoiceCreate,
       'ledger.bill.record': books.billRecord,
       'ledger.payment.record': books.paymentRecord,

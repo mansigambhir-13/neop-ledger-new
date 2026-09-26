@@ -1,0 +1,35 @@
+{
+  "block": "table",
+  "title": "Trial Balance · as of {{month_to}}",
+  "source": {
+    "ability": "ledger.report.trial_balance",
+    "args": {
+      "as_of": "{{month_to}}"
+    }
+  },
+  "rows": "/rows",
+  "summary": "Debits {{total_debit_minor|money}} · credits {{total_credit_minor|money}} · {{#balanced}}balances{{/balanced}}{{^balanced}}does NOT balance{{/balanced}}",
+  "columns": [
+    {
+      "label": "Code",
+      "path": "/code"
+    },
+    {
+      "label": "Account",
+      "path": "/name",
+      "strong": true
+    },
+    {
+      "label": "Debit",
+      "path": "/debit_minor",
+      "format": "money_minor_exact",
+      "align": "right"
+    },
+    {
+      "label": "Credit",
+      "path": "/credit_minor",
+      "format": "money_minor_exact",
+      "align": "right"
+    }
+  ]
+}

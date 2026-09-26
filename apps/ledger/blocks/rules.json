@@ -1,0 +1,53 @@
+{
+  "block": "page",
+  "title": "Coding rules",
+  "description": "Teach Ledger how to code recurring bank lines. Tried in order; anything ambiguous still comes to you.",
+  "nav": {
+    "label": "Coding rules",
+    "icon": "rules",
+    "order": 10
+  },
+  "actions": [
+    {
+      "label": "New rule",
+      "style": "primary",
+      "form": "form.rule"
+    }
+  ],
+  "children": [
+    {
+      "block": "table",
+      "source": {
+        "ability": "ledger.coding_rules.list"
+      },
+      "rows": "/rules",
+      "empty_text": "No rules yet.",
+      "columns": [
+        {
+          "label": "When a bank line contains",
+          "path": "/pattern",
+          "strong": true
+        },
+        {
+          "label": "Code it to",
+          "template": "{{row.account_code}} {{row.account_name}}"
+        },
+        {
+          "label": "Direction",
+          "path": "/direction",
+          "pill": {
+            "in": "green",
+            "out": "violet",
+            "any": "gray"
+          }
+        },
+        {
+          "label": "Matched",
+          "path": "/matched",
+          "format": "number",
+          "align": "right"
+        }
+      ]
+    }
+  ]
+}

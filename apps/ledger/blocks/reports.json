@@ -1,0 +1,63 @@
+{
+  "block": "page",
+  "title": "Reports",
+  "description": "Statements built from your live books for {{month_label}}. Open any of them, export it, or have Ledger email the close pack.",
+  "nav": {
+    "label": "Reports",
+    "icon": "chart",
+    "order": 7
+  },
+  "params": [
+    "month"
+  ],
+  "actions": [
+    {
+      "label": "Email close pack",
+      "style": "primary",
+      "form": "form.close_pack"
+    }
+  ],
+  "children": [
+    {
+      "block": "tiles",
+      "items": [
+        {
+          "title": "Profit & Loss",
+          "description": "Revenue − expenses for the month",
+          "icon": "chart",
+          "open": "report.pnl"
+        },
+        {
+          "title": "Balance Sheet",
+          "description": "Assets, liabilities & equity",
+          "icon": "table",
+          "open": "report.balance_sheet"
+        },
+        {
+          "title": "Cash Flow",
+          "description": "Where cash moved this month",
+          "icon": "wallet",
+          "open": "report.cash_flow"
+        },
+        {
+          "title": "Trial Balance",
+          "description": "Every account, debit & credit",
+          "icon": "list",
+          "open": "report.trial_balance"
+        },
+        {
+          "title": "Receivables aging",
+          "description": "What customers owe, by age",
+          "icon": "clock",
+          "open": "report.aging_ar"
+        },
+        {
+          "title": "Payables aging",
+          "description": "What you owe, by age",
+          "icon": "clock",
+          "open": "report.aging_ap"
+        }
+      ]
+    }
+  ]
+}

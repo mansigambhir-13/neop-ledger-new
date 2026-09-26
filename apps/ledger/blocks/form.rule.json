@@ -1,0 +1,48 @@
+{
+  "block": "form",
+  "title": "New coding rule",
+  "fields": [
+    {
+      "name": "pattern",
+      "label": "When the bank line description contains",
+      "type": "text",
+      "required": true
+    },
+    {
+      "name": "account",
+      "label": "Code it to",
+      "type": "select",
+      "required": true,
+      "options_source": {
+        "source": {
+          "ability": "ledger.accounts.list"
+        },
+        "rows": "/accounts",
+        "value": "{{code}}",
+        "label": "{{code}} {{name}}"
+      }
+    },
+    {
+      "name": "direction",
+      "label": "For",
+      "type": "select",
+      "options": [
+        {
+          "value": "money out",
+          "label": "money out"
+        },
+        {
+          "value": "money in",
+          "label": "money in"
+        },
+        {
+          "value": "money in or out",
+          "label": "either"
+        }
+      ],
+      "default": "money out"
+    }
+  ],
+  "submit_label": "Ask Ledger",
+  "ask": "Add a coding rule: bank lines whose description contains \"{{pattern}}\" ({{direction}}) go to account {{account}}."
+}

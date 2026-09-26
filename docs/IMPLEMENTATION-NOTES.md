@@ -71,6 +71,15 @@ Each item is small; flag any you disagree with.
 37. **Governance surfaces:** list/create/withdraw standing yeses (admin-only withdraw, audited; money needs a cap; expiry ≤ 1 year), who may ask Ledger (ACL list), the audit trail (paged, filtered, named), the registry catalogue (offers, requires, signature, pins), switchboard history, assistant spend against caps, and a job's full record (approvals with who and fingerprint seen, proof, cost, standing-yes uses). A reconciled UNKNOWN now updates the desk's proof.
 38. **LLM proxy speaks to OpenRouter too:** `NEOP_LLM_UPSTREAM_AUTH=bearer` and `NEOP_LLM_UPSTREAM_MODEL_PREFIX=anthropic/`; pricing and caps stay on the agent-facing model id.
 
+39. **Screens are blocks; the desk is the platform's.** Blocks are validated at registration (reads only, effects only as asks, no markup) and drawn by one renderer in the platform-owned desk, which is multi-app. Ledger ships no UI code. (`contracts/src/blocks.ts`, `platform/src/web/`.)
+40. **Bookkeeping logic stays in the app.** The home figures and the close checklist are Ledger reads (`ledger.home.summary`, `ledger.close.checklist`), not screen code.
+41. **Skills are switchboard lines** (`skill:<key>`, on/off), dropped at spawn when off or when a tool they need is off.
+42. **Uninstall disables a package and keeps its tables**; the platform tells the app at once (`switchboard.changed` also drops the package cache).
+43. **PgBouncer in transaction mode** for query pools; LISTEN and the execution lock use a direct connection (`NEOP_DIRECT_DB_URL`); statement/lock/idle timeouts are role defaults set by the migrator.
+44. **Listeners bind per network.** L3 only on the l3 network (`ledger-l3`), the gate only on the agent network (`ledger-gate`), the agent only on its backend's network (`ledger-agent-rpc`). Register apps by the l3 alias. A runtime probe checks every row.
+45. **Rooms can be re-bound** without losing history (old room retired, migration 010); admins bind rooms and link chat identities over the API; the bot registers in the appservice namespace and joins before it speaks.
+46. **Reports always cite sources.** If the assistant does not list them, `job.finish` fills them from the reads the job made (each read step records its basis).
+
 ## Stand-ins (pilot only)
 - **NeuralChat** — `pickApp()` matches the ask against manifest words. The real NeuralChat replaces it.
 - **Identity** — dev bearer tokens in `neos.users`. Real sign-in replaces it.

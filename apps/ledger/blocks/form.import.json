@@ -1,0 +1,34 @@
+{
+  "block": "form",
+  "title": "Import bank statement",
+  "description": "Paste CSV rows as date,description,amount (money in positive, out negative). Up to 200 lines.",
+  "fields": [
+    {
+      "name": "bank",
+      "label": "Bank account",
+      "type": "select",
+      "required": true,
+      "options_source": {
+        "source": {
+          "ability": "ledger.accounts.list",
+          "args": {
+            "type": "asset"
+          }
+        },
+        "rows": "/accounts",
+        "value": "{{code}}",
+        "label": "{{code}} {{name}}"
+      },
+      "default": "1010"
+    },
+    {
+      "name": "rows",
+      "label": "Statement lines",
+      "type": "textarea",
+      "required": true,
+      "placeholder": "2026-09-30,NEFT CR SHARMA RETAIL,210000.00"
+    }
+  ],
+  "submit_label": "Ask Ledger",
+  "ask": "Import these bank statement lines into bank account {{bank}} (INR). Each is date, description, amount in rupees:\n{{rows}}"
+}

@@ -82,7 +82,7 @@ const backend = await startBackend(
   },
   { l3Port: BASE + 1, gatePort: BASE + 2 },
 );
-await p.registerApp({ key: 'ledger', l3_url: `http://127.0.0.1:${backend.ports.l3}`, manifest, service_secret: serviceSecret });
+await p.registerApp({ key: 'ledger', l3_url: `http://127.0.0.1:${backend.ports.l3}`, manifest, service_secret: serviceSecret, blocks: app.blocks });
 
 // Demo company (idempotent).
 let co = (await p.db.query<{ id: string }>("select id from neos.companies where name = 'Acme Traders'")).rows[0];

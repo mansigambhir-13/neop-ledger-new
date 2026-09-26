@@ -1,7 +1,7 @@
 // honesty.test · nulls are null, empty is empty, generatedAt present, and the
 // books are internally consistent.
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { bootPilot, type Pilot } from './harness.ts';
+import { bootPilot, call, finish, type Pilot } from './harness.ts';
 
 let P: Pilot;
 beforeAll(async () => {
@@ -56,5 +56,22 @@ describe('honesty', () => {
     expect(r.items.map((i: any) => i.number).sort()).toEqual(['INV-0002', 'INV-0003', 'INV-0004']);
     const sum = Object.values(r.buckets as Record<string, number>).reduce((s, x) => s + x, 0);
     expect(sum).toBe(r.total_outstanding_minor);
+  });
+});
+
+describe('honesty · every report says where its facts came from', () => {
+  it('when the assistant forgets to list sources, the book fills them from the reads the job made', async () => {
+    P.setBrain((v) => (v.calls === 0 ? call('ledger.report.pnl', { from: '2026-08-01', to: '2026-08-31' }) : finish('August net loss was ₹67,590.')));
+    const t = await P.ask('What was our net profit in August 2026?');
+    await P.waitFor(async () => (await P.task(t.task_id)).task.status === 'COMPLETED', 'completed');
+    const { task } = await P.task(t.task_id);
+    expect(task.result.sources).toEqual(['ledger.report.pnl: journal entries dated 2026-08-01..2026-08-31']);
+  });
+
+  it('sources the assistant lists are kept as given', async () => {
+    P.setBrain((v) => (v.calls === 0 ? call('ledger.report.pnl', { from: '2026-08-01', to: '2026-08-31' }) : finish('ok', 'done', { sources: ['P&L for August 2026'] })));
+    const t = await P.ask('Net profit August?');
+    await P.waitFor(async () => (await P.task(t.task_id)).task.status === 'COMPLETED', 'completed');
+    expect((await P.task(t.task_id)).task.result.sources).toEqual(['P&L for August 2026']);
   });
 });

@@ -1811,6 +1811,187 @@
       "version": "1.0.0"
     },
     {
+      "key": "ledger.home.summary",
+      "title": "Books at a glance",
+      "kind": "read",
+      "floor": "on",
+      "version": "1.0.0",
+      "description": "Cash on hand, bank lines still to match, overdue customer invoices and bills due within 7 days, as of a date.",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "as_of": {
+            "type": "string",
+            "format": "date"
+          }
+        }
+      },
+      "output": {
+        "type": "object",
+        "required": [
+          "generatedAt",
+          "currency",
+          "empty",
+          "sources",
+          "as_of",
+          "cash_minor",
+          "unmatched_lines",
+          "overdue_ar_minor",
+          "ap_due_7d_minor"
+        ],
+        "properties": {
+          "generatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "empty": {
+            "type": "boolean"
+          },
+          "sources": {
+            "type": "object",
+            "required": [
+              "entries",
+              "entry_ids",
+              "basis"
+            ],
+            "properties": {
+              "entries": {
+                "type": "integer"
+              },
+              "entry_ids": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "basis": {
+                "type": "string"
+              }
+            }
+          },
+          "as_of": {
+            "type": "string"
+          },
+          "cash_minor": {
+            "type": "integer"
+          },
+          "bank_accounts": {
+            "type": "integer"
+          },
+          "unmatched_lines": {
+            "type": "integer"
+          },
+          "overdue_ar_minor": {
+            "type": "integer"
+          },
+          "overdue_ar_count": {
+            "type": "integer"
+          },
+          "ap_due_7d_minor": {
+            "type": "integer"
+          },
+          "ap_due_7d_count": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    {
+      "key": "ledger.close.checklist",
+      "title": "Month-end close checklist",
+      "kind": "read",
+      "floor": "on",
+      "version": "1.0.0",
+      "description": "What stands between a month and its close: unmatched bank lines (this month and earlier), unsent invoices, whether the trial balance and balance sheet balance, and whether the month is locked.",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "month"
+        ],
+        "properties": {
+          "month": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}$"
+          }
+        }
+      },
+      "output": {
+        "type": "object",
+        "required": [
+          "generatedAt",
+          "currency",
+          "empty",
+          "sources",
+          "month",
+          "closed",
+          "items"
+        ],
+        "properties": {
+          "generatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "empty": {
+            "type": "boolean"
+          },
+          "sources": {
+            "type": "object",
+            "required": [
+              "entries",
+              "entry_ids",
+              "basis"
+            ],
+            "properties": {
+              "entries": {
+                "type": "integer"
+              },
+              "entry_ids": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "basis": {
+                "type": "string"
+              }
+            }
+          },
+          "month": {
+            "type": "string"
+          },
+          "closed": {
+            "type": "boolean"
+          },
+          "done": {
+            "type": "integer"
+          },
+          "of": {
+            "type": "integer"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "key",
+                "title",
+                "ok",
+                "detail"
+              ]
+            }
+          }
+        }
+      }
+    },
+    {
       "key": "ledger.invoice.create",
       "title": "Raise a customer invoice",
       "kind": "write",
@@ -2628,10 +2809,36 @@
   ],
   "packages": [],
   "blocks": [
-    "blocks/home.tile.json",
+    "blocks/home.json",
     "blocks/desk.list.json",
-    "blocks/ledger.pnl.table.json",
-    "blocks/ledger.receivables.table.json",
-    "blocks/ledger.bank.table.json"
+    "blocks/overview.json",
+    "blocks/transactions.json",
+    "blocks/reconcile.json",
+    "blocks/invoices.json",
+    "blocks/bills.json",
+    "blocks/close.json",
+    "blocks/reports.json",
+    "blocks/report.pnl.json",
+    "blocks/report.balance_sheet.json",
+    "blocks/report.cash_flow.json",
+    "blocks/report.trial_balance.json",
+    "blocks/report.aging_ar.json",
+    "blocks/report.aging_ap.json",
+    "blocks/gst.json",
+    "blocks/accounts.json",
+    "blocks/account.ledger.json",
+    "blocks/rules.json",
+    "blocks/form.invoice.json",
+    "blocks/form.bill.json",
+    "blocks/form.receipt.json",
+    "blocks/form.payment.json",
+    "blocks/form.customer.json",
+    "blocks/form.vendor.json",
+    "blocks/form.account.json",
+    "blocks/form.rule.json",
+    "blocks/form.journal.json",
+    "blocks/form.import.json",
+    "blocks/form.close_pack.json",
+    "blocks/form.reopen.json"
   ]
 }

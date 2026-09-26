@@ -97,6 +97,70 @@ describe('company rules and the switchboard', () => {
   });
 });
 
+describe('skill lines on the switchboard (WP §10)', () => {
+  const skill = async (k: string) => (await admin('GET', '/api/apps/ledger/abilities')).body.skills.find((x: any) => x.key === k);
+  const systemFor = async (ask: string) => {
+    let system = '';
+    P.setBrain((v) => {
+      system = v.system;
+      return { tool: toolName('job.finish'), args: { outcome: 'done', summary: 'ok' } };
+    });
+    const t = await P.ask(ask);
+    await P.waitFor(async () => (await P.task(t.task_id)).task.status === 'COMPLETED', 'done');
+    return system;
+  };
+
+  it('lists the app’s skills with what each needs, all loading by default', async () => {
+    const { skills } = (await admin('GET', '/api/apps/ledger/abilities')).body;
+    expect(skills.map((s: any) => s.key).sort()).toEqual(['bank-reconciliation', 'corrections', 'financial-reports', 'invoicing-and-collections', 'month-end-close']);
+    expect(await skill('month-end-close')).toMatchObject({ setting: 'on', loads: true, missing: [] });
+    expect(await systemFor('Close September')).toContain('# Month-end close');
+  });
+
+  it('a skill line is on or off; off removes it from the assistant, the others stay', async () => {
+    expect((await admin('PUT', '/api/switchboards/ledger', { settings: { 'skill:month-end-close': 'ask_first' } })).status).toBe(422);
+    expect((await admin('PUT', '/api/switchboards/ledger', { settings: { 'skill:teleport': 'off' } })).status).toBe(422);
+    expect((await admin('PUT', '/api/switchboards/ledger', { settings: { 'skill:month-end-close': 'off' } })).status).toBe(200);
+    expect(await skill('month-end-close')).toMatchObject({ setting: 'off', loads: false });
+    const system = await systemFor('Close September');
+    expect(system).not.toContain('# Month-end close');
+    expect(system).toContain('# Financial reports');
+    await admin('PUT', '/api/switchboards/ledger', { settings: { 'skill:month-end-close': 'on' } });
+  });
+
+  it('switching a required tool off greys the skill out and says why', async () => {
+    await admin('PUT', '/api/switchboards/ledger', { settings: { 'ledger.period.close': 'off' } });
+    expect(await skill('month-end-close')).toMatchObject({ setting: 'on', loads: false, missing: ['ledger.period.close'] });
+    expect(await systemFor('Close September')).not.toContain('# Month-end close');
+    await admin('PUT', '/api/switchboards/ledger', { settings: { 'ledger.period.close': 'ask_first' } });
+    expect(await skill('month-end-close')).toMatchObject({ loads: true });
+  });
+});
+
+describe('package uninstall', () => {
+  it('disables the package, keeps its tables, and takes its lines off the board at once', async () => {
+    expect((await member('DELETE', '/api/registry/installs', { host_app: 'ledger', entry_key: 'nep-gst' })).status).toBe(403);
+    const r = await admin('DELETE', '/api/registry/installs', { host_app: 'ledger', entry_key: 'nep-gst' });
+    expect(r.body).toMatchObject({ status: 'disabled' });
+    const b = (await admin('GET', '/api/apps/ledger/abilities')).body;
+    expect(b.abilities.some((a: any) => a.from === 'nep-gst')).toBe(false);
+    expect(b.doors.map((d: any) => d.key)).not.toContain('gst_portal');
+    // Its tables are kept.
+    const t = await P.backend.core.runnerPool.query("select count(*)::int as n from pg_tables where schemaname = 'ledger' and tablename like 'nep_gst_%'");
+    expect(t.rows[0].n).toBeGreaterThan(0);
+    // The app stops offering it straight away (no 30 s cache).
+    expect((await P.backend.core.packages.forCompany(P.company.id)).abilities.some((a) => a.meta.key.startsWith('gst.'))).toBe(false);
+    expect((await admin('GET', '/api/audit?action=registry.uninstalled')).body.rows).toHaveLength(1);
+    expect((await admin('DELETE', '/api/registry/installs', { host_app: 'ledger', entry_key: 'nep-gst' })).status).toBe(404);
+  });
+
+  it('re-installing brings it back without re-running its migrations', async () => {
+    const r = await admin('POST', '/api/registry/installs', { host_app: 'ledger', entry_key: 'nep-gst' });
+    expect(r.body.status).toBe('active');
+    expect((await admin('GET', '/api/apps/ledger/abilities')).body.abilities.some((a: any) => a.key === 'gst.gstr3b.file')).toBe(true);
+  });
+});
+
 describe('who may ask Ledger, and the audit trail', () => {
   it('lists permission rows and installed apps (admins only)', async () => {
     const r = await admin('GET', '/api/acl?app=ledger');

@@ -1,0 +1,42 @@
+{
+  "block": "table",
+  "title": "Receivables aging · as of {{month_to}}",
+  "source": {
+    "ability": "ledger.report.aging",
+    "args": {
+      "kind": "receivable",
+      "as_of": "{{month_to}}"
+    }
+  },
+  "rows": "/items",
+  "empty_text": "Nothing outstanding.",
+  "summary": "Total {{total_outstanding_minor|money}} · not due {{buckets.current|money}} · 1–30 {{buckets.d1_30|money}} · 31–60 {{buckets.d31_60|money}} · 61–90 {{buckets.d61_90|money}} · 90+ {{buckets.d90_plus|money}}",
+  "columns": [
+    {
+      "label": "Number",
+      "path": "/number"
+    },
+    {
+      "label": "Party",
+      "path": "/party",
+      "strong": true
+    },
+    {
+      "label": "Due",
+      "path": "/due_date",
+      "format": "date"
+    },
+    {
+      "label": "Days late",
+      "path": "/days_past_due",
+      "format": "days",
+      "align": "right"
+    },
+    {
+      "label": "Outstanding",
+      "path": "/outstanding_minor",
+      "format": "money_minor_exact",
+      "align": "right"
+    }
+  ]
+}

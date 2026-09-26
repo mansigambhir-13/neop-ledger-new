@@ -1,0 +1,49 @@
+{
+  "block": "statement",
+  "title": "Balance Sheet · as of {{month_to}}",
+  "source": {
+    "ability": "ledger.report.balance_sheet",
+    "args": {
+      "as_of": "{{month_to}}"
+    }
+  },
+  "sections": [
+    {
+      "label": "Assets",
+      "rows": "/assets",
+      "label_template": "{{code}} {{name}}",
+      "amount": "/amount_minor"
+    },
+    {
+      "label": "Liabilities",
+      "rows": "/liabilities",
+      "label_template": "{{code}} {{name}}",
+      "amount": "/amount_minor"
+    },
+    {
+      "label": "Equity",
+      "rows": "/equity",
+      "label_template": "{{code}} {{name}}",
+      "amount": "/amount_minor"
+    }
+  ],
+  "totals": [
+    {
+      "label": "Total assets",
+      "path": "/totals/assets_minor",
+      "strong": true
+    },
+    {
+      "label": "Total liabilities",
+      "path": "/totals/liabilities_minor"
+    },
+    {
+      "label": "Equity",
+      "path": "/totals/equity_minor"
+    },
+    {
+      "label": "Earnings to date",
+      "path": "/totals/earnings_to_date_minor"
+    }
+  ]
+}

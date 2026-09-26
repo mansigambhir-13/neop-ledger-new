@@ -1,0 +1,25 @@
+{
+  "block": "form",
+  "title": "Add customer",
+  "fields": [
+    {
+      "name": "name",
+      "label": "Name",
+      "type": "text",
+      "required": true
+    },
+    {
+      "name": "email",
+      "label": "Email",
+      "type": "email"
+    },
+    {
+      "name": "gstin",
+      "label": "GSTIN",
+      "type": "text",
+      "pattern": "[0-9A-Z]{15}"
+    }
+  ],
+  "submit_label": "Ask Ledger",
+  "ask": "Add customer \"{{name}}\"{{#email}} with email {{email}}{{/email}}{{#gstin}} and GSTIN {{gstin}}{{/gstin}}."
+}

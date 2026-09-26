@@ -33,18 +33,20 @@ This whole sequence has been run end to end in Docker Compose. Every image sets 
         -e NEOP_SERVICE_SECRET_FILE=/run/secrets/ledger_service_secret \
         -v $PWD/deploy/secrets/ledger_service_secret:/run/secrets/ledger_service_secret:ro \
         platform tsx scripts/ops.ts"
-   $OPS register-app ledger http://ledger-backend:4101
+   $OPS register-app ledger http://ledger-l3:4101   # L3 is reachable only on the l3 network, by this alias
    $OPS create-company "Acme Traders" Asia/Kolkata          # → {"id": "<company_id>", ...}
    $OPS create-user <company_id> "Priya" priya@acme.in admin # → the admin's desk token, shown once
    $OPS install <company_id> ledger
    ```
    Desk tokens are stored as a SHA-256 hash only; a lost token is replaced, not recovered.
-5. **Console:** open `http://127.0.0.1:4780` (put TLS in front and set `NEOS_WEB_SECURE_COOKIES=1` before exposing it). People sign in with their desk token; it lives in an httpOnly cookie and the page never sees it.
+5. **Desk:** open `http://127.0.0.1:4780` — the platform-owned NEOS desk; each app's screens come from its blocks (put TLS in front and set `NEOS_WEB_SECURE_COOKIES=1` before exposing it). People sign in with their desk token; it lives in an httpOnly cookie and the page never sees it.
 6. **Smoke check:**
    - `GET /api/me` with the admin token.
    - `POST /api/apps/ledger/read/ledger.report.trial_balance {"as_of":"<today>"}`.
    - Ask something from the desk. The job should reach the agent, the LLM proxy and the provider.
-7. **Chat (optional):** configure Synapse with `deploy/appservice.yaml`, start `--profile chat`, and set `MATRIX_HOMESERVER_URL`, `MATRIX_SERVER_NAME`, `MATRIX_HS_TOKEN[_FILE]` and `MATRIX_AS_TOKEN[_FILE]` on the platform.
+7. **Network check:** `scripts/netcheck.sh deploy/compose.pilot.yml` runs a probe inside every container and fails if any row of the network policy is broken. Run it after every deploy.
+8. **Chat (optional):** `scripts/matrix-setup.sh deploy/compose.pilot.yml` once, then start with `-f deploy/compose.chat.yml`. An admin binds the app's room (`POST /api/chat/rooms {app, room_id}` — invite the app's user `@neop_<app>_<company>` first) and links people (`PUT /api/users/<id>/chat {matrix_user_id}`).
+9. **Acceptance:** `NEOS_TOKEN_FILE=<an admin's token file> pnpm exec tsx scripts/pilot-acceptance.ts` sends 20 real requests and checks the plan's five acceptance criteria from the platform's records.
 
 ## Configure a company's providers (admin, write-only)
 - **Email (Resend):**
@@ -77,7 +79,7 @@ Every provider must accept an `Idempotency-Key` and let us look the effect up af
 | --- | --- | --- |
 | `NeopExecutionUnknown` | An approved action may or may not have happened (provider outage, lost answer) | Nothing at first. Reconciliation reads back every 30 s. Within 10 min (`NEOP_DOOR_RECOVERY_MS`) it can complete the send exactly once; after that it closes it as not sent and the person is told. |
 | `NeopDeadLetters` | The platform could not apply an app event | Fix the cause, then `POST /api/dead-letters/ledger/<id>/replay`. Nothing is lost while it is parked. |
-| `NeopAckSlow` | New jobs are acknowledged slowly | Check Postgres (pools are 5 per app role); check `neop_gateway_latency_seconds`. |
+| `NeopAckSlow` | New jobs are acknowledged slowly | Check PgBouncer (`SHOW POOLS`) and Postgres; check `neop_gateway_latency_seconds`. |
 | `NeopApprovalsPiling` | People are not answering cards | Product issue, not an outage. |
 | Card stuck in RESOLVED | The app was unreachable when executing | The approvals worker retries with backoff. An execution whose process died is resumed as soon as its connection closes. |
 | A job keeps failing | The assistant cannot finish | Read the job's steps (activity feed). After 5 interrupted sessions it fails honestly and asks a person to look. |

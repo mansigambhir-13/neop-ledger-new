@@ -1,0 +1,49 @@
+{
+  "block": "stats",
+  "title": "Books at a glance",
+  "source": {
+    "ability": "ledger.home.summary"
+  },
+  "items": [
+    {
+      "title": "Cash on hand",
+      "value": {
+        "path": "/cash_minor",
+        "format": "money_minor"
+      },
+      "sub": "{{bank_accounts}} bank account(s)",
+      "tone": "green",
+      "link": "accounts"
+    },
+    {
+      "title": "Bank lines to match",
+      "value": {
+        "path": "/unmatched_lines",
+        "format": "number"
+      },
+      "sub": "Imported, not yet in the books",
+      "tone": "amber",
+      "link": "reconcile"
+    },
+    {
+      "title": "Overdue from customers",
+      "value": {
+        "path": "/overdue_ar_minor",
+        "format": "money_minor"
+      },
+      "sub": "{{overdue_ar_count}} invoice(s) past due",
+      "tone": "red",
+      "link": "invoices"
+    },
+    {
+      "title": "Bills due in 7 days",
+      "value": {
+        "path": "/ap_due_7d_minor",
+        "format": "money_minor"
+      },
+      "sub": "{{ap_due_7d_count}} bill(s)",
+      "tone": "violet",
+      "link": "bills"
+    }
+  ]
+}

@@ -7,7 +7,7 @@ import type { ExecCtx, ReadAbility, ReadCtx, WriteAbility } from '@neop/template
 import { DoorError } from '@neop/template';
 import type { PoolClient } from '@neop/pgkit';
 import * as B from '../data/books.repo.ts';
-import { accountTotals } from '../data/ledger.repo.ts';
+import { accountTotals, openDocuments } from '../data/ledger.repo.ts';
 import { ACCT, bankLineEntry, billEntry, invoiceEntry, reverse, settlementEntry, suggest } from '../domain/bookkeeping.ts';
 import { daysBetween, natural } from '../domain/reports.ts';
 import { DEFAULT_CURRENCY } from './reads.ts';
@@ -170,6 +170,86 @@ export const codingRulesList: ReadAbility = {
     return {
       ...head(rows.length, rows.map((r) => r.id), 'coding rules, in the order they are tried'),
       rules: rows.map((r) => ({ ...r, created_at: r.created_at.toISOString() })),
+    };
+  },
+};
+
+const addDays = (d: string, n: number) => new Date(Date.parse(d + 'T00:00:00Z') + n * 86_400_000).toISOString().slice(0, 10);
+const monthEnd = (m: string) => {
+  const [y, mo] = m.split('-').map(Number) as [number, number];
+  return new Date(Date.UTC(y, mo, 0)).toISOString().slice(0, 10);
+};
+
+/** Home: the four figures a bookkeeper looks at first, each computed here (not in a screen). */
+export const homeSummary: ReadAbility = {
+  kind: 'read',
+  async run(a: { as_of?: string }, ctx: ReadCtx) {
+    const asOf = a.as_of ?? today();
+    const totals = await accountTotals(ctx.db, { from: null, to: asOf, currency: DEFAULT_CURRENCY });
+    const cashAccts = totals.filter((x) => ['bank', 'cash'].includes(x.subtype));
+    const unmatched = (await ctx.db.query<{ n: number }>(`select count(*)::int as n from ${S}.bank_transactions where status = 'unmatched'`)).rows[0]!.n;
+    const ar = await openDocuments(ctx.db, { kind: 'invoice', as_of: asOf, currency: DEFAULT_CURRENCY });
+    const ap = await openDocuments(ctx.db, { kind: 'bill', as_of: asOf, currency: DEFAULT_CURRENCY });
+    const overdue = ar.filter((d) => d.due_date < asOf && d.outstanding_minor > 0);
+    const apDue = ap.filter((d) => d.due_date <= addDays(asOf, 7) && d.outstanding_minor > 0);
+    const sum = (xs: { outstanding_minor: number }[]) => xs.reduce((t, d) => t + Number(d.outstanding_minor), 0);
+    return {
+      ...head(totals.length, [], `balances as of ${asOf}; open invoices and bills; unmatched bank lines`),
+      as_of: asOf,
+      cash_minor: cashAccts.reduce((t, x) => t + natural(x), 0),
+      bank_accounts: cashAccts.filter((x) => x.subtype === 'bank').length,
+      unmatched_lines: unmatched,
+      overdue_ar_minor: sum(overdue),
+      overdue_ar_count: overdue.length,
+      ap_due_7d_minor: sum(apDue),
+      ap_due_7d_count: apDue.length,
+    };
+  },
+};
+
+/** The month-end close checklist: what blocks closing a month, worked out from the books. */
+export const closeChecklist: ReadAbility = {
+  kind: 'read',
+  async run(a: { month: string }, ctx: ReadCtx) {
+    const m = a.month;
+    const from = `${m}-01`;
+    const to = monthEnd(m);
+    const unrec = (
+      await ctx.db.query<{ month: string; n: number }>(
+        `select to_char(date_trunc('month', txn_date), 'YYYY-MM') as month, count(*)::int as n from ${S}.bank_transactions where status = 'unmatched' and txn_date <= $1 group by 1 order by 1`,
+        [to],
+      )
+    ).rows;
+    const here = unrec.find((r) => r.month === m)?.n ?? 0;
+    const earlier = unrec.filter((r) => r.month < m);
+    const unsent = (
+      await ctx.db.query<{ number: string }>(
+        `select number from ${S}.documents where kind = 'invoice' and status = 'open' and sent_at is null and issue_date between $1 and $2 order by number`,
+        [from, to],
+      )
+    ).rows.map((r) => r.number);
+    const totals = await accountTotals(ctx.db, { from: null, to, currency: DEFAULT_CURRENCY });
+    const dr = totals.reduce((t, x) => t + x.debit_minor, 0);
+    const cr = totals.reduce((t, x) => t + x.credit_minor, 0);
+    const by = (type: string) => totals.filter((x) => x.type === type).reduce((t, x) => t + natural(x), 0);
+    const bsBalanced = by('asset') === by('liability') + by('equity') + (by('income') - by('expense'));
+    const lock = (await ctx.db.query<{ locked_at: Date; reason: string | null }>(`select locked_at, reason from ${S}.period_locks where month = $1::date`, [from])).rows[0];
+    const money = (x: number) => `₹${rupees(x)}`;
+    const items = [
+      { key: 'bank', title: 'Import and match every bank line', ok: here === 0, detail: here ? `${here} line(s) still unmatched in ${m}` : 'All matched', link: here ? 'reconcile' : null },
+      { key: 'earlier', title: 'Earlier months reconciled', ok: earlier.length === 0, detail: earlier.length ? earlier.map((r) => `${r.month}: ${r.n}`).join(', ') : 'Nothing carried over', link: earlier.length ? 'reconcile' : null },
+      { key: 'invoices', title: "Send this month's invoices", ok: unsent.length === 0, detail: unsent.length ? `Not sent: ${unsent.join(', ')}` : 'All sent', link: unsent.length ? 'money' : null },
+      { key: 'trial_balance', title: 'Trial balance balances', ok: dr === cr, detail: `Debits ${money(dr)} · credits ${money(cr)}`, link: null },
+      { key: 'balance_sheet', title: 'Balance sheet balances', ok: bsBalanced, detail: `Assets ${money(by('asset'))}`, link: null },
+      { key: 'lock', title: 'Lock the month', ok: !!lock, detail: lock ? `Closed ${lock.locked_at.toISOString().slice(0, 10)}${lock.reason ? ` · ${lock.reason}` : ''}` : 'Ledger proposes the close; a person approves it', link: null },
+    ];
+    return {
+      ...head(totals.length, [], `bank lines, invoices and all entries up to ${to}`),
+      month: m,
+      closed: !!lock,
+      done: items.filter((i) => i.ok).length,
+      of: items.length,
+      items,
     };
   },
 };

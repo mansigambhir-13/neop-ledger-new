@@ -1,0 +1,64 @@
+{
+  "block": "form",
+  "title": "Manual journal entry",
+  "description": "Debits must equal credits; Ledger checks before anyone is asked.",
+  "fields": [
+    {
+      "name": "date",
+      "label": "Date",
+      "type": "date",
+      "required": true,
+      "default": "{{today}}"
+    },
+    {
+      "name": "memo",
+      "label": "Memo",
+      "type": "text",
+      "required": true
+    }
+  ],
+  "repeat": {
+    "name": "lines",
+    "count": 4,
+    "min": 2,
+    "join": "; ",
+    "template": "{{side}} {{account}} {{amount|inr}}",
+    "fields": [
+      {
+        "name": "side",
+        "label": "Debit or credit",
+        "type": "select",
+        "options": [
+          {
+            "value": "debit",
+            "label": "Debit"
+          },
+          {
+            "value": "credit",
+            "label": "Credit"
+          }
+        ]
+      },
+      {
+        "name": "account",
+        "label": "Account",
+        "type": "select",
+        "options_source": {
+          "source": {
+            "ability": "ledger.accounts.list"
+          },
+          "rows": "/accounts",
+          "value": "{{code}}",
+          "label": "{{code}} {{name}}"
+        }
+      },
+      {
+        "name": "amount",
+        "label": "Amount (₹)",
+        "type": "money"
+      }
+    ]
+  },
+  "submit_label": "Ask Ledger",
+  "ask": "Post a journal entry dated {{date}}, memo \"{{memo}}\", in INR: {{lines}}."
+}

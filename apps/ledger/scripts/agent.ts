@@ -3,7 +3,7 @@
 // no vault, no route to the platform, no provider key.
 import { closeServer } from '@neop/pgkit';
 import { proxyModel, startAgentWorker } from '@neop/template/agent';
-import { env, log, onShutdown, requireEnv } from './env.ts';
+import { bindAddress, env, log, onShutdown, requireEnv } from './env.ts';
 
 requireEnv(['NEOP_ALLOWED_GATE']);
 const w = await startAgentWorker({
@@ -11,7 +11,7 @@ const w = await startAgentWorker({
   model: proxyModel(),
   allowedGates: [env('NEOP_ALLOWED_GATE')],
   port: Number(env('PORT', '4103')),
-  host: '0.0.0.0',
+  host: await bindAddress('HOST'),
   onEnd: (job, reason) => log('info', 'session ended', { job, reason }),
 });
 log('info', 'agent pool up', { port: w.port });

@@ -1,0 +1,108 @@
+{
+  "block": "form",
+  "title": "New invoice",
+  "fields": [
+    {
+      "name": "customer",
+      "label": "Customer",
+      "type": "select",
+      "required": true,
+      "options_source": {
+        "source": {
+          "ability": "ledger.parties.list",
+          "args": {
+            "kind": "customer"
+          }
+        },
+        "rows": "/parties",
+        "value": "{{name}}",
+        "label": "{{name}}"
+      }
+    },
+    {
+      "name": "issue",
+      "label": "Issue date",
+      "type": "date",
+      "required": true,
+      "default": "{{today}}"
+    },
+    {
+      "name": "due",
+      "label": "Due date",
+      "type": "date",
+      "required": true,
+      "default": "{{today_plus_30}}"
+    },
+    {
+      "name": "gst",
+      "label": "GST rate",
+      "type": "select",
+      "options": [
+        {
+          "value": "0",
+          "label": "0%"
+        },
+        {
+          "value": "5",
+          "label": "5%"
+        },
+        {
+          "value": "12",
+          "label": "12%"
+        },
+        {
+          "value": "18",
+          "label": "18%"
+        },
+        {
+          "value": "28",
+          "label": "28%"
+        }
+      ],
+      "default": "18"
+    },
+    {
+      "name": "send",
+      "label": "Email it to the customer once created",
+      "type": "checkbox",
+      "default": "1"
+    }
+  ],
+  "repeat": {
+    "name": "lines",
+    "count": 3,
+    "min": 1,
+    "join": "; ",
+    "template": "\"{{description}}\" {{amount|inr}} (account {{account}})",
+    "fields": [
+      {
+        "name": "description",
+        "label": "Description",
+        "type": "text"
+      },
+      {
+        "name": "amount",
+        "label": "Amount (₹, before GST)",
+        "type": "money"
+      },
+      {
+        "name": "account",
+        "label": "Account",
+        "type": "select",
+        "options_source": {
+          "source": {
+            "ability": "ledger.accounts.list",
+            "args": {
+              "type": "income"
+            }
+          },
+          "rows": "/accounts",
+          "value": "{{code}}",
+          "label": "{{code}} {{name}}"
+        }
+      }
+    ]
+  },
+  "submit_label": "Ask Ledger",
+  "ask": "Create an invoice for customer \"{{customer}}\", issued {{issue}}, due {{due}}, in INR at {{gst}}% GST, with lines: {{lines}}.{{#send}} Then email it to them.{{/send}}"
+}

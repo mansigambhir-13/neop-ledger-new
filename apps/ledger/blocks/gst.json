@@ -1,0 +1,61 @@
+{
+  "block": "page",
+  "title": "GST · {{quarter_label}}",
+  "description": "Prepared straight from your books. Filing goes through the nep-gst package and your GSP — and always asks first.",
+  "nav": {
+    "label": "GST",
+    "icon": "tax",
+    "order": 8
+  },
+  "params": [
+    "quarter"
+  ],
+  "actions": [
+    {
+      "label": "File GSTR-3B",
+      "style": "primary",
+      "ask": "Prepare the GSTR-3B for {{quarter_label}} from our books and show me the figures; then propose filing it."
+    }
+  ],
+  "children": [
+    {
+      "block": "stats",
+      "source": {
+        "ability": "ledger.report.vat_summary",
+        "args": {
+          "from": "{{quarter_from}}",
+          "to": "{{quarter_to}}"
+        }
+      },
+      "items": [
+        {
+          "title": "GST collected",
+          "value": {
+            "path": "/output_tax_minor",
+            "format": "money_minor"
+          },
+          "sub": "output tax on sales",
+          "tone": "violet"
+        },
+        {
+          "title": "Input credit",
+          "value": {
+            "path": "/input_tax_minor",
+            "format": "money_minor"
+          },
+          "sub": "GST paid on purchases",
+          "tone": "teal"
+        },
+        {
+          "title": "Net GST payable",
+          "value": {
+            "path": "/net_payable_minor",
+            "format": "money_minor"
+          },
+          "sub": "due with the return",
+          "tone": "amber"
+        }
+      ]
+    }
+  ]
+}

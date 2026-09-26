@@ -1,0 +1,109 @@
+{
+  "block": "form",
+  "title": "Add account",
+  "fields": [
+    {
+      "name": "code",
+      "label": "Code",
+      "type": "text",
+      "required": true,
+      "pattern": "[0-9]{4}"
+    },
+    {
+      "name": "name",
+      "label": "Name",
+      "type": "text",
+      "required": true
+    },
+    {
+      "name": "type",
+      "label": "Type",
+      "type": "select",
+      "required": true,
+      "options": [
+        {
+          "value": "asset",
+          "label": "asset"
+        },
+        {
+          "value": "liability",
+          "label": "liability"
+        },
+        {
+          "value": "equity",
+          "label": "equity"
+        },
+        {
+          "value": "income",
+          "label": "income"
+        },
+        {
+          "value": "expense",
+          "label": "expense"
+        }
+      ]
+    },
+    {
+      "name": "subtype",
+      "label": "Subtype",
+      "type": "select",
+      "required": true,
+      "options": [
+        {
+          "value": "bank",
+          "label": "bank"
+        },
+        {
+          "value": "cash",
+          "label": "cash"
+        },
+        {
+          "value": "receivable",
+          "label": "receivable"
+        },
+        {
+          "value": "inventory",
+          "label": "inventory"
+        },
+        {
+          "value": "fixed_asset",
+          "label": "fixed_asset"
+        },
+        {
+          "value": "payable",
+          "label": "payable"
+        },
+        {
+          "value": "loan",
+          "label": "loan"
+        },
+        {
+          "value": "equity",
+          "label": "equity"
+        },
+        {
+          "value": "revenue",
+          "label": "revenue"
+        },
+        {
+          "value": "other_income",
+          "label": "other_income"
+        },
+        {
+          "value": "cogs",
+          "label": "cogs"
+        },
+        {
+          "value": "opex",
+          "label": "opex"
+        },
+        {
+          "value": "other_expense",
+          "label": "other_expense"
+        }
+      ]
+    }
+  ],
+  "submit_label": "Ask Ledger",
+  "ask": "Create account {{code}} \"{{name}}\" of type {{type}}, subtype {{subtype}}."
+}

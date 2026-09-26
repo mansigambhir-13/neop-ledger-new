@@ -1,0 +1,39 @@
+{
+  "block": "kv",
+  "title": "Cash Flow · {{month_label}}",
+  "source": {
+    "ability": "ledger.report.cash_flow",
+    "args": {
+      "from": "{{month_from}}",
+      "to": "{{month_to}}"
+    }
+  },
+  "items": [
+    {
+      "label": "Opening cash",
+      "path": "/opening_cash_minor",
+      "format": "money_minor_exact"
+    },
+    {
+      "label": "Operating activities",
+      "path": "/operating_minor",
+      "format": "signed_money_minor"
+    },
+    {
+      "label": "Investing activities",
+      "path": "/investing_minor",
+      "format": "signed_money_minor"
+    },
+    {
+      "label": "Financing activities",
+      "path": "/financing_minor",
+      "format": "signed_money_minor"
+    },
+    {
+      "label": "Closing cash",
+      "path": "/closing_cash_minor",
+      "format": "money_minor_exact",
+      "strong": true
+    }
+  ]
+}

@@ -1,0 +1,160 @@
+{
+  "block": "page",
+  "title": "Bills · money out",
+  "description": "Pay what you owe. Every bill and payment is proposed to you first.",
+  "nav": {
+    "label": "Bills",
+    "icon": "wallet",
+    "order": 5
+  },
+  "actions": [
+    {
+      "label": "Record a bill",
+      "style": "primary",
+      "form": "form.bill"
+    },
+    {
+      "label": "Add vendor",
+      "form": "form.vendor"
+    }
+  ],
+  "children": [
+    {
+      "block": "table",
+      "title": "Open bills",
+      "source": {
+        "ability": "ledger.documents.list",
+        "args": {
+          "kind": "bill",
+          "status": "open"
+        }
+      },
+      "rows": "/documents",
+      "empty_text": "Nothing outstanding.",
+      "columns": [
+        {
+          "label": "Vendor",
+          "path": "/party",
+          "strong": true
+        },
+        {
+          "label": "Number",
+          "path": "/number"
+        },
+        {
+          "label": "Issued",
+          "path": "/issue_date",
+          "format": "date",
+          "hide_small": true
+        },
+        {
+          "label": "Due",
+          "path": "/due_date",
+          "format": "date"
+        },
+        {
+          "label": "Total",
+          "path": "/total_minor",
+          "format": "money_minor_exact",
+          "align": "right"
+        },
+        {
+          "label": "Outstanding",
+          "path": "/outstanding_minor",
+          "format": "money_minor_exact",
+          "align": "right",
+          "strong": true
+        },
+        {
+          "label": "Days late",
+          "path": "/overdue_days",
+          "format": "days",
+          "align": "right"
+        }
+      ],
+      "row_actions": [
+        {
+          "label": "Record payment",
+          "style": "primary",
+          "form": "form.payment",
+          "when": "/outstanding_minor"
+        }
+      ]
+    },
+    {
+      "block": "table",
+      "title": "Paid",
+      "source": {
+        "ability": "ledger.documents.list",
+        "args": {
+          "kind": "bill",
+          "status": "paid"
+        }
+      },
+      "rows": "/documents",
+      "empty_text": "None paid yet.",
+      "columns": [
+        {
+          "label": "Vendor",
+          "path": "/party"
+        },
+        {
+          "label": "Number",
+          "path": "/number"
+        },
+        {
+          "label": "Due",
+          "path": "/due_date",
+          "format": "date"
+        },
+        {
+          "label": "Total",
+          "path": "/total_minor",
+          "format": "money_minor_exact",
+          "align": "right"
+        }
+      ]
+    },
+    {
+      "block": "table",
+      "title": "Vendors",
+      "source": {
+        "ability": "ledger.parties.list",
+        "args": {
+          "kind": "vendor"
+        }
+      },
+      "rows": "/parties",
+      "empty_text": "None yet.",
+      "columns": [
+        {
+          "label": "Name",
+          "path": "/name",
+          "strong": true
+        },
+        {
+          "label": "Email",
+          "path": "/email",
+          "hide_small": true
+        },
+        {
+          "label": "GSTIN",
+          "path": "/gstin",
+          "hide_small": true
+        },
+        {
+          "label": "Open",
+          "path": "/open_documents",
+          "format": "number",
+          "align": "right"
+        },
+        {
+          "label": "Outstanding",
+          "path": "/outstanding_minor",
+          "format": "money_minor_exact",
+          "align": "right"
+        }
+      ]
+    }
+  ]
+}

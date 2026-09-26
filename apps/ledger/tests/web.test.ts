@@ -4,7 +4,7 @@ import { serve } from '@hono/node-server';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { closeServer } from '@neop/pgkit';
 import { toolName } from '@neop/testkit';
-import { webApp } from '../web/server.ts';
+import { webApp } from '@neop/platform';
 import { bootPilot, type Pilot } from './harness.ts';
 
 let P: Pilot;
@@ -77,9 +77,17 @@ describe('what it forwards', () => {
     const rules = await read('ledger.coding_rules.list');
     expect(rules.rules.map((r: any) => r.pattern).sort()).toEqual(['AWS', 'CHARGES']);
     const { abilities } = await (await call('GET', '/api/apps/ledger/abilities')).json();
-    expect(abilities).toHaveLength(30);
+    expect(abilities).toHaveLength(32);
     const post = abilities.find((a: any) => a.key === 'ledger.journal.post');
     expect(post).toMatchObject({ kind: 'write', floor: 'ask_first', setting: 'ask_first' });
+  });
+
+  it('serves each app’s blocks for the one renderer, and the desk script carries no app code', async () => {
+    const b = await (await call('GET', '/api/apps/ledger/blocks')).json();
+    expect(b.name).toBe('Ledger');
+    expect(Object.keys(b.blocks)).toEqual(expect.arrayContaining(['home', 'overview', 'invoices', 'form.invoice', 'report.pnl']));
+    const js = await (await fetch(`${base}/app.js`)).text();
+    expect(js).not.toMatch(/ledger\./); // no Ledger ability keys: the desk is app-agnostic
   });
 
   it('the team list is admin-only and never carries tokens', async () => {

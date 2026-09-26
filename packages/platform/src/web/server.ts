@@ -13,7 +13,7 @@ const PUBLIC = path.join(path.dirname(fileURLToPath(import.meta.url)), 'public')
 const COOKIE = 'neos_desk';
 const TYPES: Record<string, string> = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml' };
 // Only the person-facing desk API; /internal and /.well-known are never forwarded.
-const FORWARD = /^\/api\/(me|users|ask|registry|registry\/catalog|registry\/installs|vault|desk|tasks|dead-letters|grants|acl|audit)$|^\/api\/(apps|conversations|desk|tasks|switchboards|vault|dead-letters|grants|usage)\//;
+const FORWARD = /^\/api\/(me|users|ask|registry|registry\/catalog|registry\/installs|vault|desk|tasks|dead-letters|grants|acl|audit|chat\/rooms)$|^\/api\/(apps|conversations|desk|tasks|switchboards|vault|dead-letters|grants|usage|users)\//;
 
 export interface WebOptions {
   platformUrl: string;
@@ -123,4 +123,14 @@ export function webApp(opts: WebOptions): Hono {
   });
 
   return app;
+}
+
+/** Run the desk: one HTTP server; returns a stop function. */
+export async function startWeb(opts: WebOptions & { port: number; host?: string }): Promise<{ port: number; stop: () => Promise<void> }> {
+  const { serve } = await import('@hono/node-server');
+  const { closeServer } = await import('@neop/pgkit');
+  const server = serve({ fetch: webApp(opts).fetch, port: opts.port, hostname: opts.host ?? '0.0.0.0' });
+  await new Promise((r) => server.once('listening', r));
+  const port = (server.address() as { port: number }).port;
+  return { port, stop: () => closeServer(server as any) };
 }

@@ -1,0 +1,99 @@
+{
+  "block": "page",
+  "title": "Reconcile",
+  "description": "Match every bank line to the books. Ledger suggests; anything that records money is proposed to you first.",
+  "nav": {
+    "label": "Reconcile",
+    "icon": "swap",
+    "order": 3
+  },
+  "actions": [
+    {
+      "label": "Import statement",
+      "form": "form.import"
+    },
+    {
+      "label": "Reconcile all",
+      "style": "primary",
+      "ask": "Reconcile all unmatched bank lines: match receipts and payments to their invoices and bills, code the rest with our coding rules, and tell me which lines you could not place."
+    }
+  ],
+  "children": [
+    {
+      "block": "table",
+      "title": "Unmatched bank lines",
+      "source": {
+        "ability": "ledger.bank.unreconciled"
+      },
+      "rows": "/transactions",
+      "empty_text": "Every bank line is matched.",
+      "columns": [
+        {
+          "label": "Date",
+          "path": "/date",
+          "format": "date"
+        },
+        {
+          "label": "Bank line",
+          "path": "/description",
+          "strong": true
+        },
+        {
+          "label": "Suggestion",
+          "template": "{{#row.suggestions.documents.0}}{{row.suggestions.documents.0.kind}} {{row.suggestions.documents.0.number}} · {{row.suggestions.documents.0.party}}{{/row.suggestions.documents.0}}{{^row.suggestions.documents.0}}{{#row.suggestions.rule}}rule → {{row.suggestions.rule.account_code}}{{/row.suggestions.rule}}{{^row.suggestions.rule}}no suggestion{{/row.suggestions.rule}}{{/row.suggestions.documents.0}}"
+        },
+        {
+          "label": "Amount",
+          "path": "/amount_minor",
+          "format": "signed_money_minor",
+          "align": "right"
+        }
+      ],
+      "row_actions": [
+        {
+          "label": "Match",
+          "style": "primary",
+          "when": "/suggestions/documents/0",
+          "ask": "Record the matching settlement for {{row.suggestions.documents.0.kind}} {{row.suggestions.documents.0.number}} ({{row.suggestions.documents.0.party}}) using bank line {{row.id}} ({{row.date}}, \"{{row.description}}\", {{row.amount_minor|money_exact}} on account {{row.bank_account_code}})."
+        },
+        {
+          "label": "Code it",
+          "style": "primary",
+          "when": "/suggestions/rule",
+          "unless": "/suggestions/documents/0",
+          "ask": "Categorize bank line {{row.id}} ({{row.date}}, \"{{row.description}}\", {{row.amount_minor|money_exact}}) to account {{row.suggestions.rule.account_code}} as the coding rule suggests."
+        },
+        {
+          "label": "Find match",
+          "unless": [
+            "/suggestions/documents/0",
+            "/suggestions/rule"
+          ],
+          "ask": "Find the right match for bank line {{row.id}} ({{row.date}}, \"{{row.description}}\", {{row.amount_minor|money_exact}}). If it settles an invoice or bill, record that; otherwise suggest the account and ask me."
+        }
+      ]
+    },
+    {
+      "block": "table",
+      "title": "By month",
+      "source": {
+        "ability": "ledger.periods.status"
+      },
+      "rows": "/unreconciled_by_month",
+      "empty_text": "Nothing outstanding in any month.",
+      "columns": [
+        {
+          "label": "Month",
+          "path": "/month",
+          "format": "month"
+        },
+        {
+          "label": "Lines to match",
+          "path": "/n",
+          "format": "number",
+          "align": "right"
+        }
+      ]
+    }
+  ]
+}

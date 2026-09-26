@@ -1,0 +1,28 @@
+# Chat (Phase 3) overlay: a Matrix homeserver beside NEOS, and the platform's appservice wiring.
+#   scripts/matrix-setup.sh deploy/compose.pilot.yml    # once: homeserver config + appservice registration
+#   docker compose -f deploy/compose.pilot.yml -f deploy/compose.chat.yml up -d
+# The homeserver is deployed beside NEOS, never through it: rooms are a mirror; every ask from a
+# room becomes a signed, typed call through the gateway (B4).
+services:
+  synapse:
+    image: matrixdotorg/synapse:v1.139.0
+    restart: unless-stopped
+    volumes: [synapse-data:/data]
+    networks: [chat, edge]
+    ports: ["127.0.0.1:8008:8008"]
+    healthcheck: { test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8008/health"], interval: 5s, timeout: 3s, retries: 30 }
+
+  platform:
+    environment:
+      MATRIX_HOMESERVER_URL: http://synapse:8008
+      MATRIX_SERVER_NAME: ${MATRIX_SERVER_NAME:-acme.example}
+      MATRIX_HS_TOKEN_FILE: /run/secrets/matrix_hs_token
+      MATRIX_AS_TOKEN_FILE: /run/secrets/matrix_as_token
+    secrets: [neos_app_url, vault_keys, metrics_token, matrix_hs_token, matrix_as_token]
+
+volumes:
+  synapse-data: {}
+
+secrets:
+  matrix_hs_token: { file: ./secrets/matrix_hs_token }
+  matrix_as_token: { file: ./secrets/matrix_as_token }

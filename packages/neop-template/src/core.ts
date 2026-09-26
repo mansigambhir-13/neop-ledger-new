@@ -45,7 +45,8 @@ export class Core {
     // runner role also serves L3's replay check, so it gets its own 5.
     this.appPool = createPool(cfg.appDbUrl, cfg.appPoolSize ?? 5);
     this.runnerPool = createPool(cfg.runnerDbUrl, cfg.runnerPoolSize ?? 5);
-    this.execLockPool = createPool(cfg.runnerDbUrl, cfg.execLockPoolSize ?? 10);
+    // Session-level advisory locks need a real session: direct to Postgres, not through PgBouncer (S8).
+    this.execLockPool = createPool(cfg.directDbUrl ?? cfg.runnerDbUrl, cfg.execLockPoolSize ?? 10);
     this.book = new Book(this.key);
     this.platform = new PlatformClient(cfg.platformUrl, this.key, cfg.serviceSecret);
     this.board = new SwitchboardCache(this.platform, this.manifest);

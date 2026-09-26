@@ -1,0 +1,41 @@
+{
+  "block": "form",
+  "title": "Record receipt · {{row.number}}",
+  "description": "{{row.party}} · outstanding {{row.outstanding_minor|money_exact}}",
+  "fields": [
+    {
+      "name": "date",
+      "label": "Date",
+      "type": "date",
+      "required": true,
+      "default": "{{today}}"
+    },
+    {
+      "name": "amount",
+      "label": "Amount (₹)",
+      "type": "money",
+      "required": true,
+      "default": "{{row.outstanding_minor|rupees}}"
+    },
+    {
+      "name": "bank",
+      "label": "Bank account",
+      "type": "select",
+      "required": true,
+      "options_source": {
+        "source": {
+          "ability": "ledger.accounts.list",
+          "args": {
+            "type": "asset"
+          }
+        },
+        "rows": "/accounts",
+        "value": "{{code}}",
+        "label": "{{code}} {{name}}"
+      },
+      "default": "1010"
+    }
+  ],
+  "submit_label": "Ask Ledger",
+  "ask": "Record a receipt of {{amount|inr}} on {{date}} against invoice {{row.number}} ({{row.party}}) through bank account {{bank}}."
+}

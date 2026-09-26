@@ -1,0 +1,15 @@
+{
+  "block": "form",
+  "title": "Reopen {{month_label}}",
+  "description": "A closed month takes no postings. Reopening is recorded with your reason.",
+  "fields": [
+    {
+      "name": "reason",
+      "label": "Reason",
+      "type": "textarea",
+      "required": true
+    }
+  ],
+  "submit_label": "Ask Ledger",
+  "ask": "Reopen the period {{month}} ({{month_label}}). Reason: {{reason}}"
+}

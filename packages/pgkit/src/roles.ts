@@ -70,6 +70,25 @@ async function ensureRole(client: pg.Client, role: string, opts: string): Promis
   }
 }
 
+const ROLE_DEFAULTS = ['statement_timeout=30s', 'lock_timeout=10s', 'idle_in_transaction_session_timeout=30s'];
+
+/** Role-level timeouts (cluster-wide rows): set only what is missing, retrying concurrent bootstraps. */
+async function roleDefaults(client: pg.Client, role: string): Promise<void> {
+  const cur = (await client.query<{ c: string[] | null }>('select rolconfig as c from pg_roles where rolname = $1', [role])).rows[0]?.c ?? [];
+  for (const d of ROLE_DEFAULTS.filter((x) => !cur.includes(x))) {
+    const [k, v] = d.split('=') as [string, string];
+    for (let i = 0; ; i++) {
+      try {
+        await client.query(`alter role ${role} set ${k} = '${v}'`);
+        break;
+      } catch (e) {
+        if (i >= 10 || !/concurrently updated/.test((e as Error).message)) throw e;
+        await new Promise((r) => setTimeout(r, 20 + Math.random() * 80));
+      }
+    }
+  }
+}
+
 /** Create the family roles (cluster-wide) and let the migrator create a schema in this database. */
 export async function bootstrapFamily(adminUrl: string, schema: string): Promise<FamilyRoles> {
   const roles = familyRoles(schema);
@@ -80,6 +99,9 @@ export async function bootstrapFamily(adminUrl: string, schema: string): Promise
     await ensureRole(client, roles.migrator, 'nobypassrls nosuperuser nocreaterole');
     await ensureRole(client, roles.app, 'nobypassrls nosuperuser nocreaterole');
     await ensureRole(client, roles.runner, 'bypassrls nosuperuser nocreaterole');
+    // Timeouts as role defaults: they hold however the role connects, including through
+    // PgBouncer, which drops per-connection startup settings (S8).
+    for (const r of [roles.app, roles.runner]) await roleDefaults(client, r);
     const db = (await client.query<{ db: string }>('select current_database() as db')).rows[0]!.db;
     await client.query(`grant create, connect on database "${db}" to ${roles.migrator}`);
     await client.query(`grant connect on database "${db}" to ${roles.app}, ${roles.runner}`);

@@ -1,0 +1,71 @@
+{
+  "block": "page",
+  "title": "Chart of accounts",
+  "description": "Balances as of today. Open an account for its ledger this month.",
+  "nav": {
+    "label": "Accounts",
+    "icon": "table",
+    "order": 9
+  },
+  "params": [
+    "month"
+  ],
+  "actions": [
+    {
+      "label": "Add account",
+      "style": "primary",
+      "form": "form.account"
+    }
+  ],
+  "children": [
+    {
+      "block": "table",
+      "source": {
+        "ability": "ledger.accounts.list",
+        "args": {
+          "include_inactive": true
+        }
+      },
+      "rows": "/accounts",
+      "columns": [
+        {
+          "label": "Code",
+          "path": "/code"
+        },
+        {
+          "label": "Account",
+          "path": "/name",
+          "strong": true
+        },
+        {
+          "label": "Type",
+          "path": "/type",
+          "pill": {
+            "asset": "green",
+            "liability": "amber",
+            "equity": "violet",
+            "income": "dark",
+            "expense": "gray"
+          }
+        },
+        {
+          "label": "Subtype",
+          "path": "/subtype",
+          "hide_small": true
+        },
+        {
+          "label": "Balance",
+          "path": "/balance_minor",
+          "format": "money_minor_exact",
+          "align": "right"
+        }
+      ],
+      "row_actions": [
+        {
+          "label": "Ledger",
+          "open": "account.ledger"
+        }
+      ]
+    }
+  ]
+}

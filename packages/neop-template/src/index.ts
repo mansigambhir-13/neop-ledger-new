@@ -10,7 +10,7 @@ export { canTransition, WAKES_JOB } from './domain/proposals.ts';
 export { buildTools, toolName, BUILTIN_TOOLS, type ToolSpec } from './gate/tools.ts';
 export { MAX_TOOL_CALLS } from './gate/gate.ts';
 export type { JobBundle } from './agent/bundle.ts';
-export { loadAgentDir } from './agent/load.ts';
+export { loadAgentDir, loadBlocks } from './agent/load.ts';
 export { buildPackage } from './packages/build.ts';
 export { migratePackage, packageRole } from './packages/migrate.ts';
 export type { PackageBundle, PackageManifest } from './packages/types.ts';

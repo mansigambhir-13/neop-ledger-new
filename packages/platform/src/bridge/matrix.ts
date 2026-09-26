@@ -38,6 +38,20 @@ export class MatrixTransport implements RoomTransport {
   constructor(cfg: MatrixConfig) {
     this.cfg = cfg;
   }
+  /** Register the app's virtual user (appservice namespace) and join it to the room it was invited to. */
+  async prepare(roomId: string, asUser: string): Promise<void> {
+    const base = this.cfg.homeserverUrl.replace(/\/$/, '');
+    const headers = { authorization: `Bearer ${this.cfg.asToken}`, 'content-type': 'application/json' };
+    const localpart = asUser.slice(1).split(':')[0];
+    const reg = await fetch(`${base}/_matrix/client/v3/register`, { method: 'POST', headers, body: JSON.stringify({ type: 'm.login.application_service', username: localpart }) });
+    if (!reg.ok) {
+      const b = (await reg.json().catch(() => ({}))) as { errcode?: string };
+      if (b.errcode !== 'M_USER_IN_USE') throw new Error(`register ${asUser}: ${reg.status} ${b.errcode ?? ''}`);
+    }
+    const join = await fetch(`${base}/_matrix/client/v3/join/${encodeURIComponent(roomId)}?user_id=${encodeURIComponent(asUser)}`, { method: 'POST', headers, body: '{}' });
+    if (!join.ok) throw new Error(`join ${roomId} as ${asUser}: ${join.status} ${await join.text()}`);
+  }
+
   async send(roomId: string, asUser: string, body: string, txnId: string): Promise<{ event_id: string }> {
     const url =
       `${this.cfg.homeserverUrl.replace(/\/$/, '')}/_matrix/client/v3/rooms/${encodeURIComponent(roomId)}` +

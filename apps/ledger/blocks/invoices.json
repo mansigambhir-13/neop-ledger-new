@@ -1,0 +1,181 @@
+{
+  "block": "page",
+  "title": "Invoices · money in",
+  "description": "Collect what you're owed. Every invoice, email and receipt is proposed to you first.",
+  "nav": {
+    "label": "Invoices",
+    "icon": "send",
+    "order": 4
+  },
+  "actions": [
+    {
+      "label": "New invoice",
+      "style": "primary",
+      "form": "form.invoice"
+    },
+    {
+      "label": "Add customer",
+      "form": "form.customer"
+    }
+  ],
+  "children": [
+    {
+      "block": "table",
+      "title": "Open invoices",
+      "source": {
+        "ability": "ledger.documents.list",
+        "args": {
+          "kind": "invoice",
+          "status": "open"
+        }
+      },
+      "rows": "/documents",
+      "empty_text": "Nothing outstanding.",
+      "columns": [
+        {
+          "label": "Customer",
+          "path": "/party",
+          "strong": true
+        },
+        {
+          "label": "Number",
+          "path": "/number"
+        },
+        {
+          "label": "Issued",
+          "path": "/issue_date",
+          "format": "date",
+          "hide_small": true
+        },
+        {
+          "label": "Due",
+          "path": "/due_date",
+          "format": "date"
+        },
+        {
+          "label": "Total",
+          "path": "/total_minor",
+          "format": "money_minor_exact",
+          "align": "right"
+        },
+        {
+          "label": "Outstanding",
+          "path": "/outstanding_minor",
+          "format": "money_minor_exact",
+          "align": "right",
+          "strong": true
+        },
+        {
+          "label": "Days late",
+          "path": "/overdue_days",
+          "format": "days",
+          "align": "right"
+        },
+        {
+          "label": "Sent",
+          "template": "{{#row.sent_at}}sent{{/row.sent_at}}{{^row.sent_at}}not sent{{/row.sent_at}}",
+          "pill": {
+            "sent": "green",
+            "not sent": "amber"
+          }
+        }
+      ],
+      "row_actions": [
+        {
+          "label": "Send",
+          "ask": "Email invoice {{row.number}} to {{row.party}}.",
+          "unless": "/sent_at"
+        },
+        {
+          "label": "Remind",
+          "ask": "Send a payment reminder for invoice {{row.number}} to {{row.party}}; it is {{row.overdue_days}} days overdue with {{row.outstanding_minor|money_exact}} outstanding.",
+          "when": [
+            "/sent_at",
+            "/overdue_days"
+          ]
+        },
+        {
+          "label": "Record receipt",
+          "style": "primary",
+          "form": "form.receipt",
+          "when": "/outstanding_minor"
+        }
+      ]
+    },
+    {
+      "block": "table",
+      "title": "Paid",
+      "source": {
+        "ability": "ledger.documents.list",
+        "args": {
+          "kind": "invoice",
+          "status": "paid"
+        }
+      },
+      "rows": "/documents",
+      "empty_text": "None paid yet.",
+      "columns": [
+        {
+          "label": "Customer",
+          "path": "/party"
+        },
+        {
+          "label": "Number",
+          "path": "/number"
+        },
+        {
+          "label": "Due",
+          "path": "/due_date",
+          "format": "date"
+        },
+        {
+          "label": "Total",
+          "path": "/total_minor",
+          "format": "money_minor_exact",
+          "align": "right"
+        }
+      ]
+    },
+    {
+      "block": "table",
+      "title": "Customers",
+      "source": {
+        "ability": "ledger.parties.list",
+        "args": {
+          "kind": "customer"
+        }
+      },
+      "rows": "/parties",
+      "empty_text": "None yet.",
+      "columns": [
+        {
+          "label": "Name",
+          "path": "/name",
+          "strong": true
+        },
+        {
+          "label": "Email",
+          "path": "/email",
+          "hide_small": true
+        },
+        {
+          "label": "GSTIN",
+          "path": "/gstin",
+          "hide_small": true
+        },
+        {
+          "label": "Open",
+          "path": "/open_documents",
+          "format": "number",
+          "align": "right"
+        },
+        {
+          "label": "Outstanding",
+          "path": "/outstanding_minor",
+          "format": "money_minor_exact",
+          "align": "right"
+        }
+      ]
+    }
+  ]
+}

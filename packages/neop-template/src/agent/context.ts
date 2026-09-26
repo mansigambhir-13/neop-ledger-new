@@ -48,6 +48,8 @@ export async function buildBundle(core: Core, c: PoolClient, job: JobRow, board:
     ...core.app.skills.map((s) => ({ key: s.key, requires: s.requires, body: s.body })),
     ...installed.skills.map((s) => ({ key: s.key, requires: s.requires, body: `(From ${s.from}.)\n${s.body}` })),
   ]
+    // A skill line is on or off (WP §10); off means it is not loaded even when its tools are on.
+    .filter((s) => board.hostSetting(`skill:${s.key}`) !== 'off')
     .filter((s) => s.requires.every((r) => on.has(r)))
     .map((s) => ({ key: s.key, body: s.body }));
   return {

@@ -1,0 +1,68 @@
+{
+  "block": "page",
+  "title": "Transactions",
+  "description": "Every journal entry in {{month_label}}. Entries are never edited — a mistake is reversed by a new entry.",
+  "nav": {
+    "label": "Transactions",
+    "icon": "list",
+    "order": 2
+  },
+  "params": [
+    "month"
+  ],
+  "actions": [
+    {
+      "label": "Manual journal",
+      "form": "form.journal"
+    }
+  ],
+  "children": [
+    {
+      "block": "table",
+      "source": {
+        "ability": "ledger.journal.list",
+        "args": {
+          "from": "{{month_from}}",
+          "to": "{{month_to}}",
+          "limit": 200
+        }
+      },
+      "rows": "/entries",
+      "empty_text": "Nothing posted in {{month_label}} yet.",
+      "columns": [
+        {
+          "label": "Date",
+          "path": "/date",
+          "format": "date"
+        },
+        {
+          "label": "Description",
+          "path": "/memo",
+          "strong": true
+        },
+        {
+          "label": "Reference",
+          "path": "/reference",
+          "hide_small": true
+        },
+        {
+          "label": "Source",
+          "path": "/source",
+          "pill": {
+            "seed": "gray",
+            "gate": "green",
+            "agent": "green"
+          }
+        }
+      ],
+      "row_actions": [
+        {
+          "label": "Reverse",
+          "style": "danger",
+          "ask": "Reverse journal entry {{row.id}} (\"{{row.memo}}\", dated {{row.date}}) with a reversing entry dated {{today}}.",
+          "unless": "/reverses"
+        }
+      ]
+    }
+  ]
+}

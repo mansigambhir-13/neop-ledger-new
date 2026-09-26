@@ -60,3 +60,16 @@ export function onShutdown(stop: () => Promise<void>, deadlineMs = 10_000): void
   process.on('SIGINT', () => handler('SIGINT'));
   process.on('unhandledRejection', (e) => log('error', 'unhandled rejection', { e: String(e) }));
 }
+
+/**
+ * The address to listen on. A container sits on several networks; binding to the IP behind a
+ * network-specific alias (e.g. `ledger-l3`, set only on the l3 network) means the port is not
+ * reachable from the others — the network policy is enforced by the listener, not just by DNS.
+ */
+export async function bindAddress(name: string, fallback = '0.0.0.0'): Promise<string> {
+  const v = process.env[name];
+  if (!v) return fallback;
+  if (/^[\d.]+$/.test(v) || v.includes(':')) return v;
+  const { lookup } = await import('node:dns/promises');
+  return (await lookup(v, { family: 4 })).address;
+}

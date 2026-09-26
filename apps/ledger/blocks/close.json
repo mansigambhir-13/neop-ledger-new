@@ -1,0 +1,86 @@
+{
+  "block": "page",
+  "title": "Month-end close · {{month_label}}",
+  "description": "Work the checklist top to bottom. Ledger drafts each step; you approve; then the month is locked and takes no more postings.",
+  "nav": {
+    "label": "Close",
+    "icon": "calendar",
+    "order": 6
+  },
+  "params": [
+    "month"
+  ],
+  "actions": [
+    {
+      "label": "Draft the close",
+      "ask": "Draft the month-end close for {{month_label}} (month {{month}}): go through the checklist, tell me what is left, and propose the steps."
+    },
+    {
+      "label": "Close {{month_label}}",
+      "style": "primary",
+      "ask": "Close the books for {{month_label}} (month {{month}}). If anything blocks the close, tell me what first."
+    },
+    {
+      "label": "Email close pack",
+      "form": "form.close_pack"
+    },
+    {
+      "label": "Reopen",
+      "style": "danger",
+      "form": "form.reopen"
+    }
+  ],
+  "children": [
+    {
+      "block": "checklist",
+      "title": "Close checklist",
+      "source": {
+        "ability": "ledger.close.checklist",
+        "args": {
+          "month": "{{month}}"
+        }
+      },
+      "rows": "/items",
+      "item": {
+        "title": "/title",
+        "ok": "/ok",
+        "detail": "/detail",
+        "link": "/link"
+      }
+    },
+    {
+      "block": "kv",
+      "title": "This month at a glance",
+      "source": {
+        "ability": "ledger.report.pnl",
+        "args": {
+          "from": "{{month_from}}",
+          "to": "{{month_to}}"
+        }
+      },
+      "items": [
+        {
+          "label": "Revenue",
+          "path": "/totals/revenue_minor",
+          "format": "money_minor"
+        },
+        {
+          "label": "Expenses",
+          "path": "/totals/expenses_minor",
+          "format": "money_minor"
+        },
+        {
+          "label": "Gross profit",
+          "path": "/totals/gross_profit_minor",
+          "format": "money_minor"
+        },
+        {
+          "label": "Net profit",
+          "path": "/totals/net_profit_minor",
+          "format": "money_minor",
+          "strong": true
+        }
+      ]
+    }
+  ]
+}

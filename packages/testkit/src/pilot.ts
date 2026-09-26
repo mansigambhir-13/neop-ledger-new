@@ -47,6 +47,9 @@ function view(ctx: Context): BrainView {
 export interface FakeHomeserver {
   url: string;
   sent: { room: string; user: string; body: string; txn: string; event_id: string; msgtype: string }[];
+  /** Appservice users registered, and rooms each has joined. */
+  users: Set<string>;
+  joined: { room: string; user: string }[];
   /** Push one event to the appservice as the homeserver would. */
   push(ev: { room_id: string; sender: string; body: string; in_reply_to?: string }): Promise<{ status: number; event_id: string }>;
   close(): Promise<void>;
@@ -56,9 +59,28 @@ export const MATRIX = { serverName: 'acme.example', hsToken: 'hs_token_' + 'x'.r
 
 async function fakeHomeserver(platformUrl: () => string): Promise<FakeHomeserver> {
   const sent: FakeHomeserver['sent'] = [];
+  const users = new Set<string>();
+  const joined: FakeHomeserver['joined'] = [];
   const byTxn = new Map<string, string>();
   let n = 0;
   const app = new Hono();
+  const asOk = (c: any) => c.req.header('authorization') === `Bearer ${MATRIX.asToken}`;
+  app.post('/_matrix/client/v3/register', async (c) => {
+    if (!asOk(c)) return c.json({ errcode: 'M_UNKNOWN_TOKEN' }, 401);
+    const b = await c.req.json();
+    const id = `@${b.username}:${MATRIX.serverName}`;
+    if (b.type !== 'm.login.application_service' || !String(b.username).startsWith('neop_')) return c.json({ errcode: 'M_EXCLUSIVE' }, 400);
+    if (users.has(id)) return c.json({ errcode: 'M_USER_IN_USE' }, 400);
+    users.add(id);
+    return c.json({ user_id: id });
+  });
+  app.post('/_matrix/client/v3/join/:room', (c) => {
+    if (!asOk(c)) return c.json({ errcode: 'M_UNKNOWN_TOKEN' }, 401);
+    const user = c.req.query('user_id') ?? '';
+    if (!users.has(user)) return c.json({ errcode: 'M_FORBIDDEN' }, 403);
+    joined.push({ room: c.req.param('room'), user });
+    return c.json({ room_id: c.req.param('room') });
+  });
   app.put('/_matrix/client/v3/rooms/:room/send/m.room.message/:txn', async (c) => {
     if (c.req.header('authorization') !== `Bearer ${MATRIX.asToken}`) return c.json({ errcode: 'M_UNKNOWN_TOKEN' }, 401);
     const txn = c.req.param('txn');
@@ -79,6 +101,8 @@ async function fakeHomeserver(platformUrl: () => string): Promise<FakeHomeserver
   return {
     url: `http://127.0.0.1:${port}`,
     sent,
+    users,
+    joined,
     async push(ev) {
       const event_id = `$in${++evn}:${MATRIX.serverName}`;
       const content: any = { msgtype: 'm.text', body: ev.body };
@@ -213,7 +237,7 @@ export async function bootPilot(opts: BootOptions): Promise<Pilot> {
       timings: { ...FAST, ...(opts.timings ?? {}) },
     };
     backends[key] = await startBackend(a.def, configs[key]!, {});
-    await plat.platform.registerApp({ key, l3_url: `http://127.0.0.1:${backends[key].ports.l3}`, manifest: a.def.manifest, service_secret: secret });
+    await plat.platform.registerApp({ key, l3_url: `http://127.0.0.1:${backends[key].ports.l3}`, manifest: a.def.manifest, service_secret: secret, blocks: a.def.blocks });
     await plat.platform.installApp(company.id, key, admin.id);
     if (opts.seed !== false && a.seed) await a.seed(backends[key].core.appPool, company.id);
   }

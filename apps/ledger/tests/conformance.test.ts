@@ -19,6 +19,8 @@ conformance({
     'ledger.bank.unreconciled': {},
     'ledger.periods.status': {},
     'ledger.coding_rules.list': {},
+    'ledger.home.summary': {},
+    'ledger.close.checklist': { month: '2026-09' },
   },
   gatedWrite: {
     key: 'ledger.journal.post',

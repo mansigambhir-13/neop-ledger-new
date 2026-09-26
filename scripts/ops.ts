@@ -1,6 +1,6 @@
 // Operator CLI · the bootstrap steps with no HTTP route (there is no admin yet to call one).
 // Runs where the platform's database role is reachable (the platform container).
-//   tsx scripts/ops.ts register-app ledger http://ledger-backend:4101   (secret: NEOP_SERVICE_SECRET[_FILE])
+//   tsx scripts/ops.ts register-app ledger http://ledger-l3:4101   (secret: NEOP_SERVICE_SECRET[_FILE])
 //   tsx scripts/ops.ts create-company "Acme Traders" [Asia/Kolkata]
 //   tsx scripts/ops.ts create-user <company_id> <name> <email> <admin|member|operator>
 //   tsx scripts/ops.ts install <company_id> <app>
@@ -8,7 +8,7 @@
 import { generateSigningKeys, Platform } from '@neop/platform';
 import { env } from '../apps/ledger/scripts/env.ts';
 
-const apps: Record<string, () => Promise<{ manifest: any }>> = {
+const apps: Record<string, () => Promise<{ manifest: any; blocks?: Record<string, unknown> }>> = {
   ledger: async () => (await import('@neop/ledger')).ledgerApp(),
   marketing: async () => (await import('@neop/marketing')).marketingApp(),
 };
@@ -32,8 +32,9 @@ try {
       need(2);
       const load = apps[args[0]!];
       if (!load) throw new Error(`unknown app: ${args[0]}`);
-      await p.registerApp({ key: args[0]!, l3_url: args[1]!, manifest: (await load()).manifest, service_secret: secret() });
-      console.log(JSON.stringify({ registered: args[0], l3_url: args[1] }));
+      const def = await load();
+      await p.registerApp({ key: args[0]!, l3_url: args[1]!, manifest: def.manifest, service_secret: secret(), blocks: def.blocks });
+      console.log(JSON.stringify({ registered: args[0], l3_url: args[1], blocks: Object.keys(def.blocks ?? {}).length }));
       break;
     }
     case 'create-company': {

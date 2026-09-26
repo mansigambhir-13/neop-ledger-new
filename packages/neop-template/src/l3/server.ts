@@ -194,6 +194,8 @@ export function l3App(core: Core): Hono {
   app.post('/l3/switchboard.changed', async (c) => {
     const claims = await authed(c, 'switchboard.changed');
     core.board.invalidate(claims.company_id!);
+    // Installs and uninstalls change which package lines and skills exist: reload them now.
+    core.packages.invalidate(claims.company_id!);
     return c.json({ ok: true });
   });
 

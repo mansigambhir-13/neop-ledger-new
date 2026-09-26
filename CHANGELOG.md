@@ -1,5 +1,15 @@
 # Changelog
 
+## neop-ledger 1.2.0 · NEOS platform — 2026-09-26
+Closes the nine drifts found when validating the build against the plan (`docs/DRIFT-PLAN.md`).
+- **The NEOS desk is platform-owned and multi-app**; every app's screens are its validated blocks, drawn by one renderer. Ledger's console is now 31 blocks (pages, tables, statements, forms) — no app JavaScript.
+- **Switchboard:** skill lines (on/off, needs →, greyed when a tool is off); package uninstall (tables kept).
+- **Database:** PgBouncer in transaction mode; direct connection for LISTEN and the execution lock; timeouts as role defaults.
+- **Network:** listeners bound per network; runtime probe `scripts/netcheck.sh`.
+- **Chat:** Synapse overlay and setup script; admin room binding and identity linking; room re-binding; verified live.
+- **Honesty:** report sources filled from the job's reads when the assistant omits them.
+- **Evidence:** pilot acceptance 5/5 with a real model (`docs/PILOT-ACCEPTANCE.md`); v3 whole picture; ADR 0013.
+
 ## neop-ledger 1.1.0 — 2026-09-26
 - **Operator console** (`web` service, port 4780): designed around the NEOP — ask bar, live job lifecycle, fingerprinted approvals with clocks and "approve & always allow", the switchboard (floor · company · in force) with company rules, spend caps and who may approve, standing yeses, doors and the key vault, packages and skills, other apps, one audit trail, and the books with sources on every figure.
 - **Platform:** governance endpoints (grants list/validation, ACL list, audit, registry catalogue, switchboard history, usage, job record); company rules validated on save; package abilities on the switchboard; reconciled proofs reach the desk; member can no longer withdraw a standing yes.

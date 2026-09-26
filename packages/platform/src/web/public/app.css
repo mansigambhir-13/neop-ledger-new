@@ -376,3 +376,14 @@ input.i:focus, select.i:focus, textarea.i:focus { border-color: var(--na-lime); 
 .chip input { margin: 0 4px 0 0; }
 @media (max-width: 1180px) { .top { grid-template-columns: auto 1fr auto; } .top .askbar { width: 100%; } }
 @media (max-width: 720px) { .top { grid-template-columns: 1fr auto; } .top .askbar { grid-column: 1 / -1; grid-row: 2; } .askbar .live span { display: none; } }
+
+/* block renderer */
+.blk-title { margin: 22px 0 10px; font-size: 13px; letter-spacing: .08em; text-transform: uppercase; color: var(--na-ink2); }
+.blk-title a { color: inherit; }
+.g1 { grid-template-columns: minmax(0, 1fr); }
+.repeat { display: grid; gap: 6px; margin-top: 12px; }
+.repeat-row { display: grid; gap: 8px; align-items: end; }
+.repeat.cols-2 .repeat-row { grid-template-columns: 1fr 1fr; }
+.repeat.cols-3 .repeat-row { grid-template-columns: 2fr 1fr 1.4fr; }
+.repeat.cols-4 .repeat-row { grid-template-columns: repeat(4, 1fr); }
+@media (max-width: 720px) { .repeat .repeat-row { grid-template-columns: 1fr !important; } }

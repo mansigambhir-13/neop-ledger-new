@@ -1,0 +1,44 @@
+{
+  "block": "table",
+  "title": "{{row.code}} {{row.name}} · {{month_label}}",
+  "source": {
+    "ability": "ledger.account.ledger",
+    "args": {
+      "account_code": "{{row.code}}",
+      "from": "{{month_from}}",
+      "to": "{{month_to}}"
+    }
+  },
+  "rows": "/rows",
+  "empty_text": "No lines this month.",
+  "summary": "Opening {{opening_minor|money_exact}} · closing {{closing_minor|money_exact}}",
+  "columns": [
+    {
+      "label": "Date",
+      "path": "/date",
+      "format": "date"
+    },
+    {
+      "label": "Memo",
+      "path": "/memo"
+    },
+    {
+      "label": "Debit",
+      "path": "/debit_minor",
+      "format": "money_minor_exact",
+      "align": "right"
+    },
+    {
+      "label": "Credit",
+      "path": "/credit_minor",
+      "format": "money_minor_exact",
+      "align": "right"
+    },
+    {
+      "label": "Balance",
+      "path": "/balance_minor",
+      "format": "money_minor_exact",
+      "align": "right"
+    }
+  ]
+}

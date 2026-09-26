@@ -48,18 +48,19 @@ function listen(app: { fetch: (r: Request) => Response | Promise<Response> }, po
 export async function startBackend(
   app: AppDefinition,
   cfg: Omit<NeopConfig, 'timings'> & { timings?: Partial<NeopConfig['timings']> },
-  opts: { l3Port?: number; gatePort?: number; host?: string; runner?: boolean } = {},
+  opts: { l3Port?: number; gatePort?: number; host?: string; l3Host?: string; gateHost?: string; runner?: boolean } = {},
 ): Promise<NeopBackend> {
   const full: NeopConfig = { ...cfg, timings: { ...DEFAULT_TIMINGS, ...(cfg.timings ?? {}) } };
   const host = opts.host ?? '127.0.0.1';
   const core = new Core(app, full);
   const gate = new Gate(core);
   const runner = new Runner(core);
-  const l3 = await listen(l3App(core), opts.l3Port ?? 0, host);
+  // L3 and the gate can each bind to one network only, so the gateway alone reaches L3 and the agent alone the gate.
+  const l3 = await listen(l3App(core), opts.l3Port ?? 0, opts.l3Host ?? host);
   const g = await listen(
     gateApp(core, gate, (claims, reason) => runner.onSessionEnd(claims, reason)),
     opts.gatePort ?? 0,
-    host,
+    opts.gateHost ?? host,
   );
   if (!full.gateUrl) (full as { gateUrl?: string }).gateUrl = `http://${host}:${g.port}`;
   if (opts.runner !== false) await runner.start();

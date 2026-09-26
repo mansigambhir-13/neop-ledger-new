@@ -9,7 +9,9 @@ import { describe, expect, it } from 'vitest';
 import { LEDGER_ROOT } from '../src/index.ts';
 
 const compose = parse(readFileSync(path.join(LEDGER_ROOT, '../../deploy/compose.pilot.yml'), 'utf8'));
-const svc = compose.services as Record<string, { networks: string[]; environment?: Record<string, string>; secrets?: string[] }>;
+const raw = compose.services as Record<string, { networks: string[] | Record<string, unknown>; environment?: Record<string, string>; secrets?: string[] }>;
+// Networks may be a list or a map (with per-network aliases); compare by name.
+const svc = Object.fromEntries(Object.entries(raw).map(([k, v]) => [k, { ...v, networks: Array.isArray(v.networks) ? v.networks : Object.keys(v.networks ?? {}) }])) as Record<string, { networks: string[]; environment?: Record<string, string>; secrets?: string[] }>;
 const envKeys = (s: string) => Object.keys(svc[s]!.environment ?? {}).join(' ') + ' ' + (svc[s]!.secrets ?? []).join(' ');
 const agents = Object.keys(svc).filter((k) => k.endsWith('-agent'));
 const backends = Object.keys(svc).filter((k) => k.endsWith('-backend'));
@@ -53,6 +55,7 @@ describe('network policy', () => {
   it('only the LLM proxy (model) and backends (email/GST doors) reach the internet; never the database', () => {
     expect(members('egress')).toEqual(['ledger-backend', 'llm-proxy']);
     expect(svc.postgres!.networks).toEqual(['db']);
+    expect(svc.pgbouncer!.networks).toEqual(['db']);
   });
 
   it('the console reaches only the platform, holds no credential, and is the only other published port', () => {
@@ -61,6 +64,22 @@ describe('network policy', () => {
     expect(envKeys('web')).not.toMatch(/DB_URL|SECRET|TOKEN|KEY|app_url|runner_url/i);
     const published = Object.entries(svc).filter(([, s]: any) => s.ports?.length).map(([k]) => k).sort();
     expect(published).toEqual(['platform', 'web']);
+  });
+
+  it('L3 listens only on the gateway network, the gate only on the agent network, the agent only on its own', () => {
+    const b = (raw['ledger-backend']!.networks as any);
+    expect(b.l3.aliases).toEqual(['ledger-l3']);
+    expect(b['agent-ledger'].aliases).toEqual(['ledger-gate']);
+    expect(svc['ledger-backend']!.environment).toMatchObject({ L3_HOST: 'ledger-l3', GATE_HOST: 'ledger-gate' });
+    expect((raw['ledger-agent']!.networks as any)['agent-ledger'].aliases).toEqual(['ledger-agent-rpc']);
+    expect(svc['ledger-agent']!.environment).toMatchObject({ HOST: 'ledger-agent-rpc', NEOP_ALLOWED_GATE: 'http://ledger-gate:4102' });
+  });
+
+  it('query pools go through PgBouncer; only LISTEN and the execution lock connect direct (S8)', () => {
+    const env = svc['ledger-backend']!.environment!;
+    expect(env.NEOP_DIRECT_DB_URL_FILE).toBeTruthy();
+    expect(svc['ledger-backend']!.secrets).toEqual(expect.arrayContaining(['ledger_app_url', 'ledger_runner_url', 'ledger_direct_url']));
+    expect((svc as any).platform.depends_on).toHaveProperty('pgbouncer');
   });
 
   it('only the migration runner holds the admin connection', () => {

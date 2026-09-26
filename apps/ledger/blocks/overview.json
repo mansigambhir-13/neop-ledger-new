@@ -1,0 +1,110 @@
+{
+  "block": "page",
+  "title": "Books · {{month_label}}",
+  "description": "The subject Ledger looks after. Every figure is read live from the book and says where it came from.",
+  "nav": {
+    "label": "Overview",
+    "icon": "book",
+    "order": 1
+  },
+  "params": [
+    "month"
+  ],
+  "actions": [
+    {
+      "label": "Draft the close",
+      "style": "primary",
+      "ask": "Draft the month-end close for {{month_label}} (month {{month}}): go through the checklist, tell me what is left, and propose the steps."
+    }
+  ],
+  "children": [
+    {
+      "block": "stats",
+      "items": [
+        {
+          "title": "Revenue",
+          "source": {
+            "ability": "ledger.report.pnl",
+            "args": {
+              "from": "{{month_from}}",
+              "to": "{{month_to}}"
+            }
+          },
+          "value": {
+            "path": "/totals/revenue_minor",
+            "format": "money_minor"
+          },
+          "tone": "green",
+          "link": "reports"
+        },
+        {
+          "title": "Net profit",
+          "source": {
+            "ability": "ledger.report.pnl",
+            "args": {
+              "from": "{{month_from}}",
+              "to": "{{month_to}}"
+            }
+          },
+          "value": {
+            "path": "/totals/net_profit_minor",
+            "format": "money_minor"
+          },
+          "sub": "gross {{totals.gross_profit_minor|money}}",
+          "tone": "teal",
+          "link": "reports"
+        },
+        {
+          "title": "Cash at month end",
+          "source": {
+            "ability": "ledger.report.cash_flow",
+            "args": {
+              "from": "{{month_from}}",
+              "to": "{{month_to}}"
+            }
+          },
+          "value": {
+            "path": "/closing_cash_minor",
+            "format": "money_minor"
+          },
+          "sub": "opened at {{opening_cash_minor|money}}",
+          "tone": "blue",
+          "link": "reports"
+        },
+        {
+          "title": "Total assets",
+          "source": {
+            "ability": "ledger.report.balance_sheet",
+            "args": {
+              "as_of": "{{month_to}}"
+            }
+          },
+          "value": {
+            "path": "/totals/assets_minor",
+            "format": "money_minor"
+          },
+          "sub": "{{#balanced}}balance sheet balances{{/balanced}}{{^balanced}}does NOT balance{{/balanced}}",
+          "tone": "violet",
+          "link": "reports"
+        }
+      ]
+    },
+    {
+      "block": "checklist",
+      "title": "Close checklist · {{month_label}}",
+      "source": {
+        "ability": "ledger.close.checklist",
+        "args": {
+          "month": "{{month}}"
+        }
+      },
+      "rows": "/items",
+      "item": {
+        "title": "/title",
+        "ok": "/ok",
+        "detail": "/detail",
+        "link": "/link"
+      }
+    }
+  ]
+}

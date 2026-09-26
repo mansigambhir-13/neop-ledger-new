@@ -1,0 +1,19 @@
+{
+  "block": "form",
+  "title": "Email the close pack · {{month_label}}",
+  "fields": [
+    {
+      "name": "to",
+      "label": "Send to",
+      "type": "email",
+      "required": true
+    },
+    {
+      "name": "note",
+      "label": "Note (optional)",
+      "type": "textarea"
+    }
+  ],
+  "submit_label": "Ask Ledger",
+  "ask": "Email the close pack for {{month_label}} (period {{month}}) to {{to}}.{{#note}} Include this note: \"{{note}}\"{{/note}}"
+}

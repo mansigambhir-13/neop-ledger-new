@@ -108,7 +108,7 @@ export function platformApp(p: Platform): Hono {
   app.get('/api/users', async (c) => {
     const u = await user(c);
     if (u.role !== 'admin') throw new PlatformError(403, 'denied', 'admins only');
-    const r = await p.db.query('select id, name, email, role, created_at from neos.users where company_id = $1 order by created_at', [u.company_id]);
+    const r = await p.db.query('select id, name, email, role, matrix_user_id, created_at from neos.users where company_id = $1 order by created_at', [u.company_id]);
     return c.json({ users: r.rows });
   });
 
@@ -135,6 +135,17 @@ export function platformApp(p: Platform): Hono {
     };
     const pkg = await p.packageAbilities(key, u.company_id);
     const doors = [...(await p.declaredDoors(key, u.company_id))];
+    const settingOf = (k: string) => {
+      const own = m.abilities.find((a) => a.key === k);
+      const pk = pkg.find((a) => a.key === k);
+      return own ? inForce(own) : pk ? inForce(pk) : null;
+    };
+    const skills = (await p.skillLines(key, u.company_id, m)).map((sk) => {
+      const setting = sb.settings?.[`skill:${sk.key}`] === 'off' ? 'off' : 'on';
+      const needs = sk.requires.map((r) => ({ key: r, setting: settingOf(r) ?? 'elsewhere' }));
+      const missing = needs.filter((n) => n.setting === 'off').map((n) => n.key);
+      return { key: sk.key, from: sk.from, setting, needs, missing, loads: setting === 'on' && missing.length === 0 };
+    });
     return c.json({
       switchboard_version: sb.version,
       abilities: [
@@ -165,8 +176,18 @@ export function platformApp(p: Platform): Hono {
           doors: [],
         })),
       ],
+      skills,
       doors: doors.map((d) => ({ key: d, declared_by: (m.doors ?? []).some((x) => x.key === d) ? 'own' : 'package', scopes: (m.doors ?? []).find((x) => x.key === d)?.scopes ?? [] })),
     });
+  });
+
+  // The app's screens as data, for the desk's one renderer (WP §13).
+  app.get('/api/apps/:app/blocks', async (c) => {
+    const u = await user(c);
+    await p.assertInstalled(c.req.param('app'), u.company_id);
+    const r = await p.db.query<{ blocks: Record<string, unknown>; name: string }>("select blocks, manifest->>'name' as name from neos.apps where key = $1 and status = 'active'", [c.req.param('app')]);
+    if (!r.rows[0]) throw new PlatformError(404, 'not_found', 'no such app');
+    return c.json({ app: c.req.param('app'), name: r.rows[0].name, blocks: r.rows[0].blocks });
   });
 
   // Steps 1–6: stored in the conversation → NeuralChat picks an installed app → task row → tasks.open. Never blocks on the job.
@@ -392,6 +413,11 @@ export function platformApp(p: Platform): Hono {
   app.post('/api/registry/reviews/:id/answer', async (c) => {
     const u = await user(c);
     return c.json(await p.registry.review(u, c.req.param('id'), await c.req.json()));
+  });
+  app.delete('/api/registry/installs', async (c) => {
+    const u = await user(c);
+    const b = await c.req.json().catch(() => ({}));
+    return c.json(await p.registry.uninstall(u, { host_app: String(b.host_app ?? ''), entry_key: String(b.entry_key ?? '') }));
   });
   app.post('/api/registry/installs', async (c) => {
     const u = await user(c);

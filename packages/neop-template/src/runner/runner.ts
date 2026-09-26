@@ -31,7 +31,7 @@ export class Runner {
   async start(): Promise<void> {
     const t = this.core.cfg.timings;
     // One direct session connection for LISTEN (it does not work through a transaction pooler, S8).
-    this.listener = new pg.Client({ connectionString: this.core.cfg.runnerDbUrl });
+    this.listener = new pg.Client({ connectionString: this.core.cfg.directDbUrl ?? this.core.cfg.runnerDbUrl });
     this.listener.on('error', () => {});
     await this.listener.connect();
     this.listener.on('notification', () => this.kick());

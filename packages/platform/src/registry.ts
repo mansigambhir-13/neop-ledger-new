@@ -178,7 +178,23 @@ export class Registry {
         JSON.stringify({ entry: e.key, version: e.version }),
       ]);
       return { entry_key: e.key, version: e.version, status };
+    }).then(async (res) => {
+      await this.p.notifyApp(req.host_app, user.company_id);
+      return res;
     });
+  }
+
+  /** Uninstall (plan: "disables the package and keeps its tables; a drop is a separate, audited platform action"). */
+  async uninstall(user: { id: string; company_id: string; role: string }, req: { host_app: string; entry_key: string }) {
+    if (user.role !== 'admin') throw new PlatformError(403, 'denied', 'admins only');
+    const r = await this.p.db.query(
+      `update neos.registry_installs set status = 'disabled' where company_id = $1 and host_app = $2 and entry_key = $3 and status <> 'disabled' returning pinned_version`,
+      [user.company_id, req.host_app, req.entry_key],
+    );
+    if (!r.rowCount) throw new PlatformError(404, 'not_found', `${req.entry_key} is not installed in ${req.host_app}`);
+    await this.p.gateway.audit({ company_id: user.company_id, actor: `user:${user.id}`, app_key: req.host_app, action: 'registry.uninstalled', outcome: 'disabled', detail: { entry: req.entry_key, version: r.rows[0].pinned_version, tables: 'kept' } });
+    await this.p.notifyApp(req.host_app, user.company_id);
+    return { entry_key: req.entry_key, status: 'disabled' };
   }
 
   /** Requirements owned by other apps become ACL rows (borrowed abilities); the host's own need nothing. */

@@ -121,3 +121,22 @@ describe('rooms', () => {
     expect(jobs.rows.map((r: any) => r.source)).toEqual(['room', 'task']);
   });
 });
+
+describe('binding rooms and people (admin, audited)', () => {
+  it('an admin binds an app room and links a person; members cannot; bad ids are refused', async () => {
+    const bind = await P.api('POST', '/api/chat/rooms', { app: 'ledger', room_id: '!books-2:acme.example' });
+    expect(bind.status, JSON.stringify(bind.body)).toBe(200);
+    expect(bind.body.bot).toMatch(/^@neop_ledger_.+:acme\.example$/);
+    // The app's identity was registered in the appservice namespace and joined the room.
+    expect(P.hs!.joined).toContainEqual({ room: '!books-2:acme.example', user: bind.body.bot });
+    expect((await P.api('POST', '/api/chat/rooms', { app: 'ledger', room_id: '!x:acme.example' }, P.member.token)).status).toBe(403);
+    expect((await P.api('POST', '/api/chat/rooms', { app: 'ledger', room_id: 'not-a-room' })).status).toBe(400);
+    expect((await P.api('PUT', `/api/users/${P.member.id}/chat`, { matrix_user_id: '@rahul:acme.example' })).status).toBe(200);
+    expect((await P.api('PUT', `/api/users/${P.member.id}/chat`, { matrix_user_id: 'rahul' })).status).toBe(400);
+    const users = (await P.api('GET', '/api/users')).body.users;
+    expect(users.find((u: any) => u.id === P.member.id).matrix_user_id).toBe('@rahul:acme.example');
+    const audit = (await P.api('GET', '/api/audit?action=chat.')).body.rows.map((r: any) => r.action);
+    expect(audit).toEqual(expect.arrayContaining(['chat.room_bound', 'chat.user_linked']));
+    await P.bridge!.createAppRoom(P.company.id, 'ledger', ROOM); // restore the room the other tests use
+  });
+});

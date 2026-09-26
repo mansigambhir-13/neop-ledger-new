@@ -136,6 +136,8 @@ export class Gate {
           summary: `Read ${ability.title}`,
           ability_key: key,
           input_hash: sha256(canonicalize(args)),
+          // What the read was based on, so the report can always say where its facts came from.
+          output_ref: { basis: (output as any)?.sources?.basis ?? null, entries: (output as any)?.sources?.entries ?? null, generatedAt: (output as any)?.generatedAt ?? null },
         }),
       );
       return { status: 'done', ability: key, output, untrusted: true };
@@ -374,6 +376,12 @@ export class Gate {
           sources: Array.isArray(args.sources) ? args.sources.map(String) : [],
         };
         return this.core.company(co, async (c) => {
+          // Every report says where its facts came from (WP §16). If the assistant did not list its
+          // sources, the book does: every read this job made, with the basis the read reported.
+          if (!result.sources.length) {
+            const reads = (await this.core.book.listSteps(c, claims.sub)).filter((s) => s.kind === 'ability' && s.ability_key && (s.output_ref as any)?.basis);
+            result.sources = [...new Set(reads.map((s) => `${s.ability_key}: ${(s.output_ref as any).basis}`))];
+          }
           const pending = (await this.core.book.openWaits(c, claims.sub)).filter((w) => w.status === 'pending');
           if (pending.length) return { status: 'refused', code: 'job_waiting', reason: 'the job is waiting on an answer; it cannot finish now' } as GateResult;
           const failed = result.outcome === 'failed';

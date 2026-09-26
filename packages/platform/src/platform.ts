@@ -4,7 +4,7 @@
 // app's outbox (S4).
 
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
-import { isSetting, Metrics, rulesProblem, strictest, type Decision, type Manifest, type OutboxEvent, type ProposalCreatedPayload, type Setting, type TaskResult } from '@neop/contracts';
+import { blocksProblem, isSetting, Metrics, rulesProblem, strictest, type Decision, type Manifest, type OutboxEvent, type ProposalCreatedPayload, type Setting, type TaskResult } from '@neop/contracts';
 import { pickApp } from './neuralchat.ts';
 import { isEnvelope, VaultCipher, type VaultKeys } from './vault.ts';
 import { KeyRing } from './keys.ts';
@@ -226,14 +226,17 @@ export class Platform {
     return { id: r.rows[0]!.id, token };
   }
 
-  async registerApp(a: { key: string; l3_url: string; manifest: Manifest; service_secret: string }): Promise<void> {
+  async registerApp(a: { key: string; l3_url: string; manifest: Manifest; service_secret: string; blocks?: Record<string, unknown> }): Promise<void> {
     const bad = a.manifest.abilities.find((x) => x.kind === 'read' && x.floor === 'ask_first');
     if (bad) throw new PlatformError(422, 'read_cannot_ask_first', `${bad.key}: a read cannot be ask-first`);
+    const blocks = a.blocks ?? {};
+    const problem = blocksProblem(blocks, a.manifest);
+    if (problem) throw new PlatformError(422, 'bad_blocks', problem);
     await this.db.query(
-      `insert into neos.apps (key, l3_url, manifest, contract_version, service_secret_hash) values ($1,$2,$3,$4,$5)
+      `insert into neos.apps (key, l3_url, manifest, contract_version, service_secret_hash, blocks) values ($1,$2,$3,$4,$5,$6)
        on conflict (key) do update set l3_url = excluded.l3_url, manifest = excluded.manifest,
-         contract_version = excluded.contract_version, service_secret_hash = excluded.service_secret_hash`,
-      [a.key, a.l3_url, JSON.stringify(a.manifest), a.manifest.contract_version, hashSecret(a.service_secret)],
+         contract_version = excluded.contract_version, service_secret_hash = excluded.service_secret_hash, blocks = excluded.blocks`,
+      [a.key, a.l3_url, JSON.stringify(a.manifest), a.manifest.contract_version, hashSecret(a.service_secret), JSON.stringify(blocks)],
     );
     await this.db.query('insert into neos.outbox_cursors (app_key) values ($1) on conflict do nothing', [a.key]);
   }
@@ -315,7 +318,13 @@ export class Platform {
     const manifest = appRow.rows[0]?.manifest;
     if (!manifest) throw new PlatformError(404, 'not_found', 'no such app');
     const lines: { key: string; kind: string; floor: Setting }[] = [...manifest.abilities, ...(await this.packageAbilities(app, companyId))];
+    const skills = await this.skillLines(app, companyId, manifest);
     for (const [k, v] of Object.entries(patch.settings ?? {})) {
+      if (k.startsWith('skill:')) {
+        if (!skills.some((x) => `skill:${x.key}` === k)) throw new PlatformError(422, 'unknown_skill', `${k.slice(6)} is not a skill of ${app}`);
+        if (v !== 'on' && v !== 'off') throw new PlatformError(422, 'bad_setting', `${k}: a skill line is on or off`);
+        continue;
+      }
       const a = lines.find((x) => x.key === k);
       if (!a) throw new PlatformError(422, 'unknown_ability', `${k} is not in ${app}'s manifest`);
       if (!isSetting(v)) throw new PlatformError(422, 'bad_setting', `${k}: ${String(v)}`);
@@ -608,6 +617,26 @@ export class Platform {
     return r.rows.flatMap((row) =>
       (Array.isArray(row.offers) ? row.offers : []).map((o: any) => ({ key: o.key, kind: o.kind, floor: o.floor, version: o.version, package: row.entry_key, package_version: row.version, install_status: row.status })),
     );
+  }
+
+  /** Tell an app its board changed (settings, installs): it drops its caches for that company. */
+  async notifyApp(app: string, companyId: string): Promise<void> {
+    const sb = await this.switchboard(companyId, app).catch(() => ({ version: 0 }));
+    await this.gateway
+      .call({ caller: 'platform', app, endpoint: 'switchboard.changed', company_id: companyId, body: { version: sb.version }, idem_key: `sb:${companyId}:${app}:${sb.version}:${Date.now()}` })
+      .catch((e) => this.log('switchboard.changed not delivered', { e: String(e) }));
+  }
+
+  /** Skill lines on the board (WP §10): the app's own skills and registry skills pinned for it. */
+  async skillLines(app: string, companyId: string, manifest: Manifest) {
+    const own = (manifest.skills ?? []).map((s: any) => ({ key: s.key as string, requires: (s.requires ?? []) as string[], from: 'own' }));
+    const reg = await this.db.query<{ entry_key: string; requires: string[]; owner_app: string | null; pinned_version: string }>(
+      `select i.entry_key, e.requires, e.owner_app, i.pinned_version from neos.registry_installs i
+         join neos.registry_entries e on e.key = i.entry_key and e.version = i.pinned_version
+        where i.company_id = $1 and i.host_app = $2 and i.status = 'active' and e.kind = 'skill'`,
+      [companyId, app],
+    );
+    return [...own, ...reg.rows.map((r) => ({ key: r.entry_key, requires: r.requires ?? [], from: `${r.owner_app ?? 'registry'} v${r.pinned_version}` }))];
   }
 
   async declaredDoors(app: string, companyId: string): Promise<Set<string>> {
@@ -907,7 +936,7 @@ export class Platform {
   /** The room a job is mirrored to: the room it came from, else the company's app room. */
   private async roomFor(c: PoolClient, companyId: string, app: string, task: { room_id?: string | null } | null): Promise<string | null> {
     if (task?.room_id) return task.room_id;
-    const r = await c.query<{ room_id: string }>("select room_id from neos.rooms where company_id = $1 and app_key = $2 and kind = 'app'", [companyId, app]);
+    const r = await c.query<{ room_id: string }>("select room_id from neos.rooms where company_id = $1 and app_key = $2 and kind = 'app' and status = 'active'", [companyId, app]);
     return r.rows[0]?.room_id ?? null;
   }
 

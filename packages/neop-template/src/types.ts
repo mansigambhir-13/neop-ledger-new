@@ -85,6 +85,8 @@ export interface AppDefinition {
   abilities: Record<string, AbilityHandler>;
   prompt: PromptFillins;
   skills: SkillFile[];
+  /** Screens as data (blocks/*.json), registered with the platform; never JavaScript. */
+  blocks?: Record<string, unknown>;
 }
 
 export interface Timings {
@@ -114,6 +116,8 @@ export interface NeopConfig {
   appDbUrl: string;
   /** Runner role connection (BYPASSRLS, standard tables only). */
   runnerDbUrl: string;
+  /** A direct (session) connection for LISTEN and the execution lock — never through a transaction pooler (S8). Defaults to runnerDbUrl. */
+  directDbUrl?: string;
   platformUrl: string;
   /** Service secret the backend uses for platform-internal calls (switchboard, vault, grant tokens). */
   serviceSecret: string;
