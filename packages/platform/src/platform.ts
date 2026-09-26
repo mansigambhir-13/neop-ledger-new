@@ -27,7 +27,7 @@ export interface PlatformOptions {
   /** Long-lived registry co-signing keys (separate from the gateway's short-lived tokens). */
   registryKeys?: KeyRing;
   log?: (msg: string, extra?: Record<string, unknown>) => void;
-  timings?: { approvalsMs?: number; outboxMs?: number; tasksMs?: number; keysMs?: number; a2aResultGiveUpMs?: number };
+  timings?: { approvalsMs?: number; outboxMs?: number; tasksMs?: number; keysMs?: number; a2aResultGiveUpMs?: number; taskDeliveryWindowMs?: number };
   /** How long the gateway waits for an app's answer (default 30 s). */
   gatewayTimeoutMs?: number;
   /** Model NeuralChat routes asks with, through the LLM proxy (default NEOS_ROUTER_MODEL; none = keyword fallback). */
@@ -988,18 +988,26 @@ export class Platform {
         idem_key: `task:${t.id}`,
         trace: t.trace_parent,
       });
-      if (res.status !== 200) throw new Error(`tasks.open answered ${res.status}: ${JSON.stringify(res.body)}`);
+      if (res.status !== 200) {
+        // A definite refusal (4xx other than timeout / rate limit) will not change on retry: fail it now.
+        const final = res.status >= 400 && res.status < 500 && res.status !== 408 && res.status !== 429;
+        throw Object.assign(new Error(`tasks.open answered ${res.status}: ${JSON.stringify(res.body)}`), { final });
+      }
       const u = await this.db.query<{ status: string; job_id: string }>(
         `update neos.tasks set status = case when status = 'OPEN' then 'ACKNOWLEDGED' else status end, job_id = $2, updated_at = now() where id = $1 returning status, job_id`,
         [t.id, res.body.job_id],
       );
       return { ack: res.body.ack, status: u.rows[0]!.status, job_id: u.rows[0]!.job_id };
     } catch (e) {
+      // An app that is down (restarting, redeploying) is retried for a window of time, not a count of
+      // attempts: a burst of restarts must not lose a person's ask. Past the window, or on a definite
+      // refusal, the task fails visibly.
       const attempts = t.open_attempts + 1;
+      const windowMs = this.opts.timings?.taskDeliveryWindowMs ?? 10 * 60_000;
       await this.db.query(
         `update neos.tasks set open_attempts = $2, last_error = $3, next_attempt_at = now() + ($4 || ' milliseconds')::interval,
-           status = case when $2 >= 8 then 'FAILED' else status end, updated_at = now() where id = $1`,
-        [t.id, attempts, String(e).slice(0, 500), String(BACKOFF_MS[Math.min(attempts, BACKOFF_MS.length - 1)])],
+           status = case when $5 or created_at < now() - ($6 || ' milliseconds')::interval then 'FAILED' else status end, updated_at = now() where id = $1`,
+        [t.id, attempts, String(e).slice(0, 500), String(BACKOFF_MS[Math.min(attempts, BACKOFF_MS.length - 1)]), (e as { final?: boolean }).final === true, String(windowMs)],
       );
       throw e;
     }

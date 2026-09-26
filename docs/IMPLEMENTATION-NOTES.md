@@ -98,7 +98,7 @@ Each item is small; flag any you disagree with.
       - **Kills every ~1.7 s** (`3000`): 0 lost, 0 duplicate executions (46 emails, 46 keys), but only 92 COMPLETED.
         - 6 tasks FAILED at the platform: `tasks.open` gave up after its 8 delivery attempts (1 s → 60 s backoff) while the backend was down almost continuously. Those 6 never reached the app.
         - 2 more FAILED on the session cap.
-      - **Open item for the platform:** delivery gives up after 8 attempts instead of retrying for as long as the ask is valid. Nothing was ever executed twice or lost silently: every failure is a terminal task with a reason.
+      - **Fixed since:** `tasks.open` delivery now retries for a time window (default 10 minutes, `timings.taskDeliveryWindowMs`) instead of 8 attempts, and fails at once only on a definite refusal (a 4xx other than 408/429). Proven by `task-delivery.test.ts`. The two session-cap failures remain: a job resumed again and again under repeated kills can exhaust its session cap and end FAILED with that reason.
 59. **Vault secrets are encrypted at rest** (`packages/platform/src/vault.ts`): AES-256-GCM envelopes tagged with a key id (`NEOS_VAULT_KEYS`, the `vault_keys` secret); adding a key and making it active re-encrypts every secret at boot. They are still lent per call and audited.
 
 52. **GSTR-3B through a GSP (nep-gst 2.0.0).** What is real and tested (`gst.test`, `gst-package.test`, `registry.test`):
