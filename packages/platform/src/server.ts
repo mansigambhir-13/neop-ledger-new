@@ -214,7 +214,16 @@ export function platformApp(p: Platform): Hono {
     const u = await user(c);
     const b = await c.req.json().catch(() => ({}));
     if (typeof b.text !== 'string' || !b.text.trim()) throw new PlatformError(400, 'bad_request', 'text required');
-    return c.json(await p.ask(u, b.text, { app: typeof b.app === 'string' ? b.app : undefined, conversation_id: typeof b.conversation_id === 'string' ? b.conversation_id : undefined }));
+    // Attachments are checked here only for shape and size; the app's documents door reads them.
+    const att = b.attachments;
+    if (att !== undefined) {
+      const ok = Array.isArray(att) && att.length <= 5 && att.every((a: any) =>
+        a && typeof a.filename === 'string' && a.filename.trim() && a.filename.length <= 200 &&
+        (a.content_type === undefined || (typeof a.content_type === 'string' && a.content_type.length <= 200)) &&
+        typeof a.content_base64 === 'string' && a.content_base64.length > 0 && a.content_base64.length <= 14_000_000);
+      if (!ok) throw new PlatformError(400, 'bad_request', 'attachments: at most 5 files of { filename, content_type?, content_base64 }, each ≤ 10 MB');
+    }
+    return c.json(await p.ask(u, b.text, { app: typeof b.app === 'string' ? b.app : undefined, conversation_id: typeof b.conversation_id === 'string' ? b.conversation_id : undefined, attachments: att }));
   });
 
   // (5a) What NeuralChat sees: installed apps, what each can do, which need a yes.

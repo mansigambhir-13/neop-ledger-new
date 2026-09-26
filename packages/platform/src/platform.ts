@@ -52,6 +52,13 @@ export class PlatformError extends Error {
 
 export type { VaultKeys };
 
+/** A file a person attached to an ask; the app's documents door reads it (no model). */
+export interface TaskAttachment {
+  filename: string;
+  content_type?: string;
+  content_base64: string;
+}
+
 const BACKOFF_MS = [1_000, 2_000, 5_000, 15_000, 30_000, 60_000];
 
 export class Platform {
@@ -158,7 +165,7 @@ export class Platform {
    * (2), NeuralChat picks an installed app with registry context (3, 5a), a
    * task is written (4) and handed over (6). Never waits for the job.
    */
-  async ask(user: { id: string; company_id: string }, text: string, opts: { app?: string; conversation_id?: string } = {}) {
+  async ask(user: { id: string; company_id: string }, text: string, opts: { app?: string; conversation_id?: string; attachments?: TaskAttachment[] } = {}) {
     // (1) The root of the trace for everything this ask causes, in every app.
     const root = this.gateway.tracer.start('neos.ask', null, { 'neop.company': user.company_id });
     try {
@@ -168,7 +175,7 @@ export class Platform {
     }
   }
 
-  private async askTraced(user: { id: string; company_id: string }, text: string, opts: { app?: string; conversation_id?: string }, trace: string) {
+  private async askTraced(user: { id: string; company_id: string }, text: string, opts: { app?: string; conversation_id?: string; attachments?: TaskAttachment[] }, trace: string) {
     // Hot path (ack latency): storing the ask and reading the registry context are independent — run them together.
     const store = async (): Promise<string> => {
       let id = opts.conversation_id ?? null;
@@ -208,6 +215,7 @@ export class Platform {
       trace_parent: trace,
       routed_by: route.method,
       route_reason: route.reason,
+      attachments: opts.attachments,
       beforeDeliver: (id) => this.say(conversationId, user.company_id, 'neuralchat', `Handed to ${name} (task ${id.slice(0, 8)}).`, 'handoff', id),
     });
     return { conversation_id: conversationId, handed_to: appKey, routed_by: route.method, route_reason: route.reason, ...t };
@@ -951,14 +959,16 @@ export class Platform {
     trace_parent?: string | null;
     routed_by?: 'explicit' | 'model' | 'keyword' | null;
     route_reason?: string | null;
+    /** Files the person attached; held on the task until the app acknowledges it. */
+    attachments?: TaskAttachment[];
     /** Runs after the task row exists and before it is handed to the app. */
     beforeDeliver?: (taskId: string) => Promise<void>;
   }): Promise<{ task_id: string; status: string; job_id: string | null; ack: string | null }> {
     // Handed over inline right below; the retry worker only looks at it if that fails (no double delivery under load).
     const r = await this.db.query(
-      `insert into neos.tasks (company_id, app_key, requester, ask, conversation_id, origin, room_id, trace_parent, routed_by, route_reason, next_attempt_at)
-       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10, now() + interval '10 seconds') returning *`,
-      [t.company_id, t.app_key, t.requester, t.ask, t.conversation_id ?? null, t.origin ?? 'app', t.room_id ?? null, t.trace_parent ?? null, t.routed_by ?? null, t.route_reason ?? null],
+      `insert into neos.tasks (company_id, app_key, requester, ask, conversation_id, origin, room_id, trace_parent, routed_by, route_reason, attachments, next_attempt_at)
+       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11, now() + interval '10 seconds') returning *`,
+      [t.company_id, t.app_key, t.requester, t.ask, t.conversation_id ?? null, t.origin ?? 'app', t.room_id ?? null, t.trace_parent ?? null, t.routed_by ?? null, t.route_reason ?? null, t.attachments?.length ? JSON.stringify(t.attachments) : null],
     );
     const row = r.rows[0]!;
     const id: string = row.id;
@@ -984,7 +994,7 @@ export class Platform {
         company_id: t.company_id,
         body: fromRoom
           ? { task_id: t.id, event_id: ev?.event_id ?? t.id, room_id: t.room_id, sender: t.requester, text: t.ask }
-          : { task_id: t.id, ask: t.ask, requester: t.requester },
+          : { task_id: t.id, ask: t.ask, requester: t.requester, ...(t.attachments ? { attachments: t.attachments } : {}) },
         idem_key: `task:${t.id}`,
         trace: t.trace_parent,
       });
@@ -994,7 +1004,7 @@ export class Platform {
         throw Object.assign(new Error(`tasks.open answered ${res.status}: ${JSON.stringify(res.body)}`), { final });
       }
       const u = await this.db.query<{ status: string; job_id: string }>(
-        `update neos.tasks set status = case when status = 'OPEN' then 'ACKNOWLEDGED' else status end, job_id = $2, updated_at = now() where id = $1 returning status, job_id`,
+        `update neos.tasks set status = case when status = 'OPEN' then 'ACKNOWLEDGED' else status end, job_id = $2, attachments = null, updated_at = now() where id = $1 returning status, job_id`,
         [t.id, res.body.job_id],
       );
       return { ack: res.body.ack, status: u.rows[0]!.status, job_id: u.rows[0]!.job_id };
