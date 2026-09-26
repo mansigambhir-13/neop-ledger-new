@@ -18,6 +18,7 @@ conformance({
     'ledger.parties.list': {},
     'ledger.bank.unreconciled': {},
     'ledger.periods.status': {},
+    'ledger.coding_rules.list': {},
   },
   gatedWrite: {
     key: 'ledger.journal.post',

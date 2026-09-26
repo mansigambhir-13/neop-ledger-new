@@ -35,6 +35,7 @@ export async function ledgerApp(): Promise<AppDefinition> {
       'ledger.parties.list': books.partiesList,
       'ledger.bank.unreconciled': books.bankUnreconciled,
       'ledger.periods.status': books.periodsStatus,
+      'ledger.coding_rules.list': books.codingRulesList,
       'ledger.invoice.create': books.invoiceCreate,
       'ledger.bill.record': books.billRecord,
       'ledger.payment.record': books.paymentRecord,

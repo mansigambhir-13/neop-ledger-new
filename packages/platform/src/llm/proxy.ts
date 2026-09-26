@@ -21,7 +21,14 @@ export interface ProxyConfig {
   db: Pool;
   /** Keys that sign session tokens: the gateway keyring in-process, or the platform's JWKS URL. */
   jwks: (() => { keys: any[] }) | string;
-  upstream: { baseUrl: string; apiKey: string };
+  upstream: {
+    baseUrl: string;
+    apiKey: string;
+    /** How the provider takes the key: Anthropic's x-api-key (default) or a Bearer token (OpenRouter's Anthropic-compatible API). */
+    auth?: 'x-api-key' | 'bearer';
+    /** Prefix added to the model id upstream (OpenRouter: "anthropic/"). Pricing and caps stay on the agent-facing id. */
+    modelPrefix?: string;
+  };
   /** Model id → price. Unknown models are refused (no unpriced spend). */
   prices: Record<string, Price>;
   /** Hard ceiling on max_tokens per call, whatever the client asks. */
@@ -164,11 +171,11 @@ export function llmProxyApp(cfg: ProxyConfig): Hono {
         method: 'POST',
         headers: {
           'content-type': 'application/json',
-          'x-api-key': cfg.upstream.apiKey,
+          ...(cfg.upstream.auth === 'bearer' ? { authorization: `Bearer ${cfg.upstream.apiKey}` } : { 'x-api-key': cfg.upstream.apiKey }),
           'anthropic-version': c.req.header('anthropic-version') ?? '2023-06-01',
           ...(c.req.header('anthropic-beta') ? { 'anthropic-beta': c.req.header('anthropic-beta')! } : {}),
         },
-        body: JSON.stringify(body),
+        body: JSON.stringify(cfg.upstream.modelPrefix ? { ...body, model: cfg.upstream.modelPrefix + body.model } : body),
         signal: AbortSignal.timeout(300_000),
       });
     } catch (e) {

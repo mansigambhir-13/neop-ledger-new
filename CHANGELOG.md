@@ -1,5 +1,11 @@
 # Changelog
 
+## neop-ledger 1.1.0 — 2026-09-26
+- **Operator console** (`web` service, port 4780): designed around the NEOP — ask bar, live job lifecycle, fingerprinted approvals with clocks and "approve & always allow", the switchboard (floor · company · in force) with company rules, spend caps and who may approve, standing yeses, doors and the key vault, packages and skills, other apps, one audit trail, and the books with sources on every figure.
+- **Platform:** governance endpoints (grants list/validation, ACL list, audit, registry catalogue, switchboard history, usage, job record); company rules validated on save; package abilities on the switchboard; reconciled proofs reach the desk; member can no longer withdraw a standing yes.
+- **Ledger:** `ledger.coding_rules.list` read (30 abilities).
+- **LLM proxy:** OpenRouter mode.
+
 ## neop-ledger 1.0.0 — 2026-09-26
 First shippable release.
 - **Bookkeeping:**

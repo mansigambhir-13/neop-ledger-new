@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sign in · Ledger</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap">
+<link rel="stylesheet" href="/app.css">
+</head>
+<body>
+<div class="login">
+  <form class="card" id="f" autocomplete="off">
+    <span class="wordmark">NEOS</span>
+    <h1>Sign in to Ledger</h1>
+    <p>Paste the desk token your company admin gave you. It stays on this server; the page never sees it again.</p>
+    <label class="f" for="t">Desk token</label>
+    <input class="i mono" id="t" type="password" required autofocus spellcheck="false">
+    <div class="err hidden" id="e"></div>
+    <button class="btn lime" type="submit">Sign in</button>
+  </form>
+</div>
+<script src="/login.js"></script>
+</body>
+</html>

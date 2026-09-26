@@ -139,7 +139,7 @@ export interface BootOptions {
   platformWorkers?: boolean;
   chat?: boolean;
   /** Route assistants through the platform LLM proxy to this upstream (real Anthropic wire format). */
-  llmUpstream?: { url: string; apiKey: string };
+  llmUpstream?: { url: string; apiKey: string; auth?: 'x-api-key' | 'bearer'; modelPrefix?: string };
   poolSize?: number;
   /** Platform DB pool; small by default because many pilots share one Postgres in the test run. */
   platformDbPool?: number;
@@ -159,7 +159,7 @@ export async function bootPilot(opts: BootOptions): Promise<Pilot> {
   const plat = await startPlatform({
     chat: hs ? { matrix: { homeserverUrl: hs.url, serverName: MATRIX.serverName, hsToken: MATRIX.hsToken, asToken: MATRIX.asToken } } : undefined,
     bridgeSendEveryMs: 100,
-    llm: opts.llmUpstream ? { upstream: { baseUrl: opts.llmUpstream.url, apiKey: opts.llmUpstream.apiKey }, prices: { 'claude-sonnet-5': { input: 3, output: 15 } } } : undefined,
+    llm: opts.llmUpstream ? { upstream: { baseUrl: opts.llmUpstream.url, apiKey: opts.llmUpstream.apiKey, auth: opts.llmUpstream.auth, modelPrefix: opts.llmUpstream.modelPrefix }, prices: { 'claude-sonnet-5': { input: 3, output: 15 } } } : undefined,
     dbUrl: roleUrl(db.adminUrl, 'neos_app'),
     dbPoolSize: opts.platformDbPool ?? 6,
     keys,

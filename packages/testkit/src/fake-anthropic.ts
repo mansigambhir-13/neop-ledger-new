@@ -18,7 +18,7 @@ export type UpstreamBrain = (v: UpstreamView) => { tool: string; args: unknown }
 export interface FakeUpstream {
   url: string;
   apiKey: string;
-  calls: { apiKey: string | undefined; model: string; max_tokens: number }[];
+  calls: { apiKey: string | undefined; model: string; max_tokens: number; auth?: 'bearer' | 'x-api-key' }[];
   setBrain(b: UpstreamBrain): void;
   usage: { input: number; output: number };
   close(): Promise<void>;
@@ -31,10 +31,13 @@ export async function fakeAnthropic(opts: { apiKey?: string; usage?: { input: nu
   const usage = opts.usage ?? { input: 1200, output: 80 };
   const app = new Hono();
   app.post('/v1/messages', async (c) => {
-    calls.push({ apiKey: c.req.header('x-api-key'), model: '', max_tokens: 0 });
-    if (c.req.header('x-api-key') !== apiKey) return c.json({ type: 'error', error: { type: 'authentication_error', message: 'invalid x-api-key' } }, 401);
+    // Anthropic takes x-api-key; OpenRouter's Anthropic-compatible API takes a Bearer token.
+    const bearer = c.req.header('authorization')?.replace(/^Bearer /, '');
+    const got = c.req.header('x-api-key') ?? bearer;
+    calls.push({ apiKey: got, model: '', max_tokens: 0, auth: bearer ? 'bearer' : 'x-api-key' });
+    if (got !== apiKey) return c.json({ type: 'error', error: { type: 'authentication_error', message: 'invalid x-api-key' } }, 401);
     const body = await c.req.json();
-    calls[calls.length - 1] = { apiKey: c.req.header('x-api-key'), model: body.model, max_tokens: body.max_tokens };
+    calls[calls.length - 1] = { apiKey: got, model: body.model, max_tokens: body.max_tokens, auth: bearer ? 'bearer' : 'x-api-key' };
     const toolNames = new Map<string, string>();
     const results: UpstreamView['results'] = [];
     for (const m of body.messages) {

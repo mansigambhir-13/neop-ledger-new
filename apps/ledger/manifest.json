@@ -1740,6 +1740,77 @@
       "version": "1.0.0"
     },
     {
+      "key": "ledger.coding_rules.list",
+      "title": "Coding rules",
+      "kind": "read",
+      "floor": "on",
+      "description": "The company's bank coding rules (pattern → account), in the order they are tried, with how many bank lines each has matched.",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {}
+      },
+      "output": {
+        "type": "object",
+        "required": [
+          "generatedAt",
+          "currency",
+          "empty",
+          "sources",
+          "rules"
+        ],
+        "properties": {
+          "generatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "empty": {
+            "type": "boolean"
+          },
+          "sources": {
+            "type": "object",
+            "required": [
+              "entries",
+              "entry_ids",
+              "basis"
+            ],
+            "properties": {
+              "entries": {
+                "type": "integer"
+              },
+              "entry_ids": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "basis": {
+                "type": "string"
+              }
+            }
+          },
+          "rules": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "reference",
+                "pattern",
+                "account_code",
+                "direction",
+                "priority",
+                "matched"
+              ]
+            }
+          }
+        }
+      },
+      "version": "1.0.0"
+    },
+    {
       "key": "ledger.invoice.create",
       "title": "Raise a customer invoice",
       "kind": "write",

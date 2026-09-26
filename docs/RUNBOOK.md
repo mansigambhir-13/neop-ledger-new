@@ -10,6 +10,7 @@ This whole sequence has been run end to end in Docker Compose. Every image sets 
    ```
    pnpm exec tsx scripts/gen-secrets.ts                 # fills deploy/secrets/ (git-ignored, 0600, never overwrites)
    echo "<provider key>" > deploy/secrets/llm_upstream_key
+   # OpenRouter instead of Anthropic: export NEOP_LLM_UPSTREAM_URL=https://openrouter.ai/api NEOP_LLM_UPSTREAM_AUTH=bearer NEOP_LLM_UPSTREAM_MODEL_PREFIX=anthropic/
    ```
    It generates the Postgres admin, a password per role, matching connection URLs, Ledger's service, job-token and package keys, the vault key and the metrics token. The signing keyrings are not secrets files: they rotate in place, so they live on the `platform-keys` volume and are created on first boot. **Back that volume up.**
 2. **Migrate:**
@@ -38,11 +39,12 @@ This whole sequence has been run end to end in Docker Compose. Every image sets 
    $OPS install <company_id> ledger
    ```
    Desk tokens are stored as a SHA-256 hash only; a lost token is replaced, not recovered.
-5. **Smoke check:**
+5. **Console:** open `http://127.0.0.1:4780` (put TLS in front and set `NEOS_WEB_SECURE_COOKIES=1` before exposing it). People sign in with their desk token; it lives in an httpOnly cookie and the page never sees it.
+6. **Smoke check:**
    - `GET /api/me` with the admin token.
    - `POST /api/apps/ledger/read/ledger.report.trial_balance {"as_of":"<today>"}`.
    - Ask something from the desk. The job should reach the agent, the LLM proxy and the provider.
-6. **Chat (optional):** configure Synapse with `deploy/appservice.yaml`, start `--profile chat`, and set `MATRIX_HOMESERVER_URL`, `MATRIX_SERVER_NAME`, `MATRIX_HS_TOKEN[_FILE]` and `MATRIX_AS_TOKEN[_FILE]` on the platform.
+7. **Chat (optional):** configure Synapse with `deploy/appservice.yaml`, start `--profile chat`, and set `MATRIX_HOMESERVER_URL`, `MATRIX_SERVER_NAME`, `MATRIX_HS_TOKEN[_FILE]` and `MATRIX_AS_TOKEN[_FILE]` on the platform.
 
 ## Configure a company's providers (admin, write-only)
 - **Email (Resend):**

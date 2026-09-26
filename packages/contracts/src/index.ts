@@ -7,3 +7,4 @@ export * from './manifest.ts';
 export * from './registry.ts';
 export * from './trace.ts';
 export * from './metrics.ts';
+export * from './rules.ts';

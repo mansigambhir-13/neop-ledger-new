@@ -2,7 +2,7 @@ import { closeServer } from '@neop/pgkit';
 import { serve, type ServerType } from '@hono/node-server';
 import { ChatBridge, type RoomTransport } from './bridge/bridge.ts';
 import { matrixAppservice, MatrixTransport, type MatrixConfig } from './bridge/matrix.ts';
-import { llmProxyApp, pricesFromEnv, type Price } from './llm/proxy.ts';
+import { llmProxyApp, pricesFromEnv, type Price, type ProxyConfig } from './llm/proxy.ts';
 import { Platform, type PlatformOptions } from './platform.ts';
 import { platformApp } from './server.ts';
 
@@ -27,7 +27,7 @@ export async function startPlatform(
     chat?: { matrix: MatrixConfig } | { transport: RoomTransport; serverName: string };
     bridgeSendEveryMs?: number;
     /** Run the LLM proxy in this process, mounted at /llm. */
-    llm?: { upstream: { baseUrl: string; apiKey: string }; prices?: Record<string, Price> };
+    llm?: { upstream: ProxyConfig['upstream']; prices?: Record<string, Price> };
   },
 ): Promise<{ platform: Platform; bridge: ChatBridge | null; port: number; url: string; stop: () => Promise<void> }> {
   const platform = new Platform(opts);

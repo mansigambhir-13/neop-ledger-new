@@ -36,19 +36,34 @@ async function taskDone(taskId: string) {
 const mails = async () => (await readdir(P.mailDir)).length;
 
 describe('proposal', () => {
-  it('refuses a stale yes: an answer against a different fingerprint does nothing', async () => {
-    P.setBrain((v: BrainView) => (v.job.includes('WOKEN') ? finish('stopped') : v.calls === 0 ? email(['cfo@acme.example']) : { text: 'waiting' }));
-    const { job_id } = await P.ask('Email the August pack to the CFO');
+  it('refuses a stale yes at the desk, keeps the card open, and the app refuses one that gets past', async () => {
+    P.setBrain((v: BrainView) => (v.job.includes('WOKEN') ? finish('sent') : v.calls === 0 ? email(['cfo@acme.example']) : { text: 'waiting' }));
+    const { task_id, job_id } = await P.ask('Email the August pack to the CFO');
     const card = await pendingCard(job_id);
     const before = await mails();
-    await P.api('POST', `/api/desk/${card.id}/answer`, { decision: 'yes', fingerprint_seen: 'sha256:' + '0'.repeat(64) });
-    const refused = await P.waitFor(async () => (await P.desk()).find((c) => c.id === card.id && c.status === 'REFUSED'), 'refused');
-    expect(refused.last_error).toContain('fingerprint_mismatch');
+    // 1. The desk: a yes against another fingerprint is refused and nothing is recorded.
+    const stale = await P.api('POST', `/api/desk/${card.id}/answer`, { decision: 'yes', fingerprint_seen: 'sha256:' + '0'.repeat(64) });
+    expect(stale.status).toBe(409);
+    expect(stale.body.error.code).toBe('stale_fingerprint');
+    expect((await P.desk()).find((c) => c.id === card.id).status).toBe('PENDING');
+    // 2. Defence in depth: a resolve that reached the app with the wrong fingerprint changes nothing there.
+    const direct = await P.platform.gateway.call({
+      caller: 'platform',
+      app: 'ledger',
+      endpoint: 'proposals.resolve',
+      company_id: P.company.id,
+      body: { proposal_id: card.proposal_id, decision: 'yes', fingerprint_seen: 'sha256:' + '0'.repeat(64), decided_by: `user:${P.admin.id}` },
+      idem_key: `stale:${card.id}`,
+    });
+    expect(direct.status).not.toBe(200);
+    expect(String(JSON.stringify(direct.body))).toContain('fingerprint_mismatch');
     const p = await P.backend.core.runnerPool.query('select status from ledger.proposals where id = $1', [card.proposal_id]);
     expect(p.rows[0].status).toBe('PROPOSED');
     expect(await mails()).toBe(before);
-    const ev = await P.backend.core.runnerPool.query("select event from ledger.proposal_events where proposal_id = $1 and event like 'answer_refused%'", [card.proposal_id]);
-    expect(ev.rowCount).toBe(1);
+    // 3. The yes to what is really on the card still works.
+    expect((await P.api('POST', `/api/desk/${card.id}/answer`, { decision: 'yes', fingerprint_seen: card.fingerprint })).status).toBe(200);
+    await taskDone(task_id);
+    expect(await mails()).toBe(before + 1);
   });
 
   it('carries out a yes exactly once; a retried execute returns the stored proof', async () => {

@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { DECISIONS } from '@neop/contracts';
+import { DECISIONS, strictest, type Manifest, type Setting } from '@neop/contracts';
 import { Hono, type Context } from 'hono';
 import { streamSSE } from 'hono/streaming';
 import { GatewayError } from './gateway.ts';
@@ -98,12 +98,75 @@ export function platformApp(p: Platform): Hono {
     return u;
   };
 
-  app.get('/api/me', async (c) => c.json(await user(c)));
+  app.get('/api/me', async (c) => {
+    const u = await user(c);
+    const co = (await p.db.query('select name, slug, time_zone from neos.companies where id = $1', [u.company_id])).rows[0];
+    return c.json({ ...u, company: co ?? null });
+  });
+
+  // The company's people (the Team view). Tokens are never returned: only a hash is stored.
+  app.get('/api/users', async (c) => {
+    const u = await user(c);
+    if (u.role !== 'admin') throw new PlatformError(403, 'denied', 'admins only');
+    const r = await p.db.query('select id, name, email, role, created_at from neos.users where company_id = $1 order by created_at', [u.company_id]);
+    return c.json({ users: r.rows });
+  });
 
   app.get('/api/apps', async (c) => {
     await user(c);
     const r = await p.db.query("select key, manifest->>'name' as name, manifest->>'description' as description from neos.apps where status = 'active' order by key");
     return c.json({ apps: r.rows });
+  });
+
+  // What an installed app can do, with each ability's safety floor and the company's
+  // current setting (including abilities switched off), for the controls screen.
+  app.get('/api/apps/:app/abilities', async (c) => {
+    const u = await user(c);
+    const key = c.req.param('app');
+    await p.assertInstalled(key, u.company_id);
+    const r = await p.db.query<{ manifest: Manifest }>("select manifest from neos.apps where key = $1 and status = 'active'", [key]);
+    if (!r.rows[0]) throw new PlatformError(404, 'not_found', 'no such app');
+    const m = r.rows[0].manifest;
+    const sb = await p.switchboard(u.company_id, key);
+    const forced = new Set((sb.rules ?? []).filter((x: any) => x?.type === 'require_person').flatMap((x: any) => x.abilities ?? []));
+    const inForce = (a: { key: string; kind: string; floor: Setting }) => {
+      const s = strictest(a.floor, sb.settings?.[a.key]);
+      return s === 'on' && a.kind === 'write' && forced.has(a.key) ? 'ask_first' : s;
+    };
+    const pkg = await p.packageAbilities(key, u.company_id);
+    const doors = [...(await p.declaredDoors(key, u.company_id))];
+    return c.json({
+      switchboard_version: sb.version,
+      abilities: [
+        ...m.abilities.map((a) => ({
+          key: a.key,
+          title: a.title,
+          description: a.description,
+          kind: a.kind,
+          floor: a.floor,
+          company: sb.settings?.[a.key] ?? null,
+          setting: inForce(a),
+          forced_by_rule: forced.has(a.key),
+          from: 'own',
+          effects: a.effects ?? {},
+          doors: a.doors ?? [],
+        })),
+        ...pkg.map((a) => ({
+          key: a.key,
+          title: a.key,
+          description: `From the ${a.package} package (v${a.package_version})${a.install_status === 'pending_migration' ? ' — waiting for its migration to run' : ''}.`,
+          kind: a.kind,
+          floor: a.floor,
+          company: sb.settings?.[a.key] ?? null,
+          setting: inForce(a),
+          forced_by_rule: forced.has(a.key),
+          from: a.package,
+          effects: {},
+          doors: [],
+        })),
+      ],
+      doors: doors.map((d) => ({ key: d, declared_by: (m.doors ?? []).some((x) => x.key === d) ? 'own' : 'package', scopes: (m.doors ?? []).find((x) => x.key === d)?.scopes ?? [] })),
+    });
   });
 
   // Steps 1–6: stored in the conversation → NeuralChat picks an installed app → task row → tasks.open. Never blocks on the job.
@@ -211,7 +274,14 @@ export function platformApp(p: Platform): Hono {
 
   app.get('/api/tasks', async (c) => {
     const u = await user(c);
-    const r = await p.db.query('select * from neos.tasks where company_id = $1 order by created_at desc limit 50', [u.company_id]);
+    const r = await p.db.query(
+      `select t.*,
+              (select coalesce(sum(cost_micros), 0)::bigint from neos.llm_usage l where l.job_id = t.job_id) as cost_micros,
+              (select count(*)::int from neos.approvals a where a.job_id = t.job_id and a.status = 'PENDING') as pending_approvals,
+              (select count(*)::int from neos.activity v where v.job_id = t.job_id and v.company_id = t.company_id) as steps
+         from neos.tasks t where t.company_id = $1 order by t.created_at desc limit $2`,
+      [u.company_id, Math.min(Number(c.req.query('limit') ?? 50) || 50, 200)],
+    );
     return c.json({ tasks: r.rows });
   });
 
@@ -223,14 +293,31 @@ export function platformApp(p: Platform): Hono {
     const act = t.rows[0].job_id
       ? await p.db.query('select seq, kind, summary, at from neos.activity where job_id = $1 and company_id = $2 order by seq', [t.rows[0].job_id, u.company_id])
       : { rows: [] };
-    return c.json({ task: t.rows[0], messages: msgs.rows, activity: act.rows });
+    const job = t.rows[0].job_id;
+    const approvals = job
+      ? await p.db.query(
+          `select a.id, a.proposal_id, a.ability_key, a.args, a.card, a.fingerprint, a.expires_at, a.status, a.decision, a.feedback, a.decided_at, a.fingerprint_seen, a.proof, a.last_error, a.created_at, du.name as decided_by_name
+             from neos.approvals a left join neos.users du on du.id = a.decided_by where a.job_id = $1 and a.company_id = $2 order by a.created_at`,
+          [job, u.company_id],
+        )
+      : { rows: [] };
+    const cost = job
+      ? await p.db.query(`select coalesce(sum(cost_micros), 0)::bigint as micros, count(*)::int as calls, coalesce(sum(input_tokens + output_tokens), 0)::bigint as tokens from neos.llm_usage where job_id = $1 and company_id = $2`, [job, u.company_id])
+      : { rows: [{ micros: 0, calls: 0, tokens: 0 }] };
+    const grants = job
+      ? await p.db.query(`select at, ability_key, detail from neos.audit where action = 'grant.used' and company_id = $1 and detail->>'job_id' = $2 order by at`, [u.company_id, job])
+      : { rows: [] };
+    const c0 = cost.rows[0];
+    return c.json({ task: t.rows[0], messages: msgs.rows, activity: act.rows, approvals: approvals.rows, grant_uses: grants.rows, cost: { usd: Number(c0.micros) / 1e6, calls: c0.calls, tokens: Number(c0.tokens) } });
   });
 
   app.get('/api/desk', async (c) => {
     const u = await user(c);
     const r = await p.db.query(
-      `select id, app_key, proposal_id, job_id, task_id, ability_key, args, card, fingerprint, expires_at, status, decision, proof, last_error, created_at
-         from neos.approvals where company_id = $1 order by (status = 'PENDING') desc, created_at desc limit 100`,
+      `select a.id, a.app_key, a.proposal_id, a.job_id, a.task_id, a.ability_key, a.args, a.card, a.fingerprint, a.expires_at, a.status, a.decision, a.feedback,
+              a.decided_at, a.fingerprint_seen, du.name as decided_by_name, a.proof, a.last_error, a.created_at, t.ask as task_ask, t.requester as task_requester
+         from neos.approvals a left join neos.users du on du.id = a.decided_by left join neos.tasks t on t.id = a.task_id
+        where a.company_id = $1 order by (a.status = 'PENDING') desc, a.created_at desc limit 200`,
       [u.company_id],
     );
     return c.json({ cards: r.rows });
@@ -323,17 +410,152 @@ export function platformApp(p: Platform): Hono {
     return c.json({ ok: true });
   });
 
+  // Standing yeses (WP §5): "always do this within these limits". Admins create and withdraw
+  // them; everyone can see them and what they have been used for this month.
+  app.get('/api/grants', async (c) => {
+    const u = await user(c);
+    const r = await p.db.query(
+      `select g.id, g.app_key, g.ability_key, g.limits, g.status, g.expires_at, g.created_at, g.suspended_reason,
+              cu.name as created_by_name,
+              (select count(*)::int from neos.audit a where a.action = 'grant.used' and a.detail->>'grant_id' = g.id::text) as uses,
+              (select coalesce(sum((a.detail->>'amount_minor')::bigint), 0)::bigint from neos.audit a
+                where a.action = 'grant.used' and a.detail->>'grant_id' = g.id::text and a.at >= date_trunc('month', now())) as used_this_month_minor,
+              (select max(a.at) from neos.audit a where a.action = 'grant.used' and a.detail->>'grant_id' = g.id::text) as last_used_at
+         from neos.grants g left join neos.users cu on cu.id = g.created_by
+        where g.company_id = $1 order by (g.status = 'ACTIVE') desc, g.created_at desc`,
+      [u.company_id],
+    );
+    return c.json({ grants: r.rows.map((g) => ({ ...g, used_this_month_minor: Number(g.used_this_month_minor), expired: new Date(g.expires_at) <= new Date() })) });
+  });
   app.post('/api/grants', async (c) => {
     const u = await user(c);
     if (u.role !== 'admin') throw new PlatformError(403, 'denied', 'admins only');
-    const b = await c.req.json();
-    const id = await p.createGrant({ company_id: u.company_id, app_key: b.app_key, ability_key: b.ability_key, limits: b.limits ?? {}, expires_at: new Date(b.expires_at), created_by: u.id });
+    const b = await c.req.json().catch(() => ({}));
+    const appRow = (await p.db.query<{ manifest: Manifest }>('select manifest from neos.apps where key = $1', [b.app_key])).rows[0];
+    if (!appRow) throw new PlatformError(404, 'not_found', 'no such app');
+    await p.assertInstalled(b.app_key, u.company_id);
+    const a = appRow.manifest.abilities.find((x) => x.key === b.ability_key);
+    if (!a || a.kind !== 'write') throw new PlatformError(422, 'not_grantable', 'a standing yes covers one write ability of the app');
+    const L = b.limits ?? {};
+    for (const k of ['per_call_minor', 'per_month_minor']) {
+      if (L[k] !== undefined && !(Number.isInteger(L[k]) && L[k] > 0)) throw new PlatformError(422, 'bad_limits', `${k} must be a positive whole number of minor units`);
+    }
+    if ((L.per_call_minor !== undefined || L.per_month_minor !== undefined) && !/^[A-Z]{3}$/.test(String(L.currency ?? ''))) {
+      throw new PlatformError(422, 'bad_limits', 'an amount limit needs a currency');
+    }
+    if (a.effects?.money && L.per_call_minor === undefined && L.per_month_minor === undefined) {
+      throw new PlatformError(422, 'bad_limits', 'a standing yes for money needs an amount limit');
+    }
+    if (L.recipients_allow !== undefined && (!Array.isArray(L.recipients_allow) || !L.recipients_allow.every((x: unknown) => typeof x === 'string' && /@/.test(x as string)))) {
+      throw new PlatformError(422, 'bad_limits', 'recipients_allow must list email addresses');
+    }
+    const exp = new Date(b.expires_at);
+    if (!(exp.getTime() > Date.now()) || exp.getTime() > Date.now() + 366 * 864e5) throw new PlatformError(422, 'bad_expiry', 'a standing yes must expire within a year');
+    const limits = Object.fromEntries(['per_call_minor', 'per_month_minor', 'currency', 'recipients_allow'].filter((k) => L[k] !== undefined).map((k) => [k, L[k]]));
+    const id = await p.createGrant({ company_id: u.company_id, app_key: b.app_key, ability_key: b.ability_key, limits, expires_at: exp, created_by: u.id });
+    await p.gateway.audit({ company_id: u.company_id, actor: `user:${u.id}`, app_key: b.app_key, action: 'grant.created', ability_key: b.ability_key, outcome: id, detail: { limits, expires_at: exp.toISOString() } });
     return c.json({ id });
   });
   app.delete('/api/grants/:id', async (c) => {
     const u = await user(c);
-    await p.db.query(`update neos.grants set status = 'REVOKED' where id = $1 and company_id = $2`, [c.req.param('id'), u.company_id]);
+    if (u.role !== 'admin') throw new PlatformError(403, 'denied', 'admins only');
+    const r = await p.db.query(`update neos.grants set status = 'REVOKED' where id = $1 and company_id = $2 and status <> 'REVOKED' returning app_key, ability_key`, [c.req.param('id'), u.company_id]);
+    if (!r.rows[0]) throw new PlatformError(404, 'not_found', 'no such standing yes');
+    await p.gateway.audit({ company_id: u.company_id, actor: `user:${u.id}`, app_key: r.rows[0].app_key, action: 'grant.revoked', ability_key: r.rows[0].ability_key, outcome: c.req.param('id') });
     return c.json({ ok: true });
+  });
+
+  // Which other apps may ask an app for what (borrowing and tasks, WP §9–10).
+  app.get('/api/acl', async (c) => {
+    const u = await user(c);
+    if (u.role !== 'admin') throw new PlatformError(403, 'denied', 'admins only');
+    const r = await p.db.query(
+      `select a.caller_app, a.target_app, a.ability_key, a.granted_at, gu.name as granted_by_name
+         from neos.acl a left join neos.users gu on gu.id::text = a.granted_by::text
+        where a.company_id = $1 and ($2::text is null or a.target_app = $2 or a.caller_app = $2) order by a.granted_at desc`,
+      [u.company_id, c.req.query('app') ?? null],
+    );
+    const apps = await p.db.query(`select a.key, a.manifest->>'name' as name from neos.installs i join neos.apps a on a.key = i.app_key where i.company_id = $1 and i.status = 'active' order by a.key`, [u.company_id]);
+    return c.json({ acl: r.rows, installed_apps: apps.rows });
+  });
+
+  // One audit trail (WP §8): every effectful call and every governance change, newest first.
+  app.get('/api/audit', async (c) => {
+    const u = await user(c);
+    if (u.role !== 'admin') throw new PlatformError(403, 'denied', 'admins only');
+    const q = c.req.query();
+    const limit = Math.min(Math.max(Number(q.limit ?? 100) || 100, 1), 500);
+    const r = await p.db.query(
+      `select id, at, actor, app_key, action, ability_key, idem_key, request_id, outcome, detail from neos.audit
+        where company_id = $1
+          and ($2::text is null or app_key = $2) and ($3::text is null or action like $3 || '%')
+          and ($4::text is null or actor = $4) and ($5::bigint is null or id < $5)
+        order by id desc limit $6`,
+      [u.company_id, q.app ?? null, q.action ?? null, q.actor ?? null, q.before ?? null, limit],
+    );
+    const actors = [...new Set(r.rows.map((x) => x.actor).filter((a: string) => a?.startsWith('user:')).map((a: string) => a.slice(5)))];
+    const names = actors.length ? (await p.db.query('select id, name from neos.users where id = any($1::uuid[])', [actors])).rows : [];
+    const byId = new Map(names.map((n) => [String(n.id), n.name]));
+    return c.json({ rows: r.rows.map((x) => ({ ...x, id: Number(x.id), actor_name: x.actor?.startsWith('user:') ? (byId.get(x.actor.slice(5)) ?? null) : null })), next_before: r.rows.length === limit ? Number(r.rows.at(-1).id) : null });
+  });
+
+  // The registry as a person sees it (WP §10): what can be added, what it offers and needs,
+  // signed versions, and what this company has pinned.
+  app.get('/api/registry/catalog', async (c) => {
+    const u = await user(c);
+    const entries = await p.db.query(
+      `select key, version, kind, owner_app, offers, requires, status, platform_sig is not null as signed, content_hash, published_at, deprecated_at
+         from neos.registry_entries where status in ('published', 'deprecated') order by key, published_at desc nulls last`,
+    );
+    const installs = await p.db.query('select host_app, entry_key, pinned_version, status, installed_at from neos.registry_installs where company_id = $1', [u.company_id]);
+    const byKey = new Map<string, any>();
+    for (const e of entries.rows) {
+      const cur = byKey.get(e.key);
+      if (!cur) byKey.set(e.key, { ...e, versions: [e.version] });
+      else cur.versions.push(e.version);
+    }
+    return c.json({
+      entries: [...byKey.values()].map((e) => {
+        const inst = installs.rows.filter((i) => i.entry_key === e.key);
+        return { ...e, latest: e.version, installs: inst, update_available: inst.some((i) => i.pinned_version !== e.version) };
+      }),
+    });
+  });
+
+  // Every switchboard version (WP §4: "change the list and the next call behaves differently").
+  app.get('/api/switchboards/:app/history', async (c) => {
+    const u = await user(c);
+    const r = await p.db.query(
+      `select s.version, s.updated_at, s.settings, s.rules, s.budget, s.approvals, uu.name as updated_by_name
+         from neos.switchboards s left join neos.users uu on uu.id::text = s.updated_by::text
+        where s.company_id = $1 and s.app_key = $2 order by s.version desc limit 50`,
+      [u.company_id, c.req.param('app')],
+    );
+    return c.json({ versions: r.rows });
+  });
+
+  // What the assistant has cost: today (company time zone) and this month, against the caps.
+  app.get('/api/usage/:app', async (c) => {
+    const u = await user(c);
+    const sb = await p.switchboard(u.company_id, c.req.param('app'));
+    const tz = sb.company.time_zone;
+    const r = await p.db.query(
+      `select coalesce(sum(cost_micros) filter (where (at at time zone $3)::date = (now() at time zone $3)::date), 0)::bigint as today,
+              coalesce(sum(cost_micros) filter (where date_trunc('month', at at time zone $3) = date_trunc('month', now() at time zone $3)), 0)::bigint as month,
+              count(*) filter (where outcome = 'refused_budget' and (at at time zone $3)::date = (now() at time zone $3)::date)::int as refused_today,
+              coalesce(sum(input_tokens + output_tokens) filter (where (at at time zone $3)::date = (now() at time zone $3)::date), 0)::bigint as tokens_today
+         from neos.llm_usage where company_id = $1 and app_key = $2`,
+      [u.company_id, c.req.param('app'), tz],
+    );
+    const x = r.rows[0];
+    return c.json({
+      today_usd: Number(x.today) / 1e6,
+      month_usd: Number(x.month) / 1e6,
+      tokens_today: Number(x.tokens_today),
+      refused_today: x.refused_today,
+      per_job_cap_usd: Number(sb.budget?.per_job_usd ?? 5),
+      per_day_cap_usd: Number(sb.budget?.per_day_usd ?? 50),
+    });
   });
 
   // Reads for blocks (home tile, desk list): through the gateway, as the person.

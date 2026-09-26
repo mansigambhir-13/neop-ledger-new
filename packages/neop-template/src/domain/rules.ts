@@ -1,3 +1,4 @@
+import { rulesProblem } from '@neop/contracts';
 // Company rules as data, not code (plan §Gate & policy). A closed set evaluated
 // by the template; new rule types are template releases. Pure: no I/O.
 
@@ -18,7 +19,7 @@ export type Rule =
   | { id: string; type: 'recipient_cap'; max: number; applies_to?: RuleScope }
   | { id: string; type: 'require_person'; abilities: string[] };
 
-export const RULE_TYPES = ['time_window', 'destination', 'amount_cap', 'recipient_cap', 'require_person'] as const;
+export { RULE_TYPES } from '@neop/contracts';
 
 export interface RuleSubject {
   ability_key: string;
@@ -121,14 +122,10 @@ export function checkRules(rules: Rule[], s: RuleSubject, at: Date, timeZone: st
   return null;
 }
 
-/** Validate rules arriving from the platform; unknown types are refused, not ignored. */
+/** Validate rules arriving from the platform; unknown types or bad shapes are refused, not ignored. */
 export function parseRules(raw: unknown): Rule[] {
   if (!Array.isArray(raw)) return [];
-  return raw.map((r, i) => {
-    if (!r || typeof r !== 'object' || !('type' in r) || !(RULE_TYPES as readonly string[]).includes((r as any).type)) {
-      throw new Error(`rule ${i}: unknown rule type`);
-    }
-    if (typeof (r as any).id !== 'string') throw new Error(`rule ${i}: id required`);
-    return r as Rule;
-  });
+  const problem = rulesProblem(raw);
+  if (problem) throw new Error(problem);
+  return raw as Rule[];
 }

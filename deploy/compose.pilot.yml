@@ -4,6 +4,7 @@
 #   agent   each agent ↔ its own backend's gate                    (internal: no egress)
 #   llm     agents ↔ llm-proxy                                     (session tokens only)
 #   ctl     llm-proxy ↔ platform (JWKS)                            (agents are not on it)
+#   web     operator console (BFF) ↔ platform desk API          (the browser's only way in)
 #   egress  llm-proxy → model provider; backend → email/GSP providers (doors)
 # The model and a database role are never in the same container; no agent holds a
 # provider key; package handlers run in Deno inside the backend with no permissions.
@@ -65,7 +66,7 @@ services:
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
     secrets: [neos_app_url, vault_keys, metrics_token]
     volumes: [platform-keys:/var/lib/neos/keys]
-    networks: [db, l3, ctl, chat, edge, telemetry]
+    networks: [db, l3, ctl, chat, web, edge, telemetry]
     ports: ["127.0.0.1:4000:4000"]
     healthcheck: { test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4000/live').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"], interval: 10s, timeout: 5s, retries: 12 }
 
@@ -77,7 +78,10 @@ services:
     environment:
       NEOS_DB_URL_FILE: /run/secrets/neos_app_url
       NEOS_PLATFORM_URL: http://platform:4000
-      NEOP_LLM_UPSTREAM_URL: https://api.anthropic.com
+      # Anthropic by default. OpenRouter: URL=https://openrouter.ai/api, AUTH=bearer, MODEL_PREFIX=anthropic/
+      NEOP_LLM_UPSTREAM_URL: ${NEOP_LLM_UPSTREAM_URL:-https://api.anthropic.com}
+      NEOP_LLM_UPSTREAM_AUTH: ${NEOP_LLM_UPSTREAM_AUTH:-x-api-key}
+      NEOP_LLM_UPSTREAM_MODEL_PREFIX: ${NEOP_LLM_UPSTREAM_MODEL_PREFIX:-}
       NEOP_LLM_UPSTREAM_KEY_FILE: /run/secrets/llm_upstream_key
       PORT: "4200"
     secrets: [neos_app_url, llm_upstream_key]
@@ -114,6 +118,22 @@ services:
     environment: { NEOP_ALLOWED_GATE: "http://ledger-backend:4102", PORT: "4103", POOL_SIZE: "5", NEOP_LLM_MODEL: claude-sonnet-5 }
     networks: [agent-ledger, llm]
 
+  # The operator console (BFF + static UI). It reaches only the platform's desk API over
+  # `web`; no database, no secrets, no route to an app backend or an agent.
+  web:
+    <<: *node
+    build: { context: .., dockerfile: deploy/platform.Dockerfile }
+    command: ["tsx", "apps/ledger/scripts/web.ts"]
+    depends_on: { platform: { condition: service_healthy } }
+    environment:
+      NEOS_PLATFORM_URL: http://platform:4000
+      PORT: "4780"
+      # Set to 1 once TLS terminates in front of it.
+      NEOS_WEB_SECURE_COOKIES: "0"
+    networks: [web, edge]
+    ports: ["127.0.0.1:4780:4780"]
+    healthcheck: { test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4780/healthz').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"], interval: 10s, timeout: 5s, retries: 12 }
+
   otel-collector:
     image: otel/opentelemetry-collector:0.137.0
     restart: unless-stopped
@@ -134,6 +154,7 @@ networks:
   ctl: { internal: true }
   chat: { internal: true }
   telemetry: { internal: true }
+  web: { internal: true }
   edge: {}
   egress: {}
 

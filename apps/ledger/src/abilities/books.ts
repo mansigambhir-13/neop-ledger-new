@@ -155,6 +155,25 @@ export const bankUnreconciled: ReadAbility = {
   },
 };
 
+export const codingRulesList: ReadAbility = {
+  kind: 'read',
+  async run(_a: unknown, ctx: ReadCtx) {
+    const rows = (
+      await ctx.db.query(
+        `select r.id, r.reference, r.pattern, a.code as account_code, a.name as account_name, r.direction, r.priority, r.created_at,
+                (select count(*)::int from ${S}.bank_transactions t
+                  where t.status <> 'unmatched' and t.description ilike '%' || r.pattern || '%') as matched
+           from ${S}.coding_rules r join ${S}.accounts a on a.id = r.account_id
+          order by r.priority, r.created_at`,
+      )
+    ).rows;
+    return {
+      ...head(rows.length, rows.map((r) => r.id), 'coding rules, in the order they are tried'),
+      rules: rows.map((r) => ({ ...r, created_at: r.created_at.toISOString() })),
+    };
+  },
+};
+
 export const periodsStatus: ReadAbility = {
   kind: 'read',
   async run(_a: unknown, ctx: ReadCtx) {

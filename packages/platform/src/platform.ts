@@ -4,7 +4,7 @@
 // app's outbox (S4).
 
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
-import { isSetting, Metrics, strictest, type Decision, type Manifest, type OutboxEvent, type ProposalCreatedPayload, type Setting, type TaskResult } from '@neop/contracts';
+import { isSetting, Metrics, rulesProblem, strictest, type Decision, type Manifest, type OutboxEvent, type ProposalCreatedPayload, type Setting, type TaskResult } from '@neop/contracts';
 import { pickApp } from './neuralchat.ts';
 import { isEnvelope, VaultCipher, type VaultKeys } from './vault.ts';
 import { KeyRing } from './keys.ts';
@@ -314,15 +314,20 @@ export class Platform {
     const appRow = await this.db.query<{ manifest: Manifest }>('select manifest from neos.apps where key = $1', [app]);
     const manifest = appRow.rows[0]?.manifest;
     if (!manifest) throw new PlatformError(404, 'not_found', 'no such app');
+    const lines: { key: string; kind: string; floor: Setting }[] = [...manifest.abilities, ...(await this.packageAbilities(app, companyId))];
     for (const [k, v] of Object.entries(patch.settings ?? {})) {
-      const a = manifest.abilities.find((x) => x.key === k);
+      const a = lines.find((x) => x.key === k);
       if (!a) throw new PlatformError(422, 'unknown_ability', `${k} is not in ${app}'s manifest`);
       if (!isSetting(v)) throw new PlatformError(422, 'bad_setting', `${k}: ${String(v)}`);
       if (strictest(a.floor, v) !== v) throw new PlatformError(422, 'cannot_loosen', `${k}: the app's floor is ${a.floor}; a company can only tighten it`);
       if (a.kind === 'read' && v === 'ask_first') throw new PlatformError(422, 'read_cannot_ask_first', `${k} is a read: it can be on or off, not ask-first`);
     }
+    if (patch.rules !== undefined) {
+      const problem = rulesProblem(patch.rules, lines.map((a) => a.key));
+      if (problem) throw new PlatformError(422, 'bad_rule', problem);
+    }
     for (const [k, pol] of Object.entries(patch.approvals ?? {})) {
-      if (k !== '*' && !manifest.abilities.some((a) => a.key === k && a.kind === 'write')) throw new PlatformError(422, 'unknown_ability', `${k} is not a write of ${app}`);
+      if (k !== '*' && !lines.some((a) => a.key === k && a.kind === 'write')) throw new PlatformError(422, 'unknown_ability', `${k} is not a write of ${app}`);
       if (pol.roles && (!Array.isArray(pol.roles) || pol.roles.some((r) => !['admin', 'member'].includes(r)))) throw new PlatformError(422, 'bad_policy', `${k}: roles must be admin/member`);
     }
     const version = await tx(this.db, async (c) => {
@@ -592,7 +597,20 @@ export class Platform {
   }
 
   /** The doors an app may borrow keys for at a company: its manifest's, plus those of packages that company pinned for it. */
-  private async declaredDoors(app: string, companyId: string): Promise<Set<string>> {
+  /** The abilities an installed package adds to a host's switchboard (WP §10: lines marked "from <package>"). */
+  async packageAbilities(app: string, companyId: string): Promise<{ key: string; kind: 'read' | 'write'; floor: Setting; version: string; package: string; package_version: string; install_status: string }[]> {
+    const r = await this.db.query<{ entry_key: string; version: string; offers: any; status: string }>(
+      `select i.entry_key, e.version, e.offers, i.status from neos.registry_installs i
+         join neos.registry_entries e on e.key = i.entry_key and e.version = i.pinned_version
+        where i.company_id = $1 and i.host_app = $2 and i.status <> 'disabled' and e.kind = 'package'`,
+      [companyId, app],
+    );
+    return r.rows.flatMap((row) =>
+      (Array.isArray(row.offers) ? row.offers : []).map((o: any) => ({ key: o.key, kind: o.kind, floor: o.floor, version: o.version, package: row.entry_key, package_version: row.version, install_status: row.status })),
+    );
+  }
+
+  async declaredDoors(app: string, companyId: string): Promise<Set<string>> {
     const m = (await this.db.query<{ manifest: Manifest }>('select manifest from neos.apps where key = $1', [app])).rows[0]?.manifest;
     const doors = new Set((m?.doors ?? []).map((d) => d.key));
     const pkgs = await this.db.query<{ artifact_hash: string }>(
@@ -728,12 +746,19 @@ export class Platform {
       `update neos.approvals set status = 'RECORDED', decision = $3, fingerprint_seen = $4, feedback = $5,
          decided_by = $2, decided_at = now(), next_attempt_at = now(), updated_at = now()
        where id = $1 and company_id = $6 and status = 'PENDING' and expires_at > now()
+         and ($3 <> 'yes' or fingerprint = $4)
        returning id`,
       [approvalId, user.id, a.decision, a.fingerprint_seen, a.feedback ?? null, user.company_id],
     );
     if (!r.rowCount) {
-      const cur = await this.db.query('select status, expires_at from neos.approvals where id = $1 and company_id = $2', [approvalId, user.company_id]);
+      const cur = await this.db.query('select status, expires_at, fingerprint from neos.approvals where id = $1 and company_id = $2', [approvalId, user.company_id]);
       if (!cur.rows[0]) throw new PlatformError(404, 'not_found', 'no such card');
+      // A yes only covers what was shown (WP §5). A mismatch is refused at the door and the card stays
+      // open for a yes to what is really on it — not recorded, which would burn the card and strand the job.
+      if (cur.rows[0].status === 'PENDING' && new Date(cur.rows[0].expires_at) > new Date() && a.decision === 'yes' && cur.rows[0].fingerprint !== a.fingerprint_seen) {
+        await this.gateway.audit({ company_id: user.company_id, actor: `user:${user.id}`, action: 'desk.answer', outcome: 'refused_stale_fingerprint', detail: { approval_id: approvalId, fingerprint_seen: a.fingerprint_seen } });
+        throw new PlatformError(409, 'stale_fingerprint', 'what you approved is not what is on the card now; look at it again and answer that');
+      }
       throw new PlatformError(409, 'not_open', `this card is ${cur.rows[0].status === 'PENDING' ? 'expired' : cur.rows[0].status}`);
     }
     await this.gateway.audit({ company_id: user.company_id, actor: `user:${user.id}`, action: 'desk.answer', outcome: a.decision, detail: { approval_id: approvalId, fingerprint_seen: a.fingerprint_seen } });
@@ -962,6 +987,10 @@ export class Platform {
           JSON.stringify(p),
         ]);
         await this.suspendGrantIfFailed({ proposal_id: p.proposal_id, outcome: p.outcome }).catch(() => {});
+        // Reconciliation settles an UNKNOWN later: the desk must show the settled proof, not the stale one.
+        if (p.reconciled && p.proof) {
+          await c.query(`update neos.approvals set proof = $3, updated_at = now() where app_key = $1 and proposal_id = $2`, [app, p.proposal_id, JSON.stringify(p.proof)]);
+        }
         const task = await this.taskFor(c, app, p, e.company_id);
         // The job is working again until it reports.
         if (task) await c.query(`update neos.tasks set status = 'ACKNOWLEDGED', updated_at = now() where id = $1 and status = 'WAITING'`, [task.id]);

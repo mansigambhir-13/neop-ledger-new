@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ledger · NEOS</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap">
+<link rel="stylesheet" href="/app.css">
+</head>
+<body>
+<header class="top">
+  <div class="brand">
+    <span class="wordmark">NEOS</span>
+    <div class="co" id="co" title="Choose the month"><b>…</b><span>…</span></div>
+  </div>
+  <form class="askbar" id="ask-form" autocomplete="off" role="search" aria-label="Ask Ledger">
+    <input id="ask-in" placeholder="Ask Ledger anything — press / to type" maxlength="2000" aria-label="Ask Ledger">
+    <button type="button" class="live" id="live" title="Jobs"><i></i><span id="live-t">…</span></button>
+  </form>
+  <div class="actions">
+    <button class="icon-btn" id="btn-search" title="Find (⌘K)" aria-label="Find"></button>
+    <button class="icon-btn" id="btn-bell" title="Waiting on you" aria-label="Approvals waiting on you"></button>
+    <button class="icon-btn dark" id="btn-theme" title="Theme" aria-label="Toggle theme"></button>
+  </div>
+</header>
+<div class="frame">
+  <nav class="rail" id="rail" aria-label="Sections"></nav>
+  <main id="main" tabindex="-1"></main>
+</div>
+<button class="fab" id="fab" aria-label="Conversation with Ledger" title="Conversation with Ledger"></button>
+<section class="chat hidden" id="chat" aria-label="Conversation with Ledger">
+  <div class="ch">
+    <span class="ico lime" id="chat-ico"></span>
+    <div><b>Ledger</b><div class="note">Every ask is a job. Nothing changes the books without your yes.</div></div>
+    <div class="right">
+      <button class="btn sm ghost" id="chat-new" title="New conversation">New</button>
+      <button class="icon-btn" id="chat-x" aria-label="Close"></button>
+    </div>
+  </div>
+  <div class="log" id="chat-log" aria-live="polite"></div>
+  <div class="sugg" id="chat-sugg"></div>
+  <form id="chat-form" autocomplete="off">
+    <input class="i" id="chat-in" placeholder="Ask, or answer Ledger’s question" maxlength="2000">
+    <button class="btn lime" type="submit">Send</button>
+  </form>
+</section>
+<div class="toasts" id="toasts" role="status"></div>
+<div id="layer"></div>
+<script src="/app.js"></script>
+</body>
+</html>
