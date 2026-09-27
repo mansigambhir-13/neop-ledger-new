@@ -360,14 +360,21 @@ describe('t005 on a populated book', () => {
     const dir = await mkdtemp(path.join(os.tmpdir(), 'neop-t005-'));
     try {
       await cp(TEMPLATE_MIGRATIONS, dir, { recursive: true });
-      await rm(path.join(dir, 't005_input_waits.sql'));
+      // The book as it stood before t005: every later file cut from both streams (template and app).
       const led = JSON.parse(await readFile(path.join(dir, 'migrate.json'), 'utf8'));
+      for (const m of led.migrations.filter((x: any) => x.file >= 't005')) await rm(path.join(dir, m.file));
       led.migrations = led.migrations.filter((m: any) => m.file < 't005');
       await writeFile(path.join(dir, 'migrate.json'), JSON.stringify(led));
+      const appDir = await mkdtemp(path.join(os.tmpdir(), 'neop-t005-app-'));
+      await cp(path.join(LEDGER_ROOT, 'migrations'), appDir, { recursive: true });
+      const aled = JSON.parse(await readFile(path.join(appDir, 'migrate.json'), 'utf8'));
+      for (const m of aled.migrations.filter((x: any) => x.file >= '006')) await rm(path.join(appDir, m.file));
+      aled.migrations = aled.migrations.filter((m: any) => m.file < '006');
+      await writeFile(path.join(appDir, 'migrate.json'), JSON.stringify(aled));
       await bootstrapFamily(db.adminUrl, 'ledger');
-      const run = async (tdir: string) =>
-        migrate({ adminUrl: db.adminUrl, schema: 'ledger', sources: { dir: path.join(LEDGER_ROOT, 'migrations'), prepend: await templateFiles(tdir) }, lintExempt: TEMPLATE_INFRA_TABLES });
-      await run(dir);
+      const run = async (tdir: string, adir = path.join(LEDGER_ROOT, 'migrations')) =>
+        migrate({ adminUrl: db.adminUrl, schema: 'ledger', sources: { dir: adir, prepend: await templateFiles(tdir) }, lintExempt: TEMPLATE_INFRA_TABLES });
+      await run(dir, appDir);
       const pool = createPool(roleUrl(db.adminUrl, 'ledger_app'));
       await seedLedger(pool, CO);
       const jobId = await withCompany(pool, CO, async (c) => {
@@ -379,7 +386,7 @@ describe('t005 on a populated book', () => {
         return id;
       });
       const applied = await run(TEMPLATE_MIGRATIONS);
-      expect(applied.map((m) => m.name)).toEqual(['t005_input_waits.sql']);
+      expect(applied.map((m) => m.name)[0]).toBe('t005_input_waits.sql'); // then any later file
       await withCompany(pool, CO, async (c) => {
         expect((await c.query('select count(*)::int as n from ledger.steps where job_id = $1', [jobId])).rows[0].n).toBe(10);
         expect((await c.query('select kind, question, answered_by from ledger.waits where job_id = $1', [jobId])).rows).toEqual([{ kind: 'timer', question: null, answered_by: null }]);
