@@ -1,5 +1,15 @@
 # Changelog
 
+## neop-ledger 1.5.0 · go-live — 2026-09-27
+Ready for the NEOS reasoning agent's Matrix road (neos-agent-neuralchat #143) and a one-command deploy.
+- **Approvals in the chat (Shivam's option 2):** an admin may let a named bridge relay yeses (`may_approve`); its go-ahead approves only the card Ledger just showed in that DM, bound to the fingerprint and expiry, deterministic yes/no words, amounts must match, approver policy applies; a refused plain go-ahead re-shows the still-open card. Plain declines bind to the card (explicit decline words only). Reply deadline 55 s.
+- **Bridge answers need `key: value`** unless threaded; a question never swallows a new request.
+- **New companies get a starter chart of accounts** (Indian SME, 38 accounts).
+- **Deploy kit:** `scripts/deploy.sh` (idempotent; pre-upgrade backup, attested registration, starter chart, allowlist, verify, smoke), `deploy/compose.matrix-external.yml`, `deploy/production.env.example`, `docs/GO-LIVE.md`, release attestation in `deploy/attestations/`.
+- **Tools:** `scripts/neuralchat-sim.ts`, `scripts/live-validate.ts`, `scripts/verify-install.ts` (read-only per transaction — a session SET leaked read-only mode through PgBouncer; guard test added).
+- **Inherited from Shivam's live testing:** aging to today, no duplicate approvals, "did you mean …?", questions list required fields, plain Matrix answers.
+- **Answers and attached documents belong to their job** (and its follow-ups) — found by the live validator.
+
 ## neop-ledger 1.4.0 · validated against the plan — 2026-09-27
 Every plan item traced to working code and a test; each gap fixed and run live (`docs/DRIFT-PLAN.md`, third pass).
 - **Runtime:** job-keyed model budget; version and switch re-checked at execute; timers and schedules; rolling summary; untrusted wrapping for every outside text; the 40-call and session limits tested.

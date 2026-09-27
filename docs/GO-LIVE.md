@@ -80,3 +80,20 @@ NeuralChat already enforces (#156/#157).
   Measured: p50 ≈ 20 s, p90 ≈ 32 s per reply (one slow job in 26 went over 50 s).
 - GST filing needs a commercial GSP account and a person's OTP (not wired for day one).
 - The person-facing desk in this repo is a test harness, not the product UI.
+
+## Rehearsal (27 September 2026)
+
+From an empty host, with the same script and the release attestation (`deploy/attestations/ledger.json`), a
+stand-in external homeserver, and NeuralChat simulated exactly as #143 talks (`scripts/neuralchat-sim.ts`):
+
+| What | Result |
+| --- | --- |
+| `deploy.sh` first install | DEPLOYED — migrations, attested registration, company, admin, install, starter chart (38 accounts), Matrix client running, bridge allowed to approve |
+| `deploy.sh` re-run (upgrade path) | pre-upgrade backup taken; idempotent; verify-install 12/12 (+1 warning: email door not connected yet) |
+| Network policy at run time | holds in every container |
+| NeuralChat conversation (`docs/NEURALCHAT-SIM.md`) | **11/11**: hello, vendors, cash, a change proposed → "Go ahead with …" → executed once (decided by the person, via the bridge), a plain decline drops the other card, a money transfer is refused, a question asked and answered in plain text; replies p50 23 s, max 31 s |
+| Every ability, live (`docs/LIVE-VALIDATION.md`) | 104 checks with a real model on the demo stack |
+
+Found and fixed by the rehearsal: a new company had **no chart of accounts** (now a starter chart on first
+install), NeuralChat's plain decline did not bind to the card (now it does, only on explicit decline words),
+and two `deploy.sh` portability bugs (macOS bash 3.2, the Matrix overlay on upgrade).
