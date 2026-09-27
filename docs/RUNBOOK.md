@@ -114,6 +114,25 @@ Point-in-time recovery of the cluster (your Postgres host's job) rewinds every a
   ```
   It runs `pg_restore --clean --if-exists --single-transaction --schema=ledger`, so it fails as a whole or not at all. Jobs and proposals rewind with the books. Anything the platform recorded after the dump (tasks, approvals) still refers to them: read the audit trail for that window before telling people.
 
+## Company data: uninstall, purge, subject access and erasure
+
+Run these in the **`backup` service**: it holds the admin link, `pg_dump` and the `/backups` volume the
+safety copy is written to (the platform container has none of them, and the commands refuse to delete
+without a backup).
+
+```
+X="docker compose -f deploy/compose.pilot.yml exec -T backup sh -c"
+$X 'NEOS_DB_URL_FILE=$NEOS_ADMIN_URL_FILE tsx scripts/ops.ts uninstall <company_id> ledger'                  # routing stops (dry run prints counts)
+$X 'NEOS_DB_URL_FILE=$NEOS_ADMIN_URL_FILE tsx scripts/ops.ts uninstall <company_id> ledger --purge --yes'    # backup to /backups/uninstall/…, then delete that company's rows
+$X 'NEOS_DB_URL_FILE=$NEOS_ADMIN_URL_FILE tsx scripts/erase.ts find   <company_id> ledger "<name or email>"'
+$X 'NEOS_DB_URL_FILE=$NEOS_ADMIN_URL_FILE tsx scripts/erase.ts export <company_id> ledger <subject_id> --by user:<id>'
+$X 'NEOS_DB_URL_FILE=$NEOS_ADMIN_URL_FILE tsx scripts/erase.ts erase  <company_id> ledger <subject_id> --by user:<id> [--yes]'
+```
+
+Only the columns the manifest tags as `personal_data` are touched; erasure pseudonymises, never deletes
+rows, so books keep balancing. Every export, erase and purge is written to `neos.audit`. Verified live on
+the pilot stack (27 Sep 2026): a 23,184-row purge of one company left the other company's books identical.
+
 ## Observability
 `docker compose -f deploy/compose.pilot.yml --profile observability up -d` adds:
 - **otel-collector**: services post spans to it; it forwards them to Jaeger. Config: `deploy/observability/otel-collector.yml`.
