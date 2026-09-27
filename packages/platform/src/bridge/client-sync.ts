@@ -767,6 +767,18 @@ export class ChatClient {
     return true;
   }
 
+  /** The card put to a bridge an admin let approve: what, what changes, the amounts, and "Shall I go ahead?". */
+  private goAheadCardText(a: { id: string; card: any; args: any; expires_at: Date | string }): string {
+    const amounts = amountsLine(a.args);
+    return [
+      `${this.appName} proposes: ${clip(a.card?.what, 1000)}`,
+      `What changes: ${clip(a.card?.changes, 1000)}`,
+      ...(amounts ? [`Amounts: ${amounts}`] : []),
+      `Card ${String(a.id).slice(0, 8)}, expires ${new Date(a.expires_at).toISOString()}. Nothing is done yet. To drop it, say no.`,
+      'Shall I go ahead?',
+    ].join('\n');
+  }
+
   /**
    * A clear go-ahead from a bridge an admin granted may_approve (016). It is the yes of the person the bridge
    * relays for (acts_for) ONLY when all of these hold — else ONE reply says which failed and what to do, audited
@@ -782,7 +794,27 @@ export class ChatClient {
    * job's resumed result. False when no pending card was ever put to this DM: the text is an ordinary request.
    */
   private async goAheadByBridge(eventId: string, room: string, bridge: string, actsFor: string | null, body: string, inReplyTo: string | null): Promise<boolean> {
-    const refuse = async (reason: string, text: string, approvalId?: string): Promise<boolean> => {
+    const refuse = async (reason: string, text: string, approvalId?: string, reshow = false): Promise<boolean> => {
+      // Not bound / a stray amount: the card may still be the right one. Put it to the DM again (same fingerprint),
+      // so the conversation is AT it and the next clear go-ahead binds — otherwise a refused go-ahead would leave
+      // a card nobody could approve here (and "propose it again" meets `already_proposed`).
+      if (reshow && approvalId && (await this.mayApprove(bridge))) {
+        const c = (
+          await this.platform.db.query(
+            `select a.id, a.card, a.args, a.expires_at, a.fingerprint from neos.approvals a
+              where a.id = $1 and a.company_id = $2 and a.status = 'PENDING' and a.expires_at > now()
+                and a.fingerprint = (select e.fingerprint_shown from neos.chat_client_events e
+                                      where e.account = $3 and e.room_id = $4 and e.approval_id = a.id and e.fingerprint_shown is not null
+                                      order by e.at desc limit 1)`,
+            [approvalId, this.companyId, this.cfg.account, room],
+          )
+        ).rows[0];
+        if (c) {
+          await this.platform.gateway.audit({ company_id: this.companyId, actor: `chat:${bridge}`, app_key: this.cfg.app, action: 'chat.bridge_go_ahead', outcome: `refused:${reason}`, detail: { event_id: eventId, approval_id: approvalId, on_behalf_of: actsFor, reshown: true } });
+          await this.replyWithCard(eventId, room, `go_ahead_refused:${reason}`, `${text}\n\nThe change still waiting:\n${this.goAheadCardText(c)}`, { approval_id: c.id, fingerprint: c.fingerprint });
+          return true;
+        }
+      }
       await this.platform.gateway.audit({
         company_id: this.companyId,
         actor: `chat:${bridge}`,
@@ -825,9 +857,12 @@ export class ChatClient {
       return refuse(
         'not_bound',
         inReplyTo
-          ? `Nothing was done: that message is not a proposal I showed here, so there is nothing to go ahead with. Card ${w8} is still waiting; ask me again for the change and I will propose it, or it can be approved on My Desk in NEOS.`
-          : `Nothing was done: the conversation here has moved on since I proposed card ${w8}, so a go-ahead no longer binds to it. Ask me again for the change and I will propose it, or it can be approved on My Desk in NEOS.`,
+          ? `Nothing was done: that message is not a proposal I showed here, so there is nothing to go ahead with. Card ${w8} is still waiting; ask me to show it again, or it can be approved on My Desk in NEOS.`
+          : `Nothing was done: the conversation here has moved on since I proposed card ${w8}, so that go-ahead did not bind to it.`,
         waiting.id,
+        // Re-shown only after a PLAIN go-ahead. One that replied to another card's notice meant that card: never
+        // offer a different one in its place.
+        !inReplyTo,
       );
     }
     const id8 = bound.approval_id.slice(0, 8);
@@ -854,8 +889,9 @@ export class ChatClient {
     if (stray.length) {
       return refuse(
         'amount_mismatch',
-        `Nothing was done: that does not match the change I proposed — ${stray.join(', ')} is not on card ${id8} (${clip(a.card?.what, 300)}). Ask me again for the change you want and I will propose it.`,
+        `Nothing was done: that does not match the change I proposed — ${stray.join(', ')} is not on card ${id8}.`,
         bound.approval_id,
+        true,
       );
     }
     try {
@@ -924,6 +960,15 @@ export class ChatClient {
     );
   }
 
+  /** replyNow, and the reply is recorded as this card shown here (its fingerprint): a go-ahead can bind to it. */
+  private async replyWithCard(eventId: string, room: string, outcome: string, text: string, card: { approval_id: string; fingerprint: string }): Promise<void> {
+    const claimed = await this.platform.db.query(
+      `update neos.chat_client_events set outcome = $2, approval_id = $3, reply_status = 'sending', reply_text = $4 where event_id = $1 and reply_status = 'none'`,
+      [eventId, outcome, card.approval_id, clip(text)],
+    );
+    if (claimed.rowCount) await this.deliver(eventId, room, clip(text), card);
+  }
+
   private async replyNow(eventId: string, room: string, outcome: string, text: string, extra: { approval_id?: string; fingerprint?: string } = {}): Promise<void> {
     const claimed = await this.platform.db.query(
       `update neos.chat_client_events set outcome = $2, approval_id = coalesce($3, approval_id), fingerprint_shown = coalesce($4, fingerprint_shown),
@@ -989,17 +1034,7 @@ export class ChatClient {
       if (await this.mayApprove(r.sender)) {
         // A bridge an admin let approve is asked, in words NeuralChat relays to its user; a go-ahead binds to this
         // notice (and its fingerprint) only.
-        const amounts = amountsLine(a.args);
-        return {
-          card: { approval_id: a.id, fingerprint: a.fingerprint },
-          text: [
-            `${this.appName} proposes: ${clip(a.card?.what, 1000)}`,
-            `What changes: ${clip(a.card?.changes, 1000)}`,
-            ...(amounts ? [`Amounts: ${amounts}`] : []),
-            `Card ${String(a.id).slice(0, 8)}, expires ${new Date(a.expires_at).toISOString()}. Nothing is done yet. To drop it, say no.`,
-            'Shall I go ahead?',
-          ].join('\n'),
-        };
+        return { card: { approval_id: a.id, fingerprint: a.fingerprint }, text: this.goAheadCardText(a) };
       }
       return {
         // Recorded as shown to the bridge (with its fingerprint), so its clear "no" can bind to it — never a yes.

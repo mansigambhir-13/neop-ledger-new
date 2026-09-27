@@ -202,13 +202,18 @@ describe('a go-ahead is refused — one reply saying why, no job — unless ever
     const go = hs.say(dm, AGENT, text('Go ahead with the ₹500 change.'));
     const r = await notices(hs, dm, 3, 'the refusal');
     expect(inReplyTo(r[2]!)).toBe(go.event_id);
-    expect(r[2]!.content.body).toBe(
-      `Nothing was done: the conversation here has moved on since I proposed card ${id8}, so a go-ahead no longer binds to it. Ask me again for the change and I will propose it, or it can be approved on My Desk in NEOS.`,
-    );
+    expect(r[2]!.content.body).toMatch(new RegExp(`^Nothing was done: the conversation here has moved on since I proposed card ${id8}, so that go-ahead did not bind to it\\.\\n\\nThe change still waiting:\\n`));
+    expect(r[2]!.content.body).toMatch(/Shall I go ahead\?$/);
     await pause(300);
     expect((await approval(card.id)).status).toBe('PENDING');
     expect(await tasks()).toBe(before);
     expect(await goAheadAudit(card.id)).toEqual([{ actor: `chat:${AGENT}`, outcome: 'refused:not_bound' }]);
+    // The refusal put the card to the DM again: the conversation is AT it, so the next clear go-ahead binds.
+    P.setBrain((v) => (v.job.includes('WOKEN') ? finish('Recorded the courier charges.') : { text: 'waiting' }));
+    hs.say(dm, AGENT, text('Go ahead with the ₹500 change.'));
+    await notices(hs, dm, 4, 'the result after the second go-ahead');
+    await P.waitFor(async () => (await approval(card.id)).status === 'EXECUTED', 'executed after the re-shown card');
+    expect(await tasks()).toBe(before);
   });
 
   it('an amount that is not on the card: "that does not match the change I proposed"', async () => {
@@ -219,7 +224,7 @@ describe('a go-ahead is refused — one reply saying why, no job — unless ever
     const before = await tasks();
     hs.say(dm, AGENT, text('Go ahead with the ₹5,000 expense.'));
     const r = await notices(hs, dm, 2, 'the refusal');
-    expect(r[1]!.content.body).toMatch(new RegExp(`^Nothing was done: that does not match the change I proposed — 5000 is not on card ${id8} \\(Record a ₹500\\.00 expense: tea and snacks\\)`));
+    expect(r[1]!.content.body).toMatch(new RegExp(`^Nothing was done: that does not match the change I proposed — 5000 is not on card ${id8}\\.\\n\\nThe change still waiting:\\n[\\s\\S]*tea and snacks[\\s\\S]*Shall I go ahead\\?$`));
     await pause(300);
     expect((await approval(card.id)).status).toBe('PENDING');
     expect(await tasks()).toBe(before);
@@ -335,7 +340,10 @@ describe('a go-ahead is refused — one reply saying why, no job — unless ever
     // … and plainly: its own DM has moved on, and AGENT's card is never within reach from here
     hs.say(dmB, AGENT2, text('Yes, go ahead with the ₹500 change.'));
     const r2 = await notices(hs, dmB, 3, 'refused again');
+    // A later PLAIN go-ahead only puts B's own card to the DM again — it approves nothing (a further go-ahead would
+    // have to answer what B says); the first go-ahead, which pointed at A's notice, re-offered nothing.
     expect(r2[2]!.content.body).toMatch(/^Nothing was done: the conversation here has moved on since I proposed card /);
+    expect(r[1]!.content.body).not.toContain('The change still waiting');
     await pause(300);
     expect((await approval(A.card.id)).status).toBe('PENDING');
     expect((await approval(B.card.id)).status).toBe('PENDING');
