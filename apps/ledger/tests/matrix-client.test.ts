@@ -239,7 +239,7 @@ describe('approvals on the client road: only a person says yes', () => {
     expect(proposal!.content.body).toMatch(/proposes: Email the August close pack to the CFO/);
     expect(proposal!.content.body).toMatch(/awaits a person's approval — a bridge cannot approve it/);
     expect(proposal!.content.body).toContain(`card ${approval.id.slice(0, 8)}`);
-    expect(proposal!.content.body).toContain('Priya can say yes on the NEOS desk');
+    expect(proposal!.content.body).toContain('Priya can say yes on My Desk in NEOS');
     // the card itself is shown in the person's own DM, with its fingerprint
     const [card] = await nNotices(hs, priyaDm, 1, 'card in Priya’s DM');
     expect(card!.content.body).toContain(`Fingerprint: ${approval.fingerprint}`);
@@ -253,7 +253,7 @@ describe('approvals on the client road: only a person says yes', () => {
     expect(inReplyTo(replies[1]!)).toBe(consent.event_id);
     expect(replies[1]!.content.body).toMatch(/^Nothing was done: a bridge cannot approve\./);
     expect(replies[1]!.content.body).toContain(`card ${approval.id.slice(0, 8)}`);
-    expect(replies[1]!.content.body).toMatch(/waiting for a person's yes — Priya can answer it on the NEOS desk or in their own DM with @ledger:hs\.test/);
+    expect(replies[1]!.content.body).toMatch(/waiting for a person's yes — Priya can answer it on My Desk in NEOS or in their own DM with @ledger:hs\.test/);
     await pause(400);
     expect((await P.platform.db.query('select status, decided_by from neos.approvals where id = $1', [approval.id])).rows[0]).toEqual({ status: 'PENDING', decided_by: null });
     expect(await tasks()).toBe(before);
@@ -311,6 +311,65 @@ describe('approvals on the client road: only a person says yes', () => {
     expect(inReplyTo(r3[2]!)).toBe(no.event_id);
     expect(r3[2]!.content.body).toMatch(/declined/);
     await P.waitFor(async () => ['CLOSED', 'RESOLVED'].includes((await P.platform.db.query('select status from neos.approvals where id = $1', [approval.id])).rows[0].status), 'declined');
+  });
+});
+
+describe("a bridge's clear no is taken (a model may add caution, never remove it)", () => {
+  const closePack = (to: string, what: string) =>
+    P.setBrain((v) =>
+      v.job.includes('WOKEN')
+        ? finish('The close pack was not sent.')
+        : v.calls === 0
+          ? call('ledger.close_pack.email', { period: { from: '2026-08-01', to: '2026-08-31' }, to: [to], card: { what, why: 'close', changes: 'one email leaves the company', if_no_answer: 'nothing is sent' } })
+          : { text: 'waiting' },
+    );
+
+  it('a decline in reply to the card it was shown: recorded as the person’s no, via the bridge, audited; nothing is sent', async () => {
+    const hs = fakeClientHomeserver({ me: ME });
+    await client(hs);
+    const agentDm = await dmWith(hs, AGENT);
+    closePack('auditor@acme.example', 'Email the August pack to the auditor');
+    const mailsBefore = (await readdir(P.mailDir)).length;
+    hs.say(agentDm, AGENT, text('Email the August close pack to auditor@acme.example'));
+    const [proposal] = await nNotices(hs, agentDm, 1, 'the proposal reply');
+    const approval = (await P.platform.db.query("select * from neos.approvals where status = 'PENDING' and card->>'what' = 'Email the August pack to the auditor'")).rows[0];
+    expect(proposal!.content.body).toContain(`card ${approval.id.slice(0, 8)}`);
+    expect(proposal!.content.body).toContain('To drop it instead, reply "no" to this message.');
+    const before = await tasks();
+    const no = hs.say(agentDm, AGENT, text('No, drop it — the user declined.', { 'm.relates_to': { 'm.in_reply_to': { event_id: proposal!.event_id } } }));
+    const replies = await nNotices(hs, agentDm, 2, 'the decline reply');
+    expect(inReplyTo(replies[1]!)).toBe(no.event_id);
+    expect(replies[1]!.content.body).toBe(`Recorded: card ${approval.id.slice(0, 8)} declined for Priya, via ${AGENT}. Nothing will be done.`);
+    const row = (await P.platform.db.query('select decision, decided_by, fingerprint_seen, feedback from neos.approvals where id = $1', [approval.id])).rows[0];
+    expect(row).toEqual({ decision: 'no', decided_by: P.admin.id, fingerprint_seen: approval.fingerprint, feedback: `declined via ${AGENT} on behalf of Priya` });
+    const audit = await P.platform.db.query("select actor, outcome, detail from neos.audit where action = 'chat.bridge_decline'");
+    expect(audit.rows).toContainEqual(expect.objectContaining({ actor: `chat:${AGENT}`, outcome: 'recorded_no' }));
+    expect(audit.rows.find((r: any) => r.detail.approval_id === approval.id).detail.on_behalf_of).toBe(P.admin.id);
+    expect(await tasks()).toBe(before); // a decision, not a new job
+    await P.waitFor(async () => ['CLOSED', 'RESOLVED'].includes((await P.platform.db.query('select status from neos.approvals where id = $1', [approval.id])).rows[0].status), 'declined');
+    await pause(300);
+    expect((await readdir(P.mailDir)).length).toBe(mailsBefore);
+  });
+
+  it('a decline naming the card id binds too; a go-ahead naming it stays refused and points to My Desk', async () => {
+    const hs = fakeClientHomeserver({ me: ME });
+    await client(hs);
+    const agentDm = await dmWith(hs, AGENT);
+    closePack('bank@acme.example', 'Email the August pack to the bank');
+    hs.say(agentDm, AGENT, text('Email the August close pack to bank@acme.example'));
+    await nNotices(hs, agentDm, 1, 'the proposal reply');
+    const approval = (await P.platform.db.query("select * from neos.approvals where status = 'PENDING' and card->>'what' = 'Email the August pack to the bank'")).rows[0];
+    const id8 = approval.id.slice(0, 8);
+    hs.say(agentDm, AGENT, text(`Go ahead with card ${id8}.`));
+    const r = await nNotices(hs, agentDm, 2, 'the refusal');
+    expect(r[1]!.content.body).toMatch(/^Nothing was done: a bridge cannot approve\./);
+    expect(r[1]!.content.body).toContain(`card ${id8}`);
+    expect(r[1]!.content.body).toContain('My Desk in NEOS');
+    expect((await P.platform.db.query('select status from neos.approvals where id = $1', [approval.id])).rows[0].status).toBe('PENDING');
+    hs.say(agentDm, AGENT, text(`Please decline card ${id8}, they changed their mind.`));
+    const r2 = await nNotices(hs, agentDm, 3, 'the decline');
+    expect(r2[2]!.content.body).toMatch(new RegExp(`^Recorded: card ${id8} declined for Priya`));
+    expect((await P.platform.db.query('select decision, decided_by from neos.approvals where id = $1', [approval.id])).rows[0]).toEqual({ decision: 'no', decided_by: P.admin.id });
   });
 });
 

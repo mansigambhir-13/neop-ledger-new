@@ -238,7 +238,7 @@ export function neosV1App(core: Core, cfg: NeosV1Config): Hono {
       const board = await core.board.get(companyId);
       if (board.setting(resolved.meta) === 'off') throw new V1Error(403, 'denied');
       if (resolved.checkInput(input)) throw new V1Error(400, 'bad_request');
-      const result = await core.company(companyId, (db) => handler.run(input, { company_id: companyId, caller: `user:${act}`, job_id: null, now: new Date(), db }));
+      const result = await core.company(companyId, (db) => handler.run(input, { company_id: companyId, caller: `user:${act}`, job_id: null, now: new Date(), time_zone: board.company.time_zone, db }));
       const bad = resolved.checkOutput(result);
       if (bad) {
         core.log('contract violation', { key: cap.ability, bad });

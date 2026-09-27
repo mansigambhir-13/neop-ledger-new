@@ -31,13 +31,34 @@ export function systemPrompt(b: JobBundle): string {
     .replace('[[SKILLS]]', skills);
 }
 
+/** Today's date in the company's time zone (YYYY-MM-DD). */
+export function todayIn(timeZone: string, now = new Date()): string {
+  try {
+    return new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(now);
+  } catch {
+    return now.toISOString().slice(0, 10);
+  }
+}
+
 /** THIS JOB, as the first message of a fresh session. */
 export function jobMessage(b: JobBundle): string {
   const lines: string[] = [];
   lines.push('THIS JOB');
   lines.push(`Asked by ${b.job.requester} (${b.job.source})${b.job.on_behalf_of && b.job.on_behalf_of !== b.job.requester ? ` on behalf of ${b.job.on_behalf_of}` : ''} at ${b.job.created_at}:`);
   lines.push(`"${b.job.ask}"`);
-  lines.push(`Company time zone: ${b.company.time_zone}. Today: ${new Date().toISOString().slice(0, 10)}.`);
+  lines.push(`Company time zone: ${b.company.time_zone}. Today: ${todayIn(b.company.time_zone)}.`);
+  if (b.open_proposals) {
+    // Our words, outside any fence: what is (and is not) waiting for this requester's yes or no.
+    if (!b.open_proposals.length) {
+      lines.push(
+        `Open proposals asked for by ${b.job.requester}: NONE. Nothing of theirs is waiting for a yes or no, so nothing can be approved, declined or dropped by this message. If it asks about "that proposal", say plainly that no proposal is open and nothing changed — never report one as approved, declined, dropped or done.`,
+      );
+    } else {
+      lines.push(`Open proposals asked for by ${b.job.requester} (waiting for a person's yes on the desk; only a person decides them):`);
+      lines.push(untrusted('open_proposals', b.open_proposals));
+      lines.push('Speak about a proposal only if it is listed here or a tool result in this job shows it. Never say one was approved, declined or dropped unless the book shows it.');
+    }
+  }
   if (b.parent) {
     // The earlier job's report was written from what it read: information, never instruction.
     lines.push(`\nThis follows up an earlier job in the same conversation (${b.parent.job_id}, ${b.parent.status}): "${b.parent.ask}".`);

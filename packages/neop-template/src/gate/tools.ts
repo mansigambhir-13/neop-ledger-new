@@ -81,7 +81,7 @@ export const BUILTIN_TOOLS: Record<string, Omit<ToolSpec, 'name' | 'key' | 'vers
   'job.ask': {
     title: 'Ask for something you need, and wait',
     description:
-      'When the book and your tools cannot give you something you need, ask ONE structured question: what you need (text), why (why), and the fields to fill. The job waits for the answer (default 48 hours, at most 14 days) and you are woken with it. Do not guess and do not ask twice.',
+      'When the book and your tools cannot give you something you need, ask ONE structured question: what you need (text), why (why), and the fields to fill. For a change that lacks inputs, name the change in for_ability and pass what you already have in known: every required input still missing is added to the question for you. The job waits for the answer (default 48 hours, at most 14 days) and you are woken with it. Do not guess and do not ask twice.',
     kind: 'builtin',
     input: {
       type: 'object',
@@ -104,6 +104,8 @@ export const BUILTIN_TOOLS: Record<string, Omit<ToolSpec, 'name' | 'key' | 'vers
           },
         },
         due_in_hours: { type: 'number', description: 'How long to wait for an answer (default 48, at most 336).' },
+        for_ability: { type: 'string', description: 'The write tool this question is for, when a change lacks inputs: its required inputs still missing are added to the fields.' },
+        known: { type: 'object', description: 'The inputs of that write you already have (name → value): they are not asked again.' },
       },
     },
   },

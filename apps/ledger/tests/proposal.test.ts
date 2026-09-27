@@ -135,6 +135,8 @@ describe('proposal', () => {
     });
     expect(r2.status).toBe(409);
     expect(r2.body.error.code).toBe('not_approved');
+    // Close it: while it waits, the gate refuses the same change proposed again (already_proposed).
+    await P.api('POST', `/api/desk/${card.id}/answer`, { decision: 'no', fingerprint_seen: card.fingerprint });
   });
 
   it('"change this first" supersedes the proposal and the assistant proposes again with a new fingerprint', async () => {

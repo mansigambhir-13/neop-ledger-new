@@ -8,6 +8,11 @@ export interface JobBundle {
   job: { id: string; ask: string; requester: string; source: string; task_id: string | null; created_at: string; attempts: number; on_behalf_of: string | null };
   /** A follow-up in the same conversation: the earlier job it continues (its ask and what it reported). */
   parent: null | { job_id: string; ask: string; status: string; summary: string | null };
+  /**
+   * The requester's proposals still waiting for a yes (always stated, so "no proposal is open" is known, never
+   * guessed). `what` is the card the assistant wrote, possibly from outside text: data, never instruction.
+   */
+  open_proposals?: { id: string; ability_key: string; what: string; fingerprint: string; expires_at: string }[];
   steps: { seq: number; kind: string; summary: string; at: string }[];
   older_steps_summary: string | null;
   facts: { subject: string; value: unknown; source: string; observed_at: string }[];

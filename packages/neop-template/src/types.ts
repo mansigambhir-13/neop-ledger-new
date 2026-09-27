@@ -10,6 +10,8 @@ export interface CallerCtx {
   job_id: string | null;
   /** Database clock, never the app clock. */
   now: Date;
+  /** The company's time zone (IANA), when the caller knows it: "today" for the company is measured in it. */
+  time_zone?: string;
 }
 
 export interface ReadCtx extends CallerCtx {
@@ -55,11 +57,21 @@ export interface WriteAbility {
    * e.g. "that period is locked", "that invoice is already paid". Runs at the
    * gate before a proposal is written, so nobody is asked to approve the impossible.
    */
-  validate?(args: any, ctx: ReadCtx): Promise<string | null>;
+  validate?(args: any, ctx: ReadCtx): Promise<string | Refusal | null>;
   /** Do the thing once. Throw DoorError({definite:true}) when it certainly did not happen. */
   execute(args: any, ctx: ExecCtx): Promise<{ external_ref: string | null; detail?: unknown }>;
   /** Look for the effect. `found` must be true only when the effect is really there. */
   readBack(args: any, ctx: ExecCtx, externalRef: string | null): Promise<{ found: boolean; data: unknown }>;
+}
+
+/**
+ * A refusal with the closest real names (a party, an account, a document) the books hold for a name that
+ * matched nothing. The gate returns the candidates to the assistant as data, and tells it to ask the person
+ * which one they meant (job.ask) — never to act on a guess.
+ */
+export interface Refusal {
+  reason: string;
+  did_you_mean?: string[];
 }
 
 export type AbilityHandler = ReadAbility | WriteAbility;

@@ -170,3 +170,45 @@ dry run; an unbalanced entry reported and the TB difference named, not hidden).
 - `packages/neop-template/src/capabilities/platform/tasks.open.ts`: optional `attachments` (validated;
   read by the documents door; written as job facts in the job's transaction).
 - `packages/neop-template/src/index.ts`: `export * as documents from './doors/documents/index.ts'`.
+
+## Live-tested fixes (Shivam, 26 Sep 2026 — his Ledger against the NEOS reasoning agent over Matrix)
+
+Ported from his commits 1f1fb4d, 52c2472, 4fa4f94, 38a5153, 7055884, 0f51089 and 930eb38, translated to our
+architecture — enforced in code wherever the rule can be checked, with the prompt only explaining it.
+Tests: `apps/ledger/tests/live-fixes.test.ts`, `verify-install.test.ts`, the new blocks in `matrix-client.test.ts`
+and `matrix-questions.test.ts`, and the updated aging tests in `inherited.test.ts`.
+
+- **Aging a running period (38a5153).** `ledger.report.aging`, `ledger.report.aging_analysis` and
+  `ledger.documents.list` measure to the earlier of the date asked for and the company's today (its time zone,
+  now passed to every read as `ctx.time_zone`), return that `as_of`, and say so in `sources.basis`. A document due
+  on the as-of date is due within 7 days, not overdue. `ledger.reminder.send` counts overdue by the company's today.
+- **Honesty (52c2472, 7055884).** Every job states the requester's open proposals (`JobBundle.open_proposals`),
+  and with none says plainly that nothing is waiting for a yes or no. The gate refuses a second proposal of the
+  same change while one waits or is approved (`already_proposed`). `ledger.documents.list` returns `totals` to
+  quote; the prompt says to quote totals and pass stated amounts through unchanged.
+- **Names (4fa4f94, 7055884).** Where he left matching to the model, ours is deterministic
+  (`apps/ledger/src/domain/names.ts`): an unknown party, account/category or document is refused by `validate`
+  with the closest real names (edit distance), which the gate returns as data (`unknown_name`, `did_you_mean`) and
+  the assistant asks about with `job.ask` — never acting on a guess. An account named in words is used only when
+  exactly one account in the chart matches (`normalize`), so the card and fingerprint bind the code.
+- **Questions list the required fields (0f51089).** `job.ask` takes `for_ability` and `known`; the gate adds every
+  required input of that write still missing, with plain labels from the schema.
+- **Manual posting to an unknown account (1f1fb4d).** Ours already refused it; now with the closest accounts,
+  and a test.
+- **Post-install verify (930eb38).** `scripts/verify-install.ts` (RUNBOOK, Deploy step 11) for our platform:
+  registration and attestation, install, DB roles and grants, schema in step (the boot comparison), switchboard
+  floors, vault doors, the LLM proxy key (present, not read), `/l3/ready` as the platform reaches it, and the
+  client road's tokens (`whoami`).
+- **Bridge declines (review of his PR #143).** On the Matrix client road a bridge's clear "no" to a card it was
+  shown (a reply to it, or its id named) is recorded as the person's no, via the bridge, with the fingerprint
+  shown, and audited (`chat.bridge_decline`). A bridge's go-ahead stays refused and points to My Desk or the
+  person's own DM.
+- **Plain messages answer questions (found against a real Synapse).** NeuralChat sends plain `m.text`, not
+  replies: a plain next message in the DM answers the latest open question of a job the sender asked there, when
+  it reads as an answer (one-field: the whole text; else `key: value` lines or `;`-separated pairs naming a field).
+  A partial answer gets one reply naming what is missing; anything else is a new request.
+
+### Edits outside Ledger for these fixes
+
+- `packages/neop-template/src/types.ts`: `CallerCtx.time_zone?`; `validate` may return a `Refusal` with `did_you_mean`.
+- `packages/neop-template/src/l3/server.ts`, `l3/neos-v1.ts`: pass the company's time zone to reads.

@@ -16,10 +16,15 @@
 //   yes  ONLY a person approves: a linked, allowlisted person's explicit answer, in their OWN recorded DM, as a
 //        reply to a card this account showed there, goes through the same platform.answer() with the
 //        fingerprint that card showed. A bridge's "go ahead" is never a yes: the reply names the card and says
-//        it waits for a person's yes on the desk (or in that person's DM). (Deliberately unlike the handoff §6.)
+//        it waits for a person's yes on My Desk (or in that person's DM). (Deliberately unlike the handoff §6.)
+//   no   A bridge's CLEAR decline of a card it was shown (a reply to that card, or its id named) IS taken, as a
+//        "no" for the person it relays for, with the fingerprint shown: a model may add caution, never remove it.
+//        It is recorded as decided via that bridge on the person's behalf, and audited (chat.bridge_decline).
 //   ask  a job's question (WP §8) is the one reply in the DM it was asked from, and is put in the asking person's own
 //        DM; a reply to that notice answers it — a person's as their words, a bridge's as relayed, untrusted data.
-//        An answer is information for the job, never a yes.
+//        A plain next message (not a reply) in that DM answers the latest open question of a job the sender asked
+//        there, when it reads as an answer: the whole text for a one-field question, else `key: value` pairs (one
+//        per line, or `;`-separated) naming at least one field. An answer is information for the job, never a yes.
 //   stop a rejected token (401 M_UNKNOWN_TOKEN / M_MISSING_TOKEN, M_USER_DEACTIVATED) or an account mismatch
 //        stops the client: no retries, no password login, never /logout (it would revoke the operator's token).
 //
@@ -49,6 +54,32 @@ const sleep = (ms: number, signal?: AbortSignal) =>
     signal?.addEventListener('abort', () => (clearTimeout(t), res()), { once: true });
   });
 const CONSENT = /\b(go ahead|proceed|do it|carry (it )?out|confirm(ed)?)\b/i;
+/** A clear "no" to a card: never mistaken for a yes (a decline wins over any consent word next to it). */
+const DECLINE = /\b(no|decline[sd]?|reject(ed)?|drop(ped)?|cancel(led|ed)?|discard(ed)?|withdraw|don'?t (do|send|go ahead|proceed)|do not (do|send|go ahead|proceed))\b/i;
+
+/**
+ * Answers read from a plain (non-reply) message: the whole text for a one-field question; else `key: value`
+ * (or `label: value`) pairs, one per line or `;`-separated. Null when the text names none of the question's
+ * fields — it is then a new request, not an answer. `missing` lists required fields it left out.
+ */
+export function plainAnswers(
+  q: { fields: { key: string; label: string; required?: boolean }[] },
+  text: string,
+): { answers: Record<string, string>; missing: { key: string; label: string }[] } | null {
+  const body = text.trim();
+  if (!body || !q.fields.length) return null;
+  if (q.fields.length === 1) return { answers: { [q.fields[0]!.key]: body }, missing: [] };
+  const answers: Record<string, string> = {};
+  for (const part of body.split(/\r?\n|;/)) {
+    const m = /^\s*([^:=]{1,200}?)\s*[:=]\s*(.*)$/.exec(part);
+    if (!m) continue;
+    const name = m[1]!.trim().toLowerCase();
+    const f = q.fields.find((x) => x.key.toLowerCase() === name || x.label.toLowerCase() === name);
+    if (f && m[2]!.trim()) answers[f.key] = m[2]!.trim();
+  }
+  if (!Object.keys(answers).length) return null;
+  return { answers, missing: q.fields.filter((f) => f.required !== false && !(f.key in answers)).map((f) => ({ key: f.key, label: f.label })) };
+}
 
 /** Only what the road needs: room timelines and invites. No presence, account data or ephemeral events. */
 export const SYNC_FILTER = JSON.stringify({
@@ -434,13 +465,15 @@ export class ChatClient {
         const said: Record<string, string> = { yes: 'approved', no: 'declined', change: 'sent back with your changes', withdraw: 'withdrawn' };
         return this.replyNow(eventId, room, `answered:${d.decision}`, `Recorded: card ${card.approval_id.slice(0, 8)} ${said[d.decision]}.`, { approval_id: card.approval_id, fingerprint: card.fingerprint_shown });
       }
-    }
+    } else if (await this.answerPlain(eventId, room, sender, { user_id: user.id }, body)) return;
     await this.ask(eventId, room, user.id, body);
   }
 
   private async fromBridge(eventId: string, room: string, bridge: string, actsFor: string | null, body: string, onBehalf: unknown, inReplyTo: string | null = null): Promise<void> {
     // A reply to a question shown in the bridge's OWN DM answers it — as relayed, untrusted data. An answer is not a yes.
     if (inReplyTo && (await this.answerByReply(eventId, room, bridge, { relay: `bridge:${bridge}` }, body, inReplyTo))) return;
+    // A bridge's clear "no" to a card it was shown is taken for the person: caution may be added, never removed.
+    if (await this.declineByBridge(eventId, room, bridge, body, inReplyTo)) return;
     // A bridge's "go ahead" is never a yes. If a card from its asks is open, say who must answer it.
     if (parseDecision(body)?.decision === 'yes' || CONSENT.test(body)) {
       const open = (
@@ -460,11 +493,13 @@ export class ChatClient {
           eventId,
           room,
           'bridge_consent_refused',
-          `Nothing was done: a bridge cannot approve. ${cards} is waiting for a person's yes — ${who ? `${who.name} can answer it` : 'a person answers it'} on the NEOS desk${who?.dm ? ` or in their own DM with ${this.cfg.account}` : ''}.`,
+          `Nothing was done: a bridge cannot approve. ${cards} is waiting for a person's yes — ${who ? `${who.name} can answer it` : 'a person answers it'} on My Desk in NEOS${who?.dm ? ` or in their own DM with ${this.cfg.account}` : ''}.`,
           { approval_id: open[0]!.id },
         );
       }
     }
+    // A plain next message may be the answer to the question this bridge's job asked here.
+    if (!inReplyTo && (await this.answerPlain(eventId, room, bridge, { relay: `bridge:${bridge}` }, body))) return;
     // The ask is opened for a person: the one the message names (if linked here), else the bridge's own `acts_for`.
     let person = actsFor;
     if (typeof onBehalf === 'string' && /^@[^:]+:.+$/.test(onBehalf)) {
@@ -499,6 +534,43 @@ export class ChatClient {
       await this.replyNow(eventId, room, 'unclear_answer', `Reply with one line per answer, as key: value (${q.fields.map((f: any) => f.key).join(', ')}). Nothing was recorded.`);
       return true;
     }
+    return this.recordAnswer(eventId, room, q, who, answers);
+  }
+
+  /**
+   * A plain message (not a reply) in the sender's own DM answers the latest open question shown there for a
+   * job the sender asked in that DM — when it reads as an answer (plainAnswers). With required fields left
+   * out, one reply asks for them and nothing is recorded; no new job is opened. False: it is a new request.
+   */
+  private async answerPlain(eventId: string, room: string, sender: string, who: { user_id?: string; relay?: string }, body: string): Promise<boolean> {
+    const q = (
+      await this.platform.db.query(
+        `select q.* from neos.questions q
+          where q.company_id = $1 and q.status = 'OPEN'
+            and exists (select 1 from neos.chat_client_events o where o.account = $2 and o.room_id = $3 and o.direction = 'outbound' and o.question_id = q.id)
+            and exists (select 1 from neos.chat_client_events i where i.account = $2 and i.room_id = $3 and i.direction = 'inbound' and i.sender = $4
+                          and i.task_id is not null and i.task_id in (q.task_id, q.root_task_id))
+          order by q.created_at desc limit 1`,
+        [this.companyId, this.cfg.account, room, sender],
+      )
+    ).rows[0];
+    if (!q) return false;
+    const read = plainAnswers({ fields: q.fields }, body);
+    if (!read) return false;
+    await this.platform.db.query('update neos.chat_client_events set question_id = $2 where event_id = $1', [eventId, q.id]);
+    if (read.missing.length) {
+      await this.replyNow(
+        eventId,
+        room,
+        'unclear_answer',
+        `To answer the question, also give ${read.missing.map((f) => `${f.key} (${f.label})`).join(', ')} — as key: value, one per line or separated by ";". Nothing was recorded.`,
+      );
+      return true;
+    }
+    return this.recordAnswer(eventId, room, q, who, read.answers);
+  }
+
+  private async recordAnswer(eventId: string, room: string, q: any, who: { user_id?: string; relay?: string }, answers: Record<string, string>): Promise<boolean> {
     try {
       await this.platform.answerQuestion(q.id, { company_id: this.companyId!, ...who }, answers, who.user_id ? 'chat' : 'bridge');
     } catch (e) {
@@ -509,6 +581,61 @@ export class ChatClient {
     const task = q.root_task_id ?? q.task_id;
     if (task) await this.owe(eventId, who.user_id ? 'answered:question' : 'relayed:question', task);
     else await this.replyNow(eventId, room, 'answered:question', 'Recorded your answer.');
+    return true;
+  }
+
+  /**
+   * A bridge's clear decline of a card it was shown in its own DM — as a reply to that card, or naming its id —
+   * is recorded as the person's "no", with the fingerprint shown there, via this bridge. True when handled.
+   */
+  private async declineByBridge(eventId: string, room: string, bridge: string, body: string, inReplyTo: string | null): Promise<boolean> {
+    if (!DECLINE.test(body) || parseDecision(body)?.decision === 'yes') return false;
+    const shown = (
+      await this.platform.db.query<{ approval_id: string; fingerprint_shown: string; event_id: string; fingerprint: string; task_id: string | null }>(
+        `select e.approval_id, e.fingerprint_shown, e.event_id, a.fingerprint, a.task_id
+           from neos.chat_client_events e
+           join neos.chat_dms d on d.account = e.account and d.room_id = e.room_id and d.peer = $3
+           join neos.approvals a on a.id = e.approval_id
+          where e.account = $1 and e.room_id = $2 and e.direction = 'outbound' and e.approval_id is not null
+            and a.status = 'PENDING' and a.company_id = $4
+          order by e.at desc`,
+        [this.cfg.account, room, bridge, this.companyId],
+      )
+    ).rows;
+    const hits = shown.filter((c) => (inReplyTo ? c.event_id === inReplyTo : body.toLowerCase().includes(c.approval_id.slice(0, 8).toLowerCase())));
+    const named = [...new Map(hits.map((c) => [c.approval_id, c])).values()];
+    if (named.length !== 1) return false; // not exactly one card it was shown: the job hears it as a request
+    const card = named[0]!;
+    if (card.fingerprint !== card.fingerprint_shown) {
+      await this.replyNow(eventId, room, 'answer_refused', `That was not recorded: card ${card.approval_id.slice(0, 8)} changed after it was shown here.`, { approval_id: card.approval_id });
+      return true;
+    }
+    const requester = card.task_id ? (await this.platform.db.query<{ requester: string }>('select requester from neos.tasks where id = $1', [card.task_id])).rows[0]?.requester : null;
+    const person = requester?.startsWith('user:')
+      ? (await this.platform.db.query<{ id: string; name: string; company_id: string }>('select id, name, company_id from neos.users where id = $1 and company_id = $2', [requester.slice(5), this.companyId])).rows[0]
+      : undefined;
+    if (!person) {
+      await this.replyNow(eventId, room, 'no_person', `Nothing was recorded: no person is on record for card ${card.approval_id.slice(0, 8)}.`, { approval_id: card.approval_id });
+      return true;
+    }
+    try {
+      await this.platform.answer(card.approval_id, person, { decision: 'no', fingerprint_seen: card.fingerprint_shown, feedback: `declined via ${bridge} on behalf of ${person.name}` });
+    } catch (e) {
+      await this.replyNow(eventId, room, 'answer_refused', `That was not recorded: ${(e as Error).message}.`, { approval_id: card.approval_id });
+      return true;
+    }
+    await this.platform.gateway.audit({
+      company_id: this.companyId,
+      actor: `chat:${bridge}`,
+      app_key: this.cfg.app,
+      action: 'chat.bridge_decline',
+      outcome: 'recorded_no',
+      detail: { event_id: eventId, approval_id: card.approval_id, fingerprint_seen: card.fingerprint_shown, on_behalf_of: person.id },
+    });
+    await this.replyNow(eventId, room, 'declined:bridge', `Recorded: card ${card.approval_id.slice(0, 8)} declined for ${person.name}, via ${bridge}. Nothing will be done.`, {
+      approval_id: card.approval_id,
+      fingerprint: card.fingerprint_shown,
+    });
     return true;
   }
 
@@ -610,10 +737,12 @@ export class ChatClient {
       const who = await this.personOf(a.task_id);
       if (who?.dm) await this.showCard(who.dm, a.id, a.fingerprint, roomText.card(this.appName, shown));
       return {
+        // Recorded as shown to the bridge (with its fingerprint), so its clear "no" can bind to it — never a yes.
+        card: { approval_id: a.id, fingerprint: a.fingerprint },
         text: [
           `${this.appName} proposes: ${clip(a.card?.what, 1000)}`,
           `What changes: ${clip(a.card?.changes, 1000)}`,
-          `Nothing is done yet. It awaits a person's approval — a bridge cannot approve it: ${who ? who.name : 'a person'} can say yes on the NEOS desk (card ${String(a.id).slice(0, 8)})${who?.dm ? ` or in their own DM with ${this.cfg.account}` : ''}.`,
+          `Nothing is done yet. It awaits a person's approval — a bridge cannot approve it: ${who ? who.name : 'a person'} can say yes on My Desk in NEOS (card ${String(a.id).slice(0, 8)})${who?.dm ? ` or in their own DM with ${this.cfg.account}` : ''}. To drop it instead, reply "no" to this message.`,
         ].join('\n'),
       };
     }

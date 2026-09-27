@@ -6,6 +6,7 @@ import { DoorError, type ExecCtx, type WriteAbility } from '@neop/template';
 import * as repo from '../data/ledger.repo.ts';
 import { isLocked } from '../data/books.repo.ts';
 import { checkEntry } from '../domain/reports.ts';
+import { chart, codesFromNames, unknownAccount } from '../domain/names.ts';
 import { aging, balanceSheet, cashFlow, pnl, trialBalance, vatSummary } from './reads.ts';
 
 type JournalArgs = { date: string; memo: string; currency: string; lines: { account_code: string; debit_minor: number; credit_minor: number }[] };
@@ -14,11 +15,19 @@ export const journalPost: WriteAbility = {
   kind: 'write',
   measure: (a: JournalArgs) => ({ amount_minor: a.lines.reduce((s, l) => s + l.debit_minor, 0), currency: a.currency }),
   check: (a: JournalArgs) => checkEntry(a.lines),
+  // A line naming its account in words is posted to the ONE account in the chart whose name matches it.
+  async normalize(a: JournalArgs, ctx) {
+    if (!Array.isArray(a?.lines)) return a;
+    const codes = await codesFromNames(ctx.db, a.lines.map((l) => l?.account_code));
+    return { ...a, lines: a.lines.map((l, i) => (codes[i] ? { ...l, account_code: codes[i]! } : l)) };
+  },
+  // A manual posting to an account that is not in the chart (a typo, a guessed default) is refused whole,
+  // before anyone is asked, naming the unknown code(s) and the closest real accounts.
   async validate(a: JournalArgs, ctx) {
     const codes = [...new Set(a.lines.map((l) => l.account_code))];
     const found = await repo.accountIdsByCode(ctx.db, codes);
     const missing = codes.filter((c) => !found.has(c));
-    if (missing.length) return `unknown account codes: ${missing.join(', ')}`;
+    if (missing.length) return unknownAccount(await chart(ctx.db), missing);
     return (await isLocked(ctx.db, a.date)) ? `${a.date.slice(0, 7)} is closed; post into an open month or reopen it first` : null;
   },
   async execute(a: JournalArgs, ctx: ExecCtx) {

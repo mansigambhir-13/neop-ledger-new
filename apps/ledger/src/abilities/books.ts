@@ -12,9 +12,9 @@ import { ACCT, bankLineEntry, billEntry, invoiceEntry, reverse, settlementEntry,
 import { daysBetween, natural } from '../domain/reports.ts';
 import { DEFAULT_CURRENCY } from './reads.ts';
 import { sourceDocumentExists } from './documents.ts';
+import { agedTo, chart, codesFromNames, companyToday, unknownAccount, unknownDocument, unknownParty } from '../domain/names.ts';
 
 const S = 'ledger';
-const today = () => new Date().toISOString().slice(0, 10);
 const head = (entries: number, ids: string[], basis: string, currency = DEFAULT_CURRENCY) => ({
   generatedAt: new Date().toISOString(),
   currency,
@@ -33,7 +33,7 @@ async function lockedMsg(db: PoolClient, date: string): Promise<string | null> {
 export const accountsList: ReadAbility = {
   kind: 'read',
   async run(a: { as_of?: string; type?: string; include_inactive?: boolean }, ctx: ReadCtx) {
-    const asOf = a.as_of ?? today();
+    const asOf = a.as_of ?? companyToday(ctx);
     const rows = (await accountTotals(ctx.db, { from: null, to: asOf, currency: DEFAULT_CURRENCY })).filter((x) => !a.type || x.type === a.type);
     const active = new Map((await ctx.db.query<{ code: string; is_active: boolean }>(`select code, is_active from ${S}.accounts`)).rows.map((r) => [r.code, r.is_active]));
     const accounts = rows
@@ -100,7 +100,8 @@ export const journalList: ReadAbility = {
 export const documentsList: ReadAbility = {
   kind: 'read',
   async run(a: { kind: 'invoice' | 'bill'; status?: 'open' | 'overdue' | 'paid' | 'all'; party?: string; as_of?: string }, ctx: ReadCtx) {
-    const asOf = a.as_of ?? today();
+    // Days overdue are counted to the company's today at most: a document due today is not overdue yet.
+    const asOf = agedTo(a.as_of ?? companyToday(ctx), ctx);
     const rows = (
       await ctx.db.query(
         `select d.id, d.number, p.name as party, to_char(d.issue_date, 'YYYY-MM-DD') as issue_date, to_char(d.due_date, 'YYYY-MM-DD') as due_date,
@@ -117,7 +118,15 @@ export const documentsList: ReadAbility = {
         if (st === 'overdue') return d.status === 'open' && d.overdue_days > 0;
         return d.status === st;
       });
-    return { ...head(rows.length, rows.map((d) => d.id), `${a.kind}s (${a.status ?? 'open'}) as of ${asOf}`), kind: a.kind, as_of: asOf, documents: rows };
+    // Totals are computed here, so an answer quotes them rather than adding rows up itself.
+    const open = rows.filter((d) => d.status === 'open');
+    const totals = {
+      count: rows.length,
+      outstanding_minor: open.reduce((t, d) => t + Number(d.outstanding_minor), 0),
+      overdue_minor: open.filter((d) => d.overdue_days > 0).reduce((t, d) => t + Number(d.outstanding_minor), 0),
+      due_in_7_minor: open.filter((d) => d.overdue_days === 0 && daysBetween(asOf, d.due_date) <= 7).reduce((t, d) => t + Number(d.outstanding_minor), 0),
+    };
+    return { ...head(rows.length, rows.map((d) => d.id), `${a.kind}s (${a.status ?? 'open'}) as of ${asOf}`), kind: a.kind, as_of: asOf, totals, documents: rows };
   },
 };
 
@@ -185,7 +194,7 @@ const monthEnd = (m: string) => {
 export const homeSummary: ReadAbility = {
   kind: 'read',
   async run(a: { as_of?: string }, ctx: ReadCtx) {
-    const asOf = a.as_of ?? today();
+    const asOf = a.as_of ?? companyToday(ctx);
     const totals = await accountTotals(ctx.db, { from: null, to: asOf, currency: DEFAULT_CURRENCY });
     const cashAccts = totals.filter((x) => ['bank', 'cash'].includes(x.subtype));
     const unmatched = (await ctx.db.query<{ n: number }>(`select count(*)::int as n from ${S}.bank_transactions where status = 'unmatched'`)).rows[0]!.n;
@@ -276,11 +285,19 @@ type Items = { description: string; amount_minor: number; account_code?: string 
 
 export const invoiceCreate: WriteAbility = {
   kind: 'write',
+  // A category named in words is the one income account whose name matches it; anything else is refused below.
+  async normalize(a: { lines: Items }, ctx: ReadCtx) {
+    if (!Array.isArray(a?.lines)) return a;
+    const codes = await codesFromNames(ctx.db, a.lines.map((l) => l?.account_code), (x) => x.type === 'income');
+    return { ...a, lines: a.lines.map((l, i) => (codes[i] ? { ...l, account_code: codes[i] } : l)) };
+  },
   measure: (a: { lines: Items; gst_rate_bps: number; currency: string }) => ({ amount_minor: invoiceEntry(a.lines, a.gst_rate_bps).total, currency: a.currency }),
   async validate(a: { customer: string; issue_date: string; due_date: string; lines: Items }, ctx) {
     if (a.due_date < a.issue_date) return 'due date is before the issue date';
-    if (!(await B.partyByName(ctx.db, 'customer', a.customer))) return `no customer called "${a.customer}"; create them with ledger.party.create first`;
+    if (!(await B.partyByName(ctx.db, 'customer', a.customer))) return unknownParty(ctx.db, 'customer', a.customer);
+    const accts = await chart(ctx.db);
     for (const l of a.lines) {
+      if (l.account_code && !accts.some((x) => x.code === l.account_code)) return unknownAccount(accts.filter((x) => x.type === 'income'), l.account_code, 'income account');
       const acct = l.account_code ? await B.accountByCode(ctx.db, l.account_code) : { type: 'income' };
       if (!acct || acct.type !== 'income') return `line "${l.description}": ${l.account_code} is not an income account`;
     }
@@ -311,13 +328,20 @@ export const invoiceCreate: WriteAbility = {
 
 export const billRecord: WriteAbility = {
   kind: 'write',
+  async normalize(a: { lines: Items }, ctx: ReadCtx) {
+    if (!Array.isArray(a?.lines)) return a;
+    const codes = await codesFromNames(ctx.db, a.lines.map((l) => l?.account_code), (x) => ['expense', 'asset'].includes(x.type));
+    return { ...a, lines: a.lines.map((l, i) => (codes[i] ? { ...l, account_code: codes[i] } : l)) };
+  },
   measure: (a: { lines: Required<Items[number]>[]; gst_rate_bps: number; currency: string }) => ({ amount_minor: billEntry(a.lines, a.gst_rate_bps).total, currency: a.currency }),
   async validate(a: { vendor: string; number: string; issue_date: string; due_date: string; lines: Items; source_document?: string }, ctx) {
     if (a.due_date < a.issue_date) return 'due date is before the issue date';
     if (a.source_document && !(await sourceDocumentExists(ctx.db, a.source_document))) return `no attached file ${a.source_document.slice(0, 12)}… is kept for this company; cite the document_id of a file the person attached`;
-    if (!(await B.partyByName(ctx.db, 'vendor', a.vendor))) return `no vendor called "${a.vendor}"; create them with ledger.party.create first`;
+    if (!(await B.partyByName(ctx.db, 'vendor', a.vendor))) return unknownParty(ctx.db, 'vendor', a.vendor);
     if (await B.documentByNumber(ctx.db, 'bill', a.number)) return `bill ${a.number} is already recorded`;
+    const accts = await chart(ctx.db);
     for (const l of a.lines) {
+      if (!accts.some((x) => x.code === l.account_code)) return unknownAccount(accts.filter((x) => ['expense', 'asset'].includes(x.type)), l.account_code!, 'expense or asset account');
       const acct = await B.accountByCode(ctx.db, l.account_code!);
       if (!acct || !['expense', 'asset'].includes(acct.type)) return `line "${l.description}": ${l.account_code} is not an expense or asset account`;
     }
@@ -355,7 +379,7 @@ export const paymentRecord: WriteAbility = {
   },
   async validate(a: PayArgs, ctx) {
     const d = await B.documentByNumber(ctx.db, a.kind, a.document_number);
-    if (!d) return `no ${a.kind} ${a.document_number}`;
+    if (!d) return unknownDocument(ctx.db, a.kind, a.document_number);
     if (d.status !== 'open') return `${a.kind} ${a.document_number} is ${d.status}`;
     if (a.amount_minor > d.total_minor - d.paid_minor) return `₹${rupees(a.amount_minor)} is more than the ₹${rupees(d.total_minor - d.paid_minor)} outstanding on ${a.document_number}`;
     const bank = await B.accountByCode(ctx.db, a.bank_account_code ?? ACCT.bank);
@@ -451,7 +475,7 @@ export const invoiceSend: WriteAbility = {
   measure: (a: SendArgs) => ({ recipients: a.to ?? [] }),
   async validate(a: SendArgs, ctx) {
     const d = await B.documentByNumber(ctx.db, 'invoice', a.document_number);
-    if (!d) return `no invoice ${a.document_number}`;
+    if (!d) return unknownDocument(ctx.db, 'invoice', a.document_number);
     if (d.status === 'void') return `${a.document_number} is void`;
     if (!recipients(a, d).length) return `${d.party} has no email on file; say who to send it to`;
     return null;
@@ -475,16 +499,17 @@ export const reminderSend: WriteAbility = {
   measure: (a: SendArgs) => ({ recipients: a.to ?? [] }),
   async validate(a: SendArgs, ctx) {
     const d = await B.documentByNumber(ctx.db, 'invoice', a.document_number);
-    if (!d) return `no invoice ${a.document_number}`;
+    if (!d) return unknownDocument(ctx.db, 'invoice', a.document_number);
     if (d.status !== 'open') return `${a.document_number} is ${d.status}; nothing to chase`;
-    if (d.due >= today()) return `${a.document_number} is not overdue (due ${d.due})`;
+    // Overdue by the company's today: an invoice due today is not overdue yet.
+    if (d.due >= companyToday(ctx)) return `${a.document_number} is not overdue (due ${d.due})`;
     if (!recipients(a, d).length) return `${d.party} has no email on file; say who to send it to`;
     return null;
   },
   async execute(a: SendArgs, ctx: ExecCtx) {
     const d = await ctx.withDb((db) => B.documentByNumber(db, 'invoice', a.document_number));
     if (!d) throw definite(`no invoice ${a.document_number}`);
-    const days = daysBetween(d.due, today());
+    const days = daysBetween(d.due, companyToday(ctx));
     const sent = await ctx.doors.email.send(
       { to: approvedRecipients(a), subject: `Reminder: invoice ${d.number} is ${days} days overdue`, text: `A friendly reminder that invoice ${d.number} was due on ${d.due}.\n\n${invoiceText(d, ctx.company_name, a.note)}` },
       ctx.idempotencyKey,
@@ -536,6 +561,11 @@ type CatArgs = { bank_transaction_id: string; account_code: string; memo?: strin
 
 export const bankCategorize: WriteAbility = {
   kind: 'write',
+  async normalize(a: CatArgs, ctx: ReadCtx) {
+    if (!a?.account_code) return a;
+    const [code] = await codesFromNames(ctx.db, [a.account_code], (x) => !['bank', 'cash', 'receivable', 'payable'].includes(x.subtype));
+    return { ...a, account_code: code };
+  },
   async measure(a: CatArgs, db?: PoolClient) {
     const t = db ? await B.bankTxn(db, a.bank_transaction_id) : null;
     return t ? { amount_minor: Math.abs(Number(t.amount_minor)), currency: t.currency } : {};
@@ -545,7 +575,7 @@ export const bankCategorize: WriteAbility = {
     if (!t) return 'no such bank line';
     if (t.status !== 'unmatched') return 'that bank line is already matched';
     const acct = await B.accountByCode(ctx.db, a.account_code);
-    if (!acct) return `no account ${a.account_code}`;
+    if (!acct) return unknownAccount(await chart(ctx.db), a.account_code);
     if (['bank', 'cash', 'receivable', 'payable'].includes(acct.subtype)) return `code customer and supplier money with ledger.payment.record, not to ${a.account_code}`;
     return lockedMsg(ctx.db, t.date);
   },
@@ -586,7 +616,7 @@ type RuleArgs = { pattern: string; account_code: string; direction?: 'in' | 'out
 export const codingRuleAdd: WriteAbility = {
   kind: 'write',
   async validate(a: RuleArgs, ctx) {
-    return (await B.accountByCode(ctx.db, a.account_code)) ? null : `no account ${a.account_code}`;
+    return (await B.accountByCode(ctx.db, a.account_code)) ? null : unknownAccount(await chart(ctx.db), a.account_code);
   },
   async execute(a: RuleArgs, ctx: ExecCtx) {
     return ctx.withDb(async (db) => {

@@ -4,6 +4,7 @@
 import type { ReadAbility, ReadCtx } from '@neop/template';
 import * as repo from '../data/ledger.repo.ts';
 import * as R from '../domain/reports.ts';
+import { agedTo } from '../domain/names.ts';
 
 export const DEFAULT_CURRENCY = 'INR';
 
@@ -59,19 +60,21 @@ export const aging: ReadAbility = {
   kind: 'read',
   async run(a: { kind: 'receivable' | 'payable'; as_of: string; currency?: string }, ctx: ReadCtx) {
     const cur = a.currency ?? DEFAULT_CURRENCY;
-    const docs = await repo.openDocuments(ctx.db, { kind: a.kind === 'receivable' ? 'invoice' : 'bill', as_of: a.as_of, currency: cur });
+    // A running period is aged to the company's today, never past it; the as_of returned is the one used.
+    const asOf = agedTo(a.as_of, ctx);
+    const docs = await repo.openDocuments(ctx.db, { kind: a.kind === 'receivable' ? 'invoice' : 'bill', as_of: asOf, currency: cur });
     const sources: R.Sources = {
       entries: docs.length,
       entry_ids: docs.slice(0, 50).map((d) => d.id),
-      basis: `open ${a.kind === 'receivable' ? 'customer invoices' : 'supplier bills'} issued on or before ${a.as_of}`,
+      basis: `open ${a.kind === 'receivable' ? 'customer invoices' : 'supplier bills'} issued on or before ${asOf}${asOf !== a.as_of ? ` (aged to today, ${asOf}: ${a.as_of} has not come yet)` : ''}`,
     };
     return {
       ...head(cur, sources),
       kind: a.kind,
-      as_of: a.as_of,
+      as_of: asOf,
       ...R.aging(
         docs.map(({ id: _id, ...d }) => d),
-        a.as_of,
+        asOf,
       ),
     };
   },

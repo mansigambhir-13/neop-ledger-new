@@ -69,6 +69,14 @@ export async function buildBundle(core: Core, c: PoolClient, job: JobRow, board:
   // A follow-up continues from the job before it: its ask and what it reported (its facts come first in `facts`).
   const pj = job.parent_job_id ? await core.book.getJob(c, job.parent_job_id) : null;
   const parent: JobBundle['parent'] = pj ? { job_id: pj.id, ask: pj.ask, status: pj.status, summary: typeof (pj.result as any)?.summary === 'string' ? (pj.result as any).summary : null } : null;
+  // What the requester has waiting for a yes: stated in every job, so an answer about "that proposal" is never guessed.
+  const open = (
+    await c.query<{ id: string; ability_key: string; card: any; fingerprint: string; expires_at: Date }>(
+      `select p.id, p.ability_key, p.card, p.fingerprint, p.expires_at from ${core.key}.proposals p join ${core.key}.jobs j on j.id = p.job_id
+        where p.company_id = $2 and j.company_id = $2 and j.requester = $1 and p.status = 'PROPOSED' and p.expires_at > now() order by p.created_at desc limit 10`,
+      [job.requester, job.company_id],
+    )
+  ).rows.map((p) => ({ id: p.id, ability_key: p.ability_key, what: String(p.card?.what ?? '').slice(0, 300), fingerprint: p.fingerprint, expires_at: p.expires_at.toISOString() }));
   const borrowed = await core.borrowed.list(job.company_id, board);
   const installed = await core.packages.forCompany(job.company_id).catch((e) => {
     core.log('registry unavailable; packages and borrowed skills skipped', { e: String(e) });
@@ -99,6 +107,7 @@ export async function buildBundle(core: Core, c: PoolClient, job: JobRow, board:
       on_behalf_of: job.on_behalf_of ?? null,
     },
     parent,
+    open_proposals: open,
     steps: recent.map((s) => ({ seq: s.seq, kind: s.kind, summary: s.summary, at: s.created_at.toISOString() })),
     older_steps_summary: summary,
     facts: facts.map((f) => ({ subject: f.subject, value: f.value, source: f.source, observed_at: f.observed_at.toISOString() })),
