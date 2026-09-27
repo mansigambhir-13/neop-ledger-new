@@ -182,3 +182,40 @@ Started 2026-09-27T12:00:03.427Z, finished 2026-09-27T12:15:21.408Z. Assistant s
 |---|---|---|---:|
 | question answered via desk | PASS | asked "How much was the expense, in rupees?" fields ["amount_rupees"] · POST /api/questions/90d89781/answer → 200 · question ANSWERED via desk · task 01c0977f COMPLETED · "Acceptance check LVSFHKAB6/q-desk: asked for the missing amount via job_ask, received the answer, and recorded nothing per instructions. amount_rupees=37" | $0.2265 |
 | question answered via conversation | PASS | asked "How much was the expense, in rupees?" fields ["amount_rupees"] · follow-up /api/ask in conversation 33f2fc7a → 200 answered question 5d190fe1 · question ANSWERED via conversation · task f9053b97 COMPLETED · "amount_rupees=41. As instructed, I asked for the amount with job_ask (one field, amount_rupees), received the answer from the user (41), and did not record any " | $0.3065 |
+
+## Final build, 27 Sep 2026 (evening): governance and writes re-run live
+
+| Item | Result | Evidence | Cost |
+|---|---|---|---:|
+| Item | Result | Evidence | Cost |
+|---|---|---|---:|
+| Item | Result | Evidence | Cost |
+|---|---|---|---:|
+
+| Item | Result | Evidence | Cost |
+|---|---|---|---:|
+| manifest version | PASS | live 1.0.0 · local 1.0.0 |  |
+| ability list | PASS | 44 own abilities, 0 from packages; every one has a local schema |  |
+| Item | Result | Evidence | Cost |
+|---|---|---|---:|
+| ledger.party.create | PASS | 1 operation (DONE) · parties.list has LV Test Customer LVZCIHV46 once · task bb7313c0 | $0.3100 |
+| ledger.account.create | PASS | card "Add expense account LVZCIHV46" sha256:79d3d2c6… · EXECUTED, proof DONE (d1ad609e-d7db-4723-8451-152048b00bbc) · 1 operation (DONE) · accounts.list has LVZCIHV46 "Live validation LVZCIHV46" · task a298b506 | $0.3191 |
+| ledger.coding_rule.add | PASS | 1 operation (DONE) · coding_rules.list has LVTEST-LVZCIHV46 → 6300 · task 9da33724 | $0.3103 |
+| ledger.journal.post | PASS | card "Post ₹1.00 test entry LVZCIHV46" sha256:98de27e6… · wrong fingerprint refused (409 stale_fingerprint, card still PENDING) · EXECUTED, proof DONE (4f2c591c-9c80-4bdd-aa71-feddc860faa1) · 1 operation (DONE) · journal.list has entry 4f2c591c · task 618af997 | $0.2415 |
+| ledger.entry.reverse | PASS | card "Reverse test entry LVZCIHV46" sha256:daf1de2a… · EXECUTED, proof DONE (38f74d12-a0b9-4aed-9e6b-8b232f27e929) · 1 operation (DONE) · journal.list has reversal 38f74d12 of 4f2c591c · task 2b361a41 | $0.3211 |
+| ledger.invoice.create | PASS | card "Invoice LV Test Customer LVZCIHV46 ₹1.18" sha256:c018525c… · EXECUTED, proof DONE (INV-0009) · 1 operation (DONE) · documents.list has INV-0009 for ₹1.18 · task fa52303f | $0.2445 |
+| ledger.payment.record | PASS | card "Record ₹1.18 received on INV-0009" sha256:2dd7969b… · EXECUTED, proof DONE (d617e360-2569-4cb7-9da6-4fad5bae8dd4) · 1 operation (DONE) · INV-0009 is paid · task 00268913 | $0.2373 |
+| ledger.bank.import | PASS | card "Import 4 test bank lines LVZCIHV46" sha256:8073c522… · EXECUTED, proof DONE (4 of 4 lines new) · 1 operation (DONE) · bank.unreconciled has the 4 lines · task 0b0184d6 | $0.3288 |
+| ledger.bank.match | PASS | card "Match the ₹1.18 receipt line" sha256:9ef3c1fd… · EXECUTED, proof DONE (1cf1e685-138d-4d9f-ab9d-e289dfcf723a) · 1 operation (DONE) · receipt line reconciled · task a7c94499 | $0.2398 |
+| ledger.bank.categorize | PASS | card "Categorise the ₹1.00 charges line" sha256:62c66de1… · EXECUTED, proof DONE (df398514-76fc-462a-8436-a19a9567c094) · 1 operation (DONE) · charges line reconciled · task f84375a7 | $0.2420 |
+| ledger.bank.ignore | PASS | card "Set aside the ₹0.50 duplicate line" sha256:67dfa0d4… · EXECUTED, proof DONE (63154828-0d13-425a-8326-739c0e006f5c) · 1 operation (DONE) · duplicate line set aside · task 4e517c46 | $0.3191 |
+| ledger.expense.record | PASS | card "Record the ₹1.18 stationery expense" sha256:c66aea03… · EXECUTED, proof DONE (1e5b56be-caaa-4796-a50a-577066ea7f0f) · 1 operation (DONE) · entry 1e5b56be, bank line matched · task d9537567 | $0.2464 |
+| ledger.bill.record | PASS | card "Record bill LV-LVZCIHV46 from CloudSoft India" sha256:7a71c181… · EXECUTED, proof DONE (LV-LVZCIHV46) · 1 operation (DONE) · documents.list has bill LV-LVZCIHV46 (₹1.18) · task f499f086 | $0.2409 |
+| ledger.settings.update | PASS | card "Set cash forecast to 12 weeks" sha256:c5ca9cd6… · EXECUTED, proof DONE (settings) · 1 operation (DONE) · settings.get forecast_weeks=12 · task 0ec6e496 | $0.2343 |
+| ledger.settings.update (restore settings) | PASS | card "Put cash forecast back to 13 weeks" sha256:262517b2… · EXECUTED, proof DONE (settings) · 1 operation (DONE) · forecast_weeks back to 13 · task aae6af12 | $0.2342 |
+| ledger.opening_balances.set | SKIPPED | opening balances are already set (entry fce76aac on 2026-07-01); it is a one-time write the app refuses a second time |  |
+| ledger.period.close | PASS | card "Close 2026-08" sha256:053cf3b2… · EXECUTED, proof DONE (2026-08) · 1 operation (DONE) · periods.status lists 2026-08 closed · task 45cae65c | $0.3077 |
+| ledger.period.reopen | PASS | card "Reopen 2026-08" sha256:045a7166… · EXECUTED, proof DONE (2026-08) · 1 operation (DONE) · 2026-08 open again · task 92a9ae0a | $0.3884 |
+| ledger.invoice.send | PASS | card "Email INV-0009 to cfo@acme.example" sha256:fced1969… · EXECUTED, proof DONE (msg_152a52a3ab33) · 1 operation (DONE) · INV-0009 sent_at 2026-09-27T15:42:34.917Z · task 76933433 | $0.2340 |
+| ledger.reminder.send | SKIPPED | task eb92ebfc ACKNOWLEDGED (budget reached, cancelled) | $0.0776 |
+| ledger.close_pack.email | SKIPPED | budget of $5 reached ($5.0769 spent) |  |

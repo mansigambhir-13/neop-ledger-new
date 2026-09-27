@@ -12,7 +12,7 @@ Ledger's Matrix account (`@ledger`) exactly as `neos-agent-neuralchat` #143 does
 | 2 | Homeserver URL and server name (the one `@reasoning_agent` is on) | Shivam | `MATRIX_HOMESERVER_URL`, `MATRIX_SERVER_NAME` |
 | 3 | `@ledger` account on that homeserver and an **operator-issued access token** (never a password; the platform never logs in or out) | Shivam / homeserver admin | file → `LEDGER_MATRIX_TOKEN_FILE` |
 | 4 | NeuralChat's Matrix id (`@reasoning_agent:…`), and `@ledger` added to NeuralChat's `REASONING_MATRIX_NEOPS` (`ledger=@ledger:…`) | Shivam | `BRIDGE_MXID` |
-| 5 | A **new** model provider key (the one used in testing must be rotated) with a spend limit | Mansi | file → `LLM_KEY_FILE` |
+| 5 | A **new** model provider key (the one used in testing must be rotated) with a spend limit, on an account **with credit** — the test OpenRouter account has about $4 left after validation, not enough for a day of use (budget ~$0.25–0.50 per request) | Mansi | file → `LLM_KEY_FILE` |
 | 6 | Company name, time zone, the admin person (name, email, optionally their own Matrix id) | Mansi | `COMPANY_*`, `ADMIN_*` |
 | 7 | **Decision:** may NeuralChat's go-ahead approve? (see §3) | Mansi + Shivam | `BRIDGE_MAY_APPROVE` |
 | 8 | Optional: email provider key (Resend) and sender, if invoices/reminders/close packs should be emailed on day one | Mansi | `EMAIL_DOOR_JSON` |
@@ -92,7 +92,9 @@ stand-in external homeserver, and NeuralChat simulated exactly as #143 talks (`s
 | `deploy.sh` re-run (upgrade path) | pre-upgrade backup taken; idempotent; verify-install 12/12 (+1 warning: email door not connected yet) |
 | Network policy at run time | holds in every container |
 | NeuralChat conversation (`docs/NEURALCHAT-SIM.md`) | **11/11**: hello, vendors, cash, a change proposed → "Go ahead with …" → executed once (decided by the person, via the bridge), a plain decline drops the other card, a money transfer is refused, a question asked and answered in plain text; replies p50 23 s, max 31 s |
-| Every ability, live (`docs/LIVE-VALIDATION.md`) | 104 checks with a real model on the demo stack |
+| Every ability, live (`docs/LIVE-VALIDATION.md`) | final build: governance 16/16 and writes 20/20 (3 skipped: a one-time write, and two emails cut by the run's $5 cap — both passed in the earlier full run of 104 checks) |
+| A one-minute provider outage | before: every job in flight failed within seconds; now retries back off 5/15/30/60/120 s and the job finishes (`transient-retry.test`) |
+| A note from another job | before: the assistant sometimes skipped a request as "already done" from another job's note; now it never does (governance and writes pass live) |
 
 Found and fixed by the rehearsal: a new company had **no chart of accounts** (now a starter chart on first
 install), NeuralChat's plain decline did not bind to the card (now it does, only on explicit decline words),
