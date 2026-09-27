@@ -66,6 +66,9 @@ export async function buildBundle(core: Core, c: PoolClient, job: JobRow, board:
     }
     wake = { kind: w.kind, outcome: w.outcome ?? 'unknown', proposal, answer: w.kind === 'proposal' ? null : (w.answer ?? null) };
   }
+  // A follow-up continues from the job before it: its ask and what it reported (its facts come first in `facts`).
+  const pj = job.parent_job_id ? await core.book.getJob(c, job.parent_job_id) : null;
+  const parent: JobBundle['parent'] = pj ? { job_id: pj.id, ask: pj.ask, status: pj.status, summary: typeof (pj.result as any)?.summary === 'string' ? (pj.result as any).summary : null } : null;
   const borrowed = await core.borrowed.list(job.company_id, board);
   const installed = await core.packages.forCompany(job.company_id).catch((e) => {
     core.log('registry unavailable; packages and borrowed skills skipped', { e: String(e) });
@@ -93,7 +96,9 @@ export async function buildBundle(core: Core, c: PoolClient, job: JobRow, board:
       task_id: job.task_id,
       created_at: job.created_at.toISOString(),
       attempts: job.attempts,
+      on_behalf_of: job.on_behalf_of ?? null,
     },
+    parent,
     steps: recent.map((s) => ({ seq: s.seq, kind: s.kind, summary: s.summary, at: s.created_at.toISOString() })),
     older_steps_summary: summary,
     facts: facts.map((f) => ({ subject: f.subject, value: f.value, source: f.source, observed_at: f.observed_at.toISOString() })),

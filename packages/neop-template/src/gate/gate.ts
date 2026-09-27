@@ -15,7 +15,7 @@
 //   8. ask-first otherwise → proposal + wait, return the proposal id
 
 import { randomUUID } from 'node:crypto';
-import { canonicalize, fingerprint, sha256, type JobTokenClaims, type ProposalCard, type Proof, type TaskResult } from '@neop/contracts';
+import { canonicalize, fingerprint, normalizeQuestion, QUESTION_LIMITS, sha256, type JobTokenClaims, type ProposalCard, type Proof, type TaskResult } from '@neop/contracts';
 import { executeProposal, measure, runEffect } from '../capabilities/execute.ts';
 import { ruleUsage } from '../capabilities/usage.ts';
 import type { Core } from '../core.ts';
@@ -31,6 +31,7 @@ export type GateResult =
   | { status: 'proposed'; ability: string; proposal_id: string; fingerprint: string; expires_at: string }
   | { status: 'waiting_on_app'; app: string; task_id: string }
   | { status: 'waiting_until'; at: string }
+  | { status: 'asked'; wait_id: string; due_at: string }
   /** `detail` is what another party said (owner app, platform): shown to the model as untrusted data (item 10). */
   | { status: 'refused'; code: string; reason: string; detail?: unknown; detail_source?: string }
   | { status: 'ok'; detail?: unknown };
@@ -40,6 +41,8 @@ export const MAX_TOOL_CALLS = 40;
 const FINISH_GRACE = 5;
 /** job.wait_until: how far ahead a job may park itself. */
 const MAX_WAIT_MS = 31 * 86_400_000;
+/** job.ask: how long a question waits for its answer by default. */
+const ASK_DEFAULT_HOURS = QUESTION_LIMITS.dueDefaultHours;
 
 export class SessionLost extends Error {}
 
@@ -376,7 +379,7 @@ export class Gate {
     return outside ? { status: 'refused', code, reason, ...outside } : { status: 'refused', code, reason };
   }
 
-  // ── built-in tools: book.note, card.raise, job.wait_until, job.finish ─────
+  // ── built-in tools: book.note, card.raise, job.ask, job.wait_until, job.finish ─────
   private async builtin(claims: JobTokenClaims, job: JobRow, key: string, args: any): Promise<GateResult> {
     const co = claims.company_id;
     switch (key) {
@@ -387,10 +390,13 @@ export class Gate {
           if (typeof f?.subject !== 'string' || typeof f?.source !== 'string' || !f.source.trim()) {
             return { status: 'refused', code: 'invalid_args', reason: 'every fact needs a subject and a source' };
           }
+          if (f.valid_until !== undefined && f.valid_until !== null && (typeof f.valid_until !== 'string' || Number.isNaN(Date.parse(f.valid_until)))) {
+            return { status: 'refused', code: 'invalid_args', reason: 'valid_until must be an ISO 8601 date-time' };
+          }
         }
         await this.core.company(co, async (c) => {
           await this.core.book.addStep(c, { company_id: co, job_id: claims.sub, kind: 'note', summary: args.text });
-          for (const f of facts) await this.core.book.addFact(c, { company_id: co, job_id: claims.sub, subject: f.subject, value: f.value ?? null, source: f.source });
+          for (const f of facts) await this.core.book.addFact(c, { company_id: co, job_id: claims.sub, subject: f.subject, value: f.value ?? null, source: f.source, valid_until: f.valid_until ?? null });
         });
         return { status: 'ok' };
       }
@@ -418,6 +424,40 @@ export class Gate {
           await this.core.book.setJobStatus(c, claims.sub, 'WAITING');
           await this.core.book.addStep(c, { company_id: co, job_id: claims.sub, kind: 'system', summary: `Waiting until ${at.toISOString()}: ${args.reason}` });
           return { status: 'waiting_until', at: at.toISOString() } as GateResult;
+        });
+      }
+      case 'job.ask': {
+        // WP §8 `ask`: one structured question; the job waits on it (waits.kind 'input', t005).
+        const n = normalizeQuestion(args);
+        if ('error' in n) return { status: 'refused', code: 'invalid_args', reason: n.error };
+        const hours = args?.due_in_hours === undefined || args?.due_in_hours === null ? ASK_DEFAULT_HOURS : Number(args.due_in_hours);
+        if (!Number.isFinite(hours) || hours <= 0 || hours > QUESTION_LIMITS.dueMaxHours) {
+          return { status: 'refused', code: 'invalid_args', reason: `due_in_hours must be more than 0 and at most ${QUESTION_LIMITS.dueMaxHours} (14 days)` };
+        }
+        return this.core.company(co, async (c) => {
+          const open = (await this.core.book.openWaits(c, claims.sub)).filter((w) => w.status === 'pending');
+          if (open.length) return { status: 'refused', code: 'job_waiting', reason: 'the job is already waiting on an answer; do not ask twice' } as GateResult;
+          const w = await this.core.book.insertWait(c, {
+            company_id: co,
+            job_id: claims.sub,
+            kind: 'input',
+            ref_id: null,
+            expires_at_sql: `now() + interval '${Math.round(hours * 3_600_000)} milliseconds'`,
+            question: n.question,
+          });
+          const consumed = await this.core.book.consumeReadyWaits(c, claims.sub);
+          await this.core.book.markReported(c, co, consumed, `assistant:${claims.sub}`, { asked: w.id });
+          await this.core.book.setJobStatus(c, claims.sub, 'WAITING');
+          await this.core.book.addStep(c, {
+            company_id: co,
+            job_id: claims.sub,
+            kind: 'system',
+            summary: `Asked (question ${w.id.slice(0, 8)}, due ${w.expires_at.toISOString()}): ${n.question.text}`,
+            output_ref: { wait_id: w.id },
+          });
+          const due_at = w.expires_at.toISOString();
+          await this.core.book.emit(c, co, 'question.asked', { job_id: claims.sub, task_id: job.task_id, wait_id: w.id, text: n.question.text, why: n.question.why, fields: n.question.fields, due_at }, `question:${w.id}`);
+          return { status: 'asked', wait_id: w.id, due_at } as GateResult;
         });
       }
       case 'job.finish': {

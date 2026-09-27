@@ -4,7 +4,7 @@
 // app's outbox (S4).
 
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
-import { blocksProblem, isSetting, Metrics, rulesProblem, satisfies, strictest, type Decision, type Manifest, type OutboxEvent, type ProposalCreatedPayload, type Setting, type TaskResult } from '@neop/contracts';
+import { answersFromText, blocksProblem, canonicalize, checkAnswers, isSetting, Metrics, rulesProblem, satisfies, sha256, strictest, type Decision, type Manifest, type OutboxEvent, type ProposalCreatedPayload, type QuestionAskedPayload, type Setting, type TaskResult } from '@neop/contracts';
 import { modelRoute, pickApp, ROUTER_PRINCIPAL, type RouteDecision } from './neuralchat.ts';
 import { isEnvelope, VaultCipher, type VaultKeys } from './vault.ts';
 import { KeyRing } from './keys.ts';
@@ -205,7 +205,31 @@ export class Platform {
     };
     const [conversationId, ctx] = await Promise.all([store(), this.registryContext(user.company_id)]);
     if (opts.app && !ctx.some((a) => a.key === opts.app)) throw new PlatformError(403, 'not_installed', `${opts.app} is not installed for your company`);
-    const route: RouteDecision = opts.app ? { app: opts.app, method: 'explicit', reason: 'the person named the app' } : await this.route(user.company_id, conversationId, text, ctx);
+    // WP §8 thread correlation: a reply in a conversation belongs to the job it follows. If that job is
+    // waiting on the person's answer, this text is the answer; otherwise it is a follow-up for the same
+    // app (no re-routing) that continues from the earlier job.
+    let follow: { app: string; parent_job_id: string | null } | null = null;
+    if (opts.conversation_id) {
+      const last = (
+        await this.db.query<{ id: string; app_key: string; job_id: string | null }>('select id, app_key, job_id from neos.tasks where conversation_id = $1 and company_id = $2 order by created_at desc limit 1', [
+          conversationId,
+          user.company_id,
+        ])
+      ).rows[0];
+      if (last) {
+        const q = (await this.db.query("select * from neos.questions where root_task_id = $1 and status = 'OPEN' order by created_at desc limit 1", [last.id])).rows[0];
+        if (q && !opts.attachments?.length) {
+          const answered = await this.answerFromConversation(user, conversationId, q, text);
+          if (answered) return answered;
+        }
+        if ((!opts.app || opts.app === last.app_key) && ctx.some((a) => a.key === last.app_key)) follow = { app: last.app_key, parent_job_id: last.job_id };
+      }
+    }
+    const route: RouteDecision = follow
+      ? { app: follow.app, method: 'explicit', reason: `a follow-up in the same conversation stays with ${follow.app}` }
+      : opts.app
+        ? { app: opts.app, method: 'explicit', reason: 'the person named the app' }
+        : await this.route(user.company_id, conversationId, text, ctx);
     const appKey = route.app;
     if (!appKey) {
       const msg = 'No app here looks after that yet.';
@@ -223,6 +247,7 @@ export class Platform {
       routed_by: route.method,
       route_reason: route.reason,
       attachments: opts.attachments,
+      parent_job_id: follow?.parent_job_id ?? null,
       beforeDeliver: (id) => this.say(conversationId, user.company_id, 'neuralchat', `Handed to ${name} (task ${id.slice(0, 8)}).`, 'handoff', id),
     });
     return { conversation_id: conversationId, handed_to: appKey, routed_by: route.method, route_reason: route.reason, ...t };
@@ -709,7 +734,7 @@ export class Platform {
   /** A call from one app's backend to another app, through the gateway, as `app:<host>`. */
   async internalCall(host: string, req: { company_id: string; app: string; endpoint: string; body?: unknown; idem_key: string }) {
     await this.assertInstalled(host, req.company_id);
-    if (['tasks.open', 'proposals.resolve', 'proposals.execute', 'outbox.read', 'inbox.deliver', 'tasks.cancel', 'tasks.result', 'switchboard.changed', 'outbox.ack', 'schedules.set', 'schedules.list', 'manifest'].includes(req.endpoint)) {
+    if (['tasks.open', 'proposals.resolve', 'proposals.execute', 'outbox.read', 'inbox.deliver', 'tasks.cancel', 'tasks.result', 'switchboard.changed', 'outbox.ack', 'schedules.set', 'schedules.list', 'waits.answer', 'jobs.transcript', 'manifest'].includes(req.endpoint)) {
       throw new PlatformError(403, 'denied', `${req.endpoint} is not callable this way`);
     }
     return this.gateway.call({ caller: `app:${host}`, app: req.app, endpoint: req.endpoint, company_id: req.company_id, body: req.body, idem_key: req.idem_key });
@@ -968,14 +993,16 @@ export class Platform {
     route_reason?: string | null;
     /** Files the person attached; held on the task until the app acknowledges it. */
     attachments?: TaskAttachment[];
+    /** A follow-up in the same conversation: the earlier job it continues (sent to the app). */
+    parent_job_id?: string | null;
     /** Runs after the task row exists and before it is handed to the app. */
     beforeDeliver?: (taskId: string) => Promise<void>;
   }): Promise<{ task_id: string; status: string; job_id: string | null; ack: string | null }> {
     // Handed over inline right below; the retry worker only looks at it if that fails (no double delivery under load).
     const r = await this.db.query(
-      `insert into neos.tasks (company_id, app_key, requester, ask, conversation_id, origin, room_id, trace_parent, routed_by, route_reason, attachments, next_attempt_at)
-       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11, now() + interval '10 seconds') returning *`,
-      [t.company_id, t.app_key, t.requester, t.ask, t.conversation_id ?? null, t.origin ?? 'app', t.room_id ?? null, t.trace_parent ?? null, t.routed_by ?? null, t.route_reason ?? null, t.attachments?.length ? JSON.stringify(t.attachments) : null],
+      `insert into neos.tasks (company_id, app_key, requester, ask, conversation_id, origin, room_id, trace_parent, routed_by, route_reason, attachments, parent_job_id, next_attempt_at)
+       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12, now() + interval '10 seconds') returning *`,
+      [t.company_id, t.app_key, t.requester, t.ask, t.conversation_id ?? null, t.origin ?? 'app', t.room_id ?? null, t.trace_parent ?? null, t.routed_by ?? null, t.route_reason ?? null, t.attachments?.length ? JSON.stringify(t.attachments) : null, t.parent_job_id ?? null],
     );
     const row = r.rows[0]!;
     const id: string = row.id;
@@ -994,6 +1021,9 @@ export class Platform {
     try {
       const fromRoom = t.origin === 'room';
       const ev = fromRoom ? (roomEventId ? { event_id: roomEventId } : (await this.db.query<{ event_id: string }>('select event_id from neos.room_events where task_id = $1 limit 1', [t.id])).rows[0]) : null;
+      // WP §9: the person the work is for. A person's own ask is theirs; an app's hand-off carries the
+      // person its chain started from (rootRequester), so the callee's job knows whom it serves.
+      const onBehalf = t.requester.startsWith('user:') ? t.requester : await this.rootRequester(t.parent_task_id).then((u) => (u ? `user:${u}` : null));
       const res = await this.gateway.call<{ job_id: string; ack: string }>({
         caller: t.requester.startsWith('app:') ? t.requester : 'platform',
         app: t.app_key,
@@ -1001,7 +1031,14 @@ export class Platform {
         company_id: t.company_id,
         body: fromRoom
           ? { task_id: t.id, event_id: ev?.event_id ?? t.id, room_id: t.room_id, sender: t.requester, text: t.ask }
-          : { task_id: t.id, ask: t.ask, requester: t.requester, ...(t.attachments ? { attachments: t.attachments } : {}) },
+          : {
+              task_id: t.id,
+              ask: t.ask,
+              requester: t.requester,
+              ...(onBehalf ? { on_behalf_of: onBehalf } : {}),
+              ...(t.parent_job_id ? { parent_job_id: t.parent_job_id } : {}),
+              ...(t.attachments ? { attachments: t.attachments } : {}),
+            },
         idem_key: `task:${t.id}`,
         trace: t.trace_parent,
       });
@@ -1053,6 +1090,131 @@ export class Platform {
     return null;
   }
 
+  /** The task a person started the chain from (walks a2a parents), or null if nobody is on record. */
+  private async rootTask(taskId: string | null, c: { query: Pool['query'] } = this.db): Promise<{ id: string; requester: string; conversation_id: string | null; app_key: string } | null> {
+    let id = taskId;
+    for (let i = 0; id && i < 10; i++) {
+      const t = (await c.query<{ id: string; requester: string; parent_task_id: string | null; conversation_id: string | null; app_key: string }>(
+        'select id, requester, parent_task_id, conversation_id, app_key from neos.tasks where id = $1',
+        [id],
+      )).rows[0];
+      if (!t) return null;
+      if (t.requester.startsWith('user:')) return t;
+      id = t.parent_task_id;
+    }
+    return null;
+  }
+
+  // ── questions (WP §8 `ask` / `answer`) ─────────────────────────────────────
+  /** Open questions for the company: what a person is being asked, by which app, and until when. */
+  async questions(user: { id: string; company_id: string }, opts: { status?: string } = {}) {
+    const r = await this.db.query(
+      `select q.id, q.app_key, a.manifest->>'name' as app_name, q.task_id, q.root_task_id, q.job_id, q.wait_id, q.text, q.why, q.fields, q.due_at, q.status,
+              q.asked_of, u.name as asked_of_name, q.answers, q.answered_by, q.answered_via, q.answered_at, q.created_at,
+              t.ask as task_ask, t.requester as task_requester, rt.ask as root_ask
+         from neos.questions q left join neos.apps a on a.key = q.app_key left join neos.users u on u.id = q.asked_of
+         left join neos.tasks t on t.id = q.task_id left join neos.tasks rt on rt.id = q.root_task_id
+        where q.company_id = $1 and ($2::text is null or q.status = $2) order by (q.status = 'OPEN') desc, q.created_at desc limit 200`,
+      [user.company_id, opts.status ?? 'OPEN'],
+    );
+    return r.rows;
+  }
+
+  /**
+   * An answer to a job's question, delivered to the app's waits.answer through the gateway. A person
+   * answers in their own words (desk, conversation, DM); a bridge's relayed answer is recorded as such
+   * and reaches the assistant as untrusted data. Another app never answers for a person. A question
+   * that is no longer open at the app is `stale` (409).
+   */
+  async answerQuestion(
+    questionId: string,
+    who: { company_id: string; user_id?: string; relay?: string },
+    answers: unknown,
+    via: 'desk' | 'conversation' | 'chat' | 'bridge' | 'reasoning_agent',
+  ): Promise<{ status: 'ANSWERED'; question_id: string; job_id: string; task_id: string | null }> {
+    const q = (await this.db.query('select * from neos.questions where id = $1 and company_id = $2', [questionId, who.company_id])).rows[0];
+    if (!q) throw new PlatformError(404, 'not_found', 'no such question');
+    if (q.status !== 'OPEN') throw new PlatformError(409, 'stale', `this question is ${q.status.toLowerCase()}; it can no longer be answered`);
+    const answeredBy = who.user_id ? `user:${who.user_id}` : who.relay;
+    if (!answeredBy) throw new PlatformError(400, 'bad_request', 'who answered is required');
+    const checked = checkAnswers({ text: q.text, why: q.why, fields: q.fields }, answers);
+    if ('error' in checked) throw new PlatformError(400, 'bad_answer', checked.error);
+    const body = { wait_id: q.wait_id, answers: checked.answers, answered_by: answeredBy, via };
+    const task = q.task_id ? (await this.db.query<{ trace_parent: string | null }>('select trace_parent from neos.tasks where id = $1', [q.task_id])).rows[0] : null;
+    let res;
+    try {
+      res = await this.gateway.call({
+        caller: 'platform',
+        app: q.app_key,
+        endpoint: 'waits.answer',
+        company_id: q.company_id,
+        body,
+        idem_key: `answer:${q.id}:${sha256(canonicalize(body)).slice(0, 24)}`,
+        trace: task?.trace_parent ?? null,
+      });
+    } catch (e) {
+      throw new PlatformError(502, 'unavailable', `${q.app_key} could not be reached: ${(e as Error).message}`);
+    }
+    if (res.status === 400) throw new PlatformError(400, 'bad_answer', res.body?.error?.message ?? 'the app refused this answer');
+    if (res.status === 404 || res.status === 409) {
+      await this.db.query(`update neos.questions set status = 'STALE', last_error = $2, updated_at = now() where id = $1 and status = 'OPEN'`, [q.id, String(res.body?.error?.message ?? res.status).slice(0, 500)]);
+      throw new PlatformError(409, 'stale', res.body?.error?.message ?? 'this question is no longer open');
+    }
+    if (res.status !== 200) throw new PlatformError(502, 'unavailable', `${q.app_key} answered ${res.status}; the question is still open`);
+    const actor = who.user_id ? `user:${who.user_id}` : `chat:${who.relay}`;
+    await tx(this.db, async (c) => {
+      const u = await c.query(
+        `update neos.questions set status = 'ANSWERED', answers = $2, answered_by = $3, answered_via = $4, answered_at = now(), updated_at = now() where id = $1 and status = 'OPEN'`,
+        [q.id, JSON.stringify(checked.answers), answeredBy, via],
+      );
+      if (q.task_id) await c.query(`update neos.tasks set status = 'ACKNOWLEDGED', updated_at = now() where id = $1 and status = 'NEEDS_INPUT'`, [q.task_id]);
+      if (u.rowCount) {
+        const root = q.root_task_id ? (await c.query<{ conversation_id: string | null }>('select conversation_id from neos.tasks where id = $1', [q.root_task_id])).rows[0] : null;
+        const name = who.user_id ? ((await c.query<{ name: string }>('select name from neos.users where id = $1', [who.user_id])).rows[0]?.name ?? 'a person') : `${who.relay} (relayed)`;
+        await this.say(root?.conversation_id ?? null, q.company_id, 'neuralchat', `Answered by ${name}: ${Object.entries(checked.answers).map(([k, v]) => `${k}: ${String(v)}`).join('; ').slice(0, 1000)}`, 'notice', q.root_task_id, c);
+      }
+      await c.query(`insert into neos.audit (company_id, actor, app_key, action, outcome, detail) values ($1, $2, $3, 'question.answered', $4, $5)`, [
+        q.company_id,
+        actor,
+        q.app_key,
+        via,
+        JSON.stringify({ question_id: q.id, wait_id: q.wait_id, job_id: q.job_id, idempotent: !!res.body?.idempotent }),
+      ]);
+    });
+    return { status: 'ANSWERED', question_id: q.id, job_id: q.job_id, task_id: q.task_id };
+  }
+
+  /** A person's follow-up while their job waits on their answer: the text is the answer (WP §8 thread correlation). */
+  private async answerFromConversation(user: { id: string; company_id: string }, conversationId: string, q: any, text: string) {
+    const answers = answersFromText({ text: q.text, why: q.why, fields: q.fields }, text);
+    const base = { conversation_id: conversationId, handed_to: q.app_key, question_id: q.id, task_id: q.task_id, job_id: q.job_id };
+    if (!answers) {
+      const msg = `That question needs ${q.fields.length} answers (${q.fields.map((f: any) => f.key).join(', ')}): reply with one "key: value" per line, or answer it on the desk.`;
+      await this.say(conversationId, user.company_id, 'neuralchat', msg, 'notice', q.root_task_id);
+      return { ...base, status: 'NEEDS_INPUT', answered: false, message: msg };
+    }
+    try {
+      await this.answerQuestion(q.id, { company_id: user.company_id, user_id: user.id }, answers, 'conversation');
+    } catch (e) {
+      // Closed in the meantime: this text is then an ordinary follow-up.
+      if (e instanceof PlatformError && e.code === 'stale') return null;
+      if (e instanceof PlatformError && e.code === 'bad_answer') await this.say(conversationId, user.company_id, 'neuralchat', `That answer was not recorded: ${e.message}.`, 'notice', q.root_task_id);
+      throw e;
+    }
+    return { ...base, status: 'ANSWERED', answered: true };
+  }
+
+  /** WP §12: a job's raw session transcripts, read from the app for an admin (audit only). */
+  async transcript(user: { id: string; company_id: string }, taskId: string) {
+    const t = (await this.db.query('select id, app_key, job_id from neos.tasks where id = $1 and company_id = $2', [taskId, user.company_id])).rows[0];
+    if (!t) throw new PlatformError(404, 'not_found', 'no such task');
+    if (!t.job_id) throw new PlatformError(404, 'not_found', 'this task has no job yet');
+    const res = await this.gateway.call({ caller: 'platform', app: t.app_key, endpoint: 'jobs.transcript', company_id: user.company_id, query: { job_id: t.job_id } });
+    if (res.status !== 200) throw new PlatformError(res.status === 404 ? 404 : 502, res.body?.error?.code ?? 'unavailable', res.body?.error?.message ?? `${t.app_key} answered ${res.status}`);
+    await this.gateway.audit({ company_id: user.company_id, actor: `user:${user.id}`, app_key: t.app_key, action: 'job.transcript_read', outcome: 'read', detail: { task_id: t.id, job_id: t.job_id } });
+    return { task_id: t.id, app: t.app_key, ...res.body };
+  }
+
   /** R8: who may answer this card. The company sets it; a person may never approve past it. */
   private async checkApprover(approvalId: string, user: { id: string; company_id: string; role?: string }, decision: Decision): Promise<void> {
     const a = (await this.db.query('select app_key, ability_key, task_id, company_id from neos.approvals where id = $1 and company_id = $2', [approvalId, user.company_id])).rows[0];
@@ -1073,6 +1235,10 @@ export class Platform {
 
   async answer(approvalId: string, user: { id: string; company_id: string; role?: string }, a: { decision: Decision; fingerprint_seen: string; feedback?: string }): Promise<void> {
     await this.checkApprover(approvalId, user, a.decision);
+    if (a.decision === 'withdraw') {
+      const cur = (await this.db.query('select * from neos.approvals where id = $1 and company_id = $2', [approvalId, user.company_id])).rows[0];
+      if (cur && ((cur.status === 'RECORDED' && cur.decision === 'yes') || cur.status === 'RESOLVED')) return this.withdrawApproved(cur, user, a.fingerprint_seen);
+    }
     const r = await this.db.query(
       `update neos.approvals set status = 'RECORDED', decision = $3, fingerprint_seen = $4, feedback = $5,
          decided_by = $2, decided_at = now(), next_attempt_at = now(), updated_at = now()
@@ -1094,6 +1260,41 @@ export class Platform {
     }
     await this.gateway.audit({ company_id: user.company_id, actor: `user:${user.id}`, action: 'desk.answer', outcome: a.decision, detail: { approval_id: approvalId, fingerprint_seen: a.fingerprint_seen } });
     void this.approvalsTick().catch(() => {});
+  }
+
+  /**
+   * A person changes their mind after a yes, before it is carried out (WP §7 "a person withdrawing a
+   * yes → the job stops"). The proposal state machine allows APPROVED → WITHDRAWN and never
+   * EXECUTING → WITHDRAWN; the app decides under the proposal's row lock, the same lock execute takes,
+   * so exactly one of them wins. Too late (already being carried out, or done) is a 409, and the yes stands.
+   */
+  private async withdrawApproved(cur: any, user: { id: string; company_id: string }, fingerprintSeen: string): Promise<void> {
+    if (fingerprintSeen !== cur.fingerprint) throw new PlatformError(409, 'stale_fingerprint', 'withdraw what is on the card: its fingerprint does not match');
+    let res;
+    try {
+      res = await this.gateway.call({
+        caller: 'platform',
+        app: cur.app_key,
+        endpoint: 'proposals.resolve',
+        company_id: cur.company_id,
+        body: { proposal_id: cur.proposal_id, decision: 'withdraw', fingerprint_seen: cur.fingerprint, decided_by: `user:${user.id}`, feedback: null },
+        idem_key: `withdraw:${cur.id}`,
+      });
+    } catch (e) {
+      throw new PlatformError(502, 'unavailable', `the app could not be reached to withdraw it: ${(e as Error).message}`);
+    }
+    if (res.status >= 500) throw new PlatformError(502, 'unavailable', 'the app could not record the withdrawal; try again');
+    if (res.status !== 200) {
+      await this.gateway.audit({ company_id: user.company_id, actor: `user:${user.id}`, action: 'desk.answer', outcome: 'withdraw_refused', detail: { approval_id: cur.id, app: res.body?.error ?? null } });
+      throw new PlatformError(409, 'too_late', 'this yes is already being carried out (or done); it can no longer be withdrawn');
+    }
+    // The worker's own updates are conditional on the state it expects, so this is where the card ends.
+    await this.db.query(
+      `update neos.approvals set status = 'CLOSED', decision = 'withdraw', decided_by = $2, decided_at = now(), last_error = 'withdrawn after a yes, before it was carried out', updated_at = now()
+        where id = $1 and status in ('RECORDED', 'RESOLVED', 'REFUSED')`,
+      [cur.id, user.id],
+    );
+    await this.gateway.audit({ company_id: user.company_id, actor: `user:${user.id}`, action: 'desk.answer', outcome: 'withdraw', detail: { approval_id: cur.id, after_yes: true, fingerprint_seen: fingerprintSeen } });
   }
 
   async approvalsTick(): Promise<void> {
@@ -1134,12 +1335,15 @@ export class Platform {
       }
       if (res.status >= 500) return this.backoff(a, `resolve ${res.status}`);
       if (res.status !== 200) {
-        await this.db.query(`update neos.approvals set status = 'REFUSED', last_error = $2, updated_at = now() where id = $1`, [a.id, JSON.stringify(res.body)]);
+        // Conditional: a withdrawal after the yes may already have closed this card.
+        await this.db.query(`update neos.approvals set status = 'REFUSED', last_error = $2, updated_at = now() where id = $1 and status = 'RECORDED'`, [a.id, JSON.stringify(res.body)]);
         return;
       }
       const next = a.decision === 'yes' ? 'RESOLVED' : 'CLOSED';
       // Keep the lease while this worker carries on to execute; a crash lets it lapse and another worker resumes.
-      await this.db.query(`update neos.approvals set status = $2, next_attempt_at = now() + interval '60 seconds', attempts = 0, updated_at = now() where id = $1`, [a.id, next]);
+      const moved = await this.db.query(`update neos.approvals set status = $2, next_attempt_at = now() + interval '60 seconds', attempts = 0, updated_at = now() where id = $1 and status = 'RECORDED'`, [a.id, next]);
+      if (!moved.rowCount) return; // withdrawn meanwhile
+
       await this.hooks.afterResolve?.(a.id);
       if (next === 'CLOSED') return;
       a = { ...a, status: 'RESOLVED', attempts: 0 };
@@ -1167,7 +1371,7 @@ export class Platform {
       }
       if (res.status >= 500 || (res.status === 409 && res.body?.error?.code === 'in_progress')) return this.backoff(a, `execute ${res.status}`);
       if (res.status !== 200) {
-        await this.db.query(`update neos.approvals set status = 'REFUSED', last_error = $2, updated_at = now() where id = $1`, [a.id, JSON.stringify(res.body)]);
+        await this.db.query(`update neos.approvals set status = 'REFUSED', last_error = $2, updated_at = now() where id = $1 and status = 'RESOLVED'`, [a.id, JSON.stringify(res.body)]);
         return;
       }
       // The outbox consumer may already have settled the card from proposal.executed; never undo that.
@@ -1299,8 +1503,8 @@ export class Platform {
         // An app-side withdrawal (e.g. the task was cancelled) closes a card nobody answered.
         if (p.status === 'WITHDRAWN') {
           await c.query(
-            `update neos.approvals set status = 'CLOSED', decision = 'withdraw', last_error = 'withdrawn by the app', updated_at = now()
-              where app_key = $1 and proposal_id = $2 and status = 'PENDING'`,
+            `update neos.approvals set status = 'CLOSED', decision = 'withdraw', last_error = case when decision is null then 'withdrawn by the app' else last_error end, updated_at = now()
+              where app_key = $1 and proposal_id = $2 and status in ('PENDING', 'RECORDED', 'RESOLVED')`,
             [app, p.proposal_id],
           );
         }
@@ -1385,6 +1589,48 @@ export class Platform {
         await this.mirror(c, await this.roomFor(c, e.company_id, app, task), { dedupe_key: `cardraised:${e.id}`, kind: 'notice', body: text });
         break;
       }
+      case 'question.asked': {
+        // WP §8 `ask`: the job waits on a person's answer. Shown where the person who started the chain is:
+        // their conversation, the desk, their DM (client road). An app's hand-off is answered by that person,
+        // never by the calling app (WP §9: another app's words are information, and only a person answers for a person).
+        const qp = p as QuestionAskedPayload;
+        const task = await this.taskFor(c, app, qp, e.company_id);
+        const root = task ? await this.rootTask(task.id, c) : null;
+        const askedOf = root?.requester?.startsWith('user:') ? root.requester.slice(5) : null;
+        const ins = await c.query<{ id: string }>(
+          `insert into neos.questions (company_id, app_key, task_id, root_task_id, job_id, wait_id, text, why, fields, due_at, asked_of)
+           values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) on conflict (app_key, wait_id) do nothing returning id`,
+          [e.company_id, app, task?.id ?? null, root?.id ?? task?.id ?? null, qp.job_id, qp.wait_id, qp.text, qp.why, JSON.stringify(qp.fields), qp.due_at, askedOf],
+        );
+        if (!ins.rows[0]) break;
+        if (task) await c.query(`update neos.tasks set status = 'NEEDS_INPUT', updated_at = now() where id = $1 and status in ('OPEN', 'ACKNOWLEDGED', 'WAITING')`, [task.id]);
+        const body = roomText.question(appName, qp);
+        await this.say(root?.conversation_id ?? task?.conversation_id ?? null, e.company_id, `app:${app}`, body, 'card', root?.id ?? task?.id ?? null, c);
+        await this.mirror(c, await this.roomFor(c, e.company_id, app, task), { dedupe_key: `question:${qp.wait_id}`, kind: 'notice', body });
+        break;
+      }
+      case 'question.answered': {
+        // Every road ends here too (e.g. an answer through the NEOS v1 bridge): the app's wait is the truth.
+        const u = await c.query<{ task_id: string | null }>(
+          `update neos.questions set status = 'ANSWERED', answers = $3, answered_by = $4, answered_via = $5, answered_at = coalesce(answered_at, now()), updated_at = now()
+            where app_key = $1 and wait_id = $2 and status in ('OPEN', 'STALE') returning task_id`,
+          [app, p.wait_id, JSON.stringify(p.answers ?? {}), p.answered_by, p.via ?? null],
+        );
+        for (const r of u.rows) if (r.task_id) await c.query(`update neos.tasks set status = 'ACKNOWLEDGED', updated_at = now() where id = $1 and status = 'NEEDS_INPUT'`, [r.task_id]);
+        break;
+      }
+      case 'question.expired': {
+        const u = await c.query<{ task_id: string | null; root_task_id: string | null; text: string }>(
+          `update neos.questions set status = 'EXPIRED', updated_at = now() where app_key = $1 and wait_id = $2 and status = 'OPEN' returning task_id, root_task_id, text`,
+          [app, p.wait_id],
+        );
+        for (const r of u.rows) {
+          if (r.task_id) await c.query(`update neos.tasks set status = 'ACKNOWLEDGED', updated_at = now() where id = $1 and status = 'NEEDS_INPUT'`, [r.task_id]);
+          const root = r.root_task_id ? (await c.query<{ conversation_id: string | null }>('select conversation_id from neos.tasks where id = $1', [r.root_task_id])).rows[0] : null;
+          await this.say(root?.conversation_id ?? null, e.company_id, `app:${app}`, `Nobody answered in time: "${r.text.slice(0, 300)}". ${appName} will report without it.`, 'notice', r.root_task_id, c);
+        }
+        break;
+      }
       case 'operation.recorded':
         await c.query(
           `insert into neos.audit (company_id, actor, app_key, action, ability_key, idem_key, outcome, detail) values ($1,$2,$3,'app.operation',$4,$5,$6,$7)`,
@@ -1398,6 +1644,8 @@ export class Platform {
         if (task) {
           const status = result.outcome === 'cancelled' ? 'CANCELLED' : e.event_type === 'task.completed' ? 'COMPLETED' : 'FAILED';
           await c.query(`update neos.tasks set status = $2, result = $3, updated_at = now() where id = $1`, [task.id, status, JSON.stringify(result)]);
+          // A question the finished job still had open can no longer be answered.
+          await c.query(`update neos.questions set status = 'STALE', last_error = 'the job ended', updated_at = now() where task_id = $1 and status = 'OPEN'`, [task.id]);
           // (8) Conversations gets the result, typed, from the finished task.
           await c.query('insert into neos.conversation_messages (company_id, conversation_id, task_id, author, body, kind) values ($1,$2,$3,$4,$5,$6)', [
             e.company_id,

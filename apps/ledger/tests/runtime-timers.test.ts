@@ -233,9 +233,10 @@ describe('t004 on a populated book', () => {
     try {
       // The template as it was before t004.
       await cp(TEMPLATE_MIGRATIONS, dir, { recursive: true });
-      await rm(path.join(dir, 't004_timers_and_summary.sql'));
+      // (and before every later template file, which a later test proves on its own)
       const led = JSON.parse(await readFile(path.join(dir, 'migrate.json'), 'utf8'));
-      led.migrations = led.migrations.filter((m: any) => m.file !== 't004_timers_and_summary.sql');
+      for (const m of led.migrations.filter((x: any) => x.file >= 't004')) await rm(path.join(dir, m.file));
+      led.migrations = led.migrations.filter((m: any) => m.file < 't004');
       await writeFile(path.join(dir, 'migrate.json'), JSON.stringify(led));
       await bootstrapFamily(db.adminUrl, 'ledger');
       const run = async (tdir: string) =>
@@ -249,7 +250,7 @@ describe('t004 on a populated book', () => {
         return j.rows[0]!.id;
       });
       const applied = await run(TEMPLATE_MIGRATIONS);
-      expect(applied.map((m) => m.name)).toEqual(['t004_timers_and_summary.sql']);
+      expect(applied.map((m) => m.name)[0]).toBe('t004_timers_and_summary.sql'); // then any later template file
       await withCompany(pool, CO, async (c) => {
         expect((await c.query('select count(*)::int as n from ledger.steps where job_id = $1', [jobId])).rows[0].n).toBe(30);
         expect((await c.query('select count(*)::int as n from ledger.journal_entries')).rows[0].n).toBeGreaterThan(20);

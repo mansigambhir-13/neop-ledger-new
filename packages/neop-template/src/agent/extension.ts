@@ -20,6 +20,24 @@ class SessionLost extends Error {}
 
 const wrapUntrusted = (source: string, value: unknown) => untrusted(source, value);
 
+/** A transcript larger than this keeps its first message and as many of the latest as fit. */
+export const MAX_TRANSCRIPT_BYTES = 2_000_000;
+
+/** Model inputs and outputs, tool calls and results, as this session saw them (WP §12). */
+export function transcriptOf(system: string, messages: unknown[], reason: string): { reason: string; system_prompt: string; messages: unknown[]; bytes: number; truncated: boolean } {
+  const size = (m: unknown) => Buffer.byteLength(JSON.stringify(m) ?? 'null');
+  let total = messages.reduce<number>((s, m) => s + size(m), 0);
+  if (total <= MAX_TRANSCRIPT_BYTES) return { reason, system_prompt: system, messages, bytes: total, truncated: false };
+  const [first, ...rest] = messages;
+  const kept: unknown[] = [];
+  total = size(first);
+  for (let i = rest.length - 1; i >= 0 && total + size(rest[i]) <= MAX_TRANSCRIPT_BYTES; i--) {
+    total += size(rest[i]);
+    kept.unshift(rest[i]);
+  }
+  return { reason, system_prompt: system, messages: [first, { role: 'note', text: `${rest.length - kept.length} messages left out: the transcript was over ${MAX_TRANSCRIPT_BYTES} bytes` }, ...kept], bytes: total, truncated: true };
+}
+
 /** A 402 from the NEOS LLM proxy: the job or day budget is used up. Final, never retried (S9). */
 export function budgetStop(errorMessage: string): string | null {
   if (!/\b402\b|budget_exceeded|NEOS budget reached/i.test(errorMessage)) return null;
@@ -99,6 +117,13 @@ export async function runSession(bundle: JobBundle, token: string, gateUrl: stri
           waiting = true;
           return {
             content: [{ type: 'text', text: `The job now waits until ${r.at}. Stop now; you will be woken then.` }],
+            details: r,
+            terminate: true,
+          };
+        case 'asked':
+          waiting = true;
+          return {
+            content: [{ type: 'text', text: `Your question is written (${r.wait_id}) and waits for an answer until ${r.due_at}. The job is now WAITING. Stop now; you will be woken with the answer, or told if nobody answered in time.` }],
             details: r,
             terminate: true,
           };
@@ -193,6 +218,8 @@ export async function runSession(bundle: JobBundle, token: string, gateUrl: stri
   session.set('neop.end', reason).end(reason === 'finished' || reason === 'waiting' ? 'ok' : 'error');
   void tracer.flush();
   if (killed) return 'error:killed';
+  // The raw transcript goes to the book for audit (WP §12), however the session ended. It is never shown to a model again.
+  await gate('/gate/transcript', transcriptOf(agent.state.systemPrompt, agent.state.messages as unknown[], reason)).catch(() => {});
   if (reason !== 'session_lost') await gate('/gate/session.end', { reason }).catch(() => {});
   return reason;
 }

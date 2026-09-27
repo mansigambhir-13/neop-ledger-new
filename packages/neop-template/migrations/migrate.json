@@ -41,6 +41,17 @@
       ],
       "baseline": false,
       "proven_on_populated_data": "2026-09-26 \u00b7 apps/ledger/tests/runtime-timers.test.ts \u203a t004 applies forward on a populated book"
+    },
+    {
+      "file": "t005_input_waits.sql",
+      "tables": [
+        "facts",
+        "jobs",
+        "transcripts",
+        "waits"
+      ],
+      "baseline": false,
+      "proven_on_populated_data": "2026-09-27 \u00b7 apps/ledger/tests/input-waits.test.ts \u203a t005 applies forward on a populated book"
     }
   ]
 }

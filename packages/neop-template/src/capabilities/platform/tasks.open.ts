@@ -7,7 +7,10 @@ export interface OpenJobInput {
   ask: string;
   requester: string;
   source?: 'task' | 'room' | 'a2a' | 'timer';
+  /** A follow-up in the same conversation: the earlier job whose summary and facts this one starts from. */
   parent_job_id?: string | null;
+  /** The person the work is for (a2a: where the chain started; WP §9). */
+  on_behalf_of?: string | null;
   /** traceparent of the L3 span that opened it; the job's later hops continue this trace. */
   trace?: string | null;
   /** Files the person attached: read by the documents door, kept on the job as untrusted notes. */
@@ -23,14 +26,17 @@ export async function openJob(core: Core, companyId: string, input: OpenJobInput
   // Read before the transaction (deterministic, no model); written with the job, so the runner never sees it without them.
   const notes = (input.attachments ?? []).map(attachmentFact);
   const { job, created } = await core.company(companyId, async (c) => {
+    // A parent that is not a job of this company in this book is not followed (RLS hides other companies).
+    const parent = input.parent_job_id ? ((await c.query(`select 1 from ${core.key}.jobs where id = $1`, [input.parent_job_id])).rowCount ? input.parent_job_id : null) : null;
     const r = await core.book.openJobAtomic(c, {
       company_id: companyId,
       source: input.source ?? 'task',
       requester: input.requester,
       task_id: input.task_id,
       ask: input.ask,
-      parent_job_id: input.parent_job_id ?? null,
+      parent_job_id: parent,
       trace_id: input.trace ?? null,
+      on_behalf_of: input.on_behalf_of ?? (input.requester.startsWith('user:') ? input.requester : null),
     });
     if (r.created) for (const n of notes) await core.book.addFact(c, { company_id: companyId, job_id: r.job.id, ...n });
     return r;
@@ -43,6 +49,12 @@ export function validateOpen(body: any): string | null {
   if (typeof body.task_id !== 'string' || !/^[0-9a-f-]{36}$/i.test(body.task_id)) return 'task_id (uuid) required';
   if (typeof body.ask !== 'string' || !body.ask.trim() || body.ask.length > 8000) return 'ask (1..8000 chars) required';
   if (typeof body.requester !== 'string' || !/^(user|app):.+/.test(body.requester)) return 'requester (user:<id> | app:<key>) required';
+  if (body.parent_job_id !== undefined && body.parent_job_id !== null && (typeof body.parent_job_id !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(body.parent_job_id))) return 'parent_job_id must be a uuid';
+  if (body.on_behalf_of !== undefined && body.on_behalf_of !== null) {
+    if (typeof body.on_behalf_of !== 'string' || !/^user:.{1,200}$/.test(body.on_behalf_of)) return 'on_behalf_of must be a person (user:<id>)';
+    // A person asking for themselves cannot be on behalf of someone else.
+    if (body.requester.startsWith('user:') && body.on_behalf_of !== body.requester) return 'on_behalf_of must be the requester when a person asks';
+  }
   return validateAttachments(body.attachments);
 }
 

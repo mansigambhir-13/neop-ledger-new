@@ -134,6 +134,16 @@
       ],
       "baseline": false,
       "proven_on_populated_data": "2026-09-27 \u00b7 packages/platform/tests/migration-011.test.ts (populated through 010, then 011 and every later file) + apps/ledger/tests/attachments.test.ts"
+    },
+    {
+      "file": "014_questions.sql",
+      "tables": [
+        "chat_client_events",
+        "questions",
+        "tasks"
+      ],
+      "baseline": false,
+      "proven_on_populated_data": "2026-09-27 \u00b7 apps/ledger/tests/input-waits.test.ts \u203a 014 applies forward on a populated platform database"
     }
   ]
 }

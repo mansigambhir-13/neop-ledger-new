@@ -11,6 +11,9 @@ export const OUTBOX_EVENT_TYPES = [
   'task.completed',
   'task.failed',
   'a2a.requested',
+  'question.asked',
+  'question.answered',
+  'question.expired',
 ] as const;
 export type OutboxEventType = (typeof OUTBOX_EVENT_TYPES)[number];
 
@@ -58,6 +61,26 @@ export interface TaskResult {
   changed: string[];
   could_not: string[];
   sources: string[];
+}
+
+/** One field of a question the assistant asks (job.ask, WP §8 `ask`). */
+export interface QuestionField {
+  key: string;
+  label: string;
+  type?: QuestionFieldType;
+  required?: boolean;
+}
+export type QuestionFieldType = 'text' | 'number' | 'date' | 'boolean';
+export const QUESTION_FIELD_TYPES: readonly QuestionFieldType[] = ['text', 'number', 'date', 'boolean'];
+
+export interface QuestionAskedPayload {
+  job_id: string;
+  task_id: string | null;
+  wait_id: string;
+  text: string;
+  why: string;
+  fields: QuestionField[];
+  due_at: string;
 }
 
 export type Decision = 'yes' | 'no' | 'change' | 'withdraw';

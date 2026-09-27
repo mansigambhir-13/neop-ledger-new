@@ -2,7 +2,7 @@
 // Every function takes a client that is already inside a transaction; callers
 // decide which role (app with RLS, or runner) and which company.
 
-import type { OutboxEventType } from '@neop/contracts';
+import type { OutboxEventType, Question } from '@neop/contracts';
 import { assertIdent, type PoolClient } from '@neop/pgkit';
 
 export type JobStatus = 'RECEIVED' | 'RUNNING' | 'WAITING' | 'DONE' | 'FAILED' | 'EXPIRED' | 'CANCELLED';
@@ -40,6 +40,8 @@ export interface JobRow {
   trace_id: string | null;
   /** Timer jobs only: not started by then → EXPIRED, never run stale (t004). */
   run_by: Date | null;
+  /** The person the work is for when an app opened the job (a2a, t005). */
+  on_behalf_of: string | null;
   created_at: Date;
   updated_at: Date;
 }
@@ -79,13 +81,27 @@ export interface WaitRow {
   id: string;
   company_id: string;
   job_id: string;
-  kind: 'proposal' | 'timer' | 'a2a_task';
+  kind: WaitKind;
   ref_id: string | null;
   status: 'pending' | 'ready' | 'consumed';
   outcome: string | null;
   answer: any;
   ready_at: Date | null;
   expires_at: Date;
+  /** Input waits (t005): the question asked, and who answered it. */
+  question: Question | null;
+  answered_by: string | null;
+  created_at: Date;
+}
+
+export type WaitKind = 'proposal' | 'timer' | 'a2a_task' | 'input';
+
+export interface FactRow {
+  subject: string;
+  value: unknown;
+  source: string;
+  observed_at: Date;
+  valid_until: Date | null;
 }
 
 export class Book {
@@ -102,14 +118,14 @@ export class Book {
   // ── jobs ────────────────────────────────────────────────────────────────
   async insertJob(
     c: PoolClient,
-    j: { company_id: string; source: JobRow['source']; requester: string; task_id: string | null; ask: string; parent_job_id?: string | null; trace_id?: string | null },
+    j: { company_id: string; source: JobRow['source']; requester: string; task_id: string | null; ask: string; parent_job_id?: string | null; trace_id?: string | null; on_behalf_of?: string | null },
   ): Promise<{ job: JobRow; created: boolean }> {
     const ins = await c.query<JobRow>(
-      `insert into ${this.s}.jobs (company_id, source, requester, task_id, ask, parent_job_id, trace_id)
-       values ($1, $2, $3, $4, $5, $6, $7)
+      `insert into ${this.s}.jobs (company_id, source, requester, task_id, ask, parent_job_id, trace_id, on_behalf_of)
+       values ($1, $2, $3, $4, $5, $6, $7, $8)
        on conflict (company_id, task_id) where task_id is not null do nothing
        returning *`,
-      [j.company_id, j.source, j.requester, j.task_id, j.ask, j.parent_job_id ?? null, j.trace_id ?? null],
+      [j.company_id, j.source, j.requester, j.task_id, j.ask, j.parent_job_id ?? null, j.trace_id ?? null, j.on_behalf_of ?? null],
     );
     if (ins.rows[0]) return { job: ins.rows[0], created: true };
     const existing = await c.query<JobRow>(`select * from ${this.s}.jobs where company_id = $1 and task_id = $2`, [
@@ -126,13 +142,13 @@ export class Book {
    */
   async openJobAtomic(
     c: PoolClient,
-    j: { company_id: string; source: JobRow['source']; requester: string; task_id: string; ask: string; parent_job_id?: string | null; trace_id?: string | null },
+    j: { company_id: string; source: JobRow['source']; requester: string; task_id: string; ask: string; parent_job_id?: string | null; trace_id?: string | null; on_behalf_of?: string | null },
   ): Promise<{ job: JobRow; created: boolean }> {
     const summary = `Asked by ${j.requester}: ${j.ask}`.slice(0, 2000);
     const r = await c.query<JobRow & { notified: number }>(
       `with j as (
-         insert into ${this.s}.jobs (company_id, source, requester, task_id, ask, parent_job_id, trace_id)
-         values ($1, $2, $3, $4, $5, $6, $7)
+         insert into ${this.s}.jobs (company_id, source, requester, task_id, ask, parent_job_id, trace_id, on_behalf_of)
+         values ($1, $2, $3, $4, $5, $6, $7, $10)
          on conflict (company_id, task_id) where task_id is not null do nothing
          returning *),
        st as (
@@ -146,7 +162,7 @@ export class Book {
          on conflict (dedupe_key) do nothing returning 1),
        n as (select pg_notify($9, 'job:' || id) from j)
        select j.*, (select count(*) from n)::int as notified, (select count(*) from st)::int + (select count(*) from ob)::int as written from j`,
-      [j.company_id, j.source, j.requester, j.task_id, j.ask, j.parent_job_id ?? null, j.trace_id ?? null, summary, this.channel],
+      [j.company_id, j.source, j.requester, j.task_id, j.ask, j.parent_job_id ?? null, j.trace_id ?? null, summary, this.channel, j.on_behalf_of ?? null],
     );
     if (r.rows[0]) return { job: r.rows[0], created: true };
     const existing = await c.query<JobRow>(`select * from ${this.s}.jobs where company_id = $1 and task_id = $2`, [j.company_id, j.task_id]);
@@ -287,15 +303,21 @@ export class Book {
   // ── waits ───────────────────────────────────────────────────────────────
   async insertWait(
     c: PoolClient,
-    w: { company_id: string; job_id: string; kind: WaitRow['kind']; ref_id: string | null; expires_at_sql?: string; expires_at?: string; answer?: unknown },
+    w: { company_id: string; job_id: string; kind: WaitRow['kind']; ref_id: string | null; expires_at_sql?: string; expires_at?: string; answer?: unknown; question?: Question },
   ): Promise<WaitRow> {
-    // A timer wait carries what it waits for in `answer` while pending (t004: job.wait_until).
+    // A timer wait carries what it waits for in `answer` while pending (t004: job.wait_until);
+    // an input wait carries its question (t005: job.ask).
     const r = await c.query<WaitRow>(
-      `insert into ${this.s}.waits (company_id, job_id, kind, ref_id, expires_at, answer)
-       values ($1, $2, $3, $4, coalesce($5::timestamptz, ${w.expires_at_sql ?? 'now()'}), $6) returning *`,
-      [w.company_id, w.job_id, w.kind, w.ref_id, w.expires_at ?? null, w.answer === undefined ? null : JSON.stringify(w.answer)],
+      `insert into ${this.s}.waits (company_id, job_id, kind, ref_id, expires_at, answer, question)
+       values ($1, $2, $3, $4, coalesce($5::timestamptz, ${w.expires_at_sql ?? 'now()'}), $6, $7) returning *`,
+      [w.company_id, w.job_id, w.kind, w.ref_id, w.expires_at ?? null, w.answer === undefined ? null : JSON.stringify(w.answer), w.question ? JSON.stringify(w.question) : null],
     );
     return r.rows[0]!;
+  }
+
+  async getWait(c: PoolClient, id: string, lock = false): Promise<WaitRow | null> {
+    const r = await c.query<WaitRow>(`select * from ${this.s}.waits where id = $1${lock ? ' for update' : ''}`, [id]);
+    return r.rows[0] ?? null;
   }
 
   /** Mark a pending wait ready. The only way a job wakes (B2: callers pass terminal outcomes only). */
@@ -356,23 +378,27 @@ export class Book {
   }
 
   // ── facts ───────────────────────────────────────────────────────────────
-  async addFact(c: PoolClient, f: { company_id: string; job_id: string | null; subject: string; value: unknown; source: string }): Promise<void> {
-    await c.query(`insert into ${this.s}.facts (company_id, subject, value, source, job_id) values ($1, $2, $3, $4, $5)`, [
+  /** `valid_until` (t005): after it the fact is no longer offered to any job; it stays in the book. */
+  async addFact(c: PoolClient, f: { company_id: string; job_id: string | null; subject: string; value: unknown; source: string; valid_until?: string | Date | null }): Promise<void> {
+    await c.query(`insert into ${this.s}.facts (company_id, subject, value, source, job_id, valid_until) values ($1, $2, $3, $4, $5, $6)`, [
       f.company_id,
       f.subject,
       JSON.stringify(f.value),
       f.source,
       f.job_id,
+      f.valid_until ?? null,
     ]);
   }
 
   /**
    * Facts for one job's bundle: those this job (or its parent) wrote and those whose
-   * subject the ask names come first, then the company's most recent (item 7).
+   * subject the ask names come first, then the company's most recent (item 7). A fact
+   * past its valid_until is left out (database time).
    */
-  async factsFor(c: PoolClient, job: { id: string; ask: string; parent_job_id: string | null }, limit = 20): Promise<{ subject: string; value: unknown; source: string; observed_at: Date }[]> {
-    const r = await c.query(
-      `select subject, value, source, observed_at from ${this.s}.facts
+  async factsFor(c: PoolClient, job: { id: string; ask: string; parent_job_id: string | null }, limit = 20): Promise<FactRow[]> {
+    const r = await c.query<FactRow>(
+      `select subject, value, source, observed_at, valid_until from ${this.s}.facts
+        where valid_until is null or valid_until > now()
         order by coalesce(job_id = $1 or job_id = $2::uuid or (length(subject) > 2 and strpos(lower($3), lower(subject)) > 0), false) desc, observed_at desc
         limit $4`,
       [job.id, job.parent_job_id, job.ask, limit],
@@ -380,8 +406,29 @@ export class Book {
     return r.rows;
   }
 
-  async recentFacts(c: PoolClient, limit = 20): Promise<{ subject: string; value: unknown; source: string; observed_at: Date }[]> {
-    const r = await c.query(`select subject, value, source, observed_at from ${this.s}.facts order by observed_at desc limit $1`, [limit]);
+  async recentFacts(c: PoolClient, limit = 20): Promise<FactRow[]> {
+    const r = await c.query<FactRow>(`select subject, value, source, observed_at, valid_until from ${this.s}.facts where valid_until is null or valid_until > now() order by observed_at desc limit $1`, [limit]);
+    return r.rows;
+  }
+
+  // ── transcripts (t005, WP §12: kept for audit, never shown to a model again) ──
+  async saveTranscript(
+    c: PoolClient,
+    t: { company_id: string; job_id: string; session_id: string; reason: string; system_prompt: string; messages: unknown[]; bytes: number; truncated: boolean },
+  ): Promise<boolean> {
+    const r = await c.query(
+      `insert into ${this.s}.transcripts (company_id, job_id, session_id, reason, system_prompt, messages, message_count, bytes, truncated)
+       values ($1, $2, $3, $4, $5, $6, $7, $8, $9) on conflict (job_id, session_id) do nothing`,
+      [t.company_id, t.job_id, t.session_id, t.reason.slice(0, 500), t.system_prompt, JSON.stringify(t.messages), t.messages.length, t.bytes, t.truncated],
+    );
+    return (r.rowCount ?? 0) > 0;
+  }
+
+  async transcripts(c: PoolClient, jobId: string): Promise<{ session_id: string; reason: string; system_prompt: string; messages: unknown[]; message_count: number; bytes: number; truncated: boolean; created_at: Date }[]> {
+    const r = await c.query(
+      `select session_id, reason, system_prompt, messages, message_count, bytes, truncated, created_at from ${this.s}.transcripts where job_id = $1 order by id`,
+      [jobId],
+    );
     return r.rows;
   }
 }

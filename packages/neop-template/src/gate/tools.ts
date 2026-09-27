@@ -45,7 +45,12 @@ export const BUILTIN_TOOLS: Record<string, Omit<ToolSpec, 'name' | 'key' | 'vers
           items: {
             type: 'object',
             required: ['subject', 'value', 'source'],
-            properties: { subject: { type: 'string' }, value: {}, source: { type: 'string' } },
+            properties: {
+              subject: { type: 'string' },
+              value: {},
+              source: { type: 'string' },
+              valid_until: { type: 'string', description: 'ISO 8601 date-time after which the fact no longer holds (optional)' },
+            },
           },
         },
       },
@@ -73,10 +78,39 @@ export const BUILTIN_TOOLS: Record<string, Omit<ToolSpec, 'name' | 'key' | 'vers
       properties: { at: { type: 'string', description: 'ISO 8601 date-time with offset' }, reason: { type: 'string' } },
     },
   },
+  'job.ask': {
+    title: 'Ask for something you need, and wait',
+    description:
+      'When the book and your tools cannot give you something you need, ask ONE structured question: what you need (text), why (why), and the fields to fill. The job waits for the answer (default 48 hours, at most 14 days) and you are woken with it. Do not guess and do not ask twice.',
+    kind: 'builtin',
+    input: {
+      type: 'object',
+      required: ['text', 'why', 'fields'],
+      properties: {
+        text: { type: 'string', description: 'What you need, as a question to a person.' },
+        why: { type: 'string', description: 'Why you need it.' },
+        fields: {
+          type: 'array',
+          description: 'The answers you need, one per field. Empty: one free-text answer.',
+          items: {
+            type: 'object',
+            required: ['key', 'label'],
+            properties: {
+              key: { type: 'string', description: 'lower_snake_case' },
+              label: { type: 'string' },
+              type: { type: 'string', enum: ['text', 'number', 'date', 'boolean'] },
+              required: { type: 'boolean' },
+            },
+          },
+        },
+        due_in_hours: { type: 'number', description: 'How long to wait for an answer (default 48, at most 336).' },
+      },
+    },
+  },
   'job.finish': {
     title: 'Finish the job and report',
     description:
-      'End the job with a report: what you did, what changed, what you could not do, and where facts came from. Use needs_input when you must ask the person something before going further.',
+      'End the job with a report: what you did, what changed, what you could not do, and where facts came from. To get something you need from a person, ask with job_ask instead; use needs_input only when asking is impossible.',
     kind: 'builtin',
     input: {
       type: 'object',

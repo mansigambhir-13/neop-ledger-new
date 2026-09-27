@@ -49,6 +49,29 @@ export function gateApp(core: Core, gate: Gate, onSessionEnd: (claims: JobTokenC
     return c.json({ ok: true });
   });
 
+  // WP §12: the session's raw transcript, kept against the job for audit. Written once per session;
+  // only the platform reads it back (L3 jobs.transcript) — never a model.
+  app.post('/gate/transcript', async (c) => {
+    const claims = await claimsOf(c);
+    if (!claims) return c.json({ error: { code: 'unauthenticated', message: 'job token required' } }, 401);
+    if (Number(c.req.header('content-length') ?? 0) > 8_000_000) return c.json({ error: { code: 'too_large', message: 'transcript too large' } }, 413);
+    const b = await c.req.json().catch(() => null);
+    if (!b || !Array.isArray(b.messages) || typeof b.system_prompt !== 'string') return c.json({ error: { code: 'bad_request', message: 'system_prompt and messages required' } }, 400);
+    const saved = await core.company(claims.company_id, (db) =>
+      core.book.saveTranscript(db, {
+        company_id: claims.company_id,
+        job_id: claims.sub,
+        session_id: claims.sid,
+        reason: typeof b.reason === 'string' ? b.reason : 'ended',
+        system_prompt: b.system_prompt,
+        messages: b.messages,
+        bytes: Number.isFinite(b.bytes) ? Number(b.bytes) : 0,
+        truncated: b.truncated === true,
+      }),
+    );
+    return c.json({ ok: true, saved });
+  });
+
   app.post('/gate/session.end', async (c) => {
     const claims = await claimsOf(c);
     if (!claims) return c.json({ error: { code: 'unauthenticated', message: 'job token required' } }, 401);

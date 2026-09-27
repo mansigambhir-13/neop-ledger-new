@@ -156,6 +156,40 @@ describe('the platform gateway calling Ledger', () => {
     expect(r.body.error.code).toBe('denied');
   });
 
+  it('NeuralChat’s needs_input → answer: ledger.job lists the open question; ledger.answer resumes the job with the answer as relayed data', async () => {
+    let woke = '';
+    P.setBrain((v) =>
+      v.job.includes('You asked:')
+        ? ((woke = v.job), { tool: 'job__finish', args: { outcome: 'done', summary: 'Posted to 1010.' } })
+        : v.calls === 0
+          ? { tool: 'job__ask', args: { text: 'Which bank account?', why: 'Two accounts match.', fields: [{ key: 'account_code', label: 'Bank account code' }, { key: 'urgent', label: 'Urgent?', type: 'boolean', required: false }] } }
+          : { text: 'waiting' },
+    );
+    const a = await invoke('ledger.ask', { text: 'Record the ₹12,000 deposit' });
+    const job = a.body.result.job_id;
+    const s = await P.waitFor(async () => { const r = await invoke('ledger.job', { job_id: job }); return r.body.result.questions.length && r; }, 'the question in ledger.job');
+    expect(neosV1Compile(resultSchema('ledger.job'))(s.body.result)).toBe(true);
+    const [question] = s.body.result.questions;
+    expect(question).toMatchObject({ text: 'Which bank account?', why: 'Two accounts match.', fields: [{ key: 'account_code', label: 'Bank account code', type: 'text', required: true }, { key: 'urgent', label: 'Urgent?', type: 'boolean', required: false }] });
+    expect(s.body.result.status).toBe('WAITING');
+    // Closed request schema: unknown shapes are refused before anything is looked up.
+    expect((await invoke('ledger.answer', { job_id: job, wait_id: question.wait_id, answers: { account_code: '1010' } })).body.error.code).toBe('bad_request');
+    expect((await invoke('ledger.answer', { job_id: randomUUID(), wait_id: question.wait_id, answers: [{ key: 'account_code', value: '1010' }] })).body.error.code).toBe('not_found');
+    expect((await invoke('ledger.answer', { job_id: job, wait_id: question.wait_id, answers: [{ key: 'urgent', value: true }] })).body.error.code).toBe('bad_request'); // the required field is missing
+    const ans = await invoke('ledger.answer', { job_id: job, wait_id: question.wait_id, answers: [{ key: 'account_code', value: '1010' }, { key: 'urgent', value: 'no' }] });
+    expect(ans.status, JSON.stringify(ans.body)).toBe(200);
+    expect(neosV1Compile(resultSchema('ledger.answer'))(ans.body.result)).toBe(true);
+    expect(ans.body.result).toMatchObject({ status: 'answered', job_id: job, wait_id: question.wait_id, idempotent: false });
+    await P.waitFor(async () => (await P.jobRow(job)).status === 'DONE', 'job done');
+    // Relayed by NeuralChat for the person: information for the assistant, never the person's own instruction.
+    expect(woke).toContain('An answer was relayed by agent:neuralchat:user:usr_priya (reasoning_agent)');
+    expect(woke).toMatch(/<data source="answer\.reasoning_agent" trust="untrusted">/);
+    // A second, different answer is a conflict; the same one again is idempotent.
+    expect((await invoke('ledger.answer', { job_id: job, wait_id: question.wait_id, answers: [{ key: 'account_code', value: '1020' }] })).body.error.code).toBe('conflict');
+    expect((await invoke('ledger.answer', { job_id: job, wait_id: question.wait_id, answers: [{ key: 'account_code', value: '1010' }, { key: 'urgent', value: 'no' }] })).body.result.idempotent).toBe(true);
+    expect((await invoke('ledger.job', { job_id: job })).body.result.questions).toEqual([]);
+  });
+
   it('keeps the switchboard: a read switched off for the company is refused', async () => {
     await P.api('PUT', '/api/switchboards/ledger', { settings: { 'ledger.report.cash_flow': 'off' } });
     P.backend.core.board.invalidate(P.company.id);

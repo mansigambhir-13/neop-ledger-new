@@ -8,6 +8,7 @@ import { cancelJob } from '../capabilities/platform/tasks.cancel.ts';
 import { openJob, requesterMatches, validateOpen } from '../capabilities/platform/tasks.open.ts';
 import { readOutbox } from '../capabilities/platform/outbox.read.ts';
 import { resolveProposal, validateResolve } from '../capabilities/platform/proposals.resolve.ts';
+import { answerWait, validateAnswer } from '../capabilities/platform/waits.answer.ts';
 import type { Core } from '../core.ts';
 import { renderBackendMetrics } from './metrics.ts';
 import { AuthError } from './auth.ts';
@@ -138,6 +139,32 @@ export function l3App(core: Core): Hono {
     const bad = validateResolve(body);
     if (bad) return c.json({ error: { code: 'bad_request', message: bad } }, 400);
     return c.json(await resolveProposal(core, claims.company_id!, body));
+  });
+
+  // WP §8 `answer`: an answer to a question a job asked (job.ask). Platform only — a person on the
+  // desk, in their conversation or DM; a bridge or the reasoning agent only as relayed, untrusted data.
+  // Another app never answers here: its calls are refused at the gateway and again below.
+  app.post('/l3/waits.answer', async (c) => {
+    const claims = await authed(c, 'waits.answer');
+    if (claims.sub !== 'platform') return c.json({ error: { code: 'denied', message: 'only the platform records answers' } }, 403);
+    const body = await c.req.json().catch(() => null);
+    const bad = validateAnswer(body);
+    if (bad) return c.json({ error: { code: 'bad_request', message: bad } }, 400);
+    return c.json(await answerWait(core, claims.company_id!, body));
+  });
+
+  // WP §12: a job's raw session transcripts, for audit. Platform only; never offered to a model.
+  app.get('/l3/jobs.transcript', async (c) => {
+    const claims = await authed(c, 'jobs.transcript');
+    if (claims.sub !== 'platform') return c.json({ error: { code: 'denied', message: 'platform only' } }, 403);
+    const jobId = c.req.query('job_id') ?? '';
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(jobId)) return c.json({ error: { code: 'bad_request', message: 'job_id (uuid) required' } }, 400);
+    const out = await core.company(claims.company_id!, async (db) => {
+      const job = await core.book.getJob(db, jobId);
+      return job ? { job_id: job.id, status: job.status, sessions: await core.book.transcripts(db, job.id) } : null;
+    });
+    if (!out) return c.json({ error: { code: 'not_found', message: 'no such job' } }, 404);
+    return c.json(out);
   });
 
   app.post('/l3/proposals.execute', async (c) => {

@@ -9,7 +9,7 @@ import pg from 'pg';
 import { buildBundle } from '../agent/context.ts';
 import { reconcileUnknown } from '../capabilities/execute.ts';
 import type { Core } from '../core.ts';
-import type { JobRow, ProposalRow } from '../data/book.ts';
+import type { JobRow, ProposalRow, WaitRow } from '../data/book.ts';
 
 /** A timer job not started within this long of its slot is EXPIRED, not run stale (WP §7, t004). */
 export const TIMER_WINDOW = '1 hour';
@@ -315,6 +315,19 @@ export class Runner {
           where kind = 'timer' and status = 'pending' and expires_at < now()`,
       );
       n += timers.rowCount ?? 0;
+      // A question nobody answered in time wakes its job to say so (WP §5 "waiting is a real state, with a clock").
+      const questions = await client.query<WaitRow & { task_id: string | null }>(
+        `with w as (
+           update ${this.s}.waits set status = 'ready', ready_at = now(), outcome = 'EXPIRED',
+                  answer = jsonb_build_object('wait_id', id, 'question', question, 'answers', null, 'expired', true)
+            where kind = 'input' and status = 'pending' and expires_at < now() returning *)
+         select w.*, j.task_id from w join ${this.s}.jobs j on j.id = w.job_id`,
+      );
+      for (const w of questions.rows) {
+        await this.core.book.addStep(client, { company_id: w.company_id, job_id: w.job_id, kind: 'system', summary: `Question ${w.id.slice(0, 8)} expired: nobody answered by ${w.expires_at.toISOString()}.` });
+        await this.core.book.emit(client, w.company_id, 'question.expired', { wait_id: w.id, job_id: w.job_id, task_id: w.task_id }, `question-expired:${w.id}`);
+        n++;
+      }
       // A timer job that did not start inside its window (an outage) is skipped, not run late.
       const stale = await client.query<JobRow>(
         `update ${this.s}.jobs set status = 'EXPIRED', updated_at = now(), claimed_by = null, claimed_until = null

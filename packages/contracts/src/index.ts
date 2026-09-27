@@ -10,3 +10,4 @@ export * from './metrics.ts';
 export * from './rules.ts';
 export * from './blocks.ts';
 export * from './semver.ts';
+export * from './questions.ts';

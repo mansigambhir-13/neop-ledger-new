@@ -208,6 +208,14 @@
       "responseSchema": "contract.json#/$defs/ledger_job_result"
     },
     {
+      "id": "ledger.answer",
+      "method": "POST",
+      "scope": "ledger.ask",
+      "humanGate": false,
+      "requestSchema": "contract.json#/$defs/ledger_answer_request",
+      "responseSchema": "contract.json#/$defs/ledger_answer_result"
+    },
+    {
       "id": "ledger.proposal.decide",
       "method": "POST",
       "scope": "proposal.decide",

@@ -9,7 +9,7 @@ import { MONTH_START_SQL, Platform, PlatformError } from './platform.ts';
 
 const DESK_HTML = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), 'desk.html'), 'utf8');
 
-const PLATFORM_ENDPOINTS = ['tasks.open', 'inbox.deliver', 'proposals.resolve', 'proposals.execute', 'outbox.read', 'outbox.ack', 'switchboard.changed', 'tasks.cancel', 'tasks.result', 'schedules.set', 'schedules.list', 'manifest'];
+const PLATFORM_ENDPOINTS = ['tasks.open', 'inbox.deliver', 'proposals.resolve', 'proposals.execute', 'outbox.read', 'outbox.ack', 'switchboard.changed', 'tasks.cancel', 'tasks.result', 'schedules.set', 'schedules.list', 'waits.answer', 'jobs.transcript', 'manifest'];
 
 export function platformApp(p: Platform): Hono {
   const app = new Hono();
@@ -374,6 +374,7 @@ export function platformApp(p: Platform): Hono {
       `select t.*,
               (select coalesce(sum(cost_micros), 0)::bigint from neos.llm_usage l where l.job_id = t.job_id) as cost_micros,
               (select count(*)::int from neos.approvals a where a.job_id = t.job_id and a.status = 'PENDING') as pending_approvals,
+              (select count(*)::int from neos.questions q where q.task_id = t.id and q.status = 'OPEN') as open_questions,
               (select count(*)::int from neos.activity v where v.job_id = t.job_id and v.company_id = t.company_id) as steps
          from neos.tasks t where t.company_id = $1 order by t.created_at desc limit $2`,
       [u.company_id, Math.min(Number(c.req.query('limit') ?? 50) || 50, 200)],
@@ -403,8 +404,12 @@ export function platformApp(p: Platform): Hono {
     const grants = job
       ? await p.db.query(`select at, ability_key, detail from neos.audit where action = 'grant.used' and company_id = $1 and detail->>'job_id' = $2 order by at`, [u.company_id, job])
       : { rows: [] };
+    const questions = await p.db.query(
+      'select id, app_key, wait_id, text, why, fields, due_at, status, answers, answered_by, answered_via, answered_at, created_at from neos.questions where (task_id = $1 or root_task_id = $1) and company_id = $2 order by created_at',
+      [t.rows[0].id, u.company_id],
+    );
     const c0 = cost.rows[0];
-    return c.json({ task: t.rows[0], messages: msgs.rows, activity: act.rows, approvals: approvals.rows, grant_uses: grants.rows, cost: { usd: Number(c0.micros) / 1e6, calls: c0.calls, tokens: Number(c0.tokens) } });
+    return c.json({ task: t.rows[0], messages: msgs.rows, activity: act.rows, approvals: approvals.rows, questions: questions.rows, grant_uses: grants.rows, cost: { usd: Number(c0.micros) / 1e6, calls: c0.calls, tokens: Number(c0.tokens) } });
   });
 
   app.get('/api/desk', async (c) => {
@@ -427,6 +432,30 @@ export function platformApp(p: Platform): Hono {
     if (b.decision === 'change' && (typeof b.feedback !== 'string' || !b.feedback.trim())) throw new PlatformError(400, 'bad_request', 'say what to change');
     await p.answer(c.req.param('id'), u, b);
     return c.json({ ok: true });
+  });
+
+  // WP §8 `ask`: what the company's jobs are waiting to be told. An answer is information for the job,
+  // never a yes; it goes to the app's waits.answer through the gateway, recorded as this person's.
+  app.get('/api/questions', async (c) => {
+    const u = await user(c);
+    const s = c.req.query('status');
+    if (s !== undefined && !['OPEN', 'ANSWERED', 'EXPIRED', 'STALE'].includes(s)) throw new PlatformError(400, 'bad_request', 'status must be OPEN, ANSWERED, EXPIRED or STALE');
+    return c.json({ questions: await p.questions(u, { status: s ?? 'OPEN' }) });
+  });
+
+  app.post('/api/questions/:id/answer', async (c) => {
+    const u = await user(c);
+    const b = await c.req.json().catch(() => ({}));
+    if (!b || typeof b.answers !== 'object' || b.answers === null || Array.isArray(b.answers)) throw new PlatformError(400, 'bad_request', 'answers (field → value) required');
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(c.req.param('id'))) throw new PlatformError(404, 'not_found', 'no such question');
+    return c.json(await p.answerQuestion(c.req.param('id'), { company_id: u.company_id, user_id: u.id }, b.answers, 'desk'));
+  });
+
+  // WP §12: the raw transcript of a job's assistant sessions — for an admin's audit, read from the app.
+  app.get('/api/tasks/:id/transcript', async (c) => {
+    const u = await user(c);
+    if (u.role !== 'admin') throw new PlatformError(403, 'denied', 'admins only');
+    return c.json(await p.transcript(u, c.req.param('id')));
   });
 
   app.get('/api/switchboards/:app', async (c) => {

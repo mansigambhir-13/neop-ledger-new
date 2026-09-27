@@ -17,6 +17,9 @@
 //        reply to a card this account showed there, goes through the same platform.answer() with the
 //        fingerprint that card showed. A bridge's "go ahead" is never a yes: the reply names the card and says
 //        it waits for a person's yes on the desk (or in that person's DM). (Deliberately unlike the handoff §6.)
+//   ask  a job's question (WP §8) is the one reply in the DM it was asked from, and is put in the asking person's own
+//        DM; a reply to that notice answers it — a person's as their words, a bridge's as relayed, untrusted data.
+//        An answer is information for the job, never a yes.
 //   stop a rejected token (401 M_UNKNOWN_TOKEN / M_MISSING_TOKEN, M_USER_DEACTIVATED) or an account mismatch
 //        stops the client: no retries, no password login, never /logout (it would revoke the operator's token).
 //
@@ -28,6 +31,7 @@ import type { ProposalCreatedPayload } from '@neop/contracts';
 import type { Platform } from '../platform.ts';
 import { parseDecision } from './bridge.ts';
 import { roomText } from './format.ts';
+import { answersFromText } from '@neop/contracts';
 import { stripReplyFallback } from './matrix.ts';
 
 export const FIXED_FAILURE = "I can't reach the books right now. Please try again in a moment.";
@@ -401,11 +405,13 @@ export class ChatClient {
     const body = stripReplyFallback(c.body).trim().slice(0, 8000);
     const inReplyTo: string | null = c['m.relates_to']?.['m.in_reply_to']?.event_id ?? null;
     if (who.kind === 'person') await this.fromPerson(ev.event_id, room, sender, who.user, body, inReplyTo);
-    else await this.fromBridge(ev.event_id, room, sender, who.actsFor, body, c['neos.on_behalf_of']);
+    else await this.fromBridge(ev.event_id, room, sender, who.actsFor, body, c['neos.on_behalf_of'], inReplyTo);
   }
 
   private async fromPerson(eventId: string, room: string, sender: string, user: { id: string; company_id: string; role: string }, body: string, inReplyTo: string | null): Promise<void> {
     if (inReplyTo) {
+      // A reply to a question shown in this person's own DM: their answer, in their words.
+      if (await this.answerByReply(eventId, room, sender, { user_id: user.id }, body, inReplyTo)) return;
       // An answer binds to a card THIS account showed in THIS person's own recorded DM, and to its fingerprint.
       const card = (
         await this.platform.db.query<{ approval_id: string; fingerprint_shown: string }>(
@@ -432,7 +438,9 @@ export class ChatClient {
     await this.ask(eventId, room, user.id, body);
   }
 
-  private async fromBridge(eventId: string, room: string, bridge: string, actsFor: string | null, body: string, onBehalf: unknown): Promise<void> {
+  private async fromBridge(eventId: string, room: string, bridge: string, actsFor: string | null, body: string, onBehalf: unknown, inReplyTo: string | null = null): Promise<void> {
+    // A reply to a question shown in the bridge's OWN DM answers it — as relayed, untrusted data. An answer is not a yes.
+    if (inReplyTo && (await this.answerByReply(eventId, room, bridge, { relay: `bridge:${bridge}` }, body, inReplyTo))) return;
     // A bridge's "go ahead" is never a yes. If a card from its asks is open, say who must answer it.
     if (parseDecision(body)?.decision === 'yes' || CONSENT.test(body)) {
       const open = (
@@ -466,6 +474,42 @@ export class ChatClient {
     if (!person) return this.replyNow(eventId, room, 'no_person', `Nothing was done: ${bridge} relays for a person, and no person is on record for it at this company.`);
     await this.platform.db.query('update neos.chat_client_events set user_id = $2 where event_id = $1', [eventId, person]);
     await this.ask(eventId, room, person, body);
+  }
+
+  /**
+   * A reply to a question notice this account showed in the sender's OWN recorded DM answers that question
+   * (WP §8 `answer`): a person's words as theirs (via chat), a bridge's as relayed, untrusted data (via
+   * bridge). Returns false when the reply is not to a question here (it is then handled as before).
+   */
+  private async answerByReply(eventId: string, room: string, sender: string, who: { user_id?: string; relay?: string }, body: string, inReplyTo: string): Promise<boolean> {
+    const shown = (
+      await this.platform.db.query<{ question_id: string }>(
+        `select e.question_id from neos.chat_client_events e
+           join neos.chat_dms d on d.account = e.account and d.room_id = e.room_id and d.peer = $4
+          where e.event_id = $1 and e.account = $2 and e.room_id = $3 and e.direction = 'outbound' and e.question_id is not null`,
+        [inReplyTo, this.cfg.account, room, sender],
+      )
+    ).rows[0];
+    if (!shown) return false;
+    const q = (await this.platform.db.query('select * from neos.questions where id = $1 and company_id = $2', [shown.question_id, this.companyId])).rows[0];
+    if (!q) return false;
+    await this.platform.db.query('update neos.chat_client_events set question_id = $2 where event_id = $1', [eventId, q.id]);
+    const answers = answersFromText({ text: q.text, why: q.why, fields: q.fields }, body);
+    if (!answers) {
+      await this.replyNow(eventId, room, 'unclear_answer', `Reply with one line per answer, as key: value (${q.fields.map((f: any) => f.key).join(', ')}). Nothing was recorded.`);
+      return true;
+    }
+    try {
+      await this.platform.answerQuestion(q.id, { company_id: this.companyId!, ...who }, answers, who.user_id ? 'chat' : 'bridge');
+    } catch (e) {
+      await this.replyNow(eventId, room, 'answer_refused', `That answer was not recorded: ${(e as Error).message}.`);
+      return true;
+    }
+    // The reply this answer is owed is the job's next word: its result, a card, or another question.
+    const task = q.root_task_id ?? q.task_id;
+    if (task) await this.owe(eventId, who.user_id ? 'answered:question' : 'relayed:question', task);
+    else await this.replyNow(eventId, room, 'answered:question', 'Recorded your answer.');
+    return true;
   }
 
   /** The desk ask path: a task row and a signed tasks.open through the gateway, as the person. */
@@ -537,9 +581,10 @@ export class ChatClient {
         const claimed = await this.platform.db.query(`update neos.chat_client_events set reply_status = 'sending', reply_text = $2 where event_id = $1 and reply_status = 'waiting'`, [r.event_id, clip(text)]);
         if (!claimed.rowCount) continue;
         this.log('task settled', { event: r.event_id, task: r.task_id, status: r.task_status, fixed: text === FIXED_FAILURE });
-        await this.deliver(r.event_id, r.room_id, clip(text), settled?.card ?? null);
+        await this.deliver(r.event_id, r.room_id, clip(text), settled?.card ?? null, settled?.question ?? null);
         n++;
       }
+      if (!this.stopping) n += await this.questionsTick();
     } finally {
       this.replying = false;
     }
@@ -547,7 +592,7 @@ export class ChatClient {
   }
 
   /** What the one reply says, from the typed result and the desk's own records — or null while still working. */
-  private async settled(r: any): Promise<{ text: string; card?: { approval_id: string; fingerprint: string } } | null> {
+  private async settled(r: any): Promise<{ text: string; card?: { approval_id: string; fingerprint: string }; question?: string } | null> {
     if (r.task_status === 'COMPLETED') {
       const res = r.result ?? {};
       const lines = [clip(res.summary, 6000) || 'Done.'];
@@ -572,11 +617,61 @@ export class ChatClient {
         ].join('\n'),
       };
     }
+    // A question the job (or an app it handed work to) asked since the message: the reply IS the question,
+    // and a reply to it answers it. A bridge's ask also puts it in the person's own DM.
+    const qn = (
+      await this.platform.db.query("select * from neos.questions where (task_id = $1 or root_task_id = $1) and status = 'OPEN' and created_at >= $2 order by created_at desc limit 1", [r.task_id, r.at])
+    ).rows[0];
+    if (qn) {
+      const body = roomText.question(qn.app_key === this.cfg.app ? this.appName : qn.app_key, { text: qn.text, why: qn.why, fields: qn.fields, due_at: new Date(qn.due_at).toISOString() });
+      if (r.sender_kind !== 'person') {
+        const who = await this.personOf(qn.root_task_id ?? r.task_id);
+        if (who?.dm) await this.showQuestion(who.dm, qn.id, body);
+      }
+      return { text: body, question: qn.id };
+    }
     const q = (
       await this.platform.db.query<{ body: string }>("select body from neos.conversation_messages where task_id = $1 and kind = 'card' and body like 'Question:%' and at >= $2 order by id desc limit 1", [r.task_id, r.at])
     ).rows[0];
     if (q) return { text: q.body };
     return null;
+  }
+
+  /** Show a question in a DM, so a reply to it answers it. Once per question and room (txn id). */
+  private async showQuestion(room: string, questionId: string, body: string): Promise<void> {
+    try {
+      const event_id = await this.http.send(room, { msgtype: 'm.notice', body: clip(body) }, `question-${questionId}`);
+      await this.platform.db.query(
+        `insert into neos.chat_client_events (event_id, account, room_id, direction, sender, question_id, outcome) values ($1,$2,$3,'outbound',$2,$4,'question') on conflict do nothing`,
+        [event_id, this.cfg.account, room, questionId],
+      );
+    } catch (e: any) {
+      if (e?.fatal) return void (await this.halt('token_rejected', { status: e.status, errcode: e.errcode }));
+      this.log('question could not be shown in the DM', { question: questionId, e: String(e?.message ?? e).slice(0, 200) });
+    }
+  }
+
+  /**
+   * Questions from jobs that were not asked through this account (the desk, NeuralChat): put to the
+   * person they are asked of, in that person's own recorded DM — once.
+   */
+  async questionsTick(): Promise<number> {
+    const { rows } = await this.platform.db.query(
+      `select q.*, d.room_id from neos.questions q
+         join neos.users u on u.id = q.asked_of
+         join neos.chat_allowlist l on l.company_id = q.company_id and l.app_key = $2 and l.matrix_id = u.matrix_user_id and l.kind = 'person'
+         join neos.chat_dms d on d.account = $1 and d.peer = u.matrix_user_id
+        where q.company_id = $3 and q.app_key = $2 and q.status = 'OPEN'
+          and not exists (select 1 from neos.chat_client_events e where e.account = $1 and e.direction = 'inbound' and e.task_id in (q.task_id, q.root_task_id))
+          and not exists (select 1 from neos.chat_client_events e where e.account = $1 and e.room_id = d.room_id and e.question_id = q.id and e.direction = 'outbound')
+        order by q.created_at limit 20`,
+      [this.cfg.account, this.cfg.app, this.companyId],
+    );
+    for (const q of rows) {
+      if (this.stopping) break;
+      await this.showQuestion(q.room_id, q.id, roomText.question(this.appName, { text: q.text, why: q.why, fields: q.fields, due_at: new Date(q.due_at).toISOString() }));
+    }
+    return rows.length;
   }
 
   /** Show a card in a person's own recorded DM, so their reply to it can bind to its fingerprint. */
@@ -593,7 +688,7 @@ export class ChatClient {
     }
   }
 
-  private async deliver(eventId: string, room: string, text: string, card: { approval_id: string; fingerprint: string } | null): Promise<void> {
+  private async deliver(eventId: string, room: string, text: string, card: { approval_id: string; fingerprint: string } | null, question: string | null = null): Promise<void> {
     const content = { msgtype: 'm.notice', body: text, 'm.relates_to': { 'm.in_reply_to': { event_id: eventId } } };
     try {
       const sent = await this.http.send(room, content, replyTxnId(eventId));
@@ -602,6 +697,12 @@ export class ChatClient {
         await this.platform.db.query(
           `insert into neos.chat_client_events (event_id, account, room_id, direction, sender, approval_id, fingerprint_shown, outcome) values ($1,$2,$3,'outbound',$2,$4,$5,'card') on conflict do nothing`,
           [sent, this.cfg.account, room, card.approval_id, card.fingerprint],
+        );
+      }
+      if (question) {
+        await this.platform.db.query(
+          `insert into neos.chat_client_events (event_id, account, room_id, direction, sender, question_id, outcome) values ($1,$2,$3,'outbound',$2,$4,'question') on conflict do nothing`,
+          [sent, this.cfg.account, room, question],
         );
       }
       this.log('replied', { event: eventId, fixed: text === FIXED_FAILURE });

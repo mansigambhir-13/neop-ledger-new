@@ -1,4 +1,4 @@
-import type { ProposalCreatedPayload, TaskResult } from '@neop/contracts';
+import type { ProposalCreatedPayload, QuestionField, TaskResult } from '@neop/contracts';
 
 
 /** Plain-text room renderings of typed events. The room is a mirror; the book is the truth. */
@@ -13,6 +13,17 @@ export const roomText = {
       `Expires: ${p.expires_at}`,
       `Fingerprint: ${p.fingerprint}`,
       `Reply to this message with "yes", "no" or "change: <what to change>". Your answer binds to this fingerprint only.`,
+    ].join('\n');
+  },
+  /** A job's question (WP §8 `ask`). An answer is information for the job, never a yes. */
+  question(appName: string, q: { text: string; why: string; fields: QuestionField[]; due_at: string }): string {
+    const one = q.fields.length === 1;
+    return [
+      `Question: ${appName} needs an answer — ${q.text}`,
+      `Why: ${q.why}`,
+      one ? `Answer: ${q.fields[0]!.label}` : `Answers: ${q.fields.map((f) => `${f.key} (${f.label}${f.required === false ? ', optional' : ''})`).join('; ')}`,
+      `Due: ${q.due_at}`,
+      one ? 'Reply to this message with your answer.' : 'Reply to this message with one line per answer, as key: value — or answer on the NEOS desk.',
     ].join('\n');
   },
   resolved(p: { proposal_id: string; decision: string; status: string }): string {

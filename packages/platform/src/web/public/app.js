@@ -110,6 +110,7 @@ const S = {
   route: ['today'],
   query: new URLSearchParams(),
   pending: [],
+  questions: [],
   tasks: [],
   conv: sessionStorage.getItem('neos.conv') || null,
   lastMsg: 0,
@@ -307,13 +308,14 @@ const appSwitch = (view) =>
   }) : pill(appName(S.app), 'violet');
 
 // ── live state: jobs and the desk ─────────────────────────────────────────
-const LIVE = ['OPEN', 'ACKNOWLEDGED', 'WAITING'];
+const LIVE = ['OPEN', 'ACKNOWLEDGED', 'WAITING', 'NEEDS_INPUT'];
 async function refreshLive() {
   try {
-    const [{ cards }, { tasks }] = await Promise.all([api('/api/desk'), api('/api/tasks?limit=60')]);
+    const [{ cards }, { tasks }, { questions }] = await Promise.all([api('/api/desk'), api('/api/tasks?limit=60'), api('/api/questions')]);
     S.pending = cards.filter((c) => c.status === 'PENDING');
+    S.questions = questions;
     S.tasks = tasks;
-    const n = S.pending.length;
+    const n = S.pending.length + questions.length;
     $('#bell-n').textContent = n;
     $('#bell-n').classList.toggle('hidden', !n);
     $('#appr-dot')?.classList.toggle('hidden', !n);
@@ -356,7 +358,7 @@ const stepper = (t, approvals) =>
   `<div class="stepper">${stages(t, approvals)
     .map(([label, cls], i, a) => `<span class="st ${cls}"><i>${cls === 'done' ? ic('check', 11) : cls === 'bad' ? ic('x', 11) : ''}</i>${esc(label)}</span>${i < a.length - 1 ? `<span class="ln ${cls === 'done' ? 'done' : ''}"></span>` : ''}`)
     .join('')}</div>`;
-const STATUS = { COMPLETED: ['reported', 'green'], FAILED: ['failed', 'red'], CANCELLED: ['cancelled', 'gray'], ACKNOWLEDGED: ['working', 'blue'], OPEN: ['received', 'gray'], WAITING: ['waiting on you', 'amber'] };
+const STATUS = { COMPLETED: ['reported', 'green'], FAILED: ['failed', 'red'], CANCELLED: ['cancelled', 'gray'], ACKNOWLEDGED: ['working', 'blue'], OPEN: ['received', 'gray'], WAITING: ['waiting on you', 'amber'], NEEDS_INPUT: ['needs your answer', 'amber'] };
 const statusPill = (s) => pill(...(STATUS[s] ?? [String(s).toLowerCase(), 'gray']));
 const who = (req) => (String(req).startsWith('app:') ? `the ${appName(req.slice(4))} app` : String(req).startsWith('user:') ? (req.slice(5) === S.me.id ? 'you' : 'a colleague') : req);
 
@@ -546,6 +548,50 @@ async function answer(c, decision, feedback = '') {
   toast(decision === 'yes' ? 'Approved. The app carries it out once, reads it back, then reports.' : decision === 'no' ? 'Declined. Nothing changed.' : 'Sent back. A new proposal will follow.');
   await refreshLive();
 }
+// ── questions: a job waits for something only a person can tell it (WP §8 `ask`) ─────────
+// The form is built from the question's fields. An answer is information for the job, never a yes.
+function questionHtml(q) {
+  const input = (f) => {
+    const id = `q-${esc(q.id)}-${esc(f.key)}`;
+    const req = f.required !== false;
+    const ctl =
+      f.type === 'boolean'
+        ? `<select class="i" id="${id}" data-k="${esc(f.key)}"><option value=""></option><option value="yes">Yes</option><option value="no">No</option></select>`
+        : `<input class="i" id="${id}" data-k="${esc(f.key)}" type="${f.type === 'number' ? 'number' : f.type === 'date' ? 'date' : 'text'}"${req ? ' required' : ''}>`;
+    return `<label class="fld" for="${id}"><span>${esc(f.label)}${req ? '' : ' <span class="faint">(optional)</span>'}</span>${ctl}</label>`;
+  };
+  return `<article class="prop" data-question="${esc(q.id)}">
+    <div class="chips"><span class="chip">${ic('help', 13)} ${esc(q.app_name ?? appName(q.app_key))} asks</span>${q.asked_of_name ? `<span class="chip">for ${esc(q.asked_of_name)}</span>` : ''}
+      <span class="conf"><span class="clock" data-exp="${esc(q.due_at)}">${ic('clock', 12)}<span> ${esc(left(q.due_at))}</span></span></span></div>
+    <h4>${esc(q.text)}</h4>
+    <dl><dt>Why</dt><dd>${esc(q.why)}</dd>${q.root_ask ? `<dt>From the job</dt><dd><a href="#/jobs/${esc(q.root_task_id)}">${esc(q.root_ask)}</a></dd>` : ''}</dl>
+    <form class="qform">${(q.fields ?? []).map(input).join('')}
+      <div class="foot"><span class="bind">your answer goes to this job only; it is not a yes to anything</span><span class="grow"></span><button class="btn sm lime" type="submit">${ic('send', 14)} Answer</button></div></form>
+  </article>`;
+}
+function bindQuestions(qs, root = document) {
+  for (const el of $$('[data-question]', root)) {
+    const q = qs.find((x) => x.id === el.dataset.question);
+    if (!q) continue;
+    $('form', el).onsubmit = async (e) => {
+      e.preventDefault();
+      const answers = {};
+      for (const i of $$('[data-k]', el)) if (i.value !== '') answers[i.dataset.k] = i.value;
+      for (const b of $$('button', el)) b.disabled = true;
+      try {
+        await api(`/api/questions/${encodeURIComponent(q.id)}/answer`, { method: 'POST', body: { answers } });
+        toast('Answered. The job carries on with it.');
+        await refreshLive();
+        setTimeout(() => render(true), 500);
+      } catch (err) {
+        for (const b of $$('button', el)) b.disabled = false;
+        fail(err);
+        if (err.code === 'stale') render(true);
+      }
+    };
+  }
+}
+
 function outcomePill(a) {
   if (a.status === 'PENDING') return pill('waiting on you', 'amber');
   if (a.status === 'RECORDED' || a.status === 'RESOLVED') return pill('carrying out', 'blue');
@@ -902,9 +948,9 @@ VIEWS.today = async () => {
       <a href="#/switchboard">${ic('sparkle', 14)} Assistant today <b>${usd(usage.today_usd)}</b> of ${usd(usage.per_day_cap_usd)}</a>
       <span class="t">${ic('lock', 14)} Keys held by any assistant: <b>none</b></span>
     </div>` +
-    `<div class="card" id="needs"><div class="card-h"><span class="ico violet">${ic('inbox', 18)}</span><h3>Waiting on you</h3><span class="count">${S.pending.length}</span><div class="right"><a class="btn sm" href="#/approvals">All approvals ${ic('arrow', 13)}</a></div></div>
-      <div class="card-b">${S.pending.length ? S.pending.slice(0, 3).map((c) => cardHtml(c)).join('') + (S.pending.length > 3 ? `<p class="note"><a href="#/approvals">${S.pending.length - 3} more waiting</a></p>` : '') : empty('Nothing waiting on you', 'When an app proposes something — an invoice, a payment, closing a month — the job pauses here until you answer.')}</div></div>` +
-    bind(() => bindCards(S.pending)) +
+    `<div class="card" id="needs"><div class="card-h"><span class="ico violet">${ic('inbox', 18)}</span><h3>Waiting on you</h3><span class="count">${S.pending.length + S.questions.length}</span><div class="right"><a class="btn sm" href="#/approvals">All approvals ${ic('arrow', 13)}</a></div></div>
+      <div class="card-b">${S.questions.slice(0, 3).map(questionHtml).join('')}${S.pending.length ? S.pending.slice(0, 3).map((c) => cardHtml(c)).join('') + (S.pending.length > 3 ? `<p class="note"><a href="#/approvals">${S.pending.length - 3} more waiting</a></p>` : '') : S.questions.length ? '' : empty('Nothing waiting on you', 'When an app proposes something — an invoice, a payment, closing a month — the job pauses here until you answer.')}</div></div>` +
+    bind(() => (bindCards(S.pending), bindQuestions(S.questions))) +
     `<div class="card"><div class="card-h"><span class="ico blue">${ic('jobs', 18)}</span><h3>Working now</h3><span class="count">${working.length}</span><div class="right"><a class="btn sm" href="#/jobs">All jobs ${ic('arrow', 13)}</a></div></div>
       ${working.length ? working.map(jobCard).join('') : `<div class="card-b">${empty('No jobs running', 'Ask above; you’ll see it here — on it, working, waiting, carried out, reported.')}</div>`}</div>` +
     homes.join('') +
@@ -921,7 +967,7 @@ VIEWS.jobs = async (id) => {
   if (id) return jobDetail(id);
   await refreshLive();
   const f = S.query.get('f') ?? 'all';
-  const groups = { all: () => true, working: (t) => ['OPEN', 'ACKNOWLEDGED'].includes(t.status), waiting: (t) => t.status === 'WAITING' || t.pending_approvals > 0, done: (t) => t.status === 'COMPLETED', failed: (t) => ['FAILED', 'CANCELLED'].includes(t.status), apps: (t) => String(t.requester).startsWith('app:') };
+  const groups = { all: () => true, working: (t) => ['OPEN', 'ACKNOWLEDGED'].includes(t.status), waiting: (t) => ['WAITING', 'NEEDS_INPUT'].includes(t.status) || t.pending_approvals > 0 || t.open_questions > 0, done: (t) => t.status === 'COMPLETED', failed: (t) => ['FAILED', 'CANCELLED'].includes(t.status), apps: (t) => String(t.requester).startsWith('app:') };
   const labels = { all: 'All', working: 'Working', waiting: 'Waiting on you', done: 'Reported', failed: 'Failed', apps: 'From other apps' };
   const rows = S.tasks.filter(groups[f] ?? groups.all);
   return (
@@ -955,13 +1001,19 @@ async function jobDetail(id) {
     if (a.decided_at) ev.push({ at: a.decided_at, cls: a.decision === 'yes' ? 'ok' : a.decision === 'change' ? 'ask' : 'bad', text: `${{ yes: 'Approved', no: 'Declined', change: 'Change requested', withdraw: 'Withdrawn' }[a.decision] ?? a.decision} by ${a.decided_by_name ?? 'a person'}`, sub: `against fingerprint ${short(a.fingerprint_seen)} ${a.fingerprint_seen === a.fingerprint ? '✓ exactly what was shown' : '✗ not what was shown'}${a.feedback ? ` · “${a.feedback}”` : ''}` });
     if (a.proof) ev.push({ at: a.proof.at ?? a.decided_at, cls: a.proof.outcome === 'DONE' ? 'ok' : a.proof.outcome === 'UNKNOWN' ? 'ask' : 'bad', text: a.proof.outcome === 'DONE' ? 'Carried out once, and read back' : a.proof.outcome === 'UNKNOWN' ? 'Carried out — checking whether it happened' : 'Carry-out failed', sub: [a.proof.external_ref ? `ref ${a.proof.external_ref}` : '', a.proof.error ?? '', a.proof.reconcile_attempts ? `checked ${a.proof.reconcile_attempts} times` : ''].filter(Boolean).join(' · ') || 'by the app itself, on the platform’s say-so — no model in the loop' });
   }
+  for (const q of d.questions ?? []) {
+    ev.push({ at: q.created_at, cls: 'ask', text: `${appName(q.app_key)} asked`, sub: `${q.text} · due ${when(q.due_at)}` });
+    if (q.answered_at) ev.push({ at: q.answered_at, cls: 'ok', text: `Answered (${q.answered_via})`, sub: Object.entries(q.answers ?? {}).map(([k, v]) => `${k}: ${v}`).join(' · ') });
+    else if (q.status !== 'OPEN') ev.push({ at: q.due_at, cls: 'bad', text: q.status === 'EXPIRED' ? 'Nobody answered in time' : 'Question closed', sub: q.text });
+  }
   for (const g of d.grant_uses) ev.push({ at: g.at, cls: 'ok', text: `Allowed by a standing yes: ${titleOf(g.ability_key, t.app_key)}`, sub: g.detail?.amount_minor ? money(g.detail.amount_minor, true) : 'within its limits' });
   ev.sort((a, b) => new Date(a.at) - new Date(b.at));
   const r = t.result ?? {};
   const pend = d.approvals.filter((a) => a.status === 'PENDING').map((a) => ({ ...a, task_id: t.id, app_key: t.app_key }));
+  const openQ = (d.questions ?? []).filter((q) => q.status === 'OPEN').map((q) => ({ ...q, app_name: appName(q.app_key) }));
   const text = (x) => (typeof x === 'string' ? x : x?.what ?? x?.summary ?? x?.ref ?? x?.basis ?? x?.ability ?? JSON.stringify(x));
   return (
-    head(t.ask, `${esc(appName(t.app_key))} · asked by ${esc(who(t.requester))} ${esc(ago(t.created_at))}${t.origin ? ` · via ${esc(t.origin)}` : ''}`, `${statusPill(t.status)}${live ? `<button class="btn danger" id="cancel">Cancel job</button>` : ''}<a class="btn" href="#/jobs">All jobs</a>`) +
+    head(t.ask, `${esc(appName(t.app_key))} · asked by ${esc(who(t.requester))} ${esc(ago(t.created_at))}${t.origin ? ` · via ${esc(t.origin)}` : ''}`, `${statusPill(t.status)}${isAdmin() && t.job_id ? `<button class="btn" id="transcript" title="The assistant's raw session transcript, kept for audit">Transcript</button>` : ''}${live ? `<button class="btn danger" id="cancel">Cancel job</button>` : ''}<a class="btn" href="#/jobs">All jobs</a>`) +
     `<div class="card"><div class="card-b">${stepper(t, d.approvals)}</div></div>` +
     (t.result
       ? `<div class="card"><div class="card-h"><span class="ico ${t.status === 'COMPLETED' ? 'green' : 'amber'}">${ic('check', 18)}</span><h3>What it reported</h3></div><div class="card-b"><p>${esc(r.summary ?? '')}</p>
@@ -970,6 +1022,7 @@ async function jobDetail(id) {
           ${r.sources?.length ? `<div class="kv"><span>Where facts came from</span><b>${esc(r.sources.map(text).join(' · '))}</b></div>` : ''}</div></div>`
       : '') +
     (pend.length ? `<div class="card"><div class="card-h"><span class="ico violet">${ic('inbox', 18)}</span><h3>Waiting on you</h3></div><div class="card-b">${pend.map((a) => cardHtml(a)).join('')}</div></div>` : '') +
+    (openQ.length ? `<div class="card"><div class="card-h"><span class="ico violet">${ic('help', 18)}</span><h3>It needs your answer</h3></div><div class="card-b">${openQ.map(questionHtml).join('')}</div></div>` : '') +
     `<div class="grid g2"><div class="card"><div class="card-h"><span class="ico violet">${ic('book', 18)}</span><h3>The record</h3><span class="count">${plural(ev.length, 'entry')}</span></div><div class="card-b"><ul class="tl">${ev.map((e) => `<li class="${e.cls}"><b>${esc(e.text)}</b><span class="t">${esc(when(e.at))}</span>${e.sub ? `<small>${esc(e.sub)}</small>` : ''}</li>`).join('')}</ul></div></div>
      <div class="card"><div class="card-h"><h3>This job</h3></div><div class="card-b">
       <div class="kv"><span>Assistant cost</span><b>${usd(d.cost.usd)}</b></div><div class="kv"><span>Model calls</span><b>${d.cost.calls}</b></div><div class="kv"><span>Tokens</span><b>${Number(d.cost.tokens).toLocaleString('en-IN')}</b></div>
@@ -977,6 +1030,17 @@ async function jobDetail(id) {
       <p class="note">The assistant that worked this job held no keys and no database access. Every effect went through the app’s gate; every yes was carried out by the app itself.</p></div></div></div>` +
     bind(() => {
       bindCards(pend);
+      bindQuestions(openQ);
+      const tr = $('#transcript');
+      if (tr)
+        tr.onclick = async () => {
+          try {
+            const x = await api(`/api/tasks/${encodeURIComponent(id)}/transcript`);
+            modal('Assistant transcript', `<p class="note">Kept for audit only; never shown to a model again. ${plural(x.sessions.length, 'session')}.</p>${x.sessions.map((s) => `<h4>${esc(when(s.created_at))} · ${esc(s.reason)}${s.truncated ? ' · truncated' : ''}</h4><pre class="mono">${esc(JSON.stringify(s.messages, null, 1))}</pre>`).join('')}`, '', true);
+          } catch (e) {
+            fail(e);
+          }
+        };
       const c = $('#cancel');
       if (c)
         c.onclick = async () => {
@@ -993,26 +1057,43 @@ async function jobDetail(id) {
 }
 
 VIEWS.approvals = async () => {
-  const { cards } = await api('/api/desk');
+  const [{ cards }, { questions }] = await Promise.all([api('/api/desk'), api('/api/questions')]);
   await Promise.all([...new Set(cards.map((c) => c.app_key))].filter((a) => !S.lines[a]).map((a) => loadLines(a).catch(() => {})));
   const pend = cards.filter((c) => c.status === 'PENDING');
   const hist = cards.filter((c) => c.status !== 'PENDING');
-  const tab = S.query.get('t') ?? (pend.length ? 'waiting' : 'history');
+  const tab = S.query.get('t') ?? (pend.length ? 'waiting' : questions.length ? 'questions' : 'history');
   return (
     head('Approvals', 'Every change an app wants to make that its switchboard marks “ask first”. A yes binds to the fingerprint of exactly what you saw — if the proposal changes, you are asked again. The app carries out a yes once, itself, and reads it back.') +
-    `<div class="seg"><button data-t="waiting" aria-pressed="${tab === 'waiting'}">Waiting on you · ${pend.length}</button><button data-t="history" aria-pressed="${tab === 'history'}">Who said yes to what · ${hist.length}</button></div>` +
-    (tab === 'waiting'
+    `<div class="seg"><button data-t="waiting" aria-pressed="${tab === 'waiting'}">Waiting on you · ${pend.length}</button><button data-t="questions" aria-pressed="${tab === 'questions'}">Questions for you · ${questions.length}</button><button data-t="history" aria-pressed="${tab === 'history'}">Who said yes to what · ${hist.length}</button></div>` +
+    (tab === 'questions'
+      ? `<div class="card"><div class="card-b">${questions.length ? questions.map(questionHtml).join('') : empty('No questions waiting', 'When a job needs something only a person can tell it, it asks here and waits.')}</div></div>`
+      : tab === 'waiting'
       ? `<div class="card"><div class="card-b">${pend.length ? pend.map((c) => cardHtml(c)).join('') : empty('Nothing waiting on you')}</div></div>`
       : `<div class="card">${
           hist.length
             ? `<table class="t"><thead><tr><th>Proposed</th><th>App</th><th>Action</th><th>Answer</th><th class="hide-sm">Fingerprint seen</th><th>Outcome</th><th></th></tr></thead><tbody>${hist
-                .map((a) => `<tr><td>${esc(when(a.created_at))}</td><td>${esc(appName(a.app_key))}</td><td><b>${esc(a.card?.what ?? titleOf(a.ability_key, a.app_key))}</b><div class="note mono">${esc(a.ability_key)}</div></td><td>${a.decision ? `${esc({ yes: 'Yes', no: 'No', change: 'Change first', withdraw: 'Withdrawn' }[a.decision] ?? a.decision)} · ${esc(a.decided_by_name ?? '—')}<div class="note">${esc(when(a.decided_at))}</div>` : '<span class="faint">nobody</span>'}</td><td class="hide-sm">${a.fingerprint_seen ? `<span class="fp">${esc(short(a.fingerprint_seen))}</span> ${a.fingerprint_seen === a.fingerprint ? '✓' : '✗'}` : '—'}</td><td>${outcomePill(a)}</td><td class="r">${a.task_id ? `<a class="btn sm" href="#/jobs/${esc(a.task_id)}">Job</a>` : ''}</td></tr>`)
+                .map((a) => `<tr><td>${esc(when(a.created_at))}</td><td>${esc(appName(a.app_key))}</td><td><b>${esc(a.card?.what ?? titleOf(a.ability_key, a.app_key))}</b><div class="note mono">${esc(a.ability_key)}</div></td><td>${a.decision ? `${esc({ yes: 'Yes', no: 'No', change: 'Change first', withdraw: 'Withdrawn' }[a.decision] ?? a.decision)} · ${esc(a.decided_by_name ?? '—')}<div class="note">${esc(when(a.decided_at))}</div>` : '<span class="faint">nobody</span>'}</td><td class="hide-sm">${a.fingerprint_seen ? `<span class="fp">${esc(short(a.fingerprint_seen))}</span> ${a.fingerprint_seen === a.fingerprint ? '✓' : '✗'}` : '—'}</td><td>${outcomePill(a)}</td><td class="r">${['RECORDED', 'RESOLVED'].includes(a.status) && a.decision === 'yes' ? `<button class="btn sm" data-withdraw="${esc(a.id)}" title="Not carried out yet: withdraw your yes">Withdraw</button> ` : ''}${a.task_id ? `<a class="btn sm" href="#/jobs/${esc(a.task_id)}">Job</a>` : ''}</td></tr>`)
                 .join('')}</tbody></table>`
             : `<div class="card-b">${empty('No answered approvals yet')}</div>`
         }</div>`) +
     bind(() => {
       bindCards(pend);
+      bindQuestions(questions);
       for (const b of $$('[data-t]')) b.onclick = () => (location.hash = `#/approvals?t=${b.dataset.t}`);
+      for (const b of $$('[data-withdraw]')) {
+        const c = hist.find((x) => x.id === b.dataset.withdraw);
+        b.onclick = async () => {
+          b.disabled = true;
+          try {
+            await api(`/api/desk/${encodeURIComponent(c.id)}/answer`, { method: 'POST', body: { decision: 'withdraw', fingerprint_seen: c.fingerprint } });
+            toast('Withdrawn before it was carried out. Nothing was done.');
+            render(true);
+          } catch (e) {
+            b.disabled = false;
+            fail(e);
+          }
+        };
+      }
     })
   );
 };

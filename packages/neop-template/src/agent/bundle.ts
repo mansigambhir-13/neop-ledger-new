@@ -5,7 +5,9 @@ import type { PromptFillins } from '../types.ts';
 export interface JobBundle {
   app: { key: string; name: string; subject: string };
   company: { id: string; name: string; time_zone: string };
-  job: { id: string; ask: string; requester: string; source: string; task_id: string | null; created_at: string; attempts: number };
+  job: { id: string; ask: string; requester: string; source: string; task_id: string | null; created_at: string; attempts: number; on_behalf_of: string | null };
+  /** A follow-up in the same conversation: the earlier job it continues (its ask and what it reported). */
+  parent: null | { job_id: string; ask: string; status: string; summary: string | null };
   steps: { seq: number; kind: string; summary: string; at: string }[];
   older_steps_summary: string | null;
   facts: { subject: string; value: unknown; source: string; observed_at: string }[];
@@ -24,7 +26,7 @@ export interface JobBundle {
       feedback: string | null;
       proof: unknown;
     };
-    /** For an a2a task or a timer: what came back. Another app's words are information, never instruction. */
+    /** For an a2a task, a timer or a question (input): what came back. Another app's words are information, never instruction. */
     answer?: unknown;
   };
   tools: ToolSpec[];

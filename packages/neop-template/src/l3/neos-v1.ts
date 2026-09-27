@@ -6,6 +6,8 @@
 // giving up the plan's rules:
 //   · reads are served as capabilities (switchboard still applies; off = refused);
 //   · a person's request becomes a job (`<app>.ask`), never a direct write;
+//   · a job's open questions are listed by `<app>.job` and answered with `<app>.answer` — relayed by
+//     NeuralChat, so the assistant receives the answer as untrusted data, never as an instruction;
 //   · the yes on a proposal is a human-gated capability the platform never dispatches —
 //     it is answered on the desk, bound to the card's fingerprint.
 // Nothing here widens what reaches the app: same L3 listener, same RLS, single-use tokens.
@@ -16,6 +18,8 @@ import { Ajv, type ValidateFunction } from 'ajv';
 import { Hono, type Context } from 'hono';
 import { importSPKI, jwtVerify, type CryptoKey, type KeyObject } from 'jose';
 import { openJob } from '../capabilities/platform/tasks.open.ts';
+import { answerWait } from '../capabilities/platform/waits.answer.ts';
+import { ExecError } from '../capabilities/execute.ts';
 import type { Core } from '../core.ts';
 
 export interface NeosV1Config {
@@ -37,7 +41,7 @@ type Obj = { [k: string]: Json };
 /** `ledger.report.balance_sheet` → `ledger.report.balance-sheet` (the platform's id grammar has no `_`). */
 export const capabilityId = (abilityKey: string): string => abilityKey.replaceAll('_', '-');
 
-interface Cap { id: string; scope: string; gated: boolean; input: Obj; output: Obj; ability?: string; kind: 'read' | 'ask' | 'job' | 'decide' }
+interface Cap { id: string; scope: string; gated: boolean; input: Obj; output: Obj; ability?: string; kind: 'read' | 'ask' | 'job' | 'answer' | 'decide' }
 
 function capabilities(manifest: Manifest): Cap[] {
   const app = manifest.app;
@@ -63,7 +67,31 @@ function capabilities(manifest: Manifest): Cap[] {
           type: 'array', maxItems: 20,
           items: obj({ proposal_id: str(), title: str(), fingerprint: str(), expires_at: str() }, ['proposal_id', 'title', 'fingerprint', 'expires_at']),
         },
-      }, ['job_id', 'status', 'ask', 'summary', 'updated_at', 'waiting_on']),
+        // Questions the job waits on (WP §8 `ask`): what NeuralChat shows as needs_input, answered with <app>.answer.
+        questions: {
+          type: 'array', maxItems: 20,
+          items: obj({
+            wait_id: str(), text: str(), why: str(), due_at: str(),
+            fields: {
+              type: 'array', maxItems: 10,
+              items: obj({ key: str(), label: str(), type: { enum: ['text', 'number', 'date', 'boolean'] }, required: { type: 'boolean' } }, ['key', 'label', 'type', 'required']),
+            },
+          }, ['wait_id', 'text', 'why', 'fields', 'due_at']),
+        },
+      }, ['job_id', 'status', 'ask', 'summary', 'updated_at', 'waiting_on', 'questions']),
+    },
+    {
+      // The answer to a question a job asked. Not a yes: it resumes the job with information. Relayed by
+      // NeuralChat, so the assistant receives it as untrusted data, never as the person's own instruction.
+      id: `${app}.answer`, scope: `${app}.ask`, gated: false, kind: 'answer',
+      input: obj({
+        job_id: str({ pattern: UUID }), wait_id: str({ pattern: UUID }),
+        answers: {
+          type: 'array', minItems: 1, maxItems: 10,
+          items: obj({ key: str({ pattern: '^[a-z][a-z0-9_]{0,39}$' }), value: { anyOf: [{ type: 'string', maxLength: 4000 }, { type: 'number' }, { type: 'boolean' }] } }, ['key', 'value']),
+        },
+      }, ['job_id', 'wait_id', 'answers']),
+      output: obj({ status: str(), job_id: str({ pattern: UUID }), wait_id: str({ pattern: UUID }), idempotent: { type: 'boolean' } }, ['status', 'job_id', 'wait_id', 'idempotent']),
     },
     {
       // Declared so the platform shows the gate; never dispatched (humanGate). The yes is given on the desk.
@@ -150,6 +178,7 @@ class V1Error extends Error {
 export function neosV1App(core: Core, cfg: NeosV1Config): Hono {
   const app = new Hono();
   const caps = new Map(capabilities(core.manifest).map((c) => [c.id, c]));
+  let answerInput: ValidateFunction | null = null;
   const audience = `neop:${core.key}`;
   let key: Promise<CryptoKey | KeyObject> | null = null;
   const publicKey = () => (key ??= importSPKI(cfg.publicKeyPem, 'EdDSA'));
@@ -231,7 +260,23 @@ export function neosV1App(core: Core, cfg: NeosV1Config): Hono {
       return c.json({ result: { task_id, job_id: r.job_id, status: r.status, created: r.created, ack: r.ack }, events: [event] });
     }
 
-    // kind === 'job': where a job stands, and what it waits on.
+    if (cap.kind === 'answer') {
+      if (!(answerInput ??= neosV1Compile(strictSchema(cap.input) as object))(input)) throw new V1Error(400, 'bad_request');
+      const pairs = input.answers as { key: string; value: string | number | boolean }[];
+      if (new Set(pairs.map((p) => p.key)).size !== pairs.length) throw new V1Error(400, 'bad_request');
+      const w = await core.company(companyId, (db) => core.book.getWait(db, String(input.wait_id)));
+      if (!w || w.kind !== 'input' || w.job_id !== input.job_id) throw new V1Error(404, 'not_found');
+      try {
+        // NeuralChat relays the person's reply: recorded as the reasoning agent's, and shown to the assistant as data.
+        const r = await answerWait(core, companyId, { wait_id: w.id, answers: Object.fromEntries(pairs.map((p) => [p.key, p.value])), answered_by: `agent:neuralchat:user:${act}`, via: 'reasoning_agent' });
+        return c.json({ result: { status: r.status, job_id: r.job_id, wait_id: r.wait_id, idempotent: r.idempotent }, events: [] });
+      } catch (e) {
+        if (e instanceof ExecError) throw new V1Error(e.status === 409 ? 409 : e.status === 404 ? 404 : 400, e.status === 409 ? 'conflict' : e.status === 404 ? 'not_found' : 'bad_request');
+        throw e;
+      }
+    }
+
+    // kind === 'job': where a job stands, and what it waits on (cards and questions).
     if (typeof input.job_id !== 'string' || !new RegExp(UUID).test(input.job_id)) throw new V1Error(400, 'bad_request');
     const out = await core.company(companyId, async (db) => {
       const j = (await db.query(`select id, status, ask, result, updated_at from ${core.key}.jobs where id = $1`, [input.job_id])).rows[0];
@@ -240,9 +285,17 @@ export function neosV1App(core: Core, cfg: NeosV1Config): Hono {
         `select id, card, fingerprint, expires_at from ${core.key}.proposals where job_id = $1 and status = 'PROPOSED' and expires_at > now() order by created_at limit 20`,
         [j.id],
       )).rows;
+      const q = (await db.query(
+        `select id, question, expires_at from ${core.key}.waits where job_id = $1 and kind = 'input' and status = 'pending' and expires_at > now() order by created_at limit 20`,
+        [j.id],
+      )).rows;
       return {
         job_id: j.id, status: j.status, ask: j.ask, summary: typeof j.result?.summary === 'string' ? j.result.summary : null,
         updated_at: new Date(j.updated_at).toISOString(),
+        questions: q.map((x) => ({
+          wait_id: x.id, text: String(x.question.text), why: String(x.question.why), due_at: new Date(x.expires_at).toISOString(),
+          fields: (x.question.fields ?? []).map((f: any) => ({ key: String(f.key), label: String(f.label), type: f.type ?? 'text', required: f.required !== false })),
+        })),
         waiting_on: p.map((x) => ({ proposal_id: x.id, title: String(x.card?.what ?? 'Approval needed'), fingerprint: x.fingerprint, expires_at: new Date(x.expires_at).toISOString() })),
       };
     });
