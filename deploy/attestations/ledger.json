@@ -1,0 +1,93 @@
+{
+  "app": "ledger",
+  "manifest_sha256": "sha256:6b1427eda49f0d712470745bcae201e6e9067b80a6bc93457ed082866f98c079",
+  "commit": "fac2fcea201f944bc66faca235f8db961850db42",
+  "suites": [
+    {
+      "name": "contract",
+      "file": "apps/ledger/tests/contract.test.ts",
+      "passed": 23,
+      "failed": 0
+    },
+    {
+      "name": "proposal",
+      "file": "apps/ledger/tests/proposal.test.ts",
+      "passed": 8,
+      "failed": 0
+    },
+    {
+      "name": "switchboard",
+      "file": "apps/ledger/tests/switchboard.test.ts",
+      "passed": 2,
+      "failed": 0
+    },
+    {
+      "name": "resume",
+      "file": "apps/ledger/tests/resume.test.ts",
+      "passed": 1,
+      "failed": 0
+    },
+    {
+      "name": "injection",
+      "file": "apps/ledger/tests/injection.test.ts",
+      "passed": 4,
+      "failed": 0
+    },
+    {
+      "name": "a2a",
+      "file": "apps/ledger/tests/a2a.test.ts",
+      "passed": 5,
+      "failed": 0
+    },
+    {
+      "name": "honesty",
+      "file": "apps/ledger/tests/honesty.test.ts",
+      "passed": 8,
+      "failed": 0
+    },
+    {
+      "name": "migration",
+      "file": "apps/ledger/tests/migration.test.ts",
+      "passed": 9,
+      "failed": 0
+    },
+    {
+      "name": "tenant",
+      "file": "apps/ledger/tests/tenant.test.ts",
+      "passed": 4,
+      "failed": 0
+    },
+    {
+      "name": "wake-order",
+      "file": "apps/ledger/tests/wake-order.test.ts",
+      "passed": 1,
+      "failed": 0
+    },
+    {
+      "name": "inbound-auth",
+      "file": "apps/ledger/tests/inbound-auth.test.ts",
+      "passed": 6,
+      "failed": 0
+    },
+    {
+      "name": "jobtoken",
+      "file": "apps/ledger/tests/jobtoken.test.ts",
+      "passed": 2,
+      "failed": 0
+    },
+    {
+      "name": "network",
+      "file": "apps/ledger/tests/network.test.ts",
+      "passed": 19,
+      "failed": 0
+    },
+    {
+      "name": "conformance",
+      "file": "apps/ledger/tests/conformance.test.ts",
+      "passed": 7,
+      "failed": 0
+    }
+  ],
+  "failed": 0,
+  "generated_at": "2026-09-27T14:20:54.101Z"
+}
