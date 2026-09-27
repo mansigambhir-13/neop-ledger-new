@@ -33,7 +33,7 @@ FILES=("${BASE[@]}")
 [ -s "$STATE" ] && [ -n "$(jq -r '.company_id // empty' "$STATE")" ] && FILES=("${BASE[@]}" -f deploy/compose.matrix-external.yml)
 PROFILES=()
 [ "${OBSERVABILITY:-0}" = 1 ] && PROFILES+=(--profile observability)
-dc() { docker compose -p "$NEOS_PROJECT" "${FILES[@]}" "${PROFILES[@]}" "$@"; }
+dc() { docker compose -p "$NEOS_PROJECT" "${FILES[@]}" ${PROFILES[@]+"${PROFILES[@]}"} "$@"; }
 state() { [ -s "$STATE" ] && jq -r ".$1 // empty" "$STATE" || true; }
 setstate() { local cur='{}'; [ -s "$STATE" ] && cur=$(cat "$STATE"); echo "$cur" | jq --arg k "$1" --arg v "$2" '.[$k]=$v' > "$STATE.tmp" && mv "$STATE.tmp" "$STATE"; chmod 600 "$STATE"; }
 api() { curl -sS -X "$1" "http://127.0.0.1:$PORT$2" -H "authorization: Bearer $(cat "$NEOS_SECRETS_DIR/admin_token")" -H 'content-type: application/json' ${3:+-d "$3"}; }

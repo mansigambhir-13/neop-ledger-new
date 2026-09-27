@@ -253,7 +253,9 @@ export async function verifyInstall(o: {
     const rows = await q<{ door: string }>("select distinct door from neos.vault_secrets where company_id = $1 and app_key in ($2, '*')", [companyId, o.app]);
     const have = new Set(rows.map((r) => r.door));
     const missing = doors.filter((d) => !have.has(d));
-    must(!missing.length, `no key for ${missing.join(', ')} — an admin sets it (Configure a company's providers)`);
+    // A door is connected per company when it is needed; until then its gated abilities fail cleanly (a definite
+    // "not connected", never UNKNOWN). So a missing key is a warning to act on, not a broken install.
+    if (missing.length) throw new Warn(`no key yet for ${missing.join(', ')} — abilities using it fail cleanly until an admin connects it (RUNBOOK: Configure a company's providers)`);
     return doors.join(', ');
   });
 
