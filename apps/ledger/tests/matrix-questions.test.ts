@@ -194,4 +194,28 @@ describe('a plain next message (not a reply) answers the open question', () => {
     expect((await P.platform.db.query('select status from neos.questions where id = $1', [question.id])).rows[0].status).toBe('OPEN');
     expect(woke).toEqual([]);
   });
+
+  it('a question left open BEHIND later replies never swallows a new request (found live: a one-field question took a new ask)', async () => {
+    const hs = fakeClientHomeserver({ me: ME });
+    await client(hs);
+    const agentDm = await dmWith(hs, AGENT);
+    const woke: string[] = [];
+    askingBrain(woke); // a one-field question: at the question, ANY plain text would be its answer
+    hs.say(agentDm, AGENT, text('Record the ₹12,000 deposit from 3 September'));
+    await notices(hs, agentDm, 1, 'the question');
+    const question = (await P.platform.db.query("select * from neos.questions where status = 'OPEN' order by created_at desc limit 1")).rows[0];
+    // The conversation moves on: a new request (a reply to nothing) … its answer is Ledger's latest word here.
+    P.setBrain(() => finish('Cash at 30 Sep: ₹5,50,660.'));
+    hs.say(agentDm, AGENT, text('What is our cash position?'));
+    await notices(hs, agentDm, 2, 'the answer to the new request');
+    const before = await tasks();
+    // … so the next plain message is a NEW request again, not the stale question's answer.
+    P.setBrain(() => finish('A new vendor needs a name first.'));
+    hs.say(agentDm, AGENT, text('Add a new vendor party.'));
+    const r = await notices(hs, agentDm, 3, 'the new request’s own answer');
+    expect(r[2]!.content.body).toBe('A new vendor needs a name first.');
+    expect(await tasks()).toBe(before + 1);
+    expect((await P.platform.db.query('select status from neos.questions where id = $1', [question.id])).rows[0].status).toBe('OPEN');
+    expect(woke).toEqual([]);
+  });
 });

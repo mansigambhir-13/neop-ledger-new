@@ -58,7 +58,8 @@ const CONSENT = /\b(go ahead|proceed|do it|carry (it )?out|confirm(ed)?)\b/i;
 const DECLINE = /\b(no|decline[sd]?|reject(ed)?|drop(ped)?|cancel(led|ed)?|discard(ed)?|withdraw|don'?t (do|send|go ahead|proceed)|do not (do|send|go ahead|proceed))\b/i;
 
 /**
- * Answers read from a plain (non-reply) message: the whole text for a one-field question; else `key: value`
+ * Answers read from a plain (non-reply) message: the whole text for a one-field question (not when the text is
+ * itself a question, ending in "?"); else `key: value`
  * (or `label: value`) pairs, one per line or `;`-separated. Null when the text names none of the question's
  * fields — it is then a new request, not an answer. `missing` lists required fields it left out.
  */
@@ -68,7 +69,15 @@ export function plainAnswers(
 ): { answers: Record<string, string>; missing: { key: string; label: string }[] } | null {
   const body = text.trim();
   if (!body || !q.fields.length) return null;
-  if (q.fields.length === 1) return { answers: { [q.fields[0]!.key]: body }, missing: [] };
+  if (q.fields.length === 1) {
+    const f = q.fields[0]!;
+    // An explicit `key: value` (or `label: value`) always answers; otherwise the whole text does — unless it is
+    // itself a question: "What is our cash position?" is a new request, never the answer (found live).
+    const m = /^\s*([^:=]{1,200}?)\s*[:=]\s*(.+)$/s.exec(body);
+    if (m && [f.key.toLowerCase(), f.label.toLowerCase()].includes(m[1]!.trim().toLowerCase())) return { answers: { [f.key]: m[2]!.trim() }, missing: [] };
+    if (body.endsWith('?')) return null;
+    return { answers: { [f.key]: body }, missing: [] };
+  }
   const answers: Record<string, string> = {};
   for (const part of body.split(/\r?\n|;/)) {
     const m = /^\s*([^:=]{1,200}?)\s*[:=]\s*(.*)$/.exec(part);
@@ -550,6 +559,17 @@ export class ChatClient {
             and exists (select 1 from neos.chat_client_events o where o.account = $2 and o.room_id = $3 and o.direction = 'outbound' and o.question_id = q.id)
             and exists (select 1 from neos.chat_client_events i where i.account = $2 and i.room_id = $3 and i.direction = 'inbound' and i.sender = $4
                           and i.task_id is not null and i.task_id in (q.task_id, q.root_task_id))
+            -- Only while the conversation is AT this question: the latest thing Ledger said in this DM is the
+            -- question (or its "also give …" follow-up). A question left open behind later replies never
+            -- swallows a new request (found live with a bridge that sends plain messages).
+            and (select m.question_id from (
+                   select o.at as t, o.question_id from neos.chat_client_events o
+                    where o.account = $2 and o.room_id = $3 and o.direction = 'outbound'
+                   union all
+                   select i.replied_at, i.question_id from neos.chat_client_events i
+                    where i.account = $2 and i.room_id = $3 and i.direction = 'inbound' and i.replied_at is not null
+                      and not exists (select 1 from neos.chat_client_events o2 where o2.event_id = i.reply_event_id)
+                 ) m order by m.t desc limit 1) = q.id
           order by q.created_at desc limit 1`,
         [this.companyId, this.cfg.account, room, sender],
       )
