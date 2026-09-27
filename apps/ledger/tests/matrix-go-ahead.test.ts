@@ -352,6 +352,24 @@ describe('a go-ahead is refused — one reply saying why, no job — unless ever
     for (const id of [A.card.id, B.card.id]) await P.platform.db.query("update neos.approvals set status = 'CLOSED', decision = 'withdraw' where id = $1", [id]);
   });
 
+  it('NeuralChat’s plain decline — no reply, no card id — binds to the card the DM is at; a sentence that merely contains "no" does not', async () => {
+    const hs = fakeClientHomeserver({ me: ME });
+    await client(hs);
+    const dm = await dmWith(hs, AGENT);
+    const { card, id8 } = await propose(hs, dm, AGENT, 'desk lamps');
+    // Not a decline: a bare "no" in an unrelated request opens a job; the card stays PENDING.
+    P.setBrain(() => finish('You have no vendors yet.'));
+    hs.say(dm, AGENT, text('There are no vendors on file? List them.'));
+    await notices(hs, dm, 2, 'the answer to the request');
+    expect((await approval(card.id)).status).toBe('PENDING');
+    // The DM moved on; the card is still the ONE waiting here, so the plain decline binds to it.
+    P.setBrain((v) => (v.job.includes('WOKEN') ? finish('Nothing was recorded.') : { text: 'waiting' }));
+    hs.say(dm, AGENT, text('The user declined. Please drop that proposal.'));
+    const r = await notices(hs, dm, 3, 'the decline');
+    expect(r[2]!.content.body).toBe(`Recorded: card ${id8} declined for Priya, via ${AGENT}. Nothing will be done.`);
+    expect(await approval(card.id)).toMatchObject({ decision: 'no', fingerprint_seen: card.fingerprint });
+  });
+
   it('a may-approve bridge’s clear decline still binds to the card it was shown (unchanged)', async () => {
     const hs = fakeClientHomeserver({ me: ME });
     await client(hs);

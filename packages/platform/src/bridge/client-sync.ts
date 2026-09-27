@@ -65,6 +65,10 @@ const sleep = (ms: number, signal?: AbortSignal) =>
 const CONSENT = /\b(go ahead|proceed|do it|carry (it )?out|confirm(ed)?)\b/i;
 /** A clear "no" to a card: never mistaken for a yes (a decline wins over any consent word next to it). */
 const DECLINE = /\b(no|decline[sd]?|reject(ed)?|drop(ped)?|cancel(led|ed)?|discard(ed)?|withdraw|don'?t (do|send|go ahead|proceed)|do not (do|send|go ahead|proceed))\b/i;
+/** A decline that names no card (a plain message) binds only when it says so outright — a bare "no" is not enough —
+ *  and never when it only postpones ("don't go ahead yet", "wait", "later"): the card then stays open. */
+const POSTPONE = /\b(yet|wait|later|hold( on| off)?|for now|not now|until|tomorrow|next week)\b/i;
+const PLAIN_DECLINE = /\b(declined?|reject(ed)?|(drop|cancel|discard|withdraw)\s+(it|that|this|the)\b|don'?t (go ahead|proceed|do it)|do not (go ahead|proceed|do it)|(user|they|she|he|i) (said|says|say) no)\b/i;
 
 /**
  * THE GO-AHEAD LEXICON (a bridge with may_approve only). Deterministic, no model:
@@ -730,7 +734,15 @@ export class ChatClient {
         [this.cfg.account, room, bridge, this.companyId],
       )
     ).rows;
-    const hits = shown.filter((c) => (inReplyTo ? c.event_id === inReplyTo : body.toLowerCase().includes(c.approval_id.slice(0, 8).toLowerCase())));
+    let hits = shown.filter((c) => (inReplyTo ? c.event_id === inReplyTo : body.toLowerCase().includes(c.approval_id.slice(0, 8).toLowerCase())));
+    if (!inReplyTo && !hits.length && PLAIN_DECLINE.test(body) && !POSTPONE.test(body)) {
+      // NeuralChat sends plain messages that name no card ("The user declined. Please drop that proposal."). A no
+      // only adds caution, so it binds to the card the DM is AT, or else to the ONE card still waiting here.
+      const at = await this.latestSaid(room);
+      const current = at?.approval_id ? shown.filter((c) => c.approval_id === at.approval_id) : [];
+      const waiting = [...new Map(shown.map((c) => [c.approval_id, c])).values()];
+      hits = current.length ? current : waiting.length === 1 ? waiting : [];
+    }
     const named = [...new Map(hits.map((c) => [c.approval_id, c])).values()];
     if (named.length !== 1) return false; // not exactly one card it was shown: the job hears it as a request
     const card = named[0]!;

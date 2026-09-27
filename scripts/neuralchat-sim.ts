@@ -99,7 +99,9 @@ await step(room, 'hello: what can you do', 'Hi, what can you do?', (r) => [r.len
 await step(room, 'read: who are my vendors', 'Who are my vendors?', async (r) => {
   const parties = (await api('POST', '/api/apps/ledger/read/ledger.parties.list', { kind: 'vendor' })).body.result?.parties ?? [];
   const named = parties.filter((p: any) => r.includes(p.name)).length;
-  return [parties.length > 0 && named >= Math.min(2, parties.length), `${named}/${parties.length} vendors named`];
+  // A new company may have none yet: then the honest answer says so.
+  if (!parties.length) return [/\b(no|none|not any)\b.*vendor|vendor.*\b(none|no)\b/i.test(r), 'no vendors on file — said so'];
+  return [named >= Math.min(2, parties.length), `${named}/${parties.length} vendors named`];
 });
 await step(room, 'read: cash position', 'What is our cash position at the end of September 2026?', (r) => [/₹/.test(r) && !/can't reach/i.test(r), 'an amount in rupees']);
 
