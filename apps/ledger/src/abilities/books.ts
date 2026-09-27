@@ -11,6 +11,7 @@ import { accountTotals, openDocuments } from '../data/ledger.repo.ts';
 import { ACCT, bankLineEntry, billEntry, invoiceEntry, reverse, settlementEntry, suggest } from '../domain/bookkeeping.ts';
 import { daysBetween, natural } from '../domain/reports.ts';
 import { DEFAULT_CURRENCY } from './reads.ts';
+import { sourceDocumentExists } from './documents.ts';
 
 const S = 'ledger';
 const today = () => new Date().toISOString().slice(0, 10);
@@ -311,8 +312,9 @@ export const invoiceCreate: WriteAbility = {
 export const billRecord: WriteAbility = {
   kind: 'write',
   measure: (a: { lines: Required<Items[number]>[]; gst_rate_bps: number; currency: string }) => ({ amount_minor: billEntry(a.lines, a.gst_rate_bps).total, currency: a.currency }),
-  async validate(a: { vendor: string; number: string; issue_date: string; due_date: string; lines: Items }, ctx) {
+  async validate(a: { vendor: string; number: string; issue_date: string; due_date: string; lines: Items; source_document?: string }, ctx) {
     if (a.due_date < a.issue_date) return 'due date is before the issue date';
+    if (a.source_document && !(await sourceDocumentExists(ctx.db, a.source_document))) return `no attached file ${a.source_document.slice(0, 12)}… is kept for this company; cite the document_id of a file the person attached`;
     if (!(await B.partyByName(ctx.db, 'vendor', a.vendor))) return `no vendor called "${a.vendor}"; create them with ledger.party.create first`;
     if (await B.documentByNumber(ctx.db, 'bill', a.number)) return `bill ${a.number} is already recorded`;
     for (const l of a.lines) {
@@ -321,7 +323,7 @@ export const billRecord: WriteAbility = {
     }
     return lockedMsg(ctx.db, a.issue_date);
   },
-  async execute(a: { vendor: string; number: string; issue_date: string; due_date: string; currency: string; gst_rate_bps: number; lines: Required<Items[number]>[] }, ctx: ExecCtx) {
+  async execute(a: { vendor: string; number: string; issue_date: string; due_date: string; currency: string; gst_rate_bps: number; lines: Required<Items[number]>[]; source_document?: string }, ctx: ExecCtx) {
     return ctx.withDb(async (db) => {
       const existing = (await db.query(`select number from ${S}.documents where reference = $1`, [ctx.idempotencyKey])).rows[0];
       if (existing) return { external_ref: existing.number };
@@ -330,9 +332,9 @@ export const billRecord: WriteAbility = {
       const bill = billEntry(a.lines, a.gst_rate_bps);
       const entry = await B.postEntry(db, { company_id: ctx.company_id, date: a.issue_date, memo: `Bill ${a.number} from ${party.name}`, reference: ctx.idempotencyKey, currency: a.currency, source: 'assistant', job_id: ctx.job_id, lines: bill.lines });
       await db.query(
-        `insert into ${S}.documents (company_id, kind, party_id, number, issue_date, due_date, currency, net_minor, tax_minor, total_minor, entry_id, description, reference)
-         values ($1, 'bill', $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
-        [ctx.company_id, party.id, a.number, a.issue_date, a.due_date, a.currency, bill.net, bill.tax, bill.total, entry.id, a.lines.map((l) => l.description).join('; '), ctx.idempotencyKey],
+        `insert into ${S}.documents (company_id, kind, party_id, number, issue_date, due_date, currency, net_minor, tax_minor, total_minor, entry_id, description, reference, source_document)
+         values ($1, 'bill', $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
+        [ctx.company_id, party.id, a.number, a.issue_date, a.due_date, a.currency, bill.net, bill.tax, bill.total, entry.id, a.lines.map((l) => l.description).join('; '), ctx.idempotencyKey, a.source_document ?? null],
       );
       return { external_ref: a.number };
     });

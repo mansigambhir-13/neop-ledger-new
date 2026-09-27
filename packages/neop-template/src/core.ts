@@ -1,4 +1,4 @@
-import { Metrics, Tracer, type Manifest, type ManifestAbility } from '@neop/contracts';
+import { Metrics, personalDataProblems, Tracer, type Manifest, type ManifestAbility } from '@neop/contracts';
 import { createPool, forceClose, withCompany, type Pool, type PoolClient } from '@neop/pgkit';
 import { Validators } from './capabilities/schemas.ts';
 import { Book } from './data/book.ts';
@@ -62,6 +62,8 @@ export class Core {
       if (!h) throw new Error(`manifest ability ${a.key} has no handler`);
       if (h.kind !== a.kind) throw new Error(`ability ${a.key}: manifest says ${a.kind}, handler is ${h.kind}`);
     }
+    const pd = personalDataProblems(this.manifest);
+    if (pd.length) throw new Error(`manifest personal_data: ${pd.join('; ')}`);
     for (const k of Object.keys(app.abilities)) {
       if (!this.ability(k)) throw new Error(`handler ${k} is not declared in the manifest; undeclared abilities do not exist`);
     }

@@ -139,6 +139,8 @@ export interface NeopConfig {
   jwksCacheMs?: number;
   /** Acked outbox events older than this are pruned (default 7 days). */
   outboxRetentionMs?: number;
+  /** Where attached files are kept (WP §11): a local volume or an S3-compatible bucket. Default: NEOP_DOCUMENTS_* env, else a local directory. */
+  documents?: import('./doors/documents/store.ts').DocumentStoreConfig;
   /** The bridge to today's NEOS platform gateway (`/capabilities/<id>`); off unless set. */
   neosV1?: import('./l3/neos-v1.ts').NeosV1Config;
   timings: Timings;

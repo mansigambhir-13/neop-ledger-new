@@ -2454,7 +2454,7 @@
       "title": "Record a supplier bill",
       "kind": "write",
       "floor": "ask_first",
-      "description": "Record a supplier bill with GST input credit and post it (expense or asset, GST input, payable).",
+      "description": "Record a supplier bill with GST input credit and post it (expense or asset, GST input, payable). When the bill was read from a file the person attached, pass that file's sha256 as source_document: the bill keeps it, so the original can always be found.",
       "input": {
         "type": "object",
         "required": [
@@ -2527,6 +2527,11 @@
                 }
               }
             }
+          },
+          "source_document": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "description": "sha256 of the attached file this bill was read from (the document_id on the attachment note)."
           }
         }
       },
@@ -2546,7 +2551,7 @@
         "external": false,
         "money": true
       },
-      "version": "1.0.0"
+      "version": "1.1.0"
     },
     {
       "key": "ledger.payment.record",
@@ -4224,6 +4229,174 @@
       }
     },
     {
+      "key": "ledger.document.get",
+      "version": "1.0.0",
+      "title": "A kept source document",
+      "description": "What is known about a file a person attached (it is kept, never discarded): its name, type, size, when it was stored, the jobs it came with and the bills recorded from it, plus a short-lived download link the platform serves to people. The file's bytes are never returned here; give the link to the person.",
+      "kind": "read",
+      "floor": "on",
+      "input": {
+        "type": "object",
+        "required": [
+          "sha256"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          }
+        }
+      },
+      "output": {
+        "type": "object",
+        "required": [
+          "generatedAt",
+          "empty",
+          "sources",
+          "document",
+          "bills",
+          "download"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "generatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "empty": {
+            "type": "boolean"
+          },
+          "sources": {
+            "type": "object",
+            "required": [
+              "entries",
+              "entry_ids",
+              "basis"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "entries": {
+                "type": "integer"
+              },
+              "entry_ids": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "basis": {
+                "type": "string"
+              }
+            }
+          },
+          "document": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "required": [
+              "sha256",
+              "filename",
+              "content_type",
+              "bytes",
+              "stored_at",
+              "store",
+              "job_ids"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "sha256": {
+                "type": "string"
+              },
+              "filename": {
+                "type": "string"
+              },
+              "content_type": {
+                "type": "string"
+              },
+              "bytes": {
+                "type": "integer"
+              },
+              "stored_at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "store": {
+                "type": "string",
+                "enum": [
+                  "local",
+                  "s3"
+                ]
+              },
+              "job_ids": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "bills": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "number",
+                "vendor",
+                "issue_date",
+                "total_minor",
+                "currency",
+                "status"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "number": {
+                  "type": "string"
+                },
+                "vendor": {
+                  "type": "string"
+                },
+                "issue_date": {
+                  "type": "string",
+                  "format": "date"
+                },
+                "total_minor": {
+                  "type": "integer"
+                },
+                "currency": {
+                  "type": "string"
+                },
+                "status": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "download": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "required": [
+              "path",
+              "expires_at"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "path": {
+                "type": "string"
+              },
+              "expires_at": {
+                "type": "string",
+                "format": "date-time"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
       "key": "ledger.settings.update",
       "title": "Change bookkeeping settings",
       "kind": "write",
@@ -4670,5 +4843,16 @@
     "blocks/form.reopen.json",
     "blocks/report.cash_forecast.json",
     "blocks/report.tax_return.json"
+  ],
+  "personal_data": [
+    {
+      "table": "parties",
+      "columns": [
+        "name",
+        "email",
+        "gstin"
+      ],
+      "subject_key": "id"
+    }
   ]
 }

@@ -41,6 +41,14 @@
       ],
       "baseline": false,
       "proven_on_populated_data": "2026-09-26 \u00b7 apps/ledger/tests/runtime-timers.test.ts \u203a t004 applies forward on a populated book"
+    },
+    {
+      "file": "t006_documents_files.sql",
+      "tables": [
+        "documents_files"
+      ],
+      "baseline": false,
+      "proven_on_populated_data": "2026-09-27 \u00b7 apps/ledger/tests/documents-kept.test.ts \u203a t006 + 006 apply forward on a populated book"
     }
   ]
 }

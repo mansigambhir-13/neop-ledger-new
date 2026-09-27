@@ -42,6 +42,14 @@
       ],
       "baseline": false,
       "proven_on_populated_data": "2026-09-26 \u00b7 apps/ledger/tests/inherited.test.ts \u203a 005 applies forward on a populated book"
+    },
+    {
+      "file": "006_source_documents.sql",
+      "tables": [
+        "documents"
+      ],
+      "baseline": false,
+      "proven_on_populated_data": "2026-09-27 \u00b7 apps/ledger/tests/documents-kept.test.ts \u203a t006 + 006 apply forward on a populated book"
     }
   ]
 }

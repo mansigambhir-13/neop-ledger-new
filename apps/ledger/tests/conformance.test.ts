@@ -28,6 +28,7 @@ conformance({
     'ledger.report.export': { report: 'pnl', from: '2026-07-01', to: '2026-09-30' },
     // A file attached to one of this company's jobs, by hash (another company never sees it).
     'ledger.document.extract': { sha256: '0'.repeat(64) },
+    'ledger.document.get': { sha256: '0'.repeat(64) },
   },
   gatedWrite: {
     key: 'ledger.journal.post',

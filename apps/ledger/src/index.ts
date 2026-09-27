@@ -7,6 +7,7 @@ import * as reads from './abilities/reads.ts';
 import { closePackEmail, journalPost } from './abilities/writes.ts';
 import * as books from './abilities/books.ts';
 import * as inherited from './abilities/inherited.ts';
+import { documentGet } from './abilities/documents.ts';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 export const LEDGER_ROOT = path.resolve(here, '..');
@@ -60,6 +61,7 @@ export async function ledgerApp(): Promise<AppDefinition> {
       'ledger.report.tax_return': inherited.taxReturnRead,
       'ledger.report.export': inherited.reportExport,
       'ledger.document.extract': inherited.documentExtract,
+      'ledger.document.get': documentGet,
       'ledger.settings.update': inherited.settingsUpdate,
       'ledger.opening_balances.set': inherited.openingBalancesSet,
       'ledger.expense.record': inherited.expenseRecord,

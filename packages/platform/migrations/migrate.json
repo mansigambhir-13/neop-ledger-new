@@ -134,6 +134,14 @@
       ],
       "baseline": false,
       "proven_on_populated_data": "2026-09-27 \u00b7 packages/platform/tests/migration-011.test.ts (populated through 010, then 011 and every later file) + apps/ledger/tests/attachments.test.ts"
+    },
+    {
+      "file": "015_vault_per_app.sql",
+      "tables": [
+        "vault_secrets"
+      ],
+      "baseline": false,
+      "proven_on_populated_data": "2026-09-27 \u00b7 packages/platform/tests/vault-per-app.test.ts \u203a 015 applies forward on a populated vault (sealed rows become company-wide and still open)"
     }
   ]
 }

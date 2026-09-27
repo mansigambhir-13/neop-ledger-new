@@ -19,6 +19,8 @@ import { extractXlsx, type Sheet } from './xlsx.ts';
 export { parseDelimited, toCsv } from './csv.ts';
 export { extractPdfText } from './pdf.ts';
 export { extractXlsx } from './xlsx.ts';
+export { createDocumentStore, documentKey, documentStoreConfigFromEnv, LocalDocumentStore, S3DocumentStore, signV4, type DocumentStore, type DocumentStoreConfig } from './store.ts';
+export { DOCUMENT_LINK_TTL_S, documentLink, fileMeta, keepUploads, recordFile, registerDocumentLinkKey, storeFor, verifyDocumentLink, type FileMeta, type KeptFile } from './files.ts';
 
 /** Largest file the door reads (bytes). */
 export const MAX_DOCUMENT_BYTES = 10 * 1024 * 1024;
@@ -147,7 +149,14 @@ export const ATTACHMENT_TEXT = 12_000;
  * A file that cannot be read becomes a note saying why, so the assistant can tell
  * the person instead of guessing.
  */
-export function attachmentFact(u: DocumentUpload): { subject: string; value: Record<string, unknown>; source: string } {
+export function attachmentFact(u: DocumentUpload, kept?: { sha256: string } | null): { subject: string; value: Record<string, unknown>; source: string } {
+  const f = attachmentFactOf(u);
+  // The original is kept (store + documents_files): the fact carries its id, so a write can cite it.
+  if (kept) f.value = { ...f.value, document_id: kept.sha256, stored: true };
+  return f;
+}
+
+function attachmentFactOf(u: DocumentUpload): { subject: string; value: Record<string, unknown>; source: string } {
   const filename = String(u.filename || 'document').slice(0, 200);
   try {
     const d = readDocument({ bytes: uploadBytes(u), filename, contentType: u.content_type });

@@ -13,9 +13,21 @@
 //   tsx scripts/ops.ts keys-retire-previous [--force]                   (after 2× token TTL)
 // Registry (needs NEOS_ADMIN_URL[_FILE], the migration runner's connection):
 //   tsx scripts/ops.ts drop-package-tables <operator_user_id> <host_app> <package_key>   (audited; refused while installed anywhere)
-import { readFile } from 'node:fs/promises';
+// Uninstall for one company (WP §11: a company-scoped delete the DBA runs from one script). NEOS_DB_URL, and for --purge NEOS_ADMIN_URL:
+//   tsx scripts/ops.ts uninstall <company_id> <app> [--purge] [--yes] [--backup-dir /backups]
+//     without --yes: a dry run — what would change, and with --purge the rows per table that would go.
+//     --yes: the install is marked removed (no routing, no offering, the gateway refuses the company).
+//     --yes --purge: first a backup (that company's rows as JSON, restorable with backup.ts import, plus a
+//       pg_dump of the schema when pg_dump is on PATH), then every table in the app's schema loses that
+//       company's rows, children first, in one transaction. Kept files under NEOP_DOCUMENTS_DIR/<app>/<company>/ go too.
+// Personal data (manifest personal_data tags; NEOS_ADMIN_URL): the same as scripts/erase.ts
+//   tsx scripts/ops.ts personal-find|personal-export|personal-erase <company_id> <app> <text|subject> [--by who] [--out f] [--yes]
+import { readFile, mkdir, rm, writeFile } from 'node:fs/promises';
+import path from 'node:path';
+import { adminUrlFromEnv, backupStamp, exportCompany, nightlyBackup, purgeCompany } from '@neop/pgkit';
 import { generateSigningKeys, Platform } from '@neop/platform';
 import { env } from '../apps/ledger/scripts/env.ts';
+import { eraseCli } from './erase.ts';
 
 const apps: Record<string, () => Promise<{ manifest: any; blocks?: Record<string, unknown> }>> = {
   ledger: async () => (await import('@neop/ledger')).ledgerApp(),
@@ -36,13 +48,20 @@ const bool = (name: string): boolean => {
   argv.splice(i, 1);
   return true;
 };
+if (argv[0]?.startsWith('personal-')) {
+  // Before anything else parses flags: erase.ts owns --by/--out/--yes for these.
+  process.exit(await eraseCli([argv[0].slice('personal-'.length), ...argv.slice(1)]).catch((e: unknown) => (console.error(String((e as Error).message ?? e)), 1)));
+}
 const conformanceFile = flag('--conformance');
+const backupDir = flag('--backup-dir');
+const purge = bool('--purge');
+const yes = bool('--yes');
 const authorKeyFile = flag('--author-key');
 const force = bool('--force');
 const [cmd, ...args] = argv;
 const usage = () => {
   console.error(
-    'usage: ops.ts register-app <app> <l3_url> [--conformance <file>] [--author-key <jwk file>] | create-company <name> [tz] | create-user <company_id> <name> <email> <role> | install <company_id> <app> | rotate-service-secret <app> | keys-status | keys-rotate [ms] | keys-retire-previous [--force] | drop-package-tables <operator_id> <host> <package>',
+    'usage: ops.ts register-app <app> <l3_url> [--conformance <file>] [--author-key <jwk file>] | create-company <name> [tz] | create-user <company_id> <name> <email> <role> | install <company_id> <app> | rotate-service-secret <app> | keys-status | keys-rotate [ms] | keys-retire-previous [--force] | drop-package-tables <operator_id> <host> <package> | uninstall <company_id> <app> [--purge] [--yes] [--backup-dir d] | personal-find|personal-export|personal-erase <company_id> <app> <subject> …',
   );
   process.exit(64);
 };
@@ -117,6 +136,47 @@ try {
       if (!op) throw new Error('no such user');
       const reg = await p.ensureRegistry();
       console.log(JSON.stringify(await reg.dropPackageTables(env('NEOS_ADMIN_URL'), op, args[1]!, args[2]!)));
+      break;
+    }
+    case 'uninstall': {
+      need(2);
+      const [companyId, app] = args as [string, string];
+      if (!apps[app]) throw new Error(`unknown app: ${app}`);
+      const install = (await p.db.query<{ status: string }>('select status from neos.installs where company_id = $1 and app_key = $2', [companyId, app])).rows[0];
+      if (!install) throw new Error(`${app} was never installed for company ${companyId}`);
+      const admin = purge ? adminUrlFromEnv() : null;
+      if (!yes) {
+        const would = admin ? await purgeCompany(admin, app, companyId, { dryRun: true }) : null;
+        console.log(JSON.stringify({ dry_run: true, company_id: companyId, app, install_status: install.status, would: { mark: 'removed', purge: would && { counts: would.counts, total: would.total } } }, null, 2));
+        console.error('dry run: nothing changed. Re-run with --yes' + (purge ? ' (a backup is taken before any row is deleted).' : '.'));
+        break;
+      }
+      await p.uninstallApp(companyId, app, 'operator:ops');
+      const out: Record<string, unknown> = { company_id: companyId, app, install_status: 'removed', previous: install.status };
+      if (admin) {
+        // Backup first: that company's rows (restorable alone), and the whole schema when pg_dump is here.
+        const dir = path.join(backupDir ?? process.env.NEOS_BACKUP_DIR ?? '/backups', 'uninstall', `${backupStamp(new Date())}-${app}-${companyId}`);
+        await mkdir(dir, { recursive: true, mode: 0o700 });
+        const dump = await exportCompany(admin, app, companyId);
+        const file = path.join(dir, `${app}-${companyId}.json`);
+        await writeFile(file, JSON.stringify(dump), { mode: 0o600 });
+        let schemaDump: string | null = null;
+        try {
+          const m = await nightlyBackup({ adminUrl: admin, dir, keep: 1, schemas: [app] });
+          schemaDump = path.join(dir, m.stamp, m.schemas[0]!.file);
+        } catch (e) {
+          console.error(`no schema dump (${(e as Error).message.slice(0, 120)}); the company export is the backup`);
+        }
+        const purged = await purgeCompany(admin, app, companyId, { dryRun: false });
+        let files: string | null = null;
+        if (process.env.NEOP_DOCUMENTS_DIR && /^[0-9a-f-]{36}$/i.test(companyId)) {
+          files = path.join(process.env.NEOP_DOCUMENTS_DIR, app, companyId.toLowerCase());
+          await rm(files, { recursive: true, force: true });
+        }
+        await p.gateway.audit({ company_id: companyId, actor: 'operator:ops', app_key: app, action: 'app.purge', outcome: String(purged.total), detail: { counts: purged.counts, backup: file, schema_dump: schemaDump, files_removed: files } });
+        Object.assign(out, { backup: { company_export: file, schema_dump: schemaDump }, purged: { counts: purged.counts, total: purged.total }, files_removed: files ?? 'kept files are on the backend volume: remove <NEOP_DOCUMENTS_DIR>/' + `${app}/${companyId}` });
+      }
+      console.log(JSON.stringify(out, null, 2));
       break;
     }
     default:

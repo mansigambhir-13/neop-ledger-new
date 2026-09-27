@@ -170,6 +170,80 @@ async function listFiles(src: MigrationSource): Promise<MigrationFile[]> {
   return [...template, ...app];
 }
 
+/** sha256 of a migration file's bytes: what schema_migrations records, and what the boot check compares. */
+export function migrationChecksum(raw: string): string {
+  return createHash('sha256').update(raw).digest('hex');
+}
+
+/** The shipped migration set (template stream, then the app's), in order, with each file's checksum. */
+export async function shippedMigrations(sources: MigrationSource): Promise<AppliedMigration[]> {
+  const files = await listFiles(sources);
+  return Promise.all(files.map(async (f) => ({ name: f.name, checksum: migrationChecksum(await readFile(f.file, 'utf8')) })));
+}
+
+export interface SchemaDrift {
+  /** Shipped, not applied: the DBA has not run them yet. */
+  pending: string[];
+  /** Applied, not shipped: the database is ahead of this build (or ran a file this build does not know). */
+  unknown: string[];
+  /** Applied with different bytes than this build ships: a migration was edited after it ran. */
+  changed: string[];
+}
+
+export class SchemaMismatchError extends Error {
+  readonly schema: string;
+  readonly drift: SchemaDrift;
+  constructor(schema: string, drift: SchemaDrift) {
+    const parts = [
+      drift.pending.length ? `pending (not applied): ${drift.pending.join(', ')}` : '',
+      drift.unknown.length ? `unknown (applied, not in this build): ${drift.unknown.join(', ')}` : '',
+      drift.changed.length ? `changed (checksum differs from what ran): ${drift.changed.join(', ')}` : '',
+    ].filter(Boolean);
+    super(`schema ${schema} is not in step with this build's migrations — refusing to start. ${parts.join('; ')}. Run the migrator (scripts/migrate.ts) or deploy the build that matches the database.`);
+    this.name = 'SchemaMismatchError';
+    this.schema = schema;
+    this.drift = drift;
+  }
+}
+
+/**
+ * Compare what the database says ran (`<schema>.schema_migrations`) with what this build ships.
+ * Package migrations (named `<package>@<version>/<file>`) are the registry's, verified at spawn,
+ * and are not part of the app's own set.
+ */
+export function schemaDrift(applied: AppliedMigration[], shipped: AppliedMigration[]): SchemaDrift {
+  const own = applied.filter((a) => !a.name.includes('@'));
+  const ran = new Map(own.map((a) => [a.name, a.checksum]));
+  const ships = new Map(shipped.map((s) => [s.name, s.checksum]));
+  return {
+    pending: shipped.filter((s) => !ran.has(s.name)).map((s) => s.name),
+    unknown: own.filter((a) => !ships.has(a.name)).map((a) => a.name).sort(),
+    changed: shipped.filter((s) => ran.has(s.name) && ran.get(s.name) !== s.checksum).map((s) => s.name),
+  };
+}
+
+/** Boot check: throws SchemaMismatchError when the schema and the shipped set differ. `url` may be any role granted SELECT on schema_migrations. */
+export async function assertSchemaInStep(url: string, schema: string, sources: MigrationSource): Promise<AppliedMigration[]> {
+  assertIdent(schema);
+  const shipped = await shippedMigrations(sources);
+  const client = new pg.Client({ connectionString: url });
+  await client.connect();
+  let applied: AppliedMigration[];
+  try {
+    applied = (await client.query<AppliedMigration>(`select name, checksum from ${schema}.schema_migrations order by name`)).rows;
+  } catch (e) {
+    const code = (e as { code?: string }).code;
+    if (code === '42P01' || code === '3F000') throw new SchemaMismatchError(schema, { pending: shipped.map((s) => s.name), unknown: [], changed: [] });
+    if (code === '42501') throw new Error(`cannot read ${schema}.schema_migrations (permission denied); re-run the migrator, which grants it to the app and runner roles`, { cause: e });
+    throw e;
+  } finally {
+    await client.end().catch(() => {});
+  }
+  const drift = schemaDrift(applied, shipped);
+  if (drift.pending.length || drift.unknown.length || drift.changed.length) throw new SchemaMismatchError(schema, drift);
+  return shipped;
+}
+
 /** Every template migration file in a directory (001_standard.sql, t002_…, t003_…). */
 export async function templateFiles(dir: string): Promise<string[]> {
   return (await readdir(dir)).filter((n) => /^(001_standard|t\d{3}_.+)\.sql$/.test(n)).sort().map((n) => path.join(dir, n));
@@ -208,7 +282,7 @@ export async function migrate(opts: MigrateOptions): Promise<AppliedMigration[]>
     }
     for (const f of files) {
       const raw = await readFile(f.file, 'utf8');
-      const checksum = createHash('sha256').update(raw).digest('hex');
+      const checksum = migrationChecksum(raw);
       const prior = done.get(f.name);
       if (prior) {
         if (prior !== checksum) {
@@ -235,6 +309,12 @@ export async function migrate(opts: MigrateOptions): Promise<AppliedMigration[]>
         await client.query('rollback');
         throw new Error(`migration ${f.name} failed: ${(e as Error).message}`, { cause: e });
       }
+    }
+    // The backend reads this at boot (WP §11 step 8: a schema out of step with the shipped set refuses
+    // to start). Only the family's roles that the migrations let into the schema get it.
+    for (const r of [roles.app, roles.runner]) {
+      const ok = await client.query<{ ok: boolean }>("select case when exists (select 1 from pg_roles where rolname = $1) then has_schema_privilege($1, $2, 'usage') else false end as ok", [r, schema]);
+      if (ok.rows[0]?.ok) await client.query(`grant select on ${schema}.schema_migrations to ${r}`);
     }
   } finally {
     await client.query('select pg_advisory_unlock(hashtext($1))', [`migrate:${schema}`]).catch(() => {});
