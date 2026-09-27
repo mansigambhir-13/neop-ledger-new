@@ -397,8 +397,12 @@ export class Book {
    */
   async factsFor(c: PoolClient, job: { id: string; ask: string; parent_job_id: string | null }, limit = 20): Promise<FactRow[]> {
     const r = await c.query<FactRow>(
+      // Answers to a job's questions and files attached to a job belong to THAT job (and its follow-ups): an
+      // answer given for one request is never the answer to another (found live: a later job reused an earlier
+      // job's `answer:amount_rupees` instead of asking).
       `select subject, value, source, observed_at, valid_until from ${this.s}.facts
-        where valid_until is null or valid_until > now()
+        where (valid_until is null or valid_until > now())
+          and (not (subject like 'answer:%' or subject like 'document:%') or job_id = $1 or job_id = $2::uuid)
         order by coalesce(job_id = $1 or job_id = $2::uuid or (length(subject) > 2 and strpos(lower($3), lower(subject)) > 0), false) desc, observed_at desc
         limit $4`,
       [job.id, job.parent_job_id, job.ask, limit],
@@ -407,7 +411,7 @@ export class Book {
   }
 
   async recentFacts(c: PoolClient, limit = 20): Promise<FactRow[]> {
-    const r = await c.query<FactRow>(`select subject, value, source, observed_at, valid_until from ${this.s}.facts where valid_until is null or valid_until > now() order by observed_at desc limit $1`, [limit]);
+    const r = await c.query<FactRow>(`select subject, value, source, observed_at, valid_until from ${this.s}.facts where (valid_until is null or valid_until > now()) and not (subject like 'answer:%' or subject like 'document:%') order by observed_at desc limit $1`, [limit]);
     return r.rows;
   }
 

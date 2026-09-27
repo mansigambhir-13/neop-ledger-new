@@ -202,6 +202,30 @@ describe('follow-ups continue the job (WP §8 thread correlation)', () => {
     expect(followUp.job.indexOf('pnl:2026-08')).toBeGreaterThan(followUp.job.indexOf('Notes earlier jobs wrote'));
   });
 
+  it('an answer belongs to the job that asked (and its follow-ups), never to an unrelated job — found live: a later job reused it instead of asking', async () => {
+    const seen: BrainView[] = [];
+    const AMT = { text: 'How much was it?', why: 'No amount given.', fields: [{ key: 'amount_rupees', label: 'Amount in rupees', type: 'number' }] };
+    P.setBrain((v) => {
+      if (v.calls === 0) seen.push(v);
+      if (v.job.includes('answered')) return finish('noted');
+      if (v.job.includes('[ask-amount]')) return v.calls === 0 ? call('job.ask', AMT) : { text: 'waiting' };
+      return finish('ok');
+    });
+    const first = await ask('[ask-amount] note a small expense');
+    const qn = await openQuestion(first.body.task_id);
+    expect((await P.api('POST', `/api/questions/${qn.id}/answer`, { answers: { amount_rupees: 37 } })).status).toBe(200);
+    await settled(first.body.task_id);
+    // A NEW, unrelated request: the earlier job's answer is not offered as if it were this person's answer now.
+    const other = await ask('[other] note another small expense');
+    await settled(other.body.task_id);
+    const otherView = seen.find((v) => v.job.includes('[other]'))!;
+    expect(otherView.job).not.toContain('answer:amount_rupees');
+    // A follow-up in the same conversation continues that job, so it does see its answer.
+    const f = await P.api('POST', '/api/ask', { text: '[follow] and the tax on it?', conversation_id: first.body.conversation_id });
+    await settled(f.body.task_id);
+    expect(seen.find((v) => v.job.includes('[follow]'))!.job).toContain('answer:amount_rupees');
+  });
+
   it('tasks.open refuses a parent or on_behalf_of that does not fit, and never follows a parent from another book', async () => {
     const base = { task_id: crypto.randomUUID(), ask: 'x', requester: `user:${P.admin.id}` };
     expect((await l3('POST', '/l3/tasks.open', 'tasks.open', { ...base, parent_job_id: 'nope' })).body.error.message).toBe('parent_job_id must be a uuid');
