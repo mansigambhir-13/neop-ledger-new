@@ -199,7 +199,7 @@ describe('follow-ups continue the job (WP §8 thread correlation)', () => {
     expect(followUp.job).toContain(`This follows up an earlier job in the same conversation (${first.body.job_id}, DONE): "What was our net profit in August?"`);
     expect(followUp.job).toMatch(/What it reported: <data source="parent_job\.summary" trust="untrusted">\s*"August net profit was ₹1,23,000\."/);
     // The parent's facts come first among the notes.
-    expect(followUp.job.indexOf('pnl:2026-08')).toBeGreaterThan(followUp.job.indexOf('Notes earlier jobs wrote'));
+    expect(followUp.job.indexOf('pnl:2026-08')).toBeGreaterThan(followUp.job.indexOf('Notes in the book'));
   });
 
   it('an answer belongs to the job that asked (and its follow-ups), never to an unrelated job — found live: a later job reused it instead of asking', async () => {
