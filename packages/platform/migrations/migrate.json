@@ -152,6 +152,14 @@
       ],
       "baseline": false,
       "proven_on_populated_data": "2026-09-27 \u00b7 packages/platform/tests/vault-per-app.test.ts \u203a 015 applies forward on a populated vault (sealed rows become company-wide and still open)"
+    },
+    {
+      "file": "016_bridge_approve.sql",
+      "tables": [
+        "chat_allowlist"
+      ],
+      "baseline": false,
+      "proven_on_populated_data": "2026-09-27 \u00b7 apps/ledger/tests/matrix-go-ahead.test.ts \u203a 016 applies forward on a populated platform database (allowlist rows kept, may_approve false)"
     }
   ]
 }

@@ -30,7 +30,7 @@ services:
       MATRIX_AS_TOKEN_FILE: /run/secrets/matrix_as_token
       # client road: one entry per company-app install; the token is read from the secret file, never logged
       MATRIX_CLIENT_ACCOUNTS: '[{"account":"@ledger:${MATRIX_SERVER_NAME:-acme.example}","company":"${NEOS_CHAT_COMPANY:-acmetraders}","app":"ledger","token_file":"/run/secrets/matrix_ledger_token"}]'
-      MATRIX_REPLY_DEADLINE_MS: "50000"
+      MATRIX_REPLY_DEADLINE_MS: "${MATRIX_REPLY_DEADLINE_MS:-55000}"  # under NeuralChat's 60 s wait for a reply
     secrets: [neos_app_url, vault_keys, metrics_token, matrix_hs_token, matrix_as_token, matrix_ledger_token]
 
 volumes:

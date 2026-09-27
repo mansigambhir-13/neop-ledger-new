@@ -5,7 +5,8 @@
 // reply-<event_id>) when the task settles as the outbox reports it. End to end: real platform + gateway + L3 +
 // runner + scripted agent, against an in-memory fake client homeserver.
 //
-// Deliberately unlike the handoff §6: a bridge's "go ahead" is NEVER a yes. Only a person approves — in their own
+// Deliberately unlike the handoff §6: a bridge's "go ahead" is not a yes (unless an admin grants that bridge may_approve —
+// see matrix-go-ahead.test.ts). A person approves — in their own
 // recorded DM, as a reply to the card shown there, through platform.answer() with that card's fingerprint.
 import { cp, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';

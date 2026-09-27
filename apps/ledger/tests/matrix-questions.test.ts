@@ -4,7 +4,7 @@
 // their own words (answered_via chat), a bridge's as relayed, untrusted data (answered_via bridge). An
 // answer is never a yes; the job's next word (its result) is the reply to the answer.
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
-import { ChatClient } from '@neop/platform';
+import { ChatClient, plainAnswers } from '@neop/platform';
 import { bootPilot, call, fakeClientHomeserver, finish, type BrainView, type FakeClientHomeserver, type Pilot } from './harness.ts';
 
 const ME = '@ledger:hs.test';
@@ -217,5 +217,57 @@ describe('a plain next message (not a reply) answers the open question', () => {
     expect(await tasks()).toBe(before + 1);
     expect((await P.platform.db.query('select status from neos.questions where id = $1', [question.id])).rows[0].status).toBe('OPEN');
     expect(woke).toEqual([]);
+  });
+
+  // Found live with a NeuralChat-shaped simulator: NeuralChat keeps ONE DM for all its tasks, so its next,
+  // unrelated request arrived while a one-field question was open and was swallowed as the answer.
+  it('a bridge’s unrelated plain request while a one-field question is open opens a NEW job; the question stays OPEN', async () => {
+    const hs = fakeClientHomeserver({ me: ME });
+    await client(hs);
+    const agentDm = await dmWith(hs, AGENT);
+    const woke: string[] = [];
+    askingBrain(woke);
+    hs.say(agentDm, AGENT, text('Record the ₹12,000 deposit from 3 September'));
+    const [qn] = await notices(hs, agentDm, 1, 'the question');
+    expect(qn!.content.body).toContain('Reply to this message with your answer.');
+    const question = (await P.platform.db.query("select * from neos.questions where status = 'OPEN' order by created_at desc limit 1")).rows[0];
+    const before = await tasks();
+    P.setBrain(() => finish('A transfer needs your approval first.'));
+    const unrelated = hs.say(agentDm, AGENT, text('Transfer ₹10,000 to Kapoor Traders right now.'));
+    const r = await notices(hs, agentDm, 2, 'the new job’s own answer');
+    expect(inReplyTo(r[1]!)).toBe(unrelated.event_id);
+    expect(r[1]!.content.body).toBe('A transfer needs your approval first.');
+    expect(await tasks()).toBe(before + 1);
+    expect((await P.platform.db.query('select status from neos.questions where id = $1', [question.id])).rows[0].status).toBe('OPEN');
+    expect(woke).toEqual([]);
+  });
+
+  it('a bridge’s plain `account_code: 6300` answers the one-field question it is at (explicit key: value); no new job', async () => {
+    const hs = fakeClientHomeserver({ me: ME });
+    await client(hs);
+    const agentDm = await dmWith(hs, AGENT);
+    const woke: string[] = [];
+    askingBrain(woke);
+    hs.say(agentDm, AGENT, text('Record the ₹12,000 deposit from 3 September'));
+    await notices(hs, agentDm, 1, 'the question');
+    const question = (await P.platform.db.query("select * from neos.questions where status = 'OPEN' order by created_at desc limit 1")).rows[0];
+    const before = await tasks();
+    const plain = hs.say(agentDm, AGENT, text('account_code: 6300'));
+    const r = await notices(hs, agentDm, 2, 'the result');
+    expect(inReplyTo(r[1]!)).toBe(plain.event_id);
+    expect(r[1]!.content.body).toBe('Recorded the deposit to the account you named.');
+    expect(woke[0]).toContain(`An answer was relayed by bridge:${AGENT} (bridge)`);
+    expect(woke[0]).toContain('6300');
+    expect(await tasks()).toBe(before);
+    expect((await P.platform.db.query('select status, answered_via from neos.questions where id = $1', [question.id])).rows[0]).toEqual({ status: 'ANSWERED', answered_via: 'bridge' });
+  });
+
+  it('plainAnswers: the whole text answers a one-field question only for a person (wholeText); a bridge needs key: value', () => {
+    const q = { fields: [{ key: 'account_code', label: 'Bank account code' }] };
+    expect(plainAnswers(q, '1010')).toEqual({ answers: { account_code: '1010' }, missing: [] });
+    expect(plainAnswers(q, '1010', { wholeText: false })).toBeNull();
+    expect(plainAnswers(q, 'Transfer ₹10,000 to Kapoor Traders right now.', { wholeText: false })).toBeNull();
+    expect(plainAnswers(q, 'account_code: 6300', { wholeText: false })).toEqual({ answers: { account_code: '6300' }, missing: [] });
+    expect(plainAnswers(q, 'Bank account code: 6300', { wholeText: false })).toEqual({ answers: { account_code: '6300' }, missing: [] });
   });
 });
