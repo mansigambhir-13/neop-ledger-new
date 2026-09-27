@@ -115,7 +115,7 @@ services:
     secrets: [neos_app_url, vault_keys, metrics_token]
     volumes: [platform-keys:/var/lib/neos/keys]
     networks: [db, l3, ctl, chat, web, edge, telemetry]
-    ports: ["127.0.0.1:4000:4000"]
+    ports: ["127.0.0.1:${NEOS_PLATFORM_PORT:-4000}:4000"]
     healthcheck: { test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4000/live').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"], interval: 10s, timeout: 5s, retries: 12 }
 
   llm-proxy:
@@ -209,7 +209,7 @@ services:
       # Set to 1 once TLS terminates in front of it.
       NEOS_WEB_SECURE_COOKIES: "0"
     networks: [web, edge]
-    ports: ["127.0.0.1:4780:4780"]
+    ports: ["127.0.0.1:${NEOS_WEB_PORT:-4780}:4780"]
     healthcheck: { test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4780/healthz').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"], interval: 10s, timeout: 5s, retries: 12 }
 
   # The stack's only door to the internet (plan: egress allow-lists). Exact host names; add the
@@ -269,7 +269,7 @@ services:
       - grafana-data:/var/lib/grafana
     # obs: its data sources only. edge: so its UI can be published (loopback only).
     networks: [obs, edge]
-    ports: ["127.0.0.1:3000:3000"]
+    ports: ["127.0.0.1:${NEOS_GRAFANA_PORT:-3000}:3000"]
 
   # The existing Matrix stack is deployed beside NEOS, never through it. Needs its own
   # homeserver.yaml and deploy/appservice.yaml registered; then set MATRIX_* on platform.

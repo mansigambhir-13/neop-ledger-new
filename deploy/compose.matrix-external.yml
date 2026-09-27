@@ -1,0 +1,17 @@
+# Production chat overlay: Ledger's ordinary Matrix account on an EXTERNAL homeserver (e.g. the NEOS
+# homeserver the reasoning agent uses). Client road only — no local Synapse. The platform reaches the
+# homeserver over its edge network. Needs deploy/secrets/matrix_ledger_token (the operator-issued token).
+#   docker compose -f deploy/compose.pilot.yml -f deploy/compose.matrix-external.yml up -d
+services:
+  platform:
+    environment:
+      MATRIX_MODE: client
+      MATRIX_HOMESERVER_URL: ${MATRIX_HOMESERVER_URL:?set MATRIX_HOMESERVER_URL}
+      MATRIX_SERVER_NAME: ${MATRIX_SERVER_NAME:?set MATRIX_SERVER_NAME}
+      MATRIX_CLIENT_ACCOUNTS: '[{"account":"${LEDGER_MXID:?set LEDGER_MXID}","company":"${NEOS_CHAT_COMPANY:?set NEOS_CHAT_COMPANY}","app":"ledger","token_file":"/run/secrets/matrix_ledger_token"}]'
+      # NeuralChat waits 60 s for a reply; answer (or say we could not) before that.
+      MATRIX_REPLY_DEADLINE_MS: ${MATRIX_REPLY_DEADLINE_MS:-55000}
+    secrets: [neos_app_url, vault_keys, metrics_token, matrix_ledger_token]
+
+secrets:
+  matrix_ledger_token: { file: "${NEOS_SECRETS_DIR:-./secrets}/matrix_ledger_token" }
