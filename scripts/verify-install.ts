@@ -112,12 +112,26 @@ export async function verifyInstall(o: {
     must(dbUrl, 'NEOS_DB_URL (or NEOS_DB_URL_FILE) is not set');
     pool = createPool(dbUrl!, 1);
     db = await pool.connect();
-    await db.query('set default_transaction_read_only = on');
-    return (await db.query<{ u: string }>('select current_user as u')).rows[0]!.u;
+    // One read-only TRANSACTION, never a session setting: through PgBouncer (transaction pooling) a session
+    // SET stays on the server connection and the next client — the app itself — inherits it (found live:
+    // the backend went read-only). A transaction ends with us; nothing outlives this script.
+    await db.query('begin transaction read only');
+    try {
+      return (await db.query<{ u: string }>('select current_user as u')).rows[0]!.u;
+    } finally {
+      await db.query('rollback');
+    }
   });
   const q = async <T extends Record<string, any> = any>(sql: string, args: unknown[] = []): Promise<T[]> => {
     if (!db) throw new Skip('no database link');
-    return (await (db as PoolClient).query<T>(sql, args)).rows;
+    // Each query in its own read-only transaction: a failing check cannot poison the next one.
+    const c = db as PoolClient;
+    await c.query('begin transaction read only');
+    try {
+      return (await c.query<T>(sql, args)).rows;
+    } finally {
+      await c.query('rollback').catch(() => {});
+    }
   };
 
   let companyId: string | null = null;
@@ -192,9 +206,10 @@ export async function verifyInstall(o: {
     try {
       const c = await rp.connect();
       try {
-        await c.query('set default_transaction_read_only = on');
+        await c.query('begin transaction read only');
         applied = (await c.query<AppliedMigration>(`select name, checksum from ${schema}.schema_migrations order by name`)).rows;
       } finally {
+        await c.query('rollback').catch(() => {});
         c.release(true);
       }
     } finally {
