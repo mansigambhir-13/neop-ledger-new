@@ -308,7 +308,7 @@ export function l3App(core: Core): Hono {
     const bad = resolved.checkInput(args);
     if (bad) return c.json({ error: { code: 'bad_request', message: bad } }, 400);
     const result = await core.company(claims.company_id!, (db) =>
-      handler.run(args, { company_id: claims.company_id!, caller: claims.sub, job_id: null, now: new Date(), db }),
+      handler.run(args, { company_id: claims.company_id!, caller: claims.sub, job_id: null, now: new Date(), time_zone: board.company.time_zone, db }),
     );
     const badOut = resolved.checkOutput(result);
     if (badOut) {

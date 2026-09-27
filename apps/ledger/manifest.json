@@ -1614,6 +1614,31 @@
             "type": "string",
             "format": "date"
           },
+          "totals": {
+            "type": "object",
+            "required": [
+              "count",
+              "outstanding_minor",
+              "overdue_minor",
+              "due_in_7_minor"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "count": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "outstanding_minor": {
+                "type": "integer"
+              },
+              "overdue_minor": {
+                "type": "integer"
+              },
+              "due_in_7_minor": {
+                "type": "integer"
+              }
+            }
+          },
           "documents": {
             "type": "array",
             "items": {
@@ -1682,7 +1707,7 @@
         },
         "additionalProperties": false
       },
-      "version": "1.0.0"
+      "version": "1.1.0"
     },
     {
       "key": "ledger.parties.list",

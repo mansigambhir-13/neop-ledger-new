@@ -28,6 +28,7 @@ import {
 import { natural, type AccountType } from '../domain/reports.ts';
 import { aging, balanceSheet, cashFlow, DEFAULT_CURRENCY, pnl, trialBalance } from './reads.ts';
 import { journalList } from './books.ts';
+import { agedTo, chart, codesFromNames, unknownAccount } from '../domain/names.ts';
 
 const S = 'ledger';
 const today = () => new Date().toISOString().slice(0, 10);
@@ -72,14 +73,21 @@ export const agingAnalysisRead: ReadAbility = {
     const cur = a.currency ?? DEFAULT_CURRENCY;
     const kind = a.kind === 'receivable' ? 'invoice' : 'bill';
     const s = (await I.settings(ctx.db)).settings;
-    const open = await I.openAsOf(ctx.db, { kind, as_of: a.as_of, currency: cur });
-    const issued90 = await I.issuedBetween(ctx.db, { kind, from: addDays(a.as_of, -90), to: a.as_of, currency: cur });
-    const control = await controlBalance(ctx.db, a.kind, a.as_of, cur);
-    const r = agingAnalysis(a.kind, open, issued90, a.as_of, s, control);
+    // A running period is aged to the company's today, never past it: a bill due today is due, not overdue.
+    const asOf = agedTo(a.as_of, ctx);
+    const open = await I.openAsOf(ctx.db, { kind, as_of: asOf, currency: cur });
+    const issued90 = await I.issuedBetween(ctx.db, { kind, from: addDays(asOf, -90), to: asOf, currency: cur });
+    const control = await controlBalance(ctx.db, a.kind, asOf, cur);
+    const r = agingAnalysis(a.kind, open, issued90, asOf, s, control);
     return {
-      ...head(open.length, open.map((d) => d.id), `${a.kind === 'receivable' ? 'customer invoices' : 'supplier bills'} open on ${a.as_of}; the ${a.kind} control account; documents issued in the 90 days to ${a.as_of}`, cur),
+      ...head(
+        open.length,
+        open.map((d) => d.id),
+        `${a.kind === 'receivable' ? 'customer invoices' : 'supplier bills'} open on ${asOf}; the ${a.kind} control account; documents issued in the 90 days to ${asOf}${asOf !== a.as_of ? ` (aged to today, ${asOf}: ${a.as_of} has not come yet)` : ''}`,
+        cur,
+      ),
       kind: a.kind,
-      as_of: a.as_of,
+      as_of: asOf,
       ...r,
     };
   },
@@ -210,7 +218,7 @@ export const reportExport: ReadAbility = {
       case 'aging_receivable':
       case 'aging_payable':
         result = await aging.run({ kind: a.report === 'aging_receivable' ? 'receivable' : 'payable', as_of: asOf }, ctx);
-        title = `${a.report === 'aging_receivable' ? 'Receivables' : 'Payables'} aging as of ${asOf}`;
+        title = `${a.report === 'aging_receivable' ? 'Receivables' : 'Payables'} aging as of ${result.as_of}`;
         summary = [['Outstanding', minorToDecimal(result.total_outstanding_minor)]];
         table = { columns: cols(['number', 'Number'], ['party', 'Party'], ['due_date', 'Due'], ['days_past_due', 'Days late'], ['bucket', 'Bucket'], ['outstanding_minor', 'Outstanding', true]), rows: result.items };
         break;
@@ -410,10 +418,21 @@ const expenseLines = (a: ExpenseArgs) => {
   return { total: b.total, tax: b.tax, lines: b.lines.map((l) => (l.account_code === ACCT.payable ? { ...l, account_code: bank } : l)) };
 };
 
+const EXPENSE_FITS = (x: { type: string; subtype: string }) => ['expense', 'asset'].includes(x.type) && !['bank', 'cash', 'receivable', 'tax_input'].includes(x.subtype);
+
 export const expenseRecord: WriteAbility = {
   kind: 'write',
   measure: (a: ExpenseArgs) => ({ amount_minor: expenseLines(a).total, currency: a.currency }),
+  // "Office supplies" is the one expense category whose name matches it; none or several is refused below.
+  async normalize(a: ExpenseArgs, ctx: ReadCtx) {
+    if (!a || typeof a !== 'object') return a;
+    const [acct, bank] = await codesFromNames(ctx.db, [a.account_code, a.bank_account_code]);
+    const [exp] = a.account_code ? await codesFromNames(ctx.db, [a.account_code], EXPENSE_FITS) : [acct];
+    return { ...a, ...(exp ? { account_code: exp } : {}), ...(bank ? { bank_account_code: bank } : {}) };
+  },
   async validate(a: ExpenseArgs, ctx) {
+    const accts = await chart(ctx.db);
+    if (!accts.some((x) => x.code === a.account_code)) return unknownAccount(accts.filter(EXPENSE_FITS), a.account_code, 'expense category');
     const acct = await B.accountByCode(ctx.db, a.account_code);
     if (!acct || !['expense', 'asset'].includes(acct.type) || ['bank', 'cash', 'receivable', 'tax_input'].includes(acct.subtype)) return `${a.account_code} is not an expense or asset account`;
     const bank = await B.accountByCode(ctx.db, a.bank_account_code ?? ACCT.bank);

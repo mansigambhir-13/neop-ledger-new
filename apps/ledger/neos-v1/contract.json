@@ -1400,6 +1400,31 @@
           "type": "string",
           "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
         },
+        "totals": {
+          "type": "object",
+          "required": [
+            "count",
+            "outstanding_minor",
+            "overdue_minor",
+            "due_in_7_minor"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "count": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "outstanding_minor": {
+              "type": "integer"
+            },
+            "overdue_minor": {
+              "type": "integer"
+            },
+            "due_in_7_minor": {
+              "type": "integer"
+            }
+          }
+        },
         "documents": {
           "type": "array",
           "items": {

@@ -205,7 +205,7 @@ describe('reads (free, sourced, model-free)', () => {
   it('settings start at defaults; aging analysis ties payables to the control account', async () => {
     const s = await read('ledger.settings.get');
     expect(s).toMatchObject({ stored: false, empty: true, settings: { tax_regime: 'IN_GST', aging_buckets: [30, 60, 90], forecast_weeks: 13 } });
-    const ap = await read('ledger.report.aging_analysis', { kind: 'payable', as_of: '2026-09-30' });
+    const ap = await read('ledger.report.aging_analysis', { kind: 'payable', as_of: '2026-09-26' }); // a past date: a running period ages to today
     expect(ap.total_outstanding_minor).toBe(32_332_000);
     expect(ap.overdue_minor).toBe(2_832_000);
     expect(ap.due_in_7_minor).toBe(29_500_000);
@@ -214,8 +214,8 @@ describe('reads (free, sourced, model-free)', () => {
     expect(ap.buckets.map((b: any) => b.label)).toEqual(['Current', '1–30', '31–60', '61–90', '90+']);
     expect(ap.parties.map((p: any) => p.party)).toEqual(['Mehta Wholesale Supplies', 'CloudSoft India']);
     expect(ap.sources.entries).toBe(3);
-    const ar = await read('ledger.report.aging_analysis', { kind: 'receivable', as_of: '2026-09-30' });
-    expect(ar.items.find((i: any) => i.number === 'INV-0002')).toMatchObject({ days_past_due: 34, bucket: '31–60', next_chase_due: '2026-09-03' });
+    const ar = await read('ledger.report.aging_analysis', { kind: 'receivable', as_of: '2026-09-26' });
+    expect(ar.items.find((i: any) => i.number === 'INV-0002')).toMatchObject({ days_past_due: 30, bucket: '1–30', next_chase_due: '2026-09-03' });
     expect(ar.control.ties).toBe(true);
   });
 
@@ -241,8 +241,8 @@ describe('reads (free, sourced, model-free)', () => {
     expect(csv).toMatchObject({ filename: 'trial_balance_2026-09-30.csv', content_type: 'text/csv' });
     expect(csv.content.split('\n')[0]).toBe('Code,Account,Type,Debit,Credit');
     expect(csv.content).toContain('2000,Accounts payable,liability,722160.00,1045480.00');
-    const md = await read('ledger.report.export', { report: 'aging_payable', format: 'md', as_of: '2026-09-30' });
-    expect(md.content).toMatch(/^# Payables aging as of 2026-09-30/);
+    const md = await read('ledger.report.export', { report: 'aging_payable', format: 'md', as_of: '2026-09-26' });
+    expect(md.content).toMatch(/^# Payables aging as of 2026-09-26/);
     expect(md.content).toContain('| MW-117 | Mehta Wholesale Supplies | 2026-10-02 | 0 | current | 295000.00 |');
   });
 

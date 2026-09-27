@@ -116,3 +116,82 @@ describe('questions on the Matrix client road', () => {
     expect(hs.notices(priyaDm).filter((n) => n.content.body.startsWith('Question:'))).toHaveLength(1);
   });
 });
+
+// Found live against a real Synapse: NeuralChat sends plain m.text, not replies. A plain next message in the DM
+// answers the latest open question of a job the sender asked there — the way a conversation follow-up does on /api/ask.
+describe('a plain next message (not a reply) answers the open question', () => {
+  const TWO = {
+    text: 'Which account and how much?',
+    why: 'The deposit is not in the books yet.',
+    fields: [
+      { key: 'account_code', label: 'Bank account code' },
+      { key: 'amount_minor', label: 'Amount', type: 'number' },
+    ],
+  };
+  const twoBrain = (woke: string[]) =>
+    P.setBrain((v: BrainView) => (v.job.includes('You asked:') ? (woke.push(v.job), finish('Recorded it.')) : v.calls === 0 ? call('job.ask', TWO) : { text: 'waiting' }));
+  const tasks = async () => (await P.platform.db.query('select count(*)::int as n from neos.tasks')).rows[0].n as number;
+
+  it('a person’s plain reply to a one-field question takes the whole text, in their own words; no new job', async () => {
+    const hs = fakeClientHomeserver({ me: ME });
+    await client(hs);
+    const dm = await dmWith(hs, PRIYA);
+    const woke: string[] = [];
+    askingBrain(woke);
+    hs.say(dm, PRIYA, text('Record the ₹12,000 deposit from 3 September'));
+    await notices(hs, dm, 1, 'the question');
+    const question = (await P.platform.db.query("select * from neos.questions where status = 'OPEN' order by created_at desc limit 1")).rows[0];
+    const before = await tasks();
+    const plain = hs.say(dm, PRIYA, text('1010'));
+    const r = await notices(hs, dm, 2, 'the result');
+    expect(inReplyTo(r[1]!)).toBe(plain.event_id);
+    expect(r[1]!.content.body).toBe('Recorded the deposit to the account you named.');
+    expect(woke[0]).toContain('answered (chat). Their answer, in their own words:');
+    expect(woke[0]).toContain('account_code: 1010');
+    expect(await tasks()).toBe(before);
+    expect((await P.platform.db.query('select status, answered_via from neos.questions where id = $1', [question.id])).rows[0]).toEqual({ status: 'ANSWERED', answered_via: 'chat' });
+  });
+
+  it('a bridge’s plain `key: value; key: value` answers a two-field question, relayed as untrusted data', async () => {
+    const hs = fakeClientHomeserver({ me: ME });
+    await client(hs);
+    const agentDm = await dmWith(hs, AGENT);
+    const woke: string[] = [];
+    twoBrain(woke);
+    hs.say(agentDm, AGENT, text('Record the deposit'));
+    await notices(hs, agentDm, 1, 'the question');
+    const before = await tasks();
+    hs.say(agentDm, AGENT, text('account_code: 1010; amount: 1200000'));
+    const r = await notices(hs, agentDm, 2, 'the result');
+    expect(r[1]!.content.body).toBe('Recorded it.');
+    expect(woke[0]).toContain(`An answer was relayed by bridge:${AGENT} (bridge)`);
+    expect(woke[0]).toMatch(/<data source="answer\.bridge" trust="untrusted">[\s\S]*"amount_minor": 1200000[\s\S]*<\/data>/);
+    expect(await tasks()).toBe(before);
+  });
+
+  it('a partial answer gets ONE reply naming what is missing (nothing recorded, no new job); unrelated text is a new request', async () => {
+    const hs = fakeClientHomeserver({ me: ME });
+    await client(hs);
+    const agentDm = await dmWith(hs, AGENT);
+    const woke: string[] = [];
+    twoBrain(woke);
+    hs.say(agentDm, AGENT, text('Record the other deposit'));
+    await notices(hs, agentDm, 1, 'the question');
+    const question = (await P.platform.db.query("select * from neos.questions where status = 'OPEN' order by created_at desc limit 1")).rows[0];
+    const before = await tasks();
+    const part = hs.say(agentDm, AGENT, text('account_code: 1010'));
+    const r = await notices(hs, agentDm, 2, 'what is missing');
+    expect(inReplyTo(r[1]!)).toBe(part.event_id);
+    expect(r[1]!.content.body).toBe('To answer the question, also give amount_minor (Amount) — as key: value, one per line or separated by ";". Nothing was recorded.');
+    expect(await tasks()).toBe(before);
+    expect((await P.platform.db.query('select status from neos.questions where id = $1', [question.id])).rows[0].status).toBe('OPEN');
+    // Text naming none of the fields is a new request: a new job, answered on its own.
+    P.setBrain(() => finish('Net profit in August was ₹1,000.'));
+    hs.say(agentDm, AGENT, text('What was our net profit in August 2026?'));
+    const r2 = await notices(hs, agentDm, 3, 'the new job’s answer');
+    expect(r2[2]!.content.body).toBe('Net profit in August was ₹1,000.');
+    expect(await tasks()).toBe(before + 1);
+    expect((await P.platform.db.query('select status from neos.questions where id = $1', [question.id])).rows[0].status).toBe('OPEN');
+    expect(woke).toEqual([]);
+  });
+});

@@ -98,19 +98,32 @@ export class Gate {
       card = (c as ProposalCard) ?? null;
       args = rest;
     }
+    const tz = board.company.time_zone;
     if (handler.kind === 'write' && handler.normalize) {
       const nargs = args;
       args = await this.core.company(claims.company_id, (db) =>
-        handler.normalize!(nargs, { company_id: claims.company_id, caller: `assistant:${claims.sub}`, job_id: claims.sub, now: new Date(), db }),
+        handler.normalize!(nargs, { company_id: claims.company_id, caller: `assistant:${claims.sub}`, job_id: claims.sub, now: new Date(), time_zone: tz, db }),
       );
     }
     const invalid = resolved.checkInput(args) ?? (handler.kind === 'write' ? (handler.check?.(args) ?? null) : null);
     if (invalid) return this.refuse(claims, key, 'invalid_args', invalid);
     if (handler.kind === 'write' && handler.validate) {
       const v = await this.core.company(claims.company_id, (db) =>
-        handler.validate!(args, { company_id: claims.company_id, caller: `assistant:${claims.sub}`, job_id: claims.sub, now: new Date(), db }),
+        handler.validate!(args, { company_id: claims.company_id, caller: `assistant:${claims.sub}`, job_id: claims.sub, now: new Date(), time_zone: tz, db }),
       );
-      if (v) return this.refuse(claims, key, 'not_possible', v);
+      if (typeof v === 'string' && v) return this.refuse(claims, key, 'not_possible', v);
+      if (v && typeof v === 'object') {
+        // A name that matched nothing: the closest real names are data from the books (they may have come from
+        // outside text), and the instruction is ours — ask the person which one; never act on a guess.
+        if (!v.did_you_mean?.length) return this.refuse(claims, key, 'not_possible', v.reason);
+        return this.refuse(
+          claims,
+          key,
+          'unknown_name',
+          `${v.reason}. Nothing was done. Ask the person which one they meant (job_ask) — offer the closest names below as "Did you mean …?"; never act or propose on a guessed match`,
+          { detail: { did_you_mean: v.did_you_mean }, detail_source: 'books' },
+        );
+      }
     }
 
     // 4. rules
@@ -128,7 +141,7 @@ export class Gate {
     // 6. reads, and writes that are on
     if (handler.kind === 'read') {
       const output = await this.core.company(claims.company_id, (db) =>
-        handler.run(args, { company_id: claims.company_id, caller: `assistant:${claims.sub}`, job_id: claims.sub, now: new Date(), db }),
+        handler.run(args, { company_id: claims.company_id, caller: `assistant:${claims.sub}`, job_id: claims.sub, now: new Date(), time_zone: tz, db }),
       );
       const bad = resolved.checkOutput(output);
       if (bad) return this.refuse(claims, key, 'contract_violation', `result failed its schema: ${bad}`);
@@ -178,6 +191,17 @@ export class Gate {
     // 7–8. ask first
     if (!card || !card.what || !card.why || !card.changes || !card.if_no_answer) {
       return this.refuse(claims, key, 'card_required', 'an ask-first call needs a card: what, why, changes, if_no_answer');
+    }
+    // The same change already waiting for a yes, or already approved: never a second approval for it.
+    const twin = await this.core.company(claims.company_id, (c) => openTwin(c, this.core.key, key, args));
+    if (twin) {
+      const state = twin.status === 'PROPOSED' ? "is already waiting for a person's yes" : 'is already approved' + (twin.status === 'EXECUTING' ? ' and being carried out' : '');
+      return this.refuse(
+        claims,
+        key,
+        'already_proposed',
+        `this exact change ${state} (proposal ${twin.id}). Nothing new was proposed. Tell the person it ${state}; do not prepare, offer or describe another approval of it`,
+      );
     }
     const proposalId = randomUUID();
     const fp = fingerprint({ key, version: ability.version, args, company_id: claims.company_id, job_id: claims.sub });
@@ -428,6 +452,13 @@ export class Gate {
       }
       case 'job.ask': {
         // WP §8 `ask`: one structured question; the job waits on it (waits.kind 'input', t005).
+        // A question for a write (`for_ability`) always lists every required input of that write still missing.
+        if (args && typeof args === 'object' && args.for_ability !== undefined && args.for_ability !== null) {
+          const forKey = String(args.for_ability).replaceAll('__', '.');
+          const target = claims.abilities.includes(forKey) ? await this.core.resolve(co, forKey) : null;
+          if (!target || target.meta.kind !== 'write') return { status: 'refused', code: 'invalid_args', reason: 'for_ability must name one of your write tools' };
+          args = { ...args, fields: withRequiredFields(args.fields, target.meta.input, args.known) };
+        }
         const n = normalizeQuestion(args);
         if ('error' in n) return { status: 'refused', code: 'invalid_args', reason: n.error };
         const hours = args?.due_in_hours === undefined || args?.due_in_hours === null ? ASK_DEFAULT_HOURS : Number(args.due_in_hours);
@@ -504,4 +535,60 @@ export class Gate {
       if (!r.rowCount) throw new SessionLost('claim lost');
     });
   }
+}
+
+/** The same ability with the same arguments, still open (waiting for a yes) or approved and not yet done. */
+async function openTwin(c: PoolClient, schema: string, key: string, args: unknown): Promise<{ id: string; status: string } | null> {
+  const r = await c.query<{ id: string; status: string }>(
+    `select id, status from ${schema}.proposals
+      where ability_key = $1 and args = $2::jsonb and status in ('PROPOSED', 'APPROVED', 'EXECUTING') and expires_at > now()
+      order by created_at desc limit 1`,
+    [key, JSON.stringify(args)],
+  );
+  return r.rows[0] ?? null;
+}
+
+const FIELD_KEY = /^[a-z][a-z0-9_]{0,39}$/;
+
+/** A plain label for an input field, from its schema: its title, else its name in words (with the unit it is in). */
+export function plainLabel(name: string, prop: Record<string, any> = {}): string {
+  if (typeof prop.title === 'string' && prop.title.trim()) return prop.title.trim().slice(0, 200);
+  let base = name;
+  let unit = '';
+  if (base.endsWith('_minor')) (base = base.slice(0, -6)), (unit = ' (in minor units: paise or cents)');
+  else if (base.endsWith('_bps')) (base = base.slice(0, -4)), (unit = ' (basis points: 1800 is 18%)');
+  if (prop.format === 'date') unit = ' (YYYY-MM-DD)';
+  const words = base.replace(/_/g, ' ').replace(/\bgst\b/i, 'GST').trim();
+  return `${words.charAt(0).toUpperCase()}${words.slice(1)}${unit}`.slice(0, 200);
+}
+
+function fieldType(prop: Record<string, any> = {}): 'text' | 'number' | 'date' | 'boolean' {
+  if (prop.type === 'integer' || prop.type === 'number') return 'number';
+  if (prop.type === 'boolean') return 'boolean';
+  if (prop.format === 'date') return 'date';
+  return 'text';
+}
+
+/**
+ * The asked fields plus every required input of the write that is neither asked for nor already known —
+ * a question for a change never leaves out what that change cannot go ahead without. Fields the model added
+ * that are not required give way first when the question would be longer than its limit.
+ */
+export function withRequiredFields(asked: unknown, input: Record<string, any>, known: unknown): unknown {
+  const fields: any[] = Array.isArray(asked) ? [...asked] : [];
+  const have = known && typeof known === 'object' && !Array.isArray(known) ? (known as Record<string, unknown>) : {};
+  const props = (input?.properties ?? {}) as Record<string, any>;
+  const required = ((input?.required ?? []) as string[]).filter((k) => k !== 'card');
+  const missing = required.filter((k) => {
+    const v = have[k];
+    return (v === undefined || v === null || v === '') && !fields.some((f) => f && typeof f === 'object' && f.key === k) && FIELD_KEY.test(k);
+  });
+  const added = missing.map((k) => ({ key: k, label: plainLabel(k, props[k]), type: fieldType(props[k]), required: true }));
+  let keep = fields;
+  while (keep.length + added.length > QUESTION_LIMITS.fields) {
+    const i = keep.map((f) => required.includes(f?.key)).lastIndexOf(false);
+    if (i < 0) break;
+    keep = keep.filter((_, j) => j !== i);
+  }
+  return [...keep, ...added].slice(0, QUESTION_LIMITS.fields);
 }

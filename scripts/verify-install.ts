@@ -1,0 +1,309 @@
+// VERIFY AN INSTALL · a READ-ONLY check against a running deployment, after the migrator ran and the company was
+// installed (ported from Shivam's tests/verify-install.mjs, 930eb38, onto our platform). It writes nothing (every
+// database session is read-only), never sends a chat message, never logs in or out, and never prints a secret —
+// the LLM provider key is only checked to be there, never read. Every check prints PASS / WARN / FAIL / SKIP in a
+// table; any FAIL exits 1.
+//
+//   tsx scripts/verify-install.ts <app> <company id|slug>
+//
+//   NEOS_PLATFORM_URL                   the running platform (GET /live)
+//   NEOS_DB_URL[_FILE]                  a platform database link (read-only use): apps, installs, switchboards, vault
+//   NEOP_RUNNER_DB_URL[_FILE]           the app's runner link (it reads <app>.schema_migrations, like the boot check);
+//                                       defaults to NEOS_DB_URL
+//   NEOP_LLM_UPSTREAM_KEY[_FILE]        the LLM proxy's provider key — present, never read (run where the proxy's env is)
+//   MATRIX_MODE=client + MATRIX_HOMESERVER_URL + MATRIX_CLIENT_ACCOUNTS[_FILE]   each account's token: whoami
+//   NEOS_ENV=production                 an app registered without a conformance attestation is a FAIL (else a WARN)
+import { existsSync, readFileSync, statSync } from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+import { createPool, familyRoles, schemaDrift, shippedMigrations, type AppliedMigration, type PoolClient } from '@neop/pgkit';
+
+type Pool = ReturnType<typeof createPool>;
+import { attestationProblem, chatClientConfigFromEnv, MatrixClientHttp } from '@neop/platform';
+import { appMigrationSources, type AppDefinition } from '@neop/template';
+
+type Manifest = AppDefinition['manifest'];
+
+export type Status = 'PASS' | 'WARN' | 'FAIL' | 'SKIP';
+export interface CheckResult {
+  status: Status;
+  name: string;
+  detail: string;
+}
+
+type FetchLike = (url: string, init?: any) => Promise<{ ok: boolean; status: number; json(): Promise<any> }>;
+
+const APPS: Record<string, () => Promise<AppDefinition>> = {
+  ledger: async () => (await import('@neop/ledger')).ledgerApp(),
+  marketing: async () => (await import('@neop/marketing')).marketingApp(),
+};
+const RANK: Record<string, number> = { off: 0, ask_first: 1, on: 2 };
+
+/** NAME, or the contents of the file NAME_FILE names. */
+function envOf(env: NodeJS.ProcessEnv, name: string): string | undefined {
+  const file = env[`${name}_FILE`];
+  if (file) return readFileSync(file, 'utf8').trim();
+  return env[name] || undefined;
+}
+
+/** JSON with keys sorted: the database (jsonb) does not keep key order. */
+const stable = (v: unknown): string =>
+  Array.isArray(v) ? `[${v.map(stable).join(',')}]` : v && typeof v === 'object' ? `{${Object.keys(v).sort().map((k) => `${JSON.stringify(k)}:${stable((v as any)[k])}`).join(',')}}` : JSON.stringify(v ?? null);
+
+class Skip extends Error {}
+class Warn extends Error {}
+
+export async function verifyInstall(o: {
+  app: string;
+  company: string;
+  env?: NodeJS.ProcessEnv;
+  def?: AppDefinition;
+  fetchImpl?: FetchLike;
+  out?: (line: string) => void;
+}): Promise<{ ok: boolean; results: CheckResult[] }> {
+  const env = o.env ?? process.env;
+  const fetchImpl = o.fetchImpl ?? (fetch as unknown as FetchLike);
+  const results: CheckResult[] = [];
+  const check = async (name: string, fn: () => Promise<string | void>) => {
+    try {
+      results.push({ status: 'PASS', name, detail: (await fn()) || '' });
+    } catch (e) {
+      const status: Status = e instanceof Skip ? 'SKIP' : e instanceof Warn ? 'WARN' : 'FAIL';
+      results.push({ status, name, detail: String((e as Error)?.message ?? e).slice(0, 300) });
+    }
+  };
+  const must = (cond: unknown, msg: string) => {
+    if (!cond) throw new Error(msg);
+  };
+  const get = async (url: string, headers: Record<string, string> = {}) => fetchImpl(url, { headers, signal: AbortSignal.timeout(10_000) });
+
+  // ── the build ────────────────────────────────────────────────────────────
+  let def: AppDefinition | null = o.def ?? null;
+  await check(`build: ${o.app} is an app of this build`, async () => {
+    if (!def) {
+      const load = APPS[o.app];
+      must(load, `no app ${o.app} in this build (${Object.keys(APPS).join(', ')})`);
+      def = await load!();
+    }
+    return `${def!.manifest.name} ${def!.manifest.version}`;
+  });
+  const manifest = def ? (def as AppDefinition).manifest : null;
+
+  // ── the platform ─────────────────────────────────────────────────────────
+  const platformUrl = (env.NEOS_PLATFORM_URL ?? '').replace(/\/+$/, '');
+  await check('platform: reachable', async () => {
+    must(platformUrl, 'NEOS_PLATFORM_URL is not set');
+    let r;
+    try {
+      r = await get(`${platformUrl}/live`);
+    } catch (e) {
+      throw new Error(`nothing answers at ${platformUrl}: ${(e as Error).message}`);
+    }
+    must(r.ok, `${platformUrl}/live answered ${r.status}`);
+    return platformUrl;
+  });
+
+  const dbUrl = envOf(env, 'NEOS_DB_URL');
+  const runnerUrl = envOf(env, 'NEOP_RUNNER_DB_URL') ?? dbUrl;
+  let pool: Pool | null = null;
+  let db: PoolClient | null = null;
+  await check('database: platform link connects (read-only)', async () => {
+    must(dbUrl, 'NEOS_DB_URL (or NEOS_DB_URL_FILE) is not set');
+    pool = createPool(dbUrl!, 1);
+    db = await pool.connect();
+    await db.query('set default_transaction_read_only = on');
+    return (await db.query<{ u: string }>('select current_user as u')).rows[0]!.u;
+  });
+  const q = async <T extends Record<string, any> = any>(sql: string, args: unknown[] = []): Promise<T[]> => {
+    if (!db) throw new Skip('no database link');
+    return (await (db as PoolClient).query<T>(sql, args)).rows;
+  };
+
+  let companyId: string | null = null;
+  let appRow: { l3_url: string; manifest: Manifest; status: string; conformance: unknown } | null = null;
+  await check(`platform: ${o.app} is registered, active and attested`, async () => {
+    const [r] = await q<{ l3_url: string; manifest: Manifest; status: string; conformance: unknown }>('select l3_url, manifest, status, conformance from neos.apps where key = $1', [o.app]);
+    must(r, `${o.app} is not registered (tsx scripts/ops.ts register-app …)`);
+    appRow = r!;
+    must(r!.status === 'active', `status ${r!.status}`);
+    if (manifest) must(stable(r!.manifest) === stable(manifest), 'the registered manifest is not this build’s — register this build again');
+    const problem = attestationProblem(r!.conformance, o.app, r!.manifest);
+    if (problem) {
+      if (env.NEOS_ENV === 'production') throw new Error(`not attested: ${problem}`);
+      throw new Warn(`not attested (${problem}); production refuses this`);
+    }
+    return `${r!.manifest.version}, attested`;
+  });
+  await check(`platform: ${o.app} is installed for ${o.company}`, async () => {
+    const [co] = await q<{ id: string; name: string; time_zone: string }>('select id, name, time_zone from neos.companies where id::text = $1 or slug = $1', [o.company]);
+    must(co, `no company ${o.company}`);
+    companyId = co!.id;
+    const [i] = await q<{ status: string }>('select status from neos.installs where company_id = $1 and app_key = $2', [co!.id, o.app]);
+    must(i, `no install of ${o.app} for ${co!.name}`);
+    must(i!.status === 'active', `install status ${i!.status}`);
+    return `${co!.name} (${co!.time_zone})`;
+  });
+
+  // ── the app's database family ────────────────────────────────────────────
+  const schema = manifest?.app ?? o.app;
+  const roles = familyRoles(schema);
+  await check(`database: roles ${roles.migrator}, ${roles.app}, ${roles.runner}`, async () => {
+    const rows = await q<{ rolname: string; rolbypassrls: boolean; rolsuper: boolean }>('select rolname, rolbypassrls, rolsuper from pg_roles where rolname = any($1)', [[roles.migrator, roles.app, roles.runner]]);
+    const by = new Map(rows.map((r) => [r.rolname, r]));
+    const missing = [roles.migrator, roles.app, roles.runner].filter((r) => !by.has(r));
+    must(!missing.length, `missing: ${missing.join(', ')} — run the migrator (scripts/migrate.ts)`);
+    must(!by.get(roles.app)!.rolbypassrls && !by.get(roles.app)!.rolsuper, `${roles.app} must not bypass row-level security`);
+    must(!by.get(roles.runner)!.rolsuper, `${roles.runner} must not be a superuser`);
+    const [owner] = await q<{ owner: string }>('select pg_get_userbyid(nspowner) as owner from pg_namespace where nspname = $1', [schema]);
+    must(owner, `schema ${schema} does not exist`);
+    must(owner!.owner === roles.migrator, `schema ${schema} is owned by ${owner!.owner}, not ${roles.migrator}`);
+    return 'present; app role under RLS';
+  });
+  await check('database: grants (app and runner use, never create)', async () => {
+    const bad: string[] = [];
+    for (const role of [roles.app, roles.runner]) {
+      const [r] = await q<{ usage: boolean; create: boolean; dbcreate: boolean }>(
+        "select has_schema_privilege($1, $2, 'USAGE') as usage, has_schema_privilege($1, $2, 'CREATE') as create, has_database_privilege($1, current_database(), 'CREATE') as dbcreate",
+        [role, schema],
+      );
+      if (!r!.usage) bad.push(`${role} has no USAGE on ${schema}`);
+      if (r!.create) bad.push(`${role} may CREATE in ${schema}`);
+      if (r!.dbcreate) bad.push(`${role} may CREATE schemas in the database`);
+    }
+    const [jobs] = await q<{ app: boolean; runner: boolean }>(
+      `select has_table_privilege($1, $3, 'SELECT') as app, has_table_privilege($2, $3, 'SELECT') as runner`,
+      [roles.app, roles.runner, `${schema}.jobs`],
+    );
+    if (!jobs?.app) bad.push(`${roles.app} cannot read ${schema}.jobs`);
+    if (!jobs?.runner) bad.push(`${roles.runner} cannot read ${schema}.jobs`);
+    must(!bad.length, bad.join('; '));
+  });
+  await check("database: schema in step with this build's migrations", async () => {
+    if (!def) throw new Skip('no build to compare with');
+    must(runnerUrl, 'NEOP_RUNNER_DB_URL (or NEOS_DB_URL) is not set');
+    // The same comparison the backend makes before it listens (assertSchemaInStep), read-only.
+    const shipped = await shippedMigrations(await appMigrationSources(def));
+    const rp = createPool(runnerUrl!, 1);
+    let applied: AppliedMigration[];
+    try {
+      const c = await rp.connect();
+      try {
+        await c.query('set default_transaction_read_only = on');
+        applied = (await c.query<AppliedMigration>(`select name, checksum from ${schema}.schema_migrations order by name`)).rows;
+      } finally {
+        c.release(true);
+      }
+    } finally {
+      await rp.end().catch(() => {});
+    }
+    const d = schemaDrift(applied, shipped);
+    const parts = [d.pending.length ? `pending: ${d.pending.join(', ')}` : '', d.unknown.length ? `unknown: ${d.unknown.join(', ')}` : '', d.changed.length ? `changed: ${d.changed.join(', ')}` : ''].filter(Boolean);
+    must(!parts.length, `${parts.join('; ')} — the backend will refuse to start`);
+    return `${shipped.length} migrations`;
+  });
+
+  // ── the company's install ────────────────────────────────────────────────
+  await check('switchboard: every line within its floor', async () => {
+    if (!companyId || !appRow) throw new Skip('no install to read');
+    const m = (appRow as { manifest: Manifest }).manifest;
+    const [sb] = await q<{ version: number; settings: Record<string, string> }>('select version, settings from neos.switchboards where company_id = $1 and app_key = $2 order by version desc limit 1', [companyId, o.app]);
+    const settings = sb?.settings ?? {};
+    const floors = new Map(m.abilities.map((a) => [a.key, a.floor as string]));
+    const problems: string[] = [];
+    for (const [line, setting] of Object.entries(settings)) {
+      if (line.startsWith('skill:')) {
+        if (!['on', 'off'].includes(setting)) problems.push(`${line} is ${setting} (a skill is on or off)`);
+        continue;
+      }
+      const floor = floors.get(line);
+      if (!floor) continue; // a package's line: checked by the registry
+      if (!(setting in RANK)) problems.push(`${line} is ${setting}`);
+      else if (RANK[setting]! > RANK[floor]!) problems.push(`${line} is ${setting}, looser than its floor ${floor}`);
+    }
+    must(!problems.length, problems.join('; '));
+    const eff = m.abilities.map((a) => {
+      const s = settings[a.key];
+      return s && RANK[s]! < RANK[a.floor]! ? s : a.floor;
+    });
+    return `version ${sb?.version ?? 0}: ${eff.filter((s) => s === 'on').length} on, ${eff.filter((s) => s === 'ask_first').length} ask first, ${eff.filter((s) => s === 'off').length} off`;
+  });
+  await check('vault: a door key for every declared door', async () => {
+    if (!companyId || !appRow) throw new Skip('no install to read');
+    const doors = ((appRow as { manifest: Manifest }).manifest.doors ?? []).map((d) => d.key);
+    if (!doors.length) return 'no doors declared';
+    const rows = await q<{ door: string }>("select distinct door from neos.vault_secrets where company_id = $1 and app_key in ($2, '*')", [companyId, o.app]);
+    const have = new Set(rows.map((r) => r.door));
+    const missing = doors.filter((d) => !have.has(d));
+    must(!missing.length, `no key for ${missing.join(', ')} — an admin sets it (Configure a company's providers)`);
+    return doors.join(', ');
+  });
+
+  // ── what runs beside it ──────────────────────────────────────────────────
+  await check('llm proxy: provider key present (not read)', async () => {
+    const file = env.NEOP_LLM_UPSTREAM_KEY_FILE;
+    if (file) {
+      must(existsSync(file) && statSync(file).size > 0, `NEOP_LLM_UPSTREAM_KEY_FILE names ${file}, which is missing or empty`);
+      return `in ${path.basename(file)}`;
+    }
+    must(env.NEOP_LLM_UPSTREAM_KEY, 'NEOP_LLM_UPSTREAM_KEY (or _FILE) is not set here — run this where the LLM proxy’s environment is');
+    return 'set';
+  });
+  await check('backend: /l3/ready, reached as the platform reaches it', async () => {
+    if (!appRow) throw new Skip('the app is not registered');
+    const base = (appRow as { l3_url: string }).l3_url.replace(/\/+$/, '');
+    let r;
+    try {
+      r = await get(`${base}/l3/ready`);
+    } catch (e) {
+      throw new Error(`nothing answers at ${base}: ${(e as Error).message}`);
+    }
+    must(r.ok, `${base}/l3/ready answered ${r.status} — the backend cannot reach its database`);
+    return base;
+  });
+  await check('matrix: client tokens valid (whoami)', async () => {
+    if ((env.MATRIX_MODE ?? 'appservice') !== 'client') throw new Skip(`MATRIX_MODE=${env.MATRIX_MODE ?? 'appservice'}`);
+    const cfg = chatClientConfigFromEnv(env);
+    const mine = cfg!.accounts.filter((a) => a.app === o.app && (!companyId || a.company === companyId || a.company === o.company));
+    must(mine.length, `no MATRIX_CLIENT_ACCOUNTS entry for ${o.app} at ${o.company}`);
+    const seen: string[] = [];
+    for (const a of mine) {
+      must(a.tokenFile && existsSync(a.tokenFile), `${a.account}: token file ${a.tokenFile ?? '(none)'} is missing`);
+      const http = new MatrixClientHttp({ homeserverUrl: cfg!.homeserverUrl, account: a.account, accessToken: readFileSync(a.tokenFile!, 'utf8').trim(), fetchImpl: (o.fetchImpl ?? cfg!.fetchImpl) as any });
+      let who: string;
+      try {
+        who = await http.whoami();
+      } catch (e) {
+        throw new Error(`${a.account}: the homeserver refused the token (${(e as Error).message}) — ask the Matrix operator for a new one`);
+      }
+      must(who === a.account, `${a.account}: the token belongs to ${who}`);
+      seen.push(who);
+    }
+    return seen.join(', ');
+  });
+
+  (db as PoolClient | null)?.release(true);
+  if (pool) await (pool as Pool).end().catch(() => {});
+  const out = o.out ?? ((l: string) => console.log(l));
+  const w = Math.max(...results.map((r) => r.name.length), 5);
+  out(`${'STATUS'.padEnd(6)}  ${'CHECK'.padEnd(w)}  DETAIL`);
+  for (const r of results) out(`${r.status.padEnd(6)}  ${r.name.padEnd(w)}  ${r.detail}`);
+  const failed = results.filter((r) => r.status === 'FAIL').length;
+  out(`\n${failed ? `${failed} check(s) FAILED` : 'All checks passed'} (${results.filter((r) => r.status === 'PASS').length} passed, ${results.filter((r) => r.status === 'WARN').length} warnings, ${results.filter((r) => r.status === 'SKIP').length} skipped).`);
+  return { ok: failed === 0, results };
+}
+
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  const [app, company] = process.argv.slice(2);
+  if (!app || !company) {
+    console.error('usage: tsx scripts/verify-install.ts <app> <company id|slug>');
+    process.exit(64);
+  }
+  verifyInstall({ app, company }).then(
+    (r) => process.exit(r.ok ? 0 : 1),
+    (e) => {
+      console.error(`verify failed to run: ${(e as Error).message}`);
+      process.exit(1);
+    },
+  );
+}
