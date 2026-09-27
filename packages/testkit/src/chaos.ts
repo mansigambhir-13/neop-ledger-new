@@ -20,7 +20,9 @@ export async function chaosRun(P: Pilot, o: { jobs: number; restarts: number; in
       return ok.length === 0 && !v.results.some((r) => r.text.includes('Proposal '))
         ? t('ledger.close_pack.email', {
             period: { from: '2026-08-01', to: '2026-08-31' },
-            to: ['cfo@acme.example'],
+            // One recipient per job: identical changes are refused while one waits (gate `already_proposed`),
+            // and this scenario is about restarts, not duplicates.
+            to: [`cfo+${/chaos job (\d+)/.exec(v.job)?.[1] ?? '0'}@acme.example`],
             card: { what: 'Send pack', why: 'chaos', changes: 'one email', if_no_answer: 'nothing' },
           })
         : { text: 'waiting' };
