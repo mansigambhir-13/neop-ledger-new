@@ -72,3 +72,4 @@ export async function ledgerApp(): Promise<AppDefinition> {
 }
 
 export { seedLedger } from './seed.ts';
+export { applyStarterChart, STARTER_CHART_IN_SME } from './chart.ts';

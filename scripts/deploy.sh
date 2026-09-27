@@ -36,6 +36,8 @@ PROFILES=()
 dc() { docker compose -p "$NEOS_PROJECT" "${FILES[@]}" ${PROFILES[@]+"${PROFILES[@]}"} "$@"; }
 state() { [ -s "$STATE" ] && jq -r ".$1 // empty" "$STATE" || true; }
 setstate() { local cur='{}'; [ -s "$STATE" ] && cur=$(cat "$STATE"); echo "$cur" | jq --arg k "$1" --arg v "$2" '.[$k]=$v' > "$STATE.tmp" && mv "$STATE.tmp" "$STATE"; chmod 600 "$STATE"; }
+# The Matrix overlay (added once the company exists) needs the company id from the very first compose call.
+export NEOS_CHAT_COMPANY="$(state company_id)"
 api() { curl -sS -X "$1" "http://127.0.0.1:$PORT$2" -H "authorization: Bearer $(cat "$NEOS_SECRETS_DIR/admin_token")" -H 'content-type: application/json' ${3:+-d "$3"}; }
 OPS=(run --rm --no-deps -T -e NEOS_DB_URL_FILE=/run/secrets/neos_app_url -e NEOP_SERVICE_SECRET_FILE=/tmp/svc -v "$NEOS_SECRETS_DIR/ledger_service_secret:/tmp/svc:ro" -v "$ATTEST:/tmp/conformance.json:ro" platform tsx scripts/ops.ts)
 ops() { dc "${OPS[@]}" "$@" 2>/dev/null | grep -v '^ *Container ' | tail -1; }
@@ -64,7 +66,6 @@ dc run --rm migrate 2>&1 | grep -E 'applying|complete|rror' || die "migration fa
 
 say "5/11 start"
 # The company is needed by the Matrix client road; on a first install it does not exist yet, so start without it first.
-export NEOS_CHAT_COMPANY="$(state company_id)"
 dc up -d --remove-orphans >/dev/null 2>&1 || die "compose up failed: dc up -d to see why"
 for i in $(seq 1 60); do curl -fsS "http://127.0.0.1:$PORT/live" >/dev/null 2>&1 && break; sleep 2; [ "$i" = 60 ] && die "platform did not become live"; done
 
@@ -80,6 +81,11 @@ if [ -z "$CO" ]; then
   [ -s "$NEOS_SECRETS_DIR/admin_token" ] || die "create-user failed"
 fi
 ops install "$CO" ledger >/dev/null
+# A real company starts with empty books: give it the starter chart of accounts once (never on a re-run).
+if [ "${STARTER_CHART:-in_sme}" != none ] && [ -z "$(state starter_chart)" ]; then
+  dc exec -T ledger-backend tsx apps/ledger/scripts/seed.ts "$CO" --starter-chart | tail -1 || die "starter chart failed"
+  setstate starter_chart "${STARTER_CHART:-in_sme}"
+fi
 echo "company $CO · admin token in $NEOS_SECRETS_DIR/admin_token"
 
 say "8/11 Matrix client road for this company"
