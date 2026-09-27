@@ -172,8 +172,11 @@ export async function verifyInstall(o: {
       if (r!.dbcreate) bad.push(`${role} may CREATE schemas in the database`);
     }
     const [jobs] = await q<{ app: boolean; runner: boolean }>(
-      `select has_table_privilege($1, $3, 'SELECT') as app, has_table_privilege($2, $3, 'SELECT') as runner`,
-      [roles.app, roles.runner, `${schema}.jobs`],
+      // By oid from the catalogue: resolving the name "<schema>.jobs" would need USAGE on the app's schema,
+      // which the platform link rightly does not have.
+      `select has_table_privilege($1, c.oid, 'SELECT') as app, has_table_privilege($2, c.oid, 'SELECT') as runner
+         from pg_class c join pg_namespace n on n.oid = c.relnamespace where n.nspname = $3 and c.relname = 'jobs'`,
+      [roles.app, roles.runner, schema],
     );
     if (!jobs?.app) bad.push(`${roles.app} cannot read ${schema}.jobs`);
     if (!jobs?.runner) bad.push(`${roles.runner} cannot read ${schema}.jobs`);
