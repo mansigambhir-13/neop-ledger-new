@@ -19,7 +19,8 @@ export interface CompanyDump {
   tables: Record<string, unknown[]>;
 }
 
-async function tablesInOrder(c: pg.Client, schema: string): Promise<string[]> {
+/** Every table in a schema with a company_id column, parents before children (foreign-key order). */
+export async function tablesInOrder(c: pg.Client, schema: string): Promise<string[]> {
   const tables = (
     await c.query<{ t: string }>(
       `select c.relname as t from pg_class c join pg_namespace n on n.oid = c.relnamespace

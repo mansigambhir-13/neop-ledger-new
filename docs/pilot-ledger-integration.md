@@ -92,6 +92,18 @@ The reasoning agent's handoff (Ledger is one ordinary Matrix account with an ope
 
 `packages/platform/src/web` is a stand-in for the NEOS app, so a NEOP can be driven end to end in development and CI: ask, watch the job, answer cards, set the switchboard, see blocks drawn. It carries a visible "Test harness" badge. It starts only with the compose profile `test` and refuses `NEOS_ENV=production` (web.test, network.test). It is not a second product UI. The product UI is `neos-app-platform`, which adopts row 2 above.
 
+## 5b. Files, personal data, uninstall, door keys (WP v3 §11–§12)
+
+- **Attachments are kept.** A file attached to an ask is stored by Ledger's backend (the `ledger-files` volume, or an S3-compatible bucket) under `ledger/<company_id>/<sha256>` before it is read; `ledger.documents_files` links the id to the job. A bill recorded from it carries `source_document`. The NEOS app shows the original by calling `ledger.document.get` and opening its `download.path` (`GET /api/documents/ledger/<sha256>?exp&sig`, 10 minutes, the person's own bearer token). The bytes never reach the model.
+- **Personal data** is tagged in Ledger's manifest (`personal_data`); a subject access request or an erasure is `tsx scripts/erase.ts export|erase <company_id> ledger <party_id>` run by the DBA (audited).
+- **Uninstall** for one company is `tsx scripts/ops.ts uninstall <company_id> ledger [--purge] --yes` (dry run without `--yes`; `--purge` backs the company up first).
+- **Door keys** are per app: connect the email door "only for Ledger" (`PUT /api/vault/email?app=ledger`) or company-wide (no `app`). Keys set before this change are company-wide and keep working.
+
+## 5c. Two WP v3 items this pilot does not build
+
+- **Voice.** The NEOS app transcribes before it calls `/api/ask`; the platform takes text. Ledger never receives audio.
+- **pgvector `similar_to`.** No Ledger ability needs it. An app that does adds a `vector` column to its own table in its own migration (company_id + RLS as always) and queries it with ordinary SQL; see `docs/IMPLEMENTATION-NOTES.md` "Deliberately not built from WP v3".
+
 ## 6. Order of work
 
 1. **Now:** install Ledger on the platform through the bridge. Reports and questions work from the NEOS app and NeuralChat; changes open jobs.

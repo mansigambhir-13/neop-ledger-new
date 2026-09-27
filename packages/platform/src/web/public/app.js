@@ -917,7 +917,7 @@ VIEWS.today = async () => {
   const finished = S.tasks.filter((x) => !LIVE.includes(x.status)).slice(0, 4);
   const askFirst = L().abilities.filter((l) => l.kind === 'write' && l.setting === 'ask_first').length;
   const activeGrants = grants.grants.filter((g) => g.status === 'ACTIVE' && !g.expired);
-  const doors = new Set((vault?.doors ?? []).map((d) => d.door));
+  const doors = vaultDoors(vault, S.app);
   const first = S.me.name.replace(/\(.*\)/, '').trim().split(' ')[0];
   const hr = new Date().getHours();
   // Each installed app contributes its `home` block (WP §13 home.tile).
@@ -1129,7 +1129,7 @@ VIEWS.switchboard = async () => {
       <small>needs → ${s.needs.map((n) => `${esc(titleOf(n.key, app))} ${n.setting === 'off' ? '✗' : n.setting === 'elsewhere' ? '↗' : '✓'}`).join(' · ') || 'nothing'}</small></td>
       <td>${pill('on / off', 'gray')}</td><td>${toggleHtml(`s:skill:${s.key}`, [['on', 'On'], ['off', 'Off']], s.setting, !admin)}</td>
       <td class="force">${s.loads ? pill('loads at spawn', 'green') : s.setting === 'off' ? pill('switched off', 'gray') : pill(`not loaded · needs ${s.missing.map((k) => titleOf(k, app)).join(', ')}`, 'amber')}</td></tr>`;
-  const doors = new Set((vault?.doors ?? []).map((d) => d.door));
+  const doors = vaultDoors(vault, app);
   const star = sb.approvals?.['*'] ?? {};
   return (
     head('Switchboard', `What ${esc(appName(app))} may do at ${esc(S.me.company?.name ?? 'your company')}. The app sets a floor; you can only make it stricter. The gate checks this on every call — “off” means the assistant is not even shown it, and it is refused if asked by name.`, `${appSwitch('switchboard')}<button class="btn" id="hist">${ic('clock', 15)} History · v${sb.version}</button>${admin ? '' : pill('admins change the switchboard', 'amber')}`) +
@@ -1338,7 +1338,8 @@ VIEWS.connections = async () => {
   const Ls = await loadLines(app);
   const admin = isAdmin();
   const [v, lends] = await Promise.all([admin ? api('/api/vault') : { doors: [] }, admin ? api('/api/audit?action=vault.lend&limit=300').catch(() => ({ rows: [] })) : { rows: [] }]);
-  const has = (k) => v.doors.find((x) => x.door === k);
+  // WP §12: a key is per (company, app, door); a company-wide key (app null) serves any app without its own.
+  const has = (k) => v.doors.find((x) => x.door === k && x.app === app) ?? v.doors.find((x) => x.door === k && !x.app);
   return (
     head('Doors', 'Connections to the outside. Keys live in the platform’s vault, sealed and write-only: an app borrows one for a single call and forgets it; no assistant ever sees it. A door without a key cannot be opened — not discouraged, impossible.', `${appSwitch('connections')}${admin ? '' : pill('admins connect doors', 'amber')}`) +
     Ls.doors
@@ -1348,7 +1349,7 @@ VIEWS.connections = async () => {
         const n = lends.rows.filter((r) => r.ability_key === d.key && r.app_key === app);
         const refused = n.filter((r) => /refused/.test(r.outcome ?? '')).length;
         const on = has(d.key);
-        return `<div class="card"><div class="card-h"><span class="ico ${on ? 'green' : 'amber'}">${ic(icon, 18)}</span><h3>${esc(title)}</h3>${on ? pill(`key in vault · set ${ago(on.updated_at)}`, 'green') : pill('no key · closed', 'amber')}
+        return `<div class="card"><div class="card-h"><span class="ico ${on ? 'green' : 'amber'}">${ic(icon, 18)}</span><h3>${esc(title)}</h3>${on ? pill(`${on.app ? `${esc(appName(app))}’s own key` : 'company-wide key'} · set ${ago(on.updated_at)}`, 'green') : pill('no key · closed', 'amber')}
           <div class="right">${admin && d.key === 'gst_portal' && on ? `<button class="btn sm" data-otp="${esc(d.key)}">Enter OTP</button>` : ''}${admin ? `<button class="btn sm${on ? '' : ' lime'}" data-door="${esc(d.key)}">${on ? 'Replace key' : 'Connect'}</button>` : ''}</div></div>
           <div class="card-b"><p class="muted">${esc(text)}</p><div class="kv"><span>Declared by</span><b>${d.declared_by === 'own' ? esc(appName(app)) : 'an installed package'}${d.scopes?.length ? ` · scopes ${esc(d.scopes.join(', '))}` : ''}</b></div>
           <div class="kv"><span>Used by</span><b>${users.length ? esc(users.map((u) => u.title).join(', ')) : 'the package’s abilities'}</b></div>
@@ -1356,12 +1357,19 @@ VIEWS.connections = async () => {
       })
       .join('') +
     bind(() => {
-      for (const b of $$('[data-door]')) b.onclick = () => doorForm(b.dataset.door);
-      for (const b of $$('[data-otp]')) b.onclick = () => otpForm(b.dataset.otp);
+      for (const b of $$('[data-door]')) b.onclick = () => doorForm(b.dataset.door, app);
+      for (const b of $$('[data-otp]')) b.onclick = () => otpForm(b.dataset.otp, app);
     })
   );
 };
-function doorForm(door) {
+/** Doors an app can open at this company: its own keys and the company-wide ones (WP §12). */
+function vaultDoors(vault, app) {
+  return new Set((vault?.doors ?? []).filter((d) => !d.app || d.app === app).map((d) => d.door));
+}
+/** Where a key is saved: this app only (default), or company-wide for every app that declares the door. */
+const vaultPath = (door, app, only) => `/api/vault/${door}${only && app ? `?app=${encodeURIComponent(app)}` : ''}`;
+
+function doorForm(door, app) {
   const email = door === 'email';
   modal(
     email ? 'Connect email' : 'Connect the GST portal',
@@ -1381,7 +1389,7 @@ function doorForm(door) {
            <label class="f">Extra headers (JSON)</label><input class="i mono" name="headers" placeholder='{"x-gsp-key":"…"}'></details>
            <p class="note">OTPs are never stored here: when the portal sends one, an admin enters it with “Enter OTP”.</p></div>
            <div id="p-dev" class="hidden"><label class="f">Directory on the backend</label><input class="i mono" name="dir" value="/srv/var/gst-portal"></div>`
-    }</form><p class="note">Write-only: once saved, nobody can read it back — not even an admin.</p>`,
+    }<label class="f"><input type="checkbox" name="only_app" checked> Only for ${esc(appName(app))} (unticked: company-wide, for every app that declares this door and has no key of its own)</label></form><p class="note">Write-only: once saved, nobody can read it back — not even an admin.</p>`,
     `<button class="btn" id="dc">Cancel</button><button class="btn lime" id="ds">Save to vault</button>`,
   );
   const prov = $('#prov');
@@ -1410,7 +1418,7 @@ function doorForm(door) {
     }
     if (email && !dev() && Object.values(body).some((x) => !x)) return toast('Fill in every field.', true);
     try {
-      await api(`/api/vault/${door}`, { method: 'PUT', body });
+      await api(vaultPath(door, app, !!d.only_app), { method: 'PUT', body });
       closeLayer();
       toast('Saved to the vault. The app borrows it per call.');
       render(true);
@@ -1422,7 +1430,7 @@ function doorForm(door) {
 
 // A one-time code the portal sent a person (login OTP, or the signatory's EVC OTP): written straight
 // to the write-only OTP slot, never to a card, a note or the assistant.
-function otpForm(door) {
+function otpForm(door, app) {
   modal(
     'Enter a GST portal OTP',
     `<form id="of"><label class="f">Which code</label><select class="i" name="kind"><option value="auth_otp">Login OTP (the portal asked to sign in)</option><option value="evc_otp">EVC OTP (the signatory, before a filing)</option></select>
@@ -1434,7 +1442,7 @@ function otpForm(door) {
     const d = Object.fromEntries(new FormData($('#of')).entries());
     if (!/^[0-9]{4,8}$/.test(d.code || '')) return toast('Enter the 4–8 digit code.', true);
     try {
-      await api(`/api/vault/${door}_otp`, { method: 'PUT', body: { provider: 'person', [d.kind]: d.code } });
+      await api(vaultPath(`${door}_otp`, app, true), { method: 'PUT', body: { provider: 'person', [d.kind]: d.code } });
       closeLayer();
       toast('Code saved for the next portal call.');
     } catch (e) {

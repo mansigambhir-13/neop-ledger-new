@@ -154,6 +154,11 @@ services:
       NEOS_PLATFORM_URL: http://platform:4000
       NEOP_AGENT_URL: http://ledger-agent-rpc:4103
       NEOP_GATE_URL: http://ledger-gate:4102
+      # Attached source documents are kept (WP §11): bytes on the ledger-files volume, keyed
+      # ledger/<company_id>/<sha256>. For an S3-compatible bucket instead: NEOP_DOCUMENTS_BACKEND=s3
+      # plus NEOP_S3_ENDPOINT, NEOP_S3_BUCKET, NEOP_S3_REGION, NEOP_S3_ACCESS_KEY_ID_FILE, NEOP_S3_SECRET_ACCESS_KEY_FILE.
+      NEOP_DOCUMENTS_BACKEND: local
+      NEOP_DOCUMENTS_DIR: /var/lib/neop/files
       L3_PORT: "4101"
       GATE_PORT: "4102"
       L3_HOST: ledger-l3
@@ -164,7 +169,7 @@ services:
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
       <<: *egress-env
     secrets: [ledger_app_url, ledger_runner_url, ledger_direct_url, ledger_service_secret, ledger_job_token_secret, ledger_pkg_pw_key, metrics_token]
-    volumes: [ledger-packages:/var/lib/neop/packages]
+    volumes: [ledger-packages:/var/lib/neop/packages, ledger-files:/var/lib/neop/files]
     # L3 listens only on the l3 network (alias ledger-l3) and the gate only on the agent network
     # (alias ledger-gate): the gateway alone reaches L3; the agent alone reaches the gate.
     # outbound: the email and GST doors reach their providers through egress-proxy only.
@@ -291,6 +296,8 @@ volumes:
   pgdata: {}
   platform-keys: {}
   ledger-packages: {}
+  # Kept source documents (attachments); back up with pgdata — the rows name these files.
+  ledger-files: {}
   backups: {}
   prometheus-data: {}
   grafana-data: {}

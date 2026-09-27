@@ -192,6 +192,14 @@
       "responseSchema": "contract.json#/$defs/ledger_document_extract_result"
     },
     {
+      "id": "ledger.document.get",
+      "method": "POST",
+      "scope": "ledger.read",
+      "humanGate": false,
+      "requestSchema": "contract.json#/$defs/ledger_document_get_request",
+      "responseSchema": "contract.json#/$defs/ledger_document_get_result"
+    },
+    {
       "id": "ledger.ask",
       "method": "POST",
       "scope": "ledger.ask",

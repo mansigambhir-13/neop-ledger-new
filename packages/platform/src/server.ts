@@ -9,7 +9,7 @@ import { MONTH_START_SQL, Platform, PlatformError } from './platform.ts';
 
 const DESK_HTML = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), 'desk.html'), 'utf8');
 
-const PLATFORM_ENDPOINTS = ['tasks.open', 'inbox.deliver', 'proposals.resolve', 'proposals.execute', 'outbox.read', 'outbox.ack', 'switchboard.changed', 'tasks.cancel', 'tasks.result', 'schedules.set', 'schedules.list', 'waits.answer', 'jobs.transcript', 'manifest'];
+const PLATFORM_ENDPOINTS = ['tasks.open', 'inbox.deliver', 'proposals.resolve', 'proposals.execute', 'outbox.read', 'outbox.ack', 'switchboard.changed', 'tasks.cancel', 'tasks.result', 'schedules.set', 'schedules.list', 'waits.answer', 'jobs.transcript', 'manifest', 'documents.fetch'];
 
 export function platformApp(p: Platform): Hono {
   const app = new Hono();
@@ -478,15 +478,49 @@ export function platformApp(p: Platform): Hono {
     if (!/^[a-z][a-z0-9_]{1,40}$/.test(door)) throw new PlatformError(400, 'bad_request', 'door name');
     const b = await c.req.json().catch(() => null);
     if (!b || typeof b !== 'object' || typeof b.provider !== 'string') throw new PlatformError(400, 'bad_request', 'a secret object with a provider is required');
-    await p.setVaultSecret(u.company_id, door, b);
-    await p.gateway.audit({ company_id: u.company_id, actor: `user:${u.id}`, action: 'vault.set', ability_key: door, outcome: b.provider });
-    return c.json({ ok: true, door, provider: b.provider });
+    // WP §12: ?app=<key> holds the key for that app only; without it the key is company-wide
+    // (any app declaring the door borrows it unless it has its own).
+    const forApp = c.req.query('app');
+    if (forApp !== undefined) {
+      if (!/^[a-z][a-z0-9_]{0,40}$/.test(forApp)) throw new PlatformError(400, 'bad_request', 'app key');
+      await p.assertInstalled(forApp, u.company_id);
+      if (!(await p.declaredDoors(forApp, u.company_id)).has(door.replace(/_otp$/, ''))) throw new PlatformError(422, 'undeclared_door', `${forApp} does not declare the ${door} door`);
+    }
+    await p.setVaultSecret(u.company_id, door, b, forApp ?? '*');
+    await p.gateway.audit({ company_id: u.company_id, actor: `user:${u.id}`, app_key: forApp, action: 'vault.set', ability_key: door, outcome: b.provider, detail: { slot: forApp ? 'app' : 'company' } });
+    return c.json({ ok: true, door, app: forApp ?? null, provider: b.provider });
   });
   app.get('/api/vault', async (c) => {
     const u = await user(c);
     if (u.role !== 'admin') throw new PlatformError(403, 'denied', 'admins only');
-    const r = await p.db.query('select door, updated_at from neos.vault_secrets where company_id = $1 order by door', [u.company_id]);
-    return c.json({ doors: r.rows }); // names and dates only
+    return c.json({ doors: await p.vaultSlots(u.company_id) }); // names, owners and dates only
+  });
+
+  // A kept source document (WP §11), downloaded by a signed-in person of the company it belongs to,
+  // through a short-lived link the app's read (e.g. ledger.document.get) handed out. The platform
+  // fetches the bytes from the app's L3 through the gateway; the model never receives them.
+  app.get('/api/documents/:app/:sha256', async (c) => {
+    const u = await user(c);
+    const target = c.req.param('app');
+    const sha256 = c.req.param('sha256');
+    if (!/^[a-z][a-z0-9_]{0,40}$/.test(target) || !/^[0-9a-f]{64}$/.test(sha256)) throw new PlatformError(400, 'bad_request', 'app and sha256 required');
+    const exp = c.req.query('exp') ?? '';
+    const sig = c.req.query('sig') ?? '';
+    if (!/^\d{1,12}$/.test(exp) || !/^[A-Za-z0-9_-]{20,100}$/.test(sig)) throw new PlatformError(400, 'bad_request', 'a download link (exp, sig) is required');
+    const res = await p.gateway.call({ caller: 'platform', app: target, endpoint: 'documents.fetch', company_id: u.company_id, query: { sha256, exp, sig } });
+    await p.gateway.audit({ company_id: u.company_id, actor: `user:${u.id}`, app_key: target, action: 'document.download', ability_key: sha256, request_id: res.request_id, outcome: String(res.status) });
+    if (res.status !== 200) return c.json(res.body, res.status as 400);
+    const b = res.body as { filename: string; content_type: string; content_base64: string };
+    const name = String(b.filename).replace(/[\r\n"\\]/g, '_');
+    return new Response(new Uint8Array(Buffer.from(b.content_base64, 'base64')), {
+      headers: {
+        'content-type': /^[\w.+-]+\/[\w.+-]+$/.test(b.content_type) ? b.content_type : 'application/octet-stream',
+        'content-disposition': `attachment; filename="${name.replace(/[^\x20-\x7e]/g, '_')}"; filename*=UTF-8''${encodeURIComponent(name)}`,
+        'x-content-type-options': 'nosniff',
+        'cache-control': 'private, no-store',
+        'content-security-policy': "default-src 'none'; sandbox",
+      },
+    });
   });
 
   app.post('/api/acl', async (c) => {

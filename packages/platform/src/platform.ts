@@ -4,7 +4,7 @@
 // app's outbox (S4).
 
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
-import { answersFromText, blocksProblem, canonicalize, checkAnswers, isSetting, Metrics, rulesProblem, satisfies, sha256, strictest, type Decision, type Manifest, type OutboxEvent, type ProposalCreatedPayload, type QuestionAskedPayload, type Setting, type TaskResult } from '@neop/contracts';
+import { answersFromText, blocksProblem, canonicalize, checkAnswers, isSetting, Metrics, personalDataProblems, rulesProblem, satisfies, sha256, strictest, type Decision, type Manifest, type OutboxEvent, type ProposalCreatedPayload, type QuestionAskedPayload, type Setting, type TaskResult } from '@neop/contracts';
 import { modelRoute, pickApp, ROUTER_PRINCIPAL, type RouteDecision } from './neuralchat.ts';
 import { isEnvelope, VaultCipher, type VaultKeys } from './vault.ts';
 import { KeyRing } from './keys.ts';
@@ -115,6 +115,22 @@ export class Platform {
        on conflict (company_id, app_key) do update set status = 'active'`,
       [companyId, app, by ?? null],
     );
+  }
+
+  /**
+   * WP §11: uninstall for one company. The install is marked removed, so the platform stops
+   * offering the app (registry context) and the gateway refuses every call for that company.
+   * The company's rows in the app's schema are the DBA's to purge (scripts/ops.ts uninstall --purge).
+   */
+  async uninstallApp(companyId: string, app: string, by: string): Promise<{ previous: string }> {
+    const r = await this.db.query<{ previous: string }>(
+      `update neos.installs i set status = 'removed' from (select status from neos.installs where company_id = $1 and app_key = $2 for update) o
+        where i.company_id = $1 and i.app_key = $2 returning o.status as previous`,
+      [companyId, app],
+    );
+    if (!r.rows[0]) throw new PlatformError(404, 'not_installed', `${app} was never installed for this company`);
+    await this.gateway.audit({ company_id: companyId, actor: by, app_key: app, action: 'app.uninstall', outcome: 'removed', detail: { previous: r.rows[0].previous } });
+    return r.rows[0];
   }
 
   /**
@@ -354,6 +370,8 @@ export class Platform {
     if (a.author_public_key !== undefined && !isEd25519Jwk(a.author_public_key)) throw new PlatformError(422, 'bad_author_key', 'the author key must be an Ed25519 public JWK ({kty:"OKP", crv:"Ed25519", x})');
     const bad = a.manifest.abilities.find((x) => x.kind === 'read' && x.floor === 'ask_first');
     if (bad) throw new PlatformError(422, 'read_cannot_ask_first', `${bad.key}: a read cannot be ask-first`);
+    const pd = personalDataProblems(a.manifest);
+    if (pd.length) throw new PlatformError(422, 'bad_personal_data', pd.join('; '));
     const blocks = a.blocks ?? {};
     const problem = blocksProblem(blocks, a.manifest);
     if (problem) throw new PlatformError(422, 'bad_blocks', problem);
@@ -433,30 +451,46 @@ export class Platform {
     return r.rows[0] ?? null;
   }
 
-  async setVaultSecret(companyId: string, door: string, secret: Record<string, unknown>): Promise<void> {
+  /**
+   * WP §12: a door credential is held per (company, app, door). `app` '*' is the company-wide
+   * credential (every row from before 015): any app declaring that door borrows it unless the app
+   * has one of its own. The AAD binds the sealed secret to exactly its slot.
+   */
+  async setVaultSecret(companyId: string, door: string, secret: Record<string, unknown>, app = '*'): Promise<void> {
+    if (app !== '*' && !/^[a-z][a-z0-9_]{0,40}$/.test(app)) throw new PlatformError(400, 'bad_request', 'app key');
     await this.db.query(
-      `insert into neos.vault_secrets (company_id, door, secret) values ($1,$2,$3)
-       on conflict (company_id, door) do update set secret = excluded.secret, updated_at = now()`,
-      [companyId, door, JSON.stringify(this.vault.seal(secret, `${companyId}:${door}`))],
+      `insert into neos.vault_secrets (company_id, app_key, door, secret) values ($1,$2,$3,$4)
+       on conflict (company_id, app_key, door) do update set secret = excluded.secret, updated_at = now()`,
+      [companyId, app, door, JSON.stringify(this.vault.seal(secret, vaultAad(companyId, app, door)))],
     );
   }
 
   /** Re-encrypt every secret under the active vault key (after adding a key, or to seal legacy rows). */
   async rekeyVault(): Promise<number> {
-    const rows = (await this.db.query<{ company_id: string; door: string; secret: unknown }>('select company_id, door, secret from neos.vault_secrets')).rows;
+    const rows = (await this.db.query<{ company_id: string; app_key: string; door: string; secret: unknown }>('select company_id, app_key, door, secret from neos.vault_secrets')).rows;
     let n = 0;
     for (const r of rows) {
-      const aad = `${r.company_id}:${r.door}`;
+      const aad = vaultAad(r.company_id, r.app_key, r.door);
       if (isEnvelope(r.secret) && r.secret.kid === this.vault.active) continue;
       const plain = isEnvelope(r.secret) ? this.vault.open(r.secret, aad) : (r.secret as Record<string, unknown>);
-      await this.db.query('update neos.vault_secrets set secret = $3, updated_at = now() where company_id = $1 and door = $2', [
+      await this.db.query('update neos.vault_secrets set secret = $4, updated_at = now() where company_id = $1 and app_key = $2 and door = $3', [
         r.company_id,
+        r.app_key,
         r.door,
         JSON.stringify(this.vault.seal(plain, aad)),
       ]);
       n++;
     }
     return n;
+  }
+
+  /** The vault's slots for a company (names, owners and dates only; never a secret). `app` null = company-wide. */
+  async vaultSlots(companyId: string): Promise<{ door: string; app: string | null; updated_at: Date }[]> {
+    const r = await this.db.query<{ door: string; app: string | null; updated_at: Date }>(
+      `select door, nullif(app_key, '*') as app, updated_at from neos.vault_secrets where company_id = $1 order by door, app_key`,
+      [companyId],
+    );
+    return r.rows;
   }
 
   // ── switchboards ─────────────────────────────────────────────────────────
@@ -970,12 +1004,17 @@ export class Platform {
       await this.gateway.audit({ company_id: companyId, actor: `app:${app}`, app_key: app, action: 'vault.lend', ability_key: door, outcome: 'refused_undeclared' });
       throw new PlatformError(403, 'undeclared_door', `${app} does not declare the ${door} door`);
     }
-    const r = await this.db.query<{ secret: Record<string, unknown> }>('select secret from neos.vault_secrets where company_id = $1 and door = $2', [companyId, door]);
-    await this.gateway.audit({ company_id: companyId, actor: `app:${app}`, app_key: app, action: 'vault.lend', ability_key: door, outcome: r.rows[0] ? 'lent' : 'none' });
-    if (!r.rows[0]) throw new PlatformError(404, 'no_secret', `no ${door} credential for this company`);
-    const s = r.rows[0].secret;
-    if (!isEnvelope(s)) throw new PlatformError(500, 'vault_unsealed', 'secret is not sealed; run rekeyVault');
-    return this.vault.open(s, `${companyId}:${door}`);
+    // The app's own credential for this door, else the company-wide one; never another app's (WP §12).
+    const r = await this.db.query<{ secret: Record<string, unknown>; app_key: string }>(
+      `select secret, app_key from neos.vault_secrets where company_id = $1 and door = $2 and app_key in ($3, '*')
+        order by (app_key = '*') limit 1`,
+      [companyId, door, app],
+    );
+    const row = r.rows[0];
+    await this.gateway.audit({ company_id: companyId, actor: `app:${app}`, app_key: app, action: 'vault.lend', ability_key: door, outcome: row ? 'lent' : 'none', detail: row ? { slot: row.app_key === '*' ? 'company' : 'app' } : null });
+    if (!row) throw new PlatformError(404, 'no_secret', `no ${door} credential for ${app} at this company`);
+    if (!isEnvelope(row.secret)) throw new PlatformError(500, 'vault_unsealed', 'secret is not sealed; run rekeyVault');
+    return this.vault.open(row.secret, vaultAad(companyId, row.app_key, door));
   }
 
   // ── tasks (NeuralChat hands an ask to an app) ────────────────────────────
@@ -1835,4 +1874,9 @@ export function approvalStatusFor(outcome: unknown): 'EXECUTED' | 'FAILED' | 'UN
 
 export function hashSecret(s: string): string {
   return createHash('sha256').update(s).digest('hex');
+}
+
+/** What a sealed vault secret is bound to: company-wide rows keep the pre-015 binding, so they still open. */
+export function vaultAad(companyId: string, app: string, door: string): string {
+  return app === '*' ? `${companyId}:${door}` : `${companyId}:${app}:${door}`;
 }

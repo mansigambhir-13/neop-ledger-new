@@ -4,3 +4,5 @@ export * from './db.ts';
 export * from './testdb.ts';
 export * from './server.ts';
 export * from './backup.ts';
+export * from './personal.ts';
+export * from './uninstall.ts';

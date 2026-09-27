@@ -144,6 +144,14 @@
       ],
       "baseline": false,
       "proven_on_populated_data": "2026-09-27 \u00b7 apps/ledger/tests/input-waits.test.ts \u203a 014 applies forward on a populated platform database"
+    },
+    {
+      "file": "015_vault_per_app.sql",
+      "tables": [
+        "vault_secrets"
+      ],
+      "baseline": false,
+      "proven_on_populated_data": "2026-09-27 \u00b7 packages/platform/tests/vault-per-app.test.ts \u203a 015 applies forward on a populated vault (sealed rows become company-wide and still open)"
     }
   ]
 }

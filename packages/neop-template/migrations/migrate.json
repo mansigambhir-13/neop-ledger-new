@@ -52,6 +52,14 @@
       ],
       "baseline": false,
       "proven_on_populated_data": "2026-09-27 \u00b7 apps/ledger/tests/input-waits.test.ts \u203a t005 applies forward on a populated book"
+    },
+    {
+      "file": "t006_documents_files.sql",
+      "tables": [
+        "documents_files"
+      ],
+      "baseline": false,
+      "proven_on_populated_data": "2026-09-27 \u00b7 apps/ledger/tests/documents-kept.test.ts \u203a t006 + 006 apply forward on a populated book"
     }
   ]
 }

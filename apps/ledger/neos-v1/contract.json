@@ -3227,6 +3227,174 @@
       },
       "additionalProperties": false
     },
+    "ledger_document_get_request": {
+      "type": "object",
+      "required": [
+        "sha256"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    },
+    "ledger_document_get_result": {
+      "type": "object",
+      "required": [
+        "generatedAt",
+        "empty",
+        "sources",
+        "document",
+        "bills",
+        "download"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "generatedAt": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T"
+        },
+        "empty": {
+          "type": "boolean"
+        },
+        "sources": {
+          "type": "object",
+          "required": [
+            "entries",
+            "entry_ids",
+            "basis"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "entries": {
+              "type": "integer"
+            },
+            "entry_ids": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "basis": {
+              "type": "string"
+            }
+          }
+        },
+        "document": {
+          "anyOf": [
+            {
+              "type": "object",
+              "required": [
+                "sha256",
+                "filename",
+                "content_type",
+                "bytes",
+                "stored_at",
+                "store",
+                "job_ids"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "sha256": {
+                  "type": "string"
+                },
+                "filename": {
+                  "type": "string"
+                },
+                "content_type": {
+                  "type": "string"
+                },
+                "bytes": {
+                  "type": "integer"
+                },
+                "stored_at": {
+                  "type": "string",
+                  "pattern": "^\\d{4}-\\d{2}-\\d{2}T"
+                },
+                "store": {
+                  "type": "string",
+                  "enum": [
+                    "local",
+                    "s3"
+                  ]
+                },
+                "job_ids": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              }
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "bills": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "number",
+              "vendor",
+              "issue_date",
+              "total_minor",
+              "currency",
+              "status"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "number": {
+                "type": "string"
+              },
+              "vendor": {
+                "type": "string"
+              },
+              "issue_date": {
+                "type": "string",
+                "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+              },
+              "total_minor": {
+                "type": "integer"
+              },
+              "currency": {
+                "type": "string"
+              },
+              "status": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "download": {
+          "anyOf": [
+            {
+              "type": "object",
+              "required": [
+                "path",
+                "expires_at"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "path": {
+                  "type": "string"
+                },
+                "expires_at": {
+                  "type": "string",
+                  "pattern": "^\\d{4}-\\d{2}-\\d{2}T"
+                }
+              }
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
     "ledger_ask_request": {
       "type": "object",
       "additionalProperties": false,

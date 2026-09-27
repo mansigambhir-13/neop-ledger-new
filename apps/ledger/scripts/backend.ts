@@ -1,11 +1,12 @@
 // Ledger backend container entry: L3 + gate + runner. Holds DB roles; no model.
-import { startBackend } from '@neop/template';
+import { SchemaMismatchError, startBackend } from '@neop/template';
 import { ledgerApp } from '../src/index.ts';
 import { bindAddress, env, loadFileEnv, log, onShutdown, requireEnv } from './env.ts';
 
 requireEnv(['NEOP_APP_DB_URL', 'NEOP_RUNNER_DB_URL', 'NEOS_PLATFORM_URL', 'NEOP_SERVICE_SECRET', 'NEOP_JOB_TOKEN_SECRET', 'NEOP_AGENT_URL', 'NEOP_GATE_URL']);
 loadFileEnv(['NEOP_METRICS_TOKEN', 'NEOS_PKG_PW_KEY_LEDGER']);
 const app = await ledgerApp();
+// WP §11 step 8: a schema out of step with this build's migrations is a configuration error (EX_CONFIG).
 const b = await startBackend(
   app,
   {
@@ -28,7 +29,13 @@ const b = await startBackend(
     log: (m, e) => log('info', m, e),
   },
   { l3Port: Number(env('L3_PORT', '4101')), gatePort: Number(env('GATE_PORT', '4102')), host: '0.0.0.0', l3Host: await bindAddress('L3_HOST'), gateHost: await bindAddress('GATE_HOST') },
-);
+).catch((e: unknown) => {
+  if (e instanceof SchemaMismatchError) {
+    log('fatal', 'schema is not in step with this build; refusing to start', { schema: e.schema, ...e.drift, detail: e.message });
+    process.exit(78); // EX_CONFIG
+  }
+  throw e;
+});
 log('info', 'ledger backend up', { l3: b.ports.l3, gate: b.ports.gate, version: app.manifest.version });
 
 // Metrics for the scraper on the telemetry network only (METRICS_HOST, e.g. the `ledger-metrics`

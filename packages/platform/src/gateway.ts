@@ -57,6 +57,8 @@ const PATHS: Record<string, { method: 'GET' | 'POST'; path: string }> = {
   'waits.answer': { method: 'POST', path: '/l3/waits.answer' },
   'jobs.transcript': { method: 'GET', path: '/l3/jobs.transcript' },
   manifest: { method: 'GET', path: '/l3/manifest' },
+  // A kept source document's bytes, fetched for a signed-in person (WP §11); platform only.
+  'documents.fetch': { method: 'GET', path: '/l3/documents.fetch' },
 };
 
 export class Gateway {
@@ -112,7 +114,7 @@ export class Gateway {
   }
 
   async call<T = any>(req: GatewayCall): Promise<GatewayResponse<T>> {
-    const PLATFORM_DOORS = ['proposals.resolve', 'proposals.execute', 'outbox.read', 'inbox.deliver', 'switchboard.changed', 'tasks.cancel', 'outbox.ack', 'tasks.result', 'schedules.set', 'schedules.list', 'waits.answer', 'jobs.transcript'];
+    const PLATFORM_DOORS = ['proposals.resolve', 'proposals.execute', 'outbox.read', 'inbox.deliver', 'switchboard.changed', 'tasks.cancel', 'outbox.ack', 'tasks.result', 'schedules.set', 'schedules.list', 'waits.answer', 'jobs.transcript', 'documents.fetch'];
     const callerApp = req.caller.startsWith('app:') ? req.caller.slice(4) : null;
     const isAbility = !PATHS[req.endpoint];
     const route = PATHS[req.endpoint] ?? { method: 'POST' as const, path: `/l3/abilities/${encodeURIComponent(req.endpoint)}` };

@@ -77,7 +77,7 @@ describe('what it forwards', () => {
     const rules = await read('ledger.coding_rules.list');
     expect(rules.rules.map((r: any) => r.pattern).sort()).toEqual(['AWS', 'CHARGES']);
     const { abilities } = await (await call('GET', '/api/apps/ledger/abilities')).json();
-    expect(abilities).toHaveLength(43);
+    expect(abilities).toHaveLength(44);
     const post = abilities.find((a: any) => a.key === 'ledger.journal.post');
     expect(post).toMatchObject({ kind: 'write', floor: 'ask_first', setting: 'ask_first' });
   });
