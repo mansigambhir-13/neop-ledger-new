@@ -156,7 +156,7 @@ export interface Pilot {
   close(): Promise<void>;
 }
 
-export const FAST = { pollMs: 150, expiryMs: 200, reconcileMs: 300, claimMs: 3_000, heartbeatMs: 500, sessionMaxMs: 20_000, proposalTtlMs: 60 * 60_000, maxAttempts: 5 };
+export const FAST = { pollMs: 150, expiryMs: 200, reconcileMs: 300, claimMs: 3_000, heartbeatMs: 500, sessionMaxMs: 20_000, proposalTtlMs: 60 * 60_000, maxAttempts: 5, retryBackoffMs: [100, 200, 300] };
 
 export interface BootOptions {
   apps: AppUnderTest[];

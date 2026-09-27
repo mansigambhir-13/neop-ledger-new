@@ -110,6 +110,8 @@ export interface Timings {
   sessionMaxMs: number;
   proposalTtlMs: number;
   maxAttempts: number;
+  /** Wait before retrying after a transient model/network failure, by attempt (last value repeats). */
+  retryBackoffMs?: number[];
 }
 
 export const DEFAULT_TIMINGS: Timings = {
@@ -121,6 +123,8 @@ export const DEFAULT_TIMINGS: Timings = {
   sessionMaxMs: 15 * 60_000,
   proposalTtlMs: 72 * 3_600_000,
   maxAttempts: 5,
+  // ~4 minutes in all: a short provider or network outage is ridden out instead of failing every job in flight.
+  retryBackoffMs: [5_000, 15_000, 30_000, 60_000, 120_000],
 };
 
 export interface NeopConfig {

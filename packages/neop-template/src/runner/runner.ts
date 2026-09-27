@@ -267,7 +267,11 @@ export class Runner {
       if (!job || job.claimed_by !== claims.sid) return;
       if (job.status === 'RUNNING') {
         if (transient) {
-          await c.query(`update ${this.s}.jobs set claimed_until = now() - interval '1 second' where id = $1`, [job.id]);
+          // Back off before the next attempt (found live: a one-minute outage burned all attempts in seconds).
+          const steps = this.core.cfg.timings.retryBackoffMs ?? [0];
+          const wait = steps[Math.min(Math.max(job.attempts, 0), steps.length - 1)] ?? 0;
+          await c.query(`update ${this.s}.jobs set claimed_until = now() + ($2 || ' milliseconds')::interval where id = $1`, [job.id, String(wait)]);
+          await this.core.book.addStep(c, { company_id: job.company_id, job_id: job.id, kind: 'system', summary: `The model could not be reached (${reason.slice(0, 120)}); trying again in ${Math.round(wait / 1000)} s (attempt ${job.attempts + 1} of ${this.core.cfg.timings.maxAttempts}).` });
           return;
         }
         const pending = (await this.core.book.openWaits(c, job.id)).filter((w) => w.status === 'pending');
