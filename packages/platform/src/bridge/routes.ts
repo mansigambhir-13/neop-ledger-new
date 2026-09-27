@@ -1,10 +1,12 @@
 // Admin API for the Matrix client road: who may DM an app's account at this company (the allowlist), and how
 // each configured account is doing. Admins only, every change audited. A PERSON entry must name a Matrix id
-// already linked to someone in the company; a BRIDGE entry may name the person it relays for (acts_for) —
-// a bridge never approves anything, whatever it says.
+// already linked to someone in the company; a BRIDGE entry may name the person it relays for (acts_for). A
+// bridge approves nothing unless an admin sets `may_approve: true` on it (bridges only, and only with acts_for):
+// then its clear go-ahead to a card it was just shown is that person's yes, under every rule of client-sync.ts.
+// Any PUT that leaves `may_approve` out writes false — the grant is never kept by accident.
 //
 //   GET    /api/chat/allowlist?app=ledger          → { entries: [{ app, matrix_id, kind, acts_for, user_id, dm_room }] }
-//   PUT    /api/chat/allowlist                      { app, matrix_id, kind: 'person'|'bridge', acts_for? }
+//   PUT    /api/chat/allowlist                      { app, matrix_id, kind: 'person'|'bridge', acts_for?, may_approve? }
 //   DELETE /api/chat/allowlist/:app/:matrix_id
 //   GET    /api/chat/client                         → { accounts: [status…] } for this company
 //   PUT    /api/users/:id/chat                      { matrix_user_id }   (only when no appservice bridge mounts it)
@@ -30,7 +32,7 @@ export function chatClientRoutes(platform: Platform, clients: () => ChatClient[]
     if (a.error) return a.error;
     const appKey = c.req.query('app') ?? null;
     const { rows } = await platform.db.query(
-      `select l.app_key as app, l.matrix_id, l.kind, l.acts_for, u.id as user_id, d.room_id as dm_room, l.added_at
+      `select l.app_key as app, l.matrix_id, l.kind, l.acts_for, l.may_approve, u.id as user_id, d.room_id as dm_room, l.added_at
          from neos.chat_allowlist l
          left join neos.users u on l.kind = 'person' and u.matrix_user_id = l.matrix_id and u.company_id = l.company_id
          left join neos.chat_accounts ac on ac.company_id = l.company_id and ac.app_key = l.app_key
@@ -47,6 +49,10 @@ export function chatClientRoutes(platform: Platform, clients: () => ChatClient[]
     const b = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
     if (typeof b.app !== 'string' || typeof b.matrix_id !== 'string' || !MXID.test(b.matrix_id)) return bad(c, 'app and a Matrix id like @name:server');
     if (b.kind !== 'person' && b.kind !== 'bridge') return bad(c, "kind is 'person' or 'bridge'");
+    if (b.may_approve != null && typeof b.may_approve !== 'boolean') return bad(c, 'may_approve is true or false');
+    const mayApprove = b.may_approve === true;
+    if (mayApprove && b.kind !== 'bridge') return bad(c, 'only a bridge is given may_approve; a person approves as themselves');
+    if (mayApprove && b.acts_for == null) return bad(c, 'a bridge that may approve needs acts_for: the person whose yes it carries');
     try {
       await platform.assertInstalled(b.app, a.u!.company_id);
     } catch (e: any) {
@@ -68,12 +74,19 @@ export function chatClientRoutes(platform: Platform, clients: () => ChatClient[]
       }
     }
     await platform.db.query(
-      `insert into neos.chat_allowlist (company_id, app_key, matrix_id, kind, acts_for, added_by) values ($1,$2,$3,$4,$5,$6)
-       on conflict (company_id, app_key, matrix_id) do update set kind = excluded.kind, acts_for = excluded.acts_for, added_by = excluded.added_by, added_at = now()`,
-      [a.u!.company_id, b.app, b.matrix_id, b.kind, actsFor, a.u!.id],
+      `insert into neos.chat_allowlist (company_id, app_key, matrix_id, kind, acts_for, may_approve, added_by) values ($1,$2,$3,$4,$5,$6,$7)
+       on conflict (company_id, app_key, matrix_id) do update set kind = excluded.kind, acts_for = excluded.acts_for, may_approve = excluded.may_approve, added_by = excluded.added_by, added_at = now()`,
+      [a.u!.company_id, b.app, b.matrix_id, b.kind, actsFor, mayApprove, a.u!.id],
     );
-    await platform.gateway.audit({ company_id: a.u!.company_id, actor: `user:${a.u!.id}`, app_key: b.app, action: 'chat.allowlist_set', outcome: b.kind, detail: { matrix_id: b.matrix_id, acts_for: actsFor } });
-    return c.json({ ok: true, app: b.app, matrix_id: b.matrix_id, kind: b.kind, acts_for: actsFor });
+    await platform.gateway.audit({
+      company_id: a.u!.company_id,
+      actor: `user:${a.u!.id}`,
+      app_key: b.app,
+      action: 'chat.allowlist_set',
+      outcome: b.kind,
+      detail: { matrix_id: b.matrix_id, acts_for: actsFor, may_approve: mayApprove },
+    });
+    return c.json({ ok: true, app: b.app, matrix_id: b.matrix_id, kind: b.kind, acts_for: actsFor, may_approve: mayApprove });
   });
 
   app.delete('/api/chat/allowlist/:app/:matrix_id', async (c) => {
