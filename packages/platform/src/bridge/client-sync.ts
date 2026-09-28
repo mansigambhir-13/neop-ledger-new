@@ -43,8 +43,9 @@ import type { ProposalCreatedPayload } from '@neop/contracts';
 import type { Platform } from '../platform.ts';
 import { parseDecision } from './bridge.ts';
 import { roomText } from './format.ts';
-import { answersFromText } from '@neop/contracts';
+import { answersFromText, isTypedEventType, threadRelation, typedContent } from '@neop/contracts';
 import { stripReplyFallback } from './matrix.ts';
+import { classOfNonPerson, dueTypedOut, handleTyped, typedTxnId, type TypedIn, type TypedOut, type TypedRoad } from './typed.ts';
 
 /** Under NeuralChat's 60 s wait for Ledger's reply, so the fixed sentence (never silence) reaches it in time. */
 export const DEFAULT_REPLY_DEADLINE_MS = 55_000;
@@ -231,6 +232,11 @@ export class MatrixClientHttp {
   }
   async send(roomId: string, content: Record<string, unknown>, txnId: string): Promise<string> {
     const p = `/_matrix/client/v3/rooms/${encodeURIComponent(roomId)}/send/m.room.message/${encodeURIComponent(txnId)}`;
+    return (await this.request<{ event_id: string }>('PUT', p, content)).event_id;
+  }
+  /** A typed (custom) event, e.g. neos.neop.done (v3 §8). */
+  async sendEvent(roomId: string, type: string, content: Record<string, unknown>, txnId: string): Promise<string> {
+    const p = `/_matrix/client/v3/rooms/${encodeURIComponent(roomId)}/send/${encodeURIComponent(type)}/${encodeURIComponent(txnId)}`;
     return (await this.request<{ event_id: string }>('PUT', p, content)).event_id;
   }
   async join(roomId: string): Promise<void> {
@@ -516,6 +522,7 @@ export class ChatClient {
   // ── what a message means ─────────────────────────────────────────────────────
   private async onEvent(room: string, ev: SyncEvent): Promise<void> {
     const c = ev.content ?? {};
+    if (isTypedEventType(ev.type)) return this.onTyped(room, ev);
     if (ev.type !== 'm.room.message' || typeof ev.event_id !== 'string') return;
     if (c.msgtype !== 'm.text' || typeof c.body !== 'string' || !c.body.trim()) return; // notices are never answered: no loops
     const sender = String(ev.sender ?? '');
@@ -928,9 +935,12 @@ export class ChatClient {
   }
 
   /** The desk ask path: a task row and a signed tasks.open through the gateway, as the person. */
-  private async ask(eventId: string, room: string, userId: string, text: string): Promise<void> {
+  private async ask(eventId: string, room: string, userId: string, text: string, outcome = 'task_opened'): Promise<string | null> {
     const installed = await this.platform.db.query("select 1 from neos.installs where company_id = $1 and app_key = $2 and status = 'active'", [this.companyId, this.cfg.app]);
-    if (!installed.rowCount) return this.replyNow(eventId, room, 'not_installed', 'This app is not installed for your company. Nothing was done.');
+    if (!installed.rowCount) {
+      await this.replyNow(eventId, room, 'not_installed', 'This app is not installed for your company. Nothing was done.');
+      return null;
+    }
     const root = this.platform.gateway.tracer.start('neos.chat', null, { 'neop.company': this.companyId! });
     let task: { task_id: string };
     try {
@@ -938,8 +948,9 @@ export class ChatClient {
     } finally {
       root.end();
     }
-    await this.owe(eventId, 'task_opened', task.task_id);
+    await this.owe(eventId, outcome, task.task_id);
     this.log('task opened', { event: eventId, task: task.task_id });
+    return task.task_id;
   }
 
   /** A bridge an admin granted may_approve, relaying for a person of this company (read live: a revoke is instant). */
@@ -961,6 +972,141 @@ export class ChatClient {
       ? (await this.platform.db.query("select 1 from neos.chat_allowlist where company_id = $1 and app_key = $2 and matrix_id = $3 and kind = 'person'", [this.companyId, this.cfg.app, u.matrix_user_id])).rowCount
       : 0;
     return { name: u.name, matrix: u.matrix_user_id, dm: allowed && u.matrix_user_id ? await this.dmOf(u.matrix_user_id) : null };
+  }
+
+  // ── v3 §8 typed events (typed.ts): an additional, stricter road in the same DMs ─────────────────────────────
+  /** A typed event from an allowlisted sender in their 1:1 DM: once per event_id, then the shared rules. */
+  private async onTyped(room: string, ev: SyncEvent): Promise<void> {
+    if (typeof ev.event_id !== 'string') return;
+    const sender = String(ev.sender ?? '');
+    const ts = Number(ev.origin_server_ts);
+    if (!Number.isFinite(ts) || ts < this.startedAt) return void this.log('ignored — backlog from before this start', { event: ev.event_id });
+    const who = await this.senderOf(sender);
+    if (!who) return void this.log('typed event ignored — sender not on the allowlist', { event: ev.event_id, type: ev.type });
+    if (!(await this.isDirect(room, sender))) return void this.log('typed event ignored — not a 1:1 direct message', { event: ev.event_id });
+    const fresh = await this.platform.db.query(
+      `insert into neos.chat_client_events (event_id, account, room_id, direction, sender, sender_kind, user_id, outcome)
+       values ($1,$2,$3,'inbound',$4,$5,$6,'typed:received') on conflict do nothing`,
+      [ev.event_id, this.cfg.account, room, sender, who.kind, who.kind === 'person' ? who.user.id : who.actsFor],
+    );
+    if (!fresh.rowCount) return; // Matrix redelivers: once per event, ever
+    await this.recordDm(sender, room);
+    const t: TypedIn = { event_id: ev.event_id, room_id: room, sender, type: String(ev.type), content: ev.content ?? {} };
+    const outcome = await handleTyped(this.typedRoad(), t, who.kind === 'person' ? { cls: 'person', person: who.user } : { cls: classOfNonPerson(sender), actsFor: who.actsFor });
+    this.log('typed event', { event: ev.event_id, type: ev.type, outcome });
+  }
+
+  private typedRoad(): TypedRoad {
+    const db = this.platform.db;
+    const account = this.cfg.account;
+    return {
+      platform: this.platform,
+      companyId: this.companyId!,
+      app: this.cfg.app,
+      appName: this.appName,
+      record: async (ev, outcome, x = {}) => {
+        await db.query(
+          `update neos.chat_client_events set outcome = $2, task_id = coalesce($3, task_id), approval_id = coalesce($4, approval_id), fingerprint_shown = coalesce($5, fingerprint_shown),
+                  question_id = coalesce($6, question_id), user_id = coalesce($7, user_id) where event_id = $1`,
+          [ev.event_id, outcome, x.task_id ?? null, x.approval_id ?? null, x.fingerprint ?? null, x.question_id ?? null, x.user_id ?? null],
+        );
+      },
+      say: (ev, outcome, text, x = {}) => this.replyNow(ev.event_id, ev.room_id, outcome, text, x),
+      openTask: async (ev, personId, text) => {
+        await db.query('update neos.chat_client_events set user_id = $2 where event_id = $1', [ev.event_id, personId]);
+        const id = await this.ask(ev.event_id, ev.room_id, personId, text, 'typed:task_opened');
+        if (!id) throw new Error('the task could not be opened');
+        return id;
+      },
+      settledIn: async (ev, outcome, taskId, x = {}) => {
+        if (taskId) return this.owe(ev.event_id, outcome, taskId, x);
+        return this.replyNow(ev.event_id, ev.room_id, outcome, 'Recorded.', x);
+      },
+      shown: async (room, kind, row) =>
+        !!(
+          await db.query(
+            `select 1 from neos.chat_client_events where account = $1 and room_id = $2 and direction = 'outbound' and ${kind === 'approval' ? 'approval_id' : 'question_id'} = $3 limit 1`,
+            [account, room, row.id],
+          )
+        ).rowCount,
+      rootOf: async (room, taskId) =>
+        (
+          await db.query<{ event_id: string; sender: string }>(
+            `select event_id, sender from neos.chat_client_events where account = $1 and room_id = $2 and direction = 'inbound' and task_id = $3 and outcome = 'typed:task_opened' order by at limit 1`,
+            [account, room, taskId],
+          )
+        ).rows[0] ?? null,
+      taskOfRoot: async (room, root) =>
+        (
+          await db.query<{ task_id: string }>(
+            `select task_id from neos.chat_client_events where account = $1 and room_id = $2 and event_id = $3 and direction = 'inbound' and outcome = 'typed:task_opened'`,
+            [account, room, root],
+          )
+        ).rows[0]?.task_id ?? null,
+      emit: (room, taskId, root, out) => this.emitTyped(room, taskId, root, out),
+    };
+  }
+
+  /** Send one typed event (same txn id on a resend) and record it as shown here, once per key. */
+  private async emitTyped(room: string, taskId: string | null, root: string | null, out: TypedOut): Promise<void> {
+    const seen = await this.platform.db.query(
+      `select 1 from neos.chat_client_events where account = $1 and room_id = $2 and direction = 'outbound' and task_id is not distinct from $3 and outcome = $4 limit 1`,
+      [this.cfg.account, room, taskId, out.key],
+    );
+    if (seen.rowCount) return;
+    try {
+      const sent = await this.http.sendEvent(room, out.type, typedContent(out.type, out.body, clip(out.fallback), root), typedTxnId(taskId, out.key));
+      await this.platform.db.query(
+        `insert into neos.chat_client_events (event_id, account, room_id, direction, sender, task_id, approval_id, fingerprint_shown, question_id, outcome)
+         values ($1,$2,$3,'outbound',$2,$4,$5,$6,$7,$8) on conflict do nothing`,
+        [sent, this.cfg.account, room, taskId, out.approval_id ?? null, out.fingerprint ?? null, out.question_id ?? null, out.key],
+      );
+    } catch (e: any) {
+      if (e?.fatal) return void (await this.halt('token_rejected', { status: e.status, errcode: e.errcode }));
+      this.log('typed event not sent yet — will retry with the same transaction', { key: out.key, e: String(e?.message ?? e).slice(0, 200) });
+    }
+  }
+
+  /** The thread root for the reply to this event, when it belongs to a typed thread (else null: a plain reply). */
+  private async typedRootFor(eventId: string, room: string): Promise<string | null> {
+    const e = (await this.platform.db.query<{ outcome: string; task_id: string | null }>('select outcome, task_id from neos.chat_client_events where event_id = $1', [eventId])).rows[0];
+    if (!e?.outcome.startsWith('typed:')) return null;
+    if (e.outcome === 'typed:task_opened') return eventId;
+    if (!e.task_id) return null;
+    const r = await this.platform.db.query<{ event_id: string }>(
+      `select event_id from neos.chat_client_events where account = $1 and room_id = $2 and direction = 'inbound' and task_id = $3 and outcome = 'typed:task_opened' order by at limit 1`,
+      [this.cfg.account, room, e.task_id],
+    );
+    return r.rows[0]?.event_id ?? null;
+  }
+
+  /** Typed threads (rooted at a typed task here): the note · ask · propose · done each is owed now, once. */
+  async typedTick(): Promise<number> {
+    const { rows } = await this.platform.db.query<{ event_id: string; room_id: string; task_id: string }>(
+      `select e.event_id, e.room_id, e.task_id from neos.chat_client_events e join neos.tasks t on t.id = e.task_id
+        where e.account = $1 and e.direction = 'inbound' and e.outcome = 'typed:task_opened'
+          and (t.status not in ('COMPLETED', 'FAILED', 'CANCELLED') or t.updated_at > now() - interval '1 hour')
+          and not exists (select 1 from neos.chat_client_events o where o.account = $1 and o.room_id = e.room_id and o.direction = 'outbound' and o.task_id = e.task_id and o.outcome = 'typed:done')
+        order by e.at limit 20`,
+      [this.cfg.account],
+    );
+    let n = 0;
+    for (const r of rows) {
+      if (this.stopping) break;
+      const sent = new Set(
+        (
+          await this.platform.db.query<{ outcome: string }>(
+            `select outcome from neos.chat_client_events where account = $1 and room_id = $2 and direction = 'outbound' and task_id = $3 and outcome like 'typed:%'`,
+            [this.cfg.account, r.room_id, r.task_id],
+          )
+        ).rows.map((x) => x.outcome),
+      );
+      for (const out of await dueTypedOut(this.platform, { task_id: r.task_id, app_name: this.appName }, sent)) {
+        await this.emitTyped(r.room_id, r.task_id, r.event_id, out);
+        n++;
+      }
+    }
+    return n;
   }
 
   // ── the one reply ───────────────────────────────────────────────────────────
@@ -1019,6 +1165,7 @@ export class ChatClient {
         n++;
       }
       if (!this.stopping) n += await this.questionsTick();
+      if (!this.stopping) n += await this.typedTick();
     } finally {
       this.replying = false;
     }
@@ -1130,7 +1277,9 @@ export class ChatClient {
   }
 
   private async deliver(eventId: string, room: string, text: string, card: { approval_id: string; fingerprint: string } | null, question: string | null = null): Promise<void> {
-    const content = { msgtype: 'm.notice', body: text, 'm.relates_to': { 'm.in_reply_to': { event_id: eventId } } };
+    // A reply to a typed event goes in the thread of its typed task (v3 §8); every other reply is as before.
+    const root = await this.typedRootFor(eventId, room);
+    const content = { msgtype: 'm.notice', body: text, 'm.relates_to': root ? threadRelation(root, eventId) : { 'm.in_reply_to': { event_id: eventId } } };
     try {
       const sent = await this.http.send(room, content, replyTxnId(eventId));
       await this.platform.db.query(`update neos.chat_client_events set reply_status = 'sent', reply_event_id = $2, replied_at = now() where event_id = $1`, [eventId, sent]);

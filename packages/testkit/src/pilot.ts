@@ -52,7 +52,23 @@ export interface FakeHomeserver {
   joined: { room: string; user: string }[];
   /** Push one event to the appservice as the homeserver would. */
   push(ev: { room_id: string; sender: string; body: string; in_reply_to?: string }): Promise<{ status: number; event_id: string }>;
+  /** v3 §8: typed (custom) events the appservice posted, e.g. neos.neop.propose. */
+  typed: { room: string; user: string; type: string; content: any; txn: string; event_id: string }[];
+  /** Push one typed event (any type, any content) as the homeserver would; pass `event_id` to redeliver one. */
+  pushTyped(ev: { room_id: string; sender: string; type: string; content: any; event_id?: string }): Promise<{ status: number; event_id: string }>;
+  /** Room state the appservice reads when it binds a room. Default: invite-only, no encryption, approve at 50. */
+  setState(room: string, type: string, content: any | null): void;
+  /** Rooms created through createRoom, with the request body. */
+  created: { room_id: string; user: string; body: any }[];
   close(): Promise<void>;
+}
+
+/** A NEOP room as v3 §8 wants it: invite-only, not encrypted, only people (level 50) post neos.neop.approve. */
+export function goodRoomState(): Map<string, any> {
+  return new Map<string, any>([
+    ['m.room.join_rules', { join_rule: 'invite' }],
+    ['m.room.power_levels', { users: {}, users_default: 0, events_default: 0, state_default: 50, events: { 'neos.neop.approve': 50 } }],
+  ]);
 }
 
 export const MATRIX = { serverName: 'acme.example', hsToken: 'hs_token_' + 'x'.repeat(24), asToken: 'as_token_' + 'y'.repeat(24) };
@@ -62,6 +78,13 @@ async function fakeHomeserver(platformUrl: () => string): Promise<FakeHomeserver
   const users = new Set<string>();
   const joined: FakeHomeserver['joined'] = [];
   const byTxn = new Map<string, string>();
+  const typed: FakeHomeserver['typed'] = [];
+  const created: FakeHomeserver['created'] = [];
+  const state = new Map<string, Map<string, any>>();
+  const stateOf = (room: string) => {
+    if (!state.has(room)) state.set(room, goodRoomState());
+    return state.get(room)!;
+  };
   let n = 0;
   const app = new Hono();
   const asOk = (c: any) => c.req.header('authorization') === `Bearer ${MATRIX.asToken}`;
@@ -93,6 +116,37 @@ async function fakeHomeserver(platformUrl: () => string): Promise<FakeHomeserver
     sent.push({ room: c.req.param('room'), user, body: body.body, txn, event_id, msgtype: body.msgtype });
     return c.json({ event_id });
   });
+  app.put('/_matrix/client/v3/rooms/:room/send/:type/:txn', async (c) => {
+    if (!asOk(c)) return c.json({ errcode: 'M_UNKNOWN_TOKEN' }, 401);
+    const txn = c.req.param('txn');
+    const user = c.req.query('user_id') ?? '';
+    const key = `${user}:${txn}`;
+    if (byTxn.has(key)) return c.json({ event_id: byTxn.get(key) });
+    const content = await c.req.json();
+    const event_id = `$out${++n}:${MATRIX.serverName}`;
+    byTxn.set(key, event_id);
+    typed.push({ room: c.req.param('room'), user, type: c.req.param('type'), content, txn, event_id });
+    return c.json({ event_id });
+  });
+  app.get('/_matrix/client/v3/rooms/:room/state', (c) => {
+    if (!asOk(c)) return c.json({ errcode: 'M_UNKNOWN_TOKEN' }, 401);
+    return c.json([...stateOf(c.req.param('room')).entries()].map(([type, content]) => ({ type, state_key: '', content })));
+  });
+  app.post('/_matrix/client/v3/createRoom', async (c) => {
+    if (!asOk(c)) return c.json({ errcode: 'M_UNKNOWN_TOKEN' }, 401);
+    const user = c.req.query('user_id') ?? '';
+    if (!users.has(user)) return c.json({ errcode: 'M_FORBIDDEN' }, 403);
+    const body = await c.req.json();
+    const room_id = `!made${++n}:${MATRIX.serverName}`;
+    const st = new Map<string, any>();
+    st.set('m.room.join_rules', { join_rule: body.preset === 'public_chat' ? 'public' : 'invite' });
+    for (const e of body.initial_state ?? []) st.set(e.type, e.content);
+    st.set('m.room.power_levels', { users: { [user]: 100 }, users_default: 0, events_default: 0, state_default: 50, events: {}, ...(body.power_level_content_override ?? {}) });
+    state.set(room_id, st);
+    created.push({ room_id, user, body });
+    joined.push({ room: room_id, user });
+    return c.json({ room_id });
+  });
   const { server, port } = await new Promise<{ server: ReturnType<typeof serve>; port: number }>((resolve) => {
     const server = serve({ fetch: app.fetch, port: 0, hostname: '127.0.0.1' }, (info) => resolve({ server, port: info.port }));
   });
@@ -103,6 +157,21 @@ async function fakeHomeserver(platformUrl: () => string): Promise<FakeHomeserver
     sent,
     users,
     joined,
+    typed,
+    created,
+    setState(room, type, content) {
+      if (content === null) stateOf(room).delete(type);
+      else stateOf(room).set(type, content);
+    },
+    async pushTyped(ev) {
+      const event_id = ev.event_id ?? `$in${++evn}:${MATRIX.serverName}`;
+      const res = await fetch(`${platformUrl()}/_matrix/app/v1/transactions/${++txn}`, {
+        method: 'PUT',
+        headers: { authorization: `Bearer ${MATRIX.hsToken}`, 'content-type': 'application/json' },
+        body: JSON.stringify({ events: [{ type: ev.type, event_id, room_id: ev.room_id, sender: ev.sender, content: ev.content }] }),
+      });
+      return { status: res.status, event_id };
+    },
     async push(ev) {
       const event_id = `$in${++evn}:${MATRIX.serverName}`;
       const content: any = { msgtype: 'm.text', body: ev.body };

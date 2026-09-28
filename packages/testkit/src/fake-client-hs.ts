@@ -7,6 +7,9 @@
 //   hs.invite(from, { also })             → a new room with `from` (and `also`) joined, and an invite for us → room id
 //   hs.joinedRoom(other, { also })        → a room we are ALREADY in (history from before the client listened)
 //   hs.say(room, sender, content, { ts }) → a timeline event the other member sent                     → the event
+//   hs.sayTyped(room, sender, type, content) → a typed (custom) event, e.g. neos.neop.task (v3 §8)     → the event
+//   hs.redeliver(ev)                      → the same event (same event_id) delivered again, as Matrix may
+//   hs.typed(room, type)                  → typed events our account posted
 //   hs.expireToken()                      → every token is rejected (401 M_UNKNOWN_TOKEN)
 //   hs.sent / hs.notices(room)            → what our account posted; hs.requests / hs.logins / hs.logouts → counters
 
@@ -34,7 +37,10 @@ export interface FakeClientHomeserver {
   invite(from: string, o?: { also?: string[] }): string;
   joinedRoom(other: string, o?: { also?: string[] }): string;
   say(room: string, sender: string, content: Record<string, unknown>, o?: { ts?: number }): FakeClientEvent;
+  sayTyped(room: string, sender: string, type: string, content: unknown, o?: { ts?: number }): FakeClientEvent;
+  redeliver(ev: FakeClientEvent): void;
   notices(room?: string): FakeClientEvent[];
+  typed(room?: string, type?: string): FakeClientEvent[];
   expireToken(): void;
 }
 
@@ -184,6 +190,18 @@ export function fakeClientHomeserver(o: { me?: string; token?: string; whoamiAs?
       wake();
       return ev;
     },
+    sayTyped(room, sender, type, content, { ts } = {}) {
+      const ev = event(room, sender, type, content, ts != null ? { origin_server_ts: ts } : {});
+      rooms.get(room)?.events.push(ev);
+      log.push({ kind: 'timeline', room, ev });
+      wake();
+      return ev;
+    },
+    redeliver(ev) {
+      log.push({ kind: 'timeline', room: ev.room_id, ev });
+      wake();
+    },
+    typed: (room, type) => sent.filter((e) => e.type.startsWith('neos.neop.') && (!room || e.room_id === room) && (!type || e.type === type)),
     notices: (room) => sent.filter((e) => e.type === 'm.room.message' && e.content?.msgtype === 'm.notice' && (!room || e.room_id === room)),
     expireToken() {
       tokens.clear();
