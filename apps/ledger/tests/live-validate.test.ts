@@ -23,7 +23,8 @@ import { bootPilot, call, finish, type BrainView, type Pilot } from './harness.t
 
 /** The instruction format the validator writes, obeyed literally. */
 function scriptedBrain(v: BrainView) {
-  const answered = /amount_rupees: (\S+)/.exec(v.job);
+  // A person's own answer reads `amount_rupees: 41`; one relayed by NeuralChat (v3 S5) is untrusted JSON data.
+  const answered = /amount_rupees: (\S+)/.exec(v.job) ?? /"amount_rupees": "?([0-9.]+)/.exec(v.job);
   if (v.job.includes('You asked:')) return finish(`amount_rupees=${answered?.[1] ?? '?'}`);
   if (v.job.includes('WOKEN')) return finish('Woken with the answer; done.');
   if (v.calls === 0) {
@@ -91,6 +92,7 @@ describe('live validation against the pilot', () => {
       app: 'ledger',
       only: ['reads', 'blocks', 'governance', 'writes', 'questions', 'documents'],
       budgetUsd: 1,
+      expectRoad: 'gateway',
       emailTo: 'lv-check@acme.example',
       // v3 (S8): the pilot's email door is in its secret store, which a remote check cannot list: named here.
       doors: ['email'],
@@ -130,9 +132,60 @@ describe('live validation against the pilot', () => {
     expect(passed('documents')).toContain('download is identical (sha256)');
   });
 
+  it('every task took the gateway road (presence off)', () => {
+    expect(report.rows.filter((r) => /WRONG_ROAD/.test(r.evidence))).toEqual([]);
+  });
+
   it('renders a markdown report with a summary table', () => {
     const md = renderMarkdown(report);
     expect(md).toContain('**All checks pass**');
     expect(md).toMatch(/\| writes \| \d+ \| 0 \| 3 \|/); // v3 S7: nep-gst's three portal effects, skipped without --gst
+  });
+});
+
+// v3 S5 · the same validator, through the person-facing API only, against an install whose app runs with NEOP presence
+// and where NeuralChat speaks Matrix: every task it opens must take the Matrix road (--expect-road matrix); writes are
+// approved on the desk, questions answered on the desk and in the conversation (a typed answer in the thread), files
+// kept and downloaded — the same PASSes as the platform road.
+describe('live validation against the pilot — NeuralChat speaks Matrix', () => {
+  let P: Pilot;
+  let filesDir: string;
+  let report: Report;
+  beforeAll(async () => {
+    filesDir = await mkdtemp(path.join(os.tmpdir(), 'neop-lv-files-'));
+    P = await bootPilot({ presence: 'appservice', neuralchat: true, backendConfig: () => ({ documents: { backend: 'local', dir: filesDir } }) });
+    P.setBrain(scriptedBrain);
+    await P.setDoorSecret('gst_portal', { provider: 'gsp', base_url: 'http://127.0.0.1:9', client_id: 'c', client_secret: 's', username: 'acme', gstin: '27AAPFU0939F1ZV', assume_supply: 'intra_state' });
+    const v = new LiveValidator({
+      baseUrl: P.platformUrl,
+      adminToken: P.admin.token,
+      memberToken: P.member.token,
+      app: 'ledger',
+      only: ['reads', 'blocks', 'governance', 'writes', 'questions', 'documents'],
+      budgetUsd: 1,
+      emailTo: 'lv-check@acme.example',
+      doors: ['email'],
+      gst: false,
+      jobTimeoutMs: 30_000,
+      pollMs: 100,
+      scheduleLeadMin: 1,
+      repoRoot: path.resolve(LEDGER_ROOT, '../..'),
+      expectRoad: 'matrix',
+    });
+    report = await v.run();
+  }, 300_000);
+  afterAll(async () => {
+    await P?.close();
+    await rm(filesDir, { recursive: true, force: true });
+  }, 120_000);
+
+  it('every check passes through Matrix; only the GST portal effects are skipped (as on the platform road)', () => {
+    const bad = report.rows.filter((r) => r.result !== 'PASS');
+    const portal = 'a GST portal effect (save / OTP / file) — run with --gst only against a sandbox portal';
+    expect(bad.map((r) => `${r.result} ${r.section} · ${r.item}: ${r.evidence}`).sort()).toEqual(
+      ['gst.gstr3b.file', 'gst.gstr3b.save', 'gst.otp.request'].map((k) => `SKIPPED writes · ${k}: ${portal}`),
+    );
+    expect(report.rows.filter((r) => r.section === 'writes').length).toBeGreaterThan(5);
+    expect(report.rows.filter((r) => r.section === 'questions' && r.result === 'PASS').map((r) => r.item)).toEqual(['question answered via desk', 'question answered via conversation']);
   });
 });

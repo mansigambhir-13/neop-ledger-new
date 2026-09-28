@@ -216,6 +216,43 @@ platform's a2a routing (`/internal/a2a/open`, `/internal/borrow/describe`, `/int
 - **Limits:** the bus is the appservice road only (a client-road app has no voice there: its hand-offs are refused
   `no_bus`); a chain stops at depth 3 and never loops (refused by the callee, and early by the asker's gate).
 
+## Chat: NeuralChat speaks Matrix (v3 S5)
+`NEOS_NEURALCHAT_MATRIX` on the **platform** (default `off`). On, the platform's NeuralChat has its own Matrix name per
+company and a person's ask in Conversations reaches an app that runs with NEOP presence **only** as a typed
+`neos.neop.task` posted by that name in the app's room (appservice) or its 1:1 room with the app's account (client),
+the thread rooted there. It reads the app's `note` / `ask` / `propose` / `done` from that thread into the
+conversation and `neos.tasks`, answers the app's questions with a typed `answer` when the person replies in
+Conversations, and never sends `approve` (a person approves on the desk). An app with presence off (no Matrix name in
+its install row), or a company NeuralChat has no name at, keeps the gateway road (`tasks.open`) — S9 removes it.
+- **appservice** (`NEOS_NEURALCHAT_MATRIX=appservice`): reuses the platform's registration (`MATRIX_HOMESERVER_URL`,
+  `MATRIX_SERVER_NAME`, `MATRIX_HS_TOKEN`, `MATRIX_AS_TOKEN`; `deploy/appservice.yaml` already reserves
+  `@neuralchat_.*`). The name is `@neuralchat_<company slug>:<server>`; it registers and joins the app's first bound
+  room (`PUT /api/chat/presence {"app":"ledger","room_ids":[…]}`) on first use. Give it a level **below** approve in the
+  room (rooms-setup: reasoning agent 10, approve 50). The homeserver pushes to the platform's
+  `/_matrix/app/v1/transactions` (served by the bridge when it runs, by NeuralChat's own routes otherwise).
+- **client** (`NEOS_NEURALCHAT_MATRIX=client`): `MATRIX_HOMESERVER_URL` and `MATRIX_NEURALCHAT_ACCOUNTS[_FILE]` =
+  `[{"company":"<id or slug>","account":"@neuralchat_acme:hs","token_file":"/run/secrets/…"}]` — one ordinary account
+  per company, /sync in the platform process (cursor in `neos.neuralchat_accounts`; a rejected token stops that account,
+  `stopped_reason = token_rejected`). It opens a 1:1 room with the app's account on first use (`neos.neuralchat_rooms`);
+  the app's presence joins it because NeuralChat's name is on its allowlist.
+- **What the app is told.** `Platform.syncChat` writes NeuralChat's name into every app's `installs.agent_senders`, and a
+  `people` row (not a sender: NeuralChat's own namespace) `@neuralchat_<slug>_person_<user id>` for every person with no
+  Matrix id of their own — that is how a task names the person it is for (`on_behalf_of`).
+- **Files** travel by reference: `fields.neos_file_<n>` = `{id, filename, sha256, bytes, link}`; `link` is a path on the
+  platform (`/neuralchat/files/<task>/<n>?exp&sig`, HMAC from the vault keys, 1 h), which the app resolves against its
+  own `platformUrl`, fetches and checks (size, sha256). The platform drops the bytes when the app says "on it" (then the
+  link is 410). The backend must reach the platform over HTTP (it already does).
+- **Retries.** A send the homeserver did not take is resent with the same txnId `nc-task-<task>` (never a second
+  event); an app that is down gets the event when Matrix redelivers it; the app opens the job once (event id and task
+  id). A task nobody acknowledged within the delivery window (`taskDeliveryWindowMs`, 10 min) is FAILED with
+  `the app never acknowledged the task in Matrix`.
+- **What to look at:** `neos.tasks` (`road = 'matrix'`, `matrix_room`, `matrix_account`, `matrix_event_id`,
+  `delivered_at`, `last_error`), `neos.neuralchat_events` (each thread event once, with what it became), the audit
+  (`neuralchat.task_posted`, `neuralchat.answer_posted`). `scripts/live-validate.ts --expect-road matrix` checks that
+  every task it opens took the Matrix road.
+- `scripts/neuralchat-sim.ts` is unchanged: it still simulates the **external** NeuralChat (#143, plain `m.text` as
+  `@reasoning_agent`), which keeps working against the app's presence.
+
 ## Everyday operations
 - **Backups** run nightly by themselves (see *Backups and restore*). Check that last night's run logged `backup complete`.
 - **Metrics, alerts, traces:** the `observability` profile (see *Observability*).

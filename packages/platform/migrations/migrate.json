@@ -206,6 +206,18 @@
       "tables": [],
       "baseline": false,
       "proven_on_populated_data": "2026-09-28 \u00b7 packages/platform/tests/registry-v3.test.ts \u203a 022 applies forward on a populated platform database (entries, installs and apps kept; skills carry their text and signature; pins from manifests)"
+    },
+    {
+      "file": "023_neuralchat_matrix.sql",
+      "tables": [
+        "conversation_messages",
+        "neuralchat_accounts",
+        "neuralchat_events",
+        "neuralchat_rooms",
+        "tasks"
+      ],
+      "baseline": false,
+      "proven_on_populated_data": "2026-09-28 \u00b7 packages/platform/tests/migration-023.test.ts \u203a 023 applies forward on a populated platform database (tasks kept on the gateway road; the Matrix road columns and tables in place)"
     }
   ]
 }

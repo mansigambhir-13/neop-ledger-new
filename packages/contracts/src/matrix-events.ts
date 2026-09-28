@@ -3,7 +3,7 @@
 // the plain-text road (m.text in, m.notice out) — it never replaces it, and it changes nothing about who may do
 // what: every inbound still becomes a signed gateway call, only a person approves, and outside text is data.
 //
-//   neos.neop.task     people · reasoning agent · NEOPs   task_id · company · on_behalf_of · text · fields?
+//   neos.neop.task     people · reasoning agent · NEOPs   task_id · company · on_behalf_of · text · fields? · trace?
 //   neos.neop.ask      NEOPs                              job_id · wait_id · question {text, why, fields[]} · due
 //   neos.neop.answer   people · reasoning agent · NEOPs   wait_id · answers{}
 //   neos.neop.propose  NEOPs                              proposal_id · fingerprint · text (the card) · expires
@@ -19,6 +19,8 @@
 // its type (a body that fails is dropped and audited) and dedupes on event_id. The envelope keys a plain client
 // needs — `body`/`msgtype` (the m.notice text fallback), `format`/`formatted_body` and `m.relates_to` (the
 // thread) — ride alongside and are not part of the typed body.
+// v3 S5: every body but approve may carry `trace` (a W3C traceparent), so one trace follows an ask from NeuralChat
+// through the NEOP's job and back; the receiver continues it (a malformed one fails the body like any other field).
 
 export const TYPED_EVENT_TYPES = [
   'neos.neop.task',
@@ -56,6 +58,8 @@ export interface TypedTaskBody {
   on_behalf_of: string;
   text: string;
   fields?: Record<string, unknown>;
+  /** v3 S5: the sender's trace context (W3C traceparent); the job continues it. */
+  trace?: string;
   /** v3 §9 (S6): NEOP → NEOP only — the chain of apps so far (the asker last) and its length; the callee refuses a loop or depth > 3. */
   lineage?: string[];
   depth?: number;
@@ -65,6 +69,7 @@ export interface TypedAskBody {
   wait_id: string;
   question: { text: string; why: string; fields: { key: string; label: string; type?: string; required?: boolean }[] };
   due: string;
+  trace?: string;
   /**
    * v3 §10 (S6) "borrowing one ability": the ask carries the owner's ability and its inputs (data, never
    * instructions). The owner checks its own line and the sender, runs a read with no model, or writes a write as a
@@ -75,6 +80,7 @@ export interface TypedAskBody {
 export interface TypedAnswerBody {
   wait_id: string;
   answers: Record<string, string | number | boolean>;
+  trace?: string;
   /** v3 §10 (S6): the answer to a borrowed call — the ability's output, the proof of a carried-out write, or a refusal. */
   result?: Record<string, unknown>;
 }
@@ -83,6 +89,7 @@ export interface TypedProposeBody {
   fingerprint: string;
   text: string;
   expires: string;
+  trace?: string;
 }
 export interface TypedApproveBody {
   proposal_id: string;
@@ -95,11 +102,13 @@ export interface TypedDoneBody {
   job_id: string;
   result: Record<string, unknown>;
   could_not: string[];
+  trace?: string;
 }
 export interface TypedNoteBody {
   job_id: string;
   step_id: string;
   text: string;
+  trace?: string;
 }
 export interface TypedBodies {
   'neos.neop.task': TypedTaskBody;
@@ -131,6 +140,8 @@ const ID = { type: 'string', minLength: 1, maxLength: 200 } as const;
 const MXID = { type: 'string', pattern: '^@[^:\\s]+:\\S+$', maxLength: 255 } as const;
 const TEXT = (n: number) => ({ type: 'string', minLength: 1, maxLength: n }) as const;
 const TIME = { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}(:\\d{2}(\\.\\d+)?)?(Z|[+-]\\d{2}:\\d{2})$', maxLength: 40 } as const;
+/** v3 S5: a W3C traceparent riding in the body (optional everywhere but approve). */
+const TRACE = { type: 'string', pattern: '^[0-9a-f]{2}-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$', maxLength: 55 } as const;
 const APP_KEY = { type: 'string', pattern: '^[a-z][a-z0-9_]{0,40}$' } as const;
 const SCALAR = { anyOf: [{ type: 'string', maxLength: 4000 }, { type: 'number' }, { type: 'boolean' }] } as const;
 
@@ -149,6 +160,7 @@ export const TYPED_EVENT_SCHEMAS: Record<TypedEventType, Schema & { $id: string;
       fields: { type: 'object', maxProperties: 20, additionalProperties: SCALAR },
       lineage: { type: 'array', maxItems: 10, items: APP_KEY },
       depth: { type: 'number' },
+      trace: TRACE,
     },
   },
   'neos.neop.ask': {
@@ -161,6 +173,7 @@ export const TYPED_EVENT_SCHEMAS: Record<TypedEventType, Schema & { $id: string;
       job_id: ID,
       wait_id: ID,
       due: TIME,
+      trace: TRACE,
       call: {
         type: 'object',
         required: ['ability', 'args'],
@@ -194,7 +207,7 @@ export const TYPED_EVENT_SCHEMAS: Record<TypedEventType, Schema & { $id: string;
     type: 'object',
     required: ['wait_id', 'answers'],
     additionalProperties: false,
-    properties: { wait_id: ID, answers: { type: 'object', maxProperties: 10, additionalProperties: SCALAR }, result: { type: 'object' } },
+    properties: { wait_id: ID, answers: { type: 'object', maxProperties: 10, additionalProperties: SCALAR }, result: { type: 'object' }, trace: TRACE },
   },
   'neos.neop.propose': {
     $id: 'neos.neop.propose',
@@ -202,7 +215,7 @@ export const TYPED_EVENT_SCHEMAS: Record<TypedEventType, Schema & { $id: string;
     type: 'object',
     required: ['proposal_id', 'fingerprint', 'text', 'expires'],
     additionalProperties: false,
-    properties: { proposal_id: ID, fingerprint: TEXT(200), text: TEXT(8000), expires: TIME },
+    properties: { proposal_id: ID, fingerprint: TEXT(200), text: TEXT(8000), expires: TIME, trace: TRACE },
   },
   'neos.neop.approve': {
     $id: 'neos.neop.approve',
@@ -218,7 +231,7 @@ export const TYPED_EVENT_SCHEMAS: Record<TypedEventType, Schema & { $id: string;
     type: 'object',
     required: ['task_id', 'job_id', 'result', 'could_not'],
     additionalProperties: false,
-    properties: { task_id: ID, job_id: ID, result: { type: 'object' }, could_not: { type: 'array', maxItems: 50, items: { type: 'string', maxLength: 2000 } } },
+    properties: { task_id: ID, job_id: ID, result: { type: 'object' }, could_not: { type: 'array', maxItems: 50, items: { type: 'string', maxLength: 2000 } }, trace: TRACE },
   },
   'neos.neop.note': {
     $id: 'neos.neop.note',
@@ -226,7 +239,7 @@ export const TYPED_EVENT_SCHEMAS: Record<TypedEventType, Schema & { $id: string;
     type: 'object',
     required: ['job_id', 'step_id', 'text'],
     additionalProperties: false,
-    properties: { job_id: ID, step_id: ID, text: TEXT(2000) },
+    properties: { job_id: ID, step_id: ID, text: TEXT(2000), trace: TRACE },
   },
 };
 
@@ -420,4 +433,61 @@ export function neopRoomPowerLevels(o: { people: string[]; nonPeople: string[]; 
       'm.room.join_rules': 100,
     },
   };
+}
+
+// ── v3 S5 · what NeuralChat puts in a task's `fields` besides the person's own ─────────────────────────────────
+// Files travel BY REFERENCE (no bytes in events): `neos_file_<n>` = a JSON string {id, filename, content_type?,
+// sha256, bytes, link}; `link` is a path on the platform (never a full URL) that serves the bytes once, signed and
+// short-lived — the NEOP resolves it against its own configured platform URL and checks the sha256 before keeping it.
+// `neos_parent_job` = the earlier job a follow-up in the same conversation continues. Everything else in `fields` is
+// the sender's data, shown to the job as given.
+export interface TaskFileRef {
+  id: string;
+  filename: string;
+  content_type?: string;
+  sha256: string;
+  bytes: number;
+  link: string;
+}
+
+const FILE_FIELD = /^neos_file_(\d{1,2})$/;
+export const TASK_PARENT_FIELD = 'neos_parent_job';
+
+/** The `fields` entry for one attached file. */
+export function taskFileField(n: number, ref: TaskFileRef): [string, string] {
+  return [`neos_file_${n}`, JSON.stringify(ref)];
+}
+
+/** Split a task's fields into its file references, the job it follows up, and the sender's own fields. */
+export function readTaskFields(fields: Record<string, unknown> | undefined | null): { files: TaskFileRef[]; parent_job_id: string | null; rest: Record<string, unknown>; errors: string[] } {
+  const files: TaskFileRef[] = [];
+  const rest: Record<string, unknown> = {};
+  const errors: string[] = [];
+  let parent: string | null = null;
+  for (const [k, v] of Object.entries(fields ?? {})) {
+    if (k === TASK_PARENT_FIELD) {
+      if (typeof v === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v)) parent = v;
+      else errors.push(`${k} must be a job id`);
+      continue;
+    }
+    if (!FILE_FIELD.test(k)) {
+      rest[k] = v;
+      continue;
+    }
+    try {
+      const r = JSON.parse(String(v)) as Partial<TaskFileRef>;
+      const ok =
+        typeof r.id === 'string' && r.id.length <= 200 &&
+        typeof r.filename === 'string' && r.filename.trim().length > 0 && r.filename.length <= 200 &&
+        (r.content_type === undefined || (typeof r.content_type === 'string' && r.content_type.length <= 200)) &&
+        typeof r.sha256 === 'string' && /^[0-9a-f]{64}$/.test(r.sha256) &&
+        typeof r.bytes === 'number' && Number.isInteger(r.bytes) && r.bytes >= 0 &&
+        typeof r.link === 'string' && r.link.startsWith('/') && !r.link.startsWith('//') && r.link.length <= 1000;
+      if (!ok) throw new Error('bad');
+      files.push({ id: r.id!, filename: r.filename!, ...(r.content_type ? { content_type: r.content_type } : {}), sha256: r.sha256!, bytes: r.bytes!, link: r.link! });
+    } catch {
+      errors.push(`${k} is not a file reference`);
+    }
+  }
+  return { files, parent_job_id: parent, rest, errors };
 }

@@ -1,5 +1,5 @@
 // Platform container entry: gateway, task store, desk, approvals, outbox consumer, chat bridge, registry.
-import { chatClientConfigFromEnv, loadOrCreateSigningKeys, startPlatform } from '@neop/platform';
+import { chatClientConfigFromEnv, loadOrCreateSigningKeys, neuralChatConfigFromEnv, startPlatform } from '@neop/platform';
 import { env, loadFileEnv, log, onShutdown, requireEnv } from './env.ts';
 
 requireEnv(['NEOS_DB_URL', 'NEOS_VAULT_KEYS']);
@@ -18,11 +18,13 @@ const p = await startPlatform({
   port: Number(env('PORT', '4000')),
   host: '0.0.0.0',
   chat: client ? { client } : matrix ? { matrix } : undefined,
+  // v3 S5: NeuralChat's own Matrix identity per company (NEOS_NEURALCHAT_MATRIX=appservice|client; default off).
+  neuralchat: neuralChatConfigFromEnv(process.env) ?? undefined,
   registryKeys: await loadOrCreateSigningKeys(process.env.NEOS_REGISTRY_KEY_PATH ?? 'var/registry-key.json'),
   vaultKeys: JSON.parse(env('NEOS_VAULT_KEYS')),
   log: (m, e) => log('info', m, e),
 });
 await p.platform.rekeyVault();
 if (process.env.NEOS_LLM_PROXY_URL) p.platform.llmProxyUrl = process.env.NEOS_LLM_PROXY_URL;
-log('info', 'platform up', { url: p.url, matrix: client ? 'client' : matrix ? 'appservice' : false, llm_proxy: p.platform.llmProxyUrl });
+log('info', 'platform up', { url: p.url, matrix: client ? 'client' : matrix ? 'appservice' : false, neuralchat_matrix: p.platform.neuralchat?.cfg.road ?? false, llm_proxy: p.platform.llmProxyUrl });
 onShutdown(() => p.stop());

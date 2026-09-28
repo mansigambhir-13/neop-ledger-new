@@ -86,3 +86,49 @@ describe('metrics', () => {
     expect(app).toMatch(/neop_gate_decisions_total\{/);
   });
 });
+
+// v3 S5 · NeuralChat speaks Matrix: the same one trace when the ask reaches the app only as a typed task (the trace rides
+// in the event's `trace`), not through the gateway — neos.ask → neuralchat.task (the post) and presence.task (the app
+// opening the job from the event) → the runner, the assistant, the LLM proxy, the gate, the yes, the door.
+describe('tracing through Matrix (NEOP presence + NeuralChat’s typed task)', () => {
+  let Q: Pilot;
+  let V: FakeUpstream;
+  beforeAll(async () => {
+    V = await fakeAnthropic();
+    Q = await bootPilot({ llmUpstream: { url: V.url, apiKey: V.apiKey }, presence: 'appservice', neuralchat: true });
+  }, 180_000);
+  afterAll(async () => {
+    await Q?.close();
+    await V?.close();
+  }, 120_000);
+
+  it('one trace id from the ask to the door, with no gateway hop to open the job', async () => {
+    V.setBrain((v) => {
+      if (v.job.includes('WOKEN')) return v.results.length === 0 ? { tool: 'job__finish', args: { outcome: 'done', summary: 'sent' } } : { text: 'ok' };
+      if (v.results.length === 0) {
+        return {
+          tool: 'ledger__close_pack__email',
+          args: { period: { from: '2026-08-01', to: '2026-08-31' }, to: ['cfo@acme.example'], card: { what: 'Send pack', why: 'close', changes: 'one email', if_no_answer: 'nothing' } },
+        };
+      }
+      return { text: 'waiting' };
+    });
+    const r = await Q.api('POST', '/api/ask', { text: 'Send the August close pack to the CFO', app: 'ledger' });
+    const card = await Q.waitFor(async () => (await Q.desk()).find((c) => c.task_id === r.body.task_id && c.status === 'PENDING'), 'card', 30_000);
+    await Q.api('POST', `/api/desk/${card.id}/answer`, { decision: 'yes', fingerprint_seen: card.fingerprint });
+    await Q.waitFor(async () => (await Q.task(r.body.task_id)).task.status === 'COMPLETED', 'completed', 30_000);
+    const traceId = String((await Q.platform.db.query('select trace_parent from neos.tasks where id = $1', [r.body.task_id])).rows[0].trace_parent).split('-')[1];
+    const want = ['neos.ask', 'neuralchat.task', 'presence.task', 'runner.spawn', 'agent.session', 'llm.messages', 'agent.tool ledger.close_pack.email', 'gate ledger.close_pack.email', 'runner.approved', 'door ledger.close_pack.email'];
+    await Q.waitFor(async () => {
+      const inT = C.spans.filter((s) => s.traceId === traceId);
+      const names = new Set(inT.map((s) => s.name));
+      const ids = new Set(inT.map((s) => s.spanId));
+      return want.every((w) => names.has(w)) && inT.every((s) => s.name === 'neos.ask' || ids.has(s.parentSpanId!));
+    }, 'every hop in one trace', 30_000);
+    const inTrace = C.spans.filter((s) => s.traceId === traceId);
+    expect(inTrace.some((s) => s.name === 'gateway tasks.open' || s.name === 'l3 tasks.open')).toBe(false); // the job was opened from the event
+    expect(new Set(inTrace.map((s) => s.service))).toEqual(new Set(['neos-gateway', 'neop-ledger', 'neop-agent-ledger', 'neos-llm-proxy']));
+    // NeuralChat read the app's thread in the same trace.
+    expect(inTrace.some((s) => /^neuralchat\.read /.test(s.name))).toBe(true);
+  });
+});

@@ -7,6 +7,7 @@ import { chatClientRoutes } from './bridge/routes.ts';
 import { llmProxyApp, pricesFromEnv, type Price, type ProxyConfig } from './llm/proxy.ts';
 import { Platform, type PlatformOptions } from './platform.ts';
 import { platformApp } from './server.ts';
+import { NeuralChatMatrix, neuralChatRoutes, type NeuralChatMatrixConfig, type NeuralChatOptions } from './neuralchat-matrix.ts';
 
 export * from './platform.ts';
 export * from './gateway.ts';
@@ -24,6 +25,7 @@ export * from './registry.ts';
 export * from './boards.ts';
 export * from './drain.ts';
 export * from './conformance.ts';
+export * from './neuralchat-matrix.ts';
 export { modelRoute, readChoice, routeRequest, validateChoice, ROUTER_PRINCIPAL, type RouteDecision, type RouteMethod } from './neuralchat.ts';
 
 export async function startPlatform(
@@ -36,6 +38,8 @@ export async function startPlatform(
     bridgeSendEveryMs?: number;
     /** Run the LLM proxy in this process, mounted at /llm. */
     llm?: { upstream: ProxyConfig['upstream']; prices?: Record<string, Price>; runnerKeys?: ProxyConfig['runnerKeys'] };
+    /** v3 S5: NeuralChat's Matrix tool — its own identity per company (appservice @neuralchat_<co>, or client accounts). */
+    neuralchat?: NeuralChatMatrixConfig & Partial<NeuralChatOptions>;
   },
 ): Promise<{ platform: Platform; bridge: ChatBridge | null; chatClients: ChatClient[]; port: number; url: string; stop: () => Promise<void> }> {
   const platform = new Platform(opts);
@@ -44,11 +48,22 @@ export async function startPlatform(
   let bridge: ChatBridge | null = null;
   const app = platformApp(platform);
   let chatClients: ChatClient[] = [];
+  if (opts.neuralchat) {
+    platform.neuralchat = new NeuralChatMatrix(platform, opts.neuralchat, {
+      log: opts.log ? (m, e) => opts.log!(`[platform] ${m}`, e) : undefined,
+      ackWaitMs: opts.neuralchat.ackWaitMs,
+      deliveryWindowMs: opts.neuralchat.deliveryWindowMs ?? opts.timings?.taskDeliveryWindowMs,
+      fileLinkTtlMs: opts.neuralchat.fileLinkTtlMs,
+    });
+    // The signed file links always; the appservice endpoints here only when no chat bridge serves the registration.
+    const bridgeServesIt = !!opts.chat && 'matrix' in opts.chat;
+    app.route('/', neuralChatRoutes(platform.neuralchat, { appservice: !bridgeServesIt }));
+  }
   if (opts.chat && !('client' in opts.chat)) {
     const transport = 'matrix' in opts.chat ? new MatrixTransport(opts.chat.matrix) : opts.chat.transport;
     const serverName = 'matrix' in opts.chat ? opts.chat.matrix.serverName : opts.chat.serverName;
     bridge = new ChatBridge(platform, transport, { serverName, sendEveryMs: opts.bridgeSendEveryMs, log: opts.log ? (m, e) => opts.log!(m, { e: String(e) }) : undefined });
-    if ('matrix' in opts.chat) app.route('/', matrixAppservice(bridge, opts.chat.matrix));
+    if ('matrix' in opts.chat) app.route('/', matrixAppservice(bridge, opts.chat.matrix, { neuralchat: () => platform.neuralchat }));
     // Admins bind an app's room for their company and link people's chat identities (Phase 3).
     const chatBridge = bridge;
     const admin = async (c: any) => {
@@ -96,6 +111,7 @@ export async function startPlatform(
   if (opts.workers !== false) {
     platform.start();
     bridge?.start();
+    await platform.neuralchat?.start();
     if (opts.chat && 'client' in opts.chat) chatClients = await startChatClients(platform, { log: opts.log, ...opts.chat.client });
   }
   return {
