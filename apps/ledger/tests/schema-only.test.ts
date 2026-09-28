@@ -39,11 +39,12 @@ describe('the app’s roles see only the app’s schema', () => {
     const others = (
       await admin.query<{ s: string; t: string }>(
         `select n.nspname as s, c.relname as t from pg_class c join pg_namespace n on n.oid = c.relnamespace
-          where c.relkind in ('r', 'v', 'p') and n.nspname not in ('ledger', 'pg_catalog', 'information_schema') and n.nspname not like 'pg_%'
+          where c.relkind in ('r', 'v', 'p') and n.nspname not in ('ledger', 'neos_registry', 'pg_catalog', 'information_schema') and n.nspname not like 'pg_%'
           order by 1, 2`,
       )
     ).rows;
     await admin.end();
+    // neos_registry is left out on purpose: v3 §10 makes it read-only to every app (desk-views.test).
     // The pilot really has other schemas to be kept out of.
     expect(others.filter((o) => o.s === 'marketing').length).toBeGreaterThan(10);
     expect(others.filter((o) => o.s === 'neos').length).toBeGreaterThan(10);
