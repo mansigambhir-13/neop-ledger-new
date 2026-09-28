@@ -131,7 +131,8 @@ describe('platform user flow — NeuralChat speaks Matrix', () => {
     Q.setBrain((v) => (v.job.includes('WOKEN') ? finish('Close pack sent to cfo@acme.example.', 'done', { changed: ['one email sent'] }) : v.calls === 0 ? email() : { text: 'waiting' }));
     const r = await Q.api('POST', '/api/ask', { text: 'Send the August close pack to our CFO' });
     expect(r.body.handed_to).toBe('ledger'); // picked by NeuralChat, not named by the person
-    expect(['OPEN', 'ACKNOWLEDGED']).toContain(r.body.status);
+    // The ask returns once the app's "on it" is back from the thread; a fast app may already be waiting on its card.
+    expect(['OPEN', 'ACKNOWLEDGED', 'WAITING']).toContain(r.body.status);
     const card = await Q.waitFor(async () => (await Q.desk()).find((c) => c.task_id === r.body.task_id && c.status === 'PENDING'), 'card', 30_000);
     await Q.waitFor(async () => (await Q.task(r.body.task_id)).task.status === 'WAITING', 'task waiting');
     await Q.api('POST', `/api/desk/${card.id}/answer`, { decision: 'yes', fingerprint_seen: card.fingerprint });
