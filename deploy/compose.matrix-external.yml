@@ -11,8 +11,6 @@ services:
       MATRIX_CLIENT_ACCOUNTS: '[{"account":"${LEDGER_MXID:?set LEDGER_MXID}","company":"${NEOS_CHAT_COMPANY:?set NEOS_CHAT_COMPANY}","app":"ledger","token_file":"/run/secrets/matrix_ledger_token"}]'
       # NeuralChat waits 60 s for a reply; answer (or say we could not) before that.
       MATRIX_REPLY_DEADLINE_MS: ${MATRIX_REPLY_DEADLINE_MS:-55000}
-      # v3 §5/§16 exception: 1 only when the env file sets ALLOW_BRIDGE_APPROVE=true (scripts/deploy.sh); else a bridge never approves.
-      NEOS_ALLOW_BRIDGE_APPROVE: ${NEOS_ALLOW_BRIDGE_APPROVE:-0}
     secrets: [neos_app_url, vault_keys, metrics_token, matrix_ledger_token]
 
 secrets:

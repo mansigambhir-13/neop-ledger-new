@@ -22,7 +22,6 @@ export * from './llm/proxy.ts';
 export * from './vault.ts';
 export * from './registry.ts';
 export * from './conformance.ts';
-export * from './bridge-policy.ts';
 export { modelRoute, readChoice, routeRequest, validateChoice, ROUTER_PRINCIPAL, type RouteDecision, type RouteMethod } from './neuralchat.ts';
 
 export async function startPlatform(

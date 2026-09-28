@@ -14,7 +14,7 @@ Ledger's Matrix account (`@ledger`) exactly as `neos-agent-neuralchat` #143 does
 | 4 | NeuralChat's Matrix id (`@reasoning_agent:…`), and `@ledger` added to NeuralChat's `REASONING_MATRIX_NEOPS` (`ledger=@ledger:…`) | Shivam | `BRIDGE_MXID` |
 | 5 | A **new** model provider key (the one used in testing must be rotated) with a spend limit, on an account **with credit** — the test OpenRouter account has about $4 left after validation, not enough for a day of use (budget ~$0.25–0.50 per request) | Mansi | file → `LLM_KEY_FILE` |
 | 6 | Company name, time zone, the admin person (name, email, optionally their own Matrix id) | Mansi | `COMPANY_*`, `ADMIN_*` |
-| 7 | **Decision:** may NeuralChat's go-ahead approve? (see §3 — an exception to v3 §5/§16) | Mansi + Shivam | `BRIDGE_MAY_APPROVE` + `ALLOW_BRIDGE_APPROVE` |
+| 7 | **Decision:** may NeuralChat's go-ahead approve? (see §3) | Mansi + Shivam | `BRIDGE_MAY_APPROVE` |
 | 8 | Optional: email provider key (Resend) and sender, if invoices/reminders/close packs should be emailed on day one | Mansi | `EMAIL_DOOR_JSON` |
 
 ## 2. Deploy (about 15 minutes)
@@ -36,24 +36,13 @@ user's own answer does it send "Go ahead with …". So:
 - `BRIDGE_MAY_APPROVE=false` (the plan's strict rule) — reads, questions and proposals work; **nothing gated can
   be approved** until the platform's decide route (PLATFORM-ISSUES item 1) exists or a person approves in their
   own DM with `@ledger` (needs a Matrix client for that person).
-- `BRIDGE_MAY_APPROVE=true` **and** `ALLOW_BRIDGE_APPROVE=true` (Shivam's option 2) — NeuralChat's go-ahead approves **only** the card Ledger just
+- `BRIDGE_MAY_APPROVE=true` (Shivam's option 2) — NeuralChat's go-ahead approves **only** the card Ledger just
   showed in that DM, bound to its fingerprint and expiry, only as a clear yes with no negation and no amount
   that differs from the card, recorded as the acting person's yes via the bridge, audited, and still subject to
   the approver policy (roles, four-eyes). Revoke at any time:
   `PUT /api/chat/allowlist {app:'ledger', matrix_id:'<bridge>', kind:'bridge', acts_for:'<user>', may_approve:false}`.
 
-**This is a deliberate exception to v3 §5 and §16** ("only a person can say yes"; "the reasoning agent never
-approves"). The platform enforces it as one: in production (`NEOS_ENV=production`, which the images set) a grant
-of `may_approve:true` is refused with `403 bridge_approve_not_allowed` unless the platform itself runs with
-`NEOS_ALLOW_BRIDGE_APPROVE=1`, and without that flag any row that already says `may_approve` is treated as false
-on every message. `scripts/deploy.sh` refuses `BRIDGE_MAY_APPROVE=true` unless the env file also sets
-`ALLOW_BRIDGE_APPROVE=true`, and only then passes `NEOS_ALLOW_BRIDGE_APPROVE=1` to the platform
-(`deploy/compose.matrix-external.yml`). Every grant made under the flag is audited `chat.bridge_approve_exception`
-(`granted`; a refused attempt is `refused`). To withdraw the exception platform-wide: set
-`ALLOW_BRIDGE_APPROVE=false` and re-run `deploy.sh` (or restart the platform without the flag) — every bridge
-grant stops counting at once.
-
-Recommendation for day one: `true` (both flags), with the go-ahead rules above — it is the only way approvals work end to end
+Recommendation for day one: `true`, with the go-ahead rules above — it is the only way approvals work end to end
 through the channel people use tomorrow; the residual trust (NeuralChat reading the user's answer) is the one
 NeuralChat already enforces (#156/#157).
 

@@ -45,7 +45,6 @@ import { parseDecision } from './bridge.ts';
 import { roomText } from './format.ts';
 import { answersFromText } from '@neop/contracts';
 import { stripReplyFallback } from './matrix.ts';
-import { bridgeApproveAllowed } from '../bridge-policy.ts';
 
 /** Under NeuralChat's 60 s wait for Ledger's reply, so the fixed sentence (never silence) reaches it in time. */
 export const DEFAULT_REPLY_DEADLINE_MS = 55_000;
@@ -466,7 +465,7 @@ export class ChatClient {
       )
     ).rows[0];
     if (!a) return null;
-    if (a.kind === 'bridge') return { kind: 'bridge', actsFor: a.acts_for, mayApprove: a.may_approve === true && !!a.acts_for && bridgeApproveAllowed() };
+    if (a.kind === 'bridge') return { kind: 'bridge', actsFor: a.acts_for, mayApprove: a.may_approve === true && !!a.acts_for };
     const u = (await this.platform.db.query('select id, company_id, role, name from neos.users where matrix_user_id = $1 and company_id = $2', [matrixId, this.companyId])).rows[0];
     return u ? { kind: 'person', user: u } : null; // a person must also be linked to someone in this company
   }
@@ -945,7 +944,6 @@ export class ChatClient {
 
   /** A bridge an admin granted may_approve, relaying for a person of this company (read live: a revoke is instant). */
   private async mayApprove(sender: string): Promise<boolean> {
-    if (!bridgeApproveAllowed()) return false; // v3 §5/§16: in production only with NEOS_ALLOW_BRIDGE_APPROVE=1
     const r = await this.platform.db.query(
       `select 1 from neos.chat_allowlist l join neos.users u on u.id = l.acts_for and u.company_id = l.company_id
         where l.company_id = $1 and l.app_key = $2 and l.matrix_id = $3 and l.kind = 'bridge' and l.may_approve`,

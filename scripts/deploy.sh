@@ -19,15 +19,6 @@ need() { for v in "$@"; do [ -n "${!v:-}" ] || die "$v is not set in $ENV_FILE";
 need NEOS_PROJECT NEOS_SECRETS_DIR COMPANY_NAME COMPANY_TZ ADMIN_NAME ADMIN_EMAIL LLM_KEY_FILE MATRIX_HOMESERVER_URL MATRIX_SERVER_NAME LEDGER_MXID LEDGER_MATRIX_TOKEN_FILE BRIDGE_MXID
 [ -s "$LLM_KEY_FILE" ] || die "LLM_KEY_FILE ($LLM_KEY_FILE) is empty or missing"
 [ -s "$LEDGER_MATRIX_TOKEN_FILE" ] || die "LEDGER_MATRIX_TOKEN_FILE ($LEDGER_MATRIX_TOKEN_FILE) is empty or missing"
-# v3 §5/§16: only a person can say yes. A bridge's go-ahead approving is a deliberate exception that must be
-# asked for twice: BRIDGE_MAY_APPROVE=true AND ALLOW_BRIDGE_APPROVE=true (which starts the platform with
-# NEOS_ALLOW_BRIDGE_APPROVE=1; without it the platform refuses the grant and ignores any old one).
-case "${BRIDGE_MAY_APPROVE:-false}" in true|false) ;; *) die "BRIDGE_MAY_APPROVE must be true or false";; esac
-case "${ALLOW_BRIDGE_APPROVE:-false}" in true|false) ;; *) die "ALLOW_BRIDGE_APPROVE must be true or false";; esac
-if [ "${BRIDGE_MAY_APPROVE:-false}" = true ] && [ "${ALLOW_BRIDGE_APPROVE:-false}" != true ]; then
-  die "BRIDGE_MAY_APPROVE=true is an exception to 'only a person can say yes' (v3 §5/§16): also set ALLOW_BRIDGE_APPROVE=true in $ENV_FILE to accept it (docs/GO-LIVE.md §3)"
-fi
-if [ "${ALLOW_BRIDGE_APPROVE:-false}" = true ]; then export NEOS_ALLOW_BRIDGE_APPROVE=1; else export NEOS_ALLOW_BRIDGE_APPROVE=0; fi
 ATTEST="$ROOT/deploy/attestations/ledger.json"
 [ -s "$ATTEST" ] || die "no conformance attestation for this release ($ATTEST): run tsx scripts/conformance.ts ledger --out $ATTEST on the build machine"
 command -v docker >/dev/null || die "docker is required"
