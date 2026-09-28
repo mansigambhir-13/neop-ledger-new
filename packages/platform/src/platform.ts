@@ -305,7 +305,9 @@ export class Platform {
         ])
       ).rows[0];
       if (last) {
-        const q = (await this.db.query("select * from neos.questions where root_task_id = $1 and status = 'OPEN' order by created_at desc limit 1", [last.id])).rows[0];
+        // v3 S3: the open question is read from the apps' own waits (neos.v_open_questions), not the outbox's projection,
+        // so a reply that follows the question at once still answers it.
+        const q = await this.openQuestionUnder(user.company_id, last.id);
         if (q && !opts.attachments?.length) {
           const answered = await this.answerFromConversation(user, conversationId, q, text);
           if (answered) return answered;
@@ -511,6 +513,7 @@ export class Platform {
     for (const [what, sql] of [
       ['desk_views', 'select neos.refresh_desk_views()'],
       ['desk_cards', 'select neos.refresh_desk_cards()'],
+      ['desk_questions', 'select neos.refresh_desk_questions()'],
       ['registry_read', 'select neos.grant_registry_read($1)'],
     ] as const) {
       await this.db.query(sql, what === 'registry_read' ? [a.key] : []).catch(async (e) => {
@@ -1276,26 +1279,199 @@ export class Platform {
     return null;
   }
 
-  // ── questions (WP §8 `ask` / `answer`) ─────────────────────────────────────
-  /** Open questions for the company: what a person is being asked, by which app, and until when. */
-  async questions(user: { id: string; company_id: string }, opts: { status?: string } = {}) {
-    const r = await this.db.query(
-      `select q.id, q.app_key, a.manifest->>'name' as app_name, q.task_id, q.root_task_id, q.job_id, q.wait_id, q.text, q.why, q.fields, q.due_at, q.status,
-              q.asked_of, u.name as asked_of_name, q.answers, q.answered_by, q.answered_via, q.answered_at, q.created_at,
-              t.ask as task_ask, t.requester as task_requester, rt.ask as root_ask
-         from neos.questions q left join neos.apps a on a.key = q.app_key left join neos.users u on u.id = q.asked_of
-         left join neos.tasks t on t.id = q.task_id left join neos.tasks rt on rt.id = q.root_task_id
-        where q.company_id = $1 and ($2::text is null or q.status = $2) order by (q.status = 'OPEN') desc, q.created_at desc limit 200`,
-      [user.company_id, opts.status ?? 'OPEN'],
+  // ── the desk's activity (v3 S3) ─────────────────────────────────────────────
+  // A job's steps are the app's own rows, read through neos.v_activity (018) as neos_desk; the a2a hand-offs (C6) are
+  // the platform's own record (neos.activity kind 'a2a', from a2a.requested). neos.activity's step rows (step.mirror)
+  // are no longer read by the desk: they stay only for the Matrix bridge's typed notes until presence moves (S4/S5).
+
+  /** A step's id on the feed: stable and numeric (a step row has no platform id; the view names it by app, job, seq). */
+  private static stepId(app: string, job: string, seq: number): number {
+    return parseInt(createHash('md5').update(`${app}:${job}:${seq}`).digest('hex').slice(0, 12), 16);
+  }
+
+  /** The company's feed, newest first: steps from every app, and a2a hand-offs. */
+  async activity(companyId: string, o: { kind?: string | null; app?: string | null; limit?: number } = {}) {
+    const limit = Math.max(1, Math.min(o.limit ?? 100, 500));
+    const steps = await this.boards.deskRead(companyId, async (c) =>
+      (
+        await c.query<{ app_key: string; job_id: string; seq: number; kind: string; summary: string; at: Date }>(
+          `select app_key, job_id, seq, kind, summary, created_at as at from neos.v_activity
+            where company_id = $1 and ($2::text is null or kind = $2) and ($3::text is null or app_key = $3)
+            order by created_at desc, seq desc limit $4`,
+          [companyId, o.kind ?? null, o.app ?? null, limit],
+        )
+      ).rows,
     );
-    return r.rows;
+    const a2a =
+      o.kind && o.kind !== 'a2a'
+        ? []
+        : (
+            await this.db.query<{ id: string; app_key: string; job_id: string; seq: number | null; kind: string; summary: string; at: Date }>(
+              `select id, app_key, job_id, seq, kind, summary, at from neos.activity
+                where company_id = $1 and kind = 'a2a' and ($2::text is null or app_key = $2) order by at desc, id desc limit $3`,
+              [companyId, o.app ?? null, limit],
+            )
+          ).rows;
+    return [...steps.map((x) => ({ id: Platform.stepId(x.app_key, x.job_id, x.seq), ...x })), ...a2a.map((x) => ({ ...x, id: Number(x.id) }))]
+      .sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime() || b.id - a.id)
+      .slice(0, limit);
+  }
+
+  /** One job's record, oldest first: its steps and the hand-offs it made. */
+  async jobActivity(companyId: string, jobId: string) {
+    const steps = await this.boards.deskRead(companyId, async (c) =>
+      (await c.query('select seq, kind, summary, created_at as at from neos.v_activity where company_id = $1 and job_id = $2', [companyId, jobId])).rows,
+    );
+    const a2a = (await this.db.query("select seq, kind, summary, at from neos.activity where company_id = $1 and job_id = $2 and kind = 'a2a'", [companyId, jobId])).rows;
+    return [...steps, ...a2a].sort((a, b) => new Date(a.at).getTime() - new Date(b.at).getTime() || (a.seq ?? Infinity) - (b.seq ?? Infinity));
+  }
+
+  /** For the task list, read once: open questions per task, and steps (+ hand-offs) per app job. */
+  async deskCounts(companyId: string): Promise<{ questions: Map<string, number>; steps: Map<string, number> }> {
+    const { q, s } = await this.boards.deskRead(companyId, async (c) => ({
+      q: (await c.query<{ task_id: string; n: number }>('select task_id, count(*)::int as n from neos.v_open_questions where company_id = $1 and task_id is not null group by task_id', [companyId])).rows,
+      s: (await c.query<{ app_key: string; job_id: string; n: number }>('select app_key, job_id, count(*)::int as n from neos.v_activity where company_id = $1 group by app_key, job_id', [companyId])).rows,
+    }));
+    const a2a = (await this.db.query<{ app_key: string; job_id: string; n: number }>("select app_key, job_id, count(*)::int as n from neos.activity where company_id = $1 and kind = 'a2a' group by app_key, job_id", [companyId])).rows;
+    const steps = new Map<string, number>();
+    for (const r of [...s, ...a2a]) steps.set(`${r.app_key}:${r.job_id}`, (steps.get(`${r.app_key}:${r.job_id}`) ?? 0) + r.n);
+    return { questions: new Map(q.map((r) => [String(r.task_id), r.n])), steps };
+  }
+
+  // ── questions (WP §8 `ask` / `answer`) ─────────────────────────────────────
+  // v3 S3: a question is the app's own input wait. The desk reads it through neos.v_questions / neos.v_open_questions
+  // (021, as neos_desk) and answers it through <app>.answer_wait() (template t013). A question's id is its wait id;
+  // neos.questions is only the Matrix bridge's and the conversation's projection (a new row's id is its wait id too,
+  // and an id from before the move maps to its wait).
+
+  /**
+   * The desk's question rows (the view's columns), with what only the platform knows: the task a person started the
+   * chain from (root_task_id), the person it is put to (asked_of) and names — in the shape the desk has always had.
+   */
+  private async questionRows(companyId: string, where: string, params: unknown[], opts: { open?: boolean; limit?: number } = {}): Promise<any[]> {
+    const view = opts.open ? 'neos.v_open_questions' : 'neos.v_questions';
+    const rows = await this.boards.deskRead(companyId, async (c) =>
+      (
+        await c.query(
+          `select app_key, id, company_id, wait_id, job_id, task_id, text, why, fields, due_at, status, answers, answered_by, answered_via, answered_at, created_at
+             from ${view} where company_id = $1${where ? ` and ${where}` : ''}
+            order by (status = 'OPEN') desc, created_at desc limit ${Math.max(1, Math.min(opts.limit ?? 200, 500))}`,
+          [companyId, ...params],
+        )
+      ).rows,
+    );
+    if (!rows.length) return [];
+    const tasks = [...new Set(rows.map((r) => r.task_id).filter(Boolean))];
+    const roots = new Map<string, { root_id: string; requester: string | null }>();
+    if (tasks.length) {
+      // The person who started the chain (walks a2a parents, as rootTask does), for every task at once.
+      const r = await this.db.query<{ start: string; root_id: string; requester: string | null }>(
+        `with recursive chain(start, id, requester, parent, depth) as (
+           select t.id, t.id, t.requester, t.parent_task_id, 0 from neos.tasks t where t.id = any($1::uuid[]) and t.company_id = $2
+           union all
+           select c.start, p.id, p.requester, p.parent_task_id, c.depth + 1 from chain c join neos.tasks p on p.id = c.parent
+            where c.requester not like 'user:%' and c.depth < 9)
+         select distinct on (start) start, id as root_id, requester from chain where requester like 'user:%' order by start, depth`,
+        [tasks, companyId],
+      );
+      for (const x of r.rows) roots.set(String(x.start), { root_id: String(x.root_id), requester: x.requester });
+    }
+    const users = [...new Set([...roots.values()].map((x) => x.requester?.slice(5)).filter((x): x is string => !!x))];
+    const names = new Map(
+      users.length ? (await this.db.query<{ id: string; name: string }>('select id, name from neos.users where id = any($1::uuid[])', [users])).rows.map((u) => [String(u.id), u.name]) : [],
+    );
+    const apps = new Map((await this.db.query<{ key: string; name: string }>("select key, manifest->>'name' as name from neos.apps")).rows.map((a) => [a.key, a.name]));
+    const taskIds = [...new Set([...tasks, ...[...roots.values()].map((x) => x.root_id)])];
+    const asks = new Map(
+      taskIds.length
+        ? (await this.db.query<{ id: string; ask: string; requester: string }>('select id, ask, requester from neos.tasks where id = any($1::uuid[]) and company_id = $2', [taskIds, companyId])).rows.map((t) => [String(t.id), t])
+        : [],
+    );
+    return rows.map((q) => {
+      const root = q.task_id ? roots.get(String(q.task_id)) : undefined;
+      const askedOf = root?.requester?.startsWith('user:') ? root.requester.slice(5) : null;
+      const rootId = root?.root_id ?? q.task_id ?? null;
+      return {
+        id: q.id,
+        app_key: q.app_key,
+        app_name: apps.get(q.app_key) ?? null,
+        task_id: q.task_id,
+        root_task_id: rootId,
+        job_id: q.job_id,
+        wait_id: q.wait_id,
+        text: q.text,
+        why: q.why,
+        fields: q.fields,
+        due_at: q.due_at,
+        status: q.status,
+        asked_of: askedOf,
+        asked_of_name: askedOf ? (names.get(askedOf) ?? null) : null,
+        answers: q.answers,
+        answered_by: q.answered_by,
+        answered_via: q.answered_via,
+        answered_at: q.answered_at,
+        created_at: q.created_at,
+        task_ask: q.task_id ? (asks.get(String(q.task_id))?.ask ?? null) : null,
+        task_requester: q.task_id ? (asks.get(String(q.task_id))?.requester ?? null) : null,
+        root_ask: rootId ? (asks.get(String(rootId))?.ask ?? null) : null,
+      };
+    });
+  }
+
+  /** Open questions for the company (or those in another status): what a person is being asked, by which app, and until when. */
+  async questions(user: { id: string; company_id: string }, opts: { status?: string } = {}) {
+    const status = opts.status ?? 'OPEN';
+    return status === 'OPEN' ? this.questionRows(user.company_id, '', [], { open: true }) : this.questionRows(user.company_id, 'status = $2', [status]);
+  }
+
+  /** Every question asked in a task's chain (the task itself and every a2a task under it), oldest first. */
+  async questionsForTask(companyId: string, taskId: string) {
+    const chain = (
+      await this.db.query<{ id: string }>(
+        `with recursive down(id, depth) as (select id, 0 from neos.tasks where id = $1 and company_id = $2
+           union all select t.id, d.depth + 1 from down d join neos.tasks t on t.parent_task_id = d.id where d.depth < 9)
+         select distinct id from down`,
+        [taskId, companyId],
+      )
+    ).rows.map((r) => r.id);
+    if (!chain.length) return [];
+    const rows = await this.questionRows(companyId, 'task_id = any($2::uuid[])', [chain], { limit: 500 });
+    return rows
+      .filter((q) => q.task_id === taskId || q.root_task_id === taskId)
+      .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
+      .map((q) => ({ id: q.id, app_key: q.app_key, wait_id: q.wait_id, text: q.text, why: q.why, fields: q.fields, due_at: q.due_at, status: q.status, answers: q.answers, answered_by: q.answered_by, answered_via: q.answered_via, answered_at: q.answered_at, created_at: q.created_at }));
+  }
+
+  /** The latest open question of a task's chain (the task itself or an a2a task under it), or null. */
+  private async openQuestionUnder(companyId: string, rootTaskId: string): Promise<any | null> {
+    const chain = (
+      await this.db.query<{ id: string }>(
+        `with recursive down(id, depth) as (select id, 0 from neos.tasks where id = $1 and company_id = $2
+           union all select t.id, d.depth + 1 from down d join neos.tasks t on t.parent_task_id = d.id where d.depth < 9)
+         select distinct id from down`,
+        [rootTaskId, companyId],
+      )
+    ).rows.map((r) => r.id);
+    if (!chain.length) return null;
+    const rows = await this.questionRows(companyId, 'task_id = any($2::uuid[])', [chain], { open: true });
+    return rows.filter((x) => x.root_task_id === rootTaskId).sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())[0] ?? null;
+  }
+
+  /** The question an id names, from the desk's view: its wait id, or (from before v3 S3) a neos.questions id. */
+  private async questionFor(questionId: string, companyId: string): Promise<any | null> {
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(questionId)) return null;
+    const hit = (await this.questionRows(companyId, 'id = $2', [questionId]))[0];
+    if (hit) return hit;
+    const legacy = (await this.db.query<{ app_key: string; wait_id: string }>('select app_key, wait_id from neos.questions where id = $1 and company_id = $2', [questionId, companyId])).rows[0];
+    if (!legacy) return null;
+    return (await this.questionRows(companyId, 'app_key = $2 and wait_id = $3', [legacy.app_key, legacy.wait_id]))[0] ?? null;
   }
 
   /**
-   * An answer to a job's question, delivered to the app's waits.answer through the gateway. A person
-   * answers in their own words (desk, conversation, DM); a bridge's relayed answer is recorded as such
-   * and reaches the assistant as untrusted data. Another app never answers for a person. A question
-   * that is no longer open at the app is `stale` (409).
+   * An answer to a job's question, straight onto the app's wait through <app>.answer_wait() as neos_desk (v3 S3). A
+   * person answers in their own words (desk, conversation, DM); a bridge's relayed answer is recorded as such and
+   * reaches the assistant as untrusted data. Another app never answers for a person (the function refuses an app's
+   * key on anything but its own hand-off). A question that is no longer open is `stale` (409). HTTP contract unchanged.
    */
   async answerQuestion(
     questionId: string,
@@ -1303,53 +1479,55 @@ export class Platform {
     answers: unknown,
     via: 'desk' | 'conversation' | 'chat' | 'bridge' | 'reasoning_agent',
   ): Promise<{ status: 'ANSWERED'; question_id: string; job_id: string; task_id: string | null }> {
-    const q = (await this.db.query('select * from neos.questions where id = $1 and company_id = $2', [questionId, who.company_id])).rows[0];
+    const q = await this.questionFor(questionId, who.company_id);
     if (!q) throw new PlatformError(404, 'not_found', 'no such question');
-    if (q.status !== 'OPEN') throw new PlatformError(409, 'stale', `this question is ${q.status.toLowerCase()}; it can no longer be answered`);
+    const markStale = (why: string) =>
+      this.db.query(`update neos.questions set status = 'STALE', last_error = $3, updated_at = now() where app_key = $1 and wait_id = $2 and status = 'OPEN'`, [q.app_key, q.wait_id, why.slice(0, 500)]);
+    if (q.status !== 'OPEN') throw new PlatformError(409, 'stale', `this question is ${String(q.status).toLowerCase()}; it can no longer be answered`);
     const answeredBy = who.user_id ? `user:${who.user_id}` : who.relay;
     if (!answeredBy) throw new PlatformError(400, 'bad_request', 'who answered is required');
+    // Early, friendlier errors (the function checks the same again).
     const checked = checkAnswers({ text: q.text, why: q.why, fields: q.fields }, answers);
     if ('error' in checked) throw new PlatformError(400, 'bad_answer', checked.error);
-    const body = { wait_id: q.wait_id, answers: checked.answers, answered_by: answeredBy, via };
-    const task = q.task_id ? (await this.db.query<{ trace_parent: string | null }>('select trace_parent from neos.tasks where id = $1', [q.task_id])).rows[0] : null;
-    let res;
+    let res: { status: 'answered' | 'stale'; idempotent?: boolean; reason?: string };
     try {
-      res = await this.gateway.call({
-        caller: 'platform',
-        app: q.app_key,
-        endpoint: 'waits.answer',
-        company_id: q.company_id,
-        body,
-        idem_key: `answer:${q.id}:${sha256(canonicalize(body)).slice(0, 24)}`,
-        trace: task?.trace_parent ?? null,
-      });
+      res = await this.boards.answerWait(q.app_key, who.company_id, { wait_id: q.wait_id, answers: checked.answers, by: answeredBy, via });
     } catch (e) {
-      throw new PlatformError(502, 'unavailable', `${q.app_key} could not be reached: ${(e as Error).message}`);
+      const err = e as { message?: string; code?: string };
+      if (err.code === 'no_app_schema') throw new PlatformError(409, 'no_app_schema', String(err.message));
+      const m = /^(not_found|bad_answer|bad_request|not_their_wait): (.*)$/s.exec(String(err.message ?? ''));
+      if (!m) throw e;
+      const [, code, msg] = m as unknown as [string, string, string];
+      if (code === 'not_found') {
+        await markStale(msg);
+        throw new PlatformError(409, 'stale', 'this question is no longer open');
+      }
+      if (code === 'not_their_wait') throw new PlatformError(403, code, msg);
+      throw new PlatformError(400, code === 'bad_request' ? 'bad_request' : 'bad_answer', msg);
     }
-    if (res.status === 400) throw new PlatformError(400, 'bad_answer', res.body?.error?.message ?? 'the app refused this answer');
-    if (res.status === 404 || res.status === 409) {
-      await this.db.query(`update neos.questions set status = 'STALE', last_error = $2, updated_at = now() where id = $1 and status = 'OPEN'`, [q.id, String(res.body?.error?.message ?? res.status).slice(0, 500)]);
-      throw new PlatformError(409, 'stale', res.body?.error?.message ?? 'this question is no longer open');
+    if (res.status === 'stale') {
+      await markStale(res.reason ?? 'stale');
+      throw new PlatformError(409, 'stale', res.reason ?? 'this question is no longer open');
     }
-    if (res.status !== 200) throw new PlatformError(502, 'unavailable', `${q.app_key} answered ${res.status}; the question is still open`);
     const actor = who.user_id ? `user:${who.user_id}` : `chat:${who.relay}`;
     await tx(this.db, async (c) => {
-      const u = await c.query(
-        `update neos.questions set status = 'ANSWERED', answers = $2, answered_by = $3, answered_via = $4, answered_at = now(), updated_at = now() where id = $1 and status = 'OPEN'`,
-        [q.id, JSON.stringify(checked.answers), answeredBy, via],
+      // The bridge's and the conversation's projection, in step (the question.answered event brings it too).
+      await c.query(
+        `update neos.questions set status = 'ANSWERED', answers = $3, answered_by = $4, answered_via = $5, answered_at = now(), updated_at = now() where app_key = $1 and wait_id = $2 and status in ('OPEN', 'STALE')`,
+        [q.app_key, q.wait_id, JSON.stringify(checked.answers), answeredBy, via],
       );
       if (q.task_id) await c.query(`update neos.tasks set status = 'ACKNOWLEDGED', updated_at = now() where id = $1 and status = 'NEEDS_INPUT'`, [q.task_id]);
-      if (u.rowCount) {
+      if (!res.idempotent) {
         const root = q.root_task_id ? (await c.query<{ conversation_id: string | null }>('select conversation_id from neos.tasks where id = $1', [q.root_task_id])).rows[0] : null;
         const name = who.user_id ? ((await c.query<{ name: string }>('select name from neos.users where id = $1', [who.user_id])).rows[0]?.name ?? 'a person') : `${who.relay} (relayed)`;
-        await this.say(root?.conversation_id ?? null, q.company_id, 'neuralchat', `Answered by ${name}: ${Object.entries(checked.answers).map(([k, v]) => `${k}: ${String(v)}`).join('; ').slice(0, 1000)}`, 'notice', q.root_task_id, c);
+        await this.say(root?.conversation_id ?? null, who.company_id, 'neuralchat', `Answered by ${name}: ${Object.entries(checked.answers).map(([k, v]) => `${k}: ${String(v)}`).join('; ').slice(0, 1000)}`, 'notice', q.root_task_id, c);
       }
       await c.query(`insert into neos.audit (company_id, actor, app_key, action, outcome, detail) values ($1, $2, $3, 'question.answered', $4, $5)`, [
-        q.company_id,
+        who.company_id,
         actor,
         q.app_key,
         via,
-        JSON.stringify({ question_id: q.id, wait_id: q.wait_id, job_id: q.job_id, idempotent: !!res.body?.idempotent }),
+        JSON.stringify({ question_id: q.id, wait_id: q.wait_id, job_id: q.job_id, idempotent: !!res.idempotent }),
       ]);
     });
     return { status: 'ANSWERED', question_id: q.id, job_id: q.job_id, task_id: q.task_id };
@@ -1546,6 +1724,21 @@ export class Platform {
     );
   }
 
+  /**
+   * v3 S3: the DESK no longer depends on anything this consumer writes — its cards, questions and steps are the apps'
+   * own rows, read through neos.v_desk_cards / v_pending_approvals, neos.v_questions / v_open_questions and
+   * neos.v_activity. What is still consumed, and for whom (until presence moves into the NEOP, S4/S5, and S9):
+   *   proposal.created / .resolved / .expired / .executed — the Matrix bridge's room mirrors (room_messages: the card,
+   *     its answer, expiry, the proof), the conversation's "waiting" line and the task's WAITING/ACKNOWLEDGED status.
+   *   question.asked / .answered / .expired — neos.questions, now only the bridge's and the conversation's projection
+   *     (which DM a question was shown in, a reply to it, a follow-up in the conversation; client-sync.ts, typed.ts,
+   *     askTraced), the task's NEEDS_INPUT status, the conversation's question/expiry lines and the room mirror.
+   *   step.mirror — neos.activity step rows for the typed Matrix road's notes (bridge/typed.ts dueTypedOut) and the
+   *     room's step mirror. The desk's feed reads the steps from neos.v_activity instead.
+   *   operation.recorded — the audit trail's `app.operation` rows (/api/audit): no desk view replaces that page's
+   *     id-paged contract yet (S9 retires the gateway's audit with it).
+   *   a2a.requested — the a2a hand-off lines of the desk feed (the platform's own record; not an app step).
+   */
   private async consume(c: PoolClient, app: string, e: OutboxEvent<any>): Promise<void> {
     const p = e.payload;
     const appName = (await c.query<{ name: string }>("select manifest->>'name' as name from neos.apps where key = $1", [app])).rows[0]?.name ?? app;
@@ -1658,8 +1851,8 @@ export class Platform {
         const root = task ? await this.rootTask(task.id, c) : null;
         const askedOf = root?.requester?.startsWith('user:') ? root.requester.slice(5) : null;
         const ins = await c.query<{ id: string }>(
-          `insert into neos.questions (company_id, app_key, task_id, root_task_id, job_id, wait_id, text, why, fields, due_at, asked_of)
-           values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) on conflict (app_key, wait_id) do nothing returning id`,
+          `insert into neos.questions (id, company_id, app_key, task_id, root_task_id, job_id, wait_id, text, why, fields, due_at, asked_of)
+           values ($6,$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) on conflict do nothing returning id`,
           [e.company_id, app, task?.id ?? null, root?.id ?? task?.id ?? null, qp.job_id, qp.wait_id, qp.text, qp.why, JSON.stringify(qp.fields), qp.due_at, askedOf],
         );
         if (!ins.rows[0]) break;

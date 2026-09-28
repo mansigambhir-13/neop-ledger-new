@@ -167,7 +167,13 @@ describe('in a DM (client road) and on L3: senders and their classes', () => {
     expect(no.status, JSON.stringify(no.body)).toBe(200);
     const wait = await P.waitFor(async () => (await P.backend.core.runnerPool.query("select id from ledger.waits where job_id = $1 and kind = 'input' and status = 'pending'", [r.job_id])).rows[0], 'the question');
     const answer = { wait_id: wait.id, answers: { note: 'send it anyway' }, answered_by: `user:${P.admin.id}`, via: 'desk' };
-    expect((await l3('/l3/waits.answer', 'waits.answer', answer, 'app:marketing')).status).toBe(403);
+    // L3 has no answer route for anyone any more (v3 S3: an answer goes to <app>.answer_wait()) …
+    expect((await l3('/l3/waits.answer', 'waits.answer', answer, 'app:marketing')).status).toBe(404);
+    expect((await l3('/l3/waits.answer', 'waits.answer', answer, 'platform')).status).toBe(404);
+    // … and the book's function refuses an app's key on a person's question, whoever calls it.
+    await expect(
+      withCompany(P.backend.core.appPool, P.company.id, (c) => c.query("select ledger.answer_wait($1, $2::jsonb, 'app:marketing', 'app')", [wait.id, JSON.stringify(answer.answers)])),
+    ).rejects.toThrow(/^not_their_wait: /);
     expect((await P.backend.core.runnerPool.query('select status, answered_by from ledger.waits where id = $1', [wait.id])).rows[0]).toEqual({ status: 'pending', answered_by: null });
   });
 

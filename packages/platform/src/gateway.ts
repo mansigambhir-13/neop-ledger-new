@@ -55,7 +55,6 @@ const PATHS: Record<string, { method: 'GET' | 'POST'; path: string }> = {
   'tasks.result': { method: 'POST', path: '/l3/tasks.result' },
   'schedules.set': { method: 'POST', path: '/l3/schedules.set' },
   'schedules.list': { method: 'GET', path: '/l3/schedules' },
-  'waits.answer': { method: 'POST', path: '/l3/waits.answer' },
   'jobs.transcript': { method: 'GET', path: '/l3/jobs.transcript' },
   manifest: { method: 'GET', path: '/l3/manifest' },
   // A kept source document's bytes, fetched for a signed-in person (WP §11); platform only.
@@ -116,7 +115,8 @@ export class Gateway {
 
   async call<T = any>(req: GatewayCall): Promise<GatewayResponse<T>> {
     // proposals.resolve / proposals.execute were removed in v3 S2 (an answer goes to <app>.answer_proposal(); the app's
-    // runner carries a yes out): the names stay refused to apps, so no ACL row can ever make them an ability call.
+    // runner carries a yes out), waits.answer in v3 S3 (an answer to a question goes to <app>.answer_wait()): the names
+    // stay refused to apps, so no ACL row can ever make them an ability call.
     const PLATFORM_DOORS = ['proposals.resolve', 'proposals.execute', 'outbox.read', 'inbox.deliver', 'switchboard.changed', 'tasks.cancel', 'outbox.ack', 'tasks.result', 'schedules.set', 'schedules.list', 'waits.answer', 'jobs.transcript', 'documents.fetch'];
     const callerApp = req.caller.startsWith('app:') ? req.caller.slice(4) : null;
     const isAbility = !PATHS[req.endpoint];

@@ -3,6 +3,7 @@
 // something, its question goes to that person — never to the calling app. The person answers (here by
 // following up in their own conversation with Marketing); Ledger carries on; Marketing wakes with the result.
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { withCompany } from '@neop/pgkit';
 import { bootPilot, toolName, type BrainView, type Pilot } from '@neop/testkit';
 import { ledgerApp, seedLedger } from '@neop/ledger';
 import { marketingApp, seedMarketing } from '../src/index.ts';
@@ -36,7 +37,9 @@ describe('a question from the callee goes to the person the chain started from',
     const r = await P.api('POST', '/api/ask', { text: 'Diwali budget check: how much of Q4 ad budget is left?', app: 'marketing' });
     expect(r.status).toBe(200);
     const q = await P.waitFor(async () => (await P.api('GET', '/api/questions')).body.questions.find((x: any) => x.app_key === 'ledger'), 'Ledger’s question');
-    const ledgerTask = (await P.platform.db.query('select * from neos.tasks where id = $1', [q.task_id])).rows[0];
+    // v3 S3: the question is on the desk as soon as Ledger's book holds it (neos.v_open_questions); the task shows
+    // NEEDS_INPUT once the platform has read Ledger's outbox — a moment later.
+    const ledgerTask = await P.waitFor(async () => (await P.platform.db.query("select * from neos.tasks where id = $1 and status = 'NEEDS_INPUT'", [q.task_id])).rows[0], 'NEEDS_INPUT');
     expect(ledgerTask).toMatchObject({ requester: 'app:marketing', parent_task_id: r.body.task_id, status: 'NEEDS_INPUT' });
     // Routed to the root person, shown in her conversation with Marketing.
     expect(q).toMatchObject({ root_task_id: r.body.task_id, asked_of: P.admin.id, asked_of_name: 'Priya', text: 'Which cost centre?' });
@@ -47,7 +50,11 @@ describe('a question from the callee goes to the person the chain started from',
     expect(job).toMatchObject({ source: 'a2a', requester: 'app:marketing', on_behalf_of: `user:${P.admin.id}` });
     expect(ledgerSaw[0]).toContain(`Asked by app:marketing (a2a) on behalf of user:${P.admin.id}`);
 
-    // The calling app never answers for the person: the gateway door is the platform's alone.
+    // The calling app never answers for the person: the gateway door is the platform's alone, and Ledger's book refuses
+    // Marketing's key on a question put to a person (v3 S3: <app>.answer_wait(), whoever calls it).
+    await expect(
+      withCompany(P.backends.ledger!.core.appPool, P.company.id, (c) => c.query("select ledger.answer_wait($1, $2::jsonb, 'app:marketing', 'app')", [q.wait_id, JSON.stringify({ cost_centre: 'digital' })])),
+    ).rejects.toMatchObject({ code: '42501', message: expect.stringMatching(/^not_their_wait: /) });
     await expect(P.platform.internalCall('marketing', { company_id: P.company.id, app: 'ledger', endpoint: 'waits.answer', body: { wait_id: q.wait_id, answers: { cost_centre: 'digital' }, answered_by: 'app:marketing' }, idem_key: 'mkt-answer' })).rejects.toMatchObject({ status: 403 });
     await expect(P.platform.gateway.call({ caller: 'app:marketing', app: 'ledger', endpoint: 'waits.answer', company_id: P.company.id, body: {}, idem_key: 'mkt-answer-2' })).rejects.toMatchObject({ status: 403 });
     expect((await P.platform.db.query('select status from neos.questions where id = $1', [q.id])).rows[0].status).toBe('OPEN');

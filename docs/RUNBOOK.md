@@ -216,6 +216,27 @@ NeuralChat (#143) sees no difference: plain `m.text` to `@ledger`, exactly one t
   carried out when resumed or on the next backend start. Switching the ability **off** on the switchboard is the
   company-facing way: a yes on an off line ends FAILED `switched_off` and the job says so.
 
+## Questions (v3 S3: an answer lands on the app's own wait through one function)
+- **Where an answer goes.** A job's question is the app's own input wait. The desk lists them from
+  `neos.v_open_questions` (`GET /api/questions`; `?status=ANSWERED|EXPIRED|STALE` reads `neos.v_questions`), and every
+  answer — the desk (`POST /api/questions/<id>/answer`), a follow-up in the conversation, a reply in a DM, a typed
+  `neos.neop.answer`, NeuralChat's v1 `answer`, the NEOP's own presence — goes to `<app>.answer_wait()`, called by the
+  platform as `neos_desk` (`SET LOCAL ROLE`, transaction-scoped) or by the app itself. A question's id is its wait id.
+- **What it refuses.** `400 bad_answer` (a required field missing, a wrong type, an unknown field), `409 stale` (already
+  answered, past due, or the job ended), `404` (no such question for this company), `403 not_their_wait` (an app's key
+  on a question that is not its own hand-off — a person's question is the person's). A person's answer reaches the
+  assistant as their words; anything relayed (a bridge, the reasoning agent, another NEOP) as untrusted data.
+- **Checking one by hand** (psql as a DBA): `set role neos_desk; select set_config('neos.company_id', '<co>', false);
+  select * from neos.v_open_questions where company_id = '<co>';` — the desk reads nothing else. To answer for a person
+  who cannot reach the desk: `select ledger.answer_wait('<wait>', '{"account_code":"1010"}', 'user:<their id>', 'desk');`
+  (it is recorded as theirs — only with their say-so). An unanswered question expires by itself at its due time and
+  wakes the job to say so.
+- **The views after a restore / a new app.** `neos.v_questions` / `v_open_questions` are rebuilt at `registerApp` and by
+  `scripts/migrate.ts`; `select neos.refresh_desk_questions()` (as the platform's role or the admin) rebuilds them by hand.
+  A missing app schema contributes no rows (no error).
+- **What the platform still copies** (`neos.questions`, `neos.activity` step rows) is for the Matrix bridge and the
+  conversation only; the desk never reads them. A mismatch there is cosmetic until presence moves into the NEOP.
+
 ## Backups and restore
 Point-in-time recovery of the cluster (your Postgres host's job) rewinds every app at once. The `backup` service adds per-schema logical exports so one app, or one company in one app, can come back alone.
 - **What runs:** `tsx scripts/backup.ts schedule`, every day at `NEOS_BACKUP_AT` (default `02:00`, `TZ` default UTC).

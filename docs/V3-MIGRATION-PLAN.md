@@ -30,7 +30,7 @@ Companies, users/auth, Conversations, NeuralChat (reads `neos_registry`), the de
 | S0 | t007–t009, answer_proposal, NOTIFY, mirrors, DBA bundle, desk views, `neos_registry`, typed events (in flight) | — |
 | S1 ✅ | Switchboard/installs/grants become truth in the app schema (t010, backfill script); gate reads the DB | medium — **done 2026-09-28** (below) |
 | S2 ✅ | The runner carries out the yes (LISTEN + poll, SKIP LOCKED, fingerprint check); approvals worker and execution tokens deleted | high — money path — **done 2026-09-28** (below) |
-| S3 | Desk on the database; `answer_wait()`; DeskHarness in testkit | medium |
+| S3 ✅ | Desk on the database; `answer_wait()`; DeskHarness in testkit | medium — **done 2026-09-28** (below) |
 | S4 ✅ | Presence in the NEOP (appservice + client road, flag `NEOP_PRESENCE`); NeuralChat #143 plain text keeps working (task/answer, never approve) | high — **done 2026-09-28** (below) |
 | S5 | NeuralChat posts typed tasks as its own Matrix identity; tasks/outbox delivery deleted | medium |
 | S6 | NEOP to NEOP on the bus room; callee asks answered by the caller | medium-high |
@@ -84,6 +84,27 @@ What changed (details: `docs/IMPLEMENTATION-NOTES.md` › "v3 S2"; operations: `
   `neos.v_desk_cards` feeds the desk list. **Drain**: `scripts/v3/drain-approvals.ts` (also end of `scripts/migrate.ts`).
 - **Deploy order:** migrate (020, t011, drain) → new backends.
 
+## S3 — done (2026-09-28)
+What changed (details: `docs/IMPLEMENTATION-NOTES.md` › "v3 S3"; operations: `docs/RUNBOOK.md` › *Questions*):
+- **t013**: `<neop>.answer_wait(wait, answers, by, via)` — the template's `waits.answer` rules in the database (who,
+  which road, the fields and their types, open / not past due / job still going, idempotent repeat, `stale` returned);
+  writes the answer (untrusted for relays), a fact per field, the step + mirror, `question.answered`; NOTIFY via t009.
+  New: an app's key answers only its own hand-off that serves no person. EXECUTE to app, runner, `neos_desk`.
+- **021**: `neos.v_questions` / `neos.v_open_questions` (function-backed, refreshed at `registerApp` and every platform
+  migration; SELECT to `neos_desk`). A question's id is its wait id.
+- **Platform**: `/api/questions` and every answer road (desk, conversation, client-road reply, typed answer) read the
+  views and answer through `answer_wait()` as `neos_desk`; HTTP contracts unchanged. `/api/activity`, the task view and
+  `/api/tasks` counts read `neos.v_activity` / `v_open_questions`. The L3 `waits.answer` route is deleted; the NEOS v1
+  capability and S4's `runner/inbound.ts` answer through the same function (`answerWait` wraps it).
+- **Still on the gateway (S9):** block reads, transcripts, `documents.fetch`, schedules, task delivery, the outbox.
+  **Outbox consumer:** unchanged — what it still writes feeds the Matrix bridge, the conversation and the audit page,
+  not the desk (listed in the notes).
+- **testkit `DeskHarness`**: a desk on the database for tests (`SET LOCAL ROLE neos_desk`; answer_proposal /
+  answer_wait / the views).
+- **Deploy order:** migrate (021, t013) → new platform → new backends. The new platform answers through the function
+  (there once t013 is applied, whatever backend runs); an old platform would call the L3 route the new backend no
+  longer has, so the platform goes first.
+
 ## S4 — done (2026-09-28)
 What changed (details: `docs/IMPLEMENTATION-NOTES.md` › "v3 S4"):
 - **Flag.** `NEOP_PRESENCE=off|appservice|client` on the backend, default **off** (the platform bridge, unchanged).
@@ -101,7 +122,7 @@ What changed (details: `docs/IMPLEMENTATION-NOTES.md` › "v3 S4"):
   with the card re-shown). Exactly one reply per plain message; a typed thread gets note/ask/propose/done.
 - **Deploy.** `deploy/appservice.ledger.yaml`, `compose.presence-client.yml`, `compose.chat.yml` backend presence,
   `matrix-setup.sh` (NEOP_PRESENCE=appservice), `deploy.sh` honours NEOP_PRESENCE (default off), env example, netcheck.
-- **Deferred.** `answer_wait()` is S3's; NeuralChat as its own identity S5; the bus room S6. A yes received in Matrix
+- **Deferred.** `answer_wait()` is S3's (done — inbound answers now go through it); NeuralChat as its own identity S5; the bus room S6. A yes received in Matrix
   is carried out by the runner's approved path (S2), like a desk yes.
 
 ## Deploy kit after the move
