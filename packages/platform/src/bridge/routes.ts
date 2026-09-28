@@ -14,6 +14,7 @@
 import { Hono } from 'hono';
 import type { Platform } from '../platform.ts';
 import type { ChatClient } from './client-sync.ts';
+import { bridgeApproveAllowed, bridgeApproveIsException } from '../bridge-policy.ts';
 
 const MXID = /^@[^:\s]+:\S+$/;
 
@@ -53,6 +54,11 @@ export function chatClientRoutes(platform: Platform, clients: () => ChatClient[]
     const mayApprove = b.may_approve === true;
     if (mayApprove && b.kind !== 'bridge') return bad(c, 'only a bridge is given may_approve; a person approves as themselves');
     if (mayApprove && b.acts_for == null) return bad(c, 'a bridge that may approve needs acts_for: the person whose yes it carries');
+    // v3 §5/§16: the reasoning agent never approves. In production a bridge's yes is an explicit platform-level exception.
+    if (mayApprove && !bridgeApproveAllowed()) {
+      await platform.gateway.audit({ company_id: a.u!.company_id, actor: `user:${a.u!.id}`, app_key: String(b.app), action: 'chat.bridge_approve_exception', outcome: 'refused', detail: { matrix_id: b.matrix_id } });
+      return c.json({ error: { code: 'bridge_approve_not_allowed', message: 'a bridge may not approve in production unless the platform runs with NEOS_ALLOW_BRIDGE_APPROVE=1 (a deliberate exception to "only a person can say yes")' } }, 403);
+    }
     try {
       await platform.assertInstalled(b.app, a.u!.company_id);
     } catch (e: any) {
@@ -86,6 +92,9 @@ export function chatClientRoutes(platform: Platform, clients: () => ChatClient[]
       outcome: b.kind,
       detail: { matrix_id: b.matrix_id, acts_for: actsFor, may_approve: mayApprove },
     });
+    if (mayApprove && bridgeApproveIsException()) {
+      await platform.gateway.audit({ company_id: a.u!.company_id, actor: `user:${a.u!.id}`, app_key: b.app, action: 'chat.bridge_approve_exception', outcome: 'granted', detail: { matrix_id: b.matrix_id, acts_for: actsFor, flag: 'NEOS_ALLOW_BRIDGE_APPROVE=1' } });
+    }
     return c.json({ ok: true, app: b.app, matrix_id: b.matrix_id, kind: b.kind, acts_for: actsFor, may_approve: mayApprove });
   });
 
