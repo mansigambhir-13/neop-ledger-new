@@ -59,13 +59,17 @@ describe('inbound auth', () => {
     expect((await post('/l3/tasks.open', old, openBody())).status).toBe(401);
   });
 
-  it('only the platform may record an answer, and only for a person', async () => {
+  it('L3 records no answers and executes nothing on request, for anyone (v3 S2: answer_proposal() as the desk; the runner executes)', async () => {
+    // Was: only the platform may record an answer (403 for an app, 400 for a non-person). The route is gone: the
+    // answer goes to <app>.answer_proposal(), which itself refuses a non-person (sender.test.ts, v3-conformance A3).
     const asApp = await P.platform.gateway.mint({ aud: 'ledger', sub: 'app:marketing', company_id: P.company.id, ability: 'proposals.resolve', idem_key: 'k' });
     const r = await post('/l3/proposals.resolve', asApp, { proposal_id: randomUUID(), decision: 'yes', fingerprint_seen: 'x', decided_by: 'user:x' });
-    expect(r.status).toBe(403);
+    expect(r.status).toBe(404);
     const asPlatform = await P.platform.gateway.mint({ aud: 'ledger', sub: 'platform', company_id: P.company.id, ability: 'proposals.resolve', idem_key: 'k' });
-    const r2 = await post('/l3/proposals.resolve', asPlatform, { proposal_id: randomUUID(), decision: 'yes', fingerprint_seen: 'x', decided_by: 'app:marketing' });
-    expect(r2.status).toBe(400);
+    const r2 = await post('/l3/proposals.resolve', asPlatform, { proposal_id: randomUUID(), decision: 'yes', fingerprint_seen: 'x', decided_by: `user:${P.admin.id}` });
+    expect(r2.status).toBe(404);
+    const exec = await P.platform.gateway.mint({ aud: 'ledger', sub: 'platform', company_id: P.company.id, ability: 'proposals.execute', idem_key: 'k2' });
+    expect((await post('/l3/proposals.execute', exec, { proposal_id: randomUUID() })).status).toBe(404);
   });
 
   it('a signed room event becomes a job, once', async () => {

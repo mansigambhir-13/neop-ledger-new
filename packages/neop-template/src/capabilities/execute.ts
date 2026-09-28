@@ -1,12 +1,16 @@
 // The approved path. The only way an approved thing ever happens, whether the
-// yes came from a person (via the platform's proposals.execute) or from a
-// grant a person wrote (via the gate). No model is involved.
+// yes came from a person (answer_proposal() → the runner, runner/waits.ts) or
+// from a grant a person wrote (inline in the gate). No model, no platform and
+// no token sit between the yes and the effect (v3 §6).
 //
-// Contract (plan §Contracts): check token, fingerprint and state APPROVED; set
-// EXECUTING; call the door with a door-level idempotency key; read back; set
-// DONE, FAILED or UNKNOWN; mark the wait ready; return proof. A retried execute
-// on a terminal proposal returns the stored proof and does nothing (S1: at
-// least once + door idempotency + read-back, never "exactly once" claimed).
+// Contract: under the execution lock and the row lock — state APPROVED; the
+// approving event's fingerprint equals the proposal's; not expired; the ability
+// version, the switch and the company rules re-checked — set EXECUTING; call
+// the door with a door-level idempotency key; read back; set DONE, FAILED or
+// UNKNOWN; only then mark the wait ready; return proof. A retried execute on a
+// terminal proposal returns the stored proof and does nothing. A dead executor
+// (EXECUTING, nobody holding the lock) is resumed read-back first, with the same
+// idempotency key (at least once + door idempotency + read-back).
 
 import { getPointer, type ExecOutcome, type ManifestAbility, type Proof } from '@neop/contracts';
 import type { PoolClient } from '@neop/pgkit';
@@ -123,90 +127,121 @@ export async function runEffect(
   }
 }
 
+/** Who carries a proposal out: `runner:<id>` (a person's yes) or `grant:<id>` (a standing yes, inline in the gate). */
+export interface ExecBy {
+  actor: string;
+  request_id?: string | null;
+  trace?: string | null;
+}
+
+/** The advisory lock that says "someone alive is carrying this proposal out" (session-level, on a direct connection). */
+export const execLockKey = (proposalId: string) => `exec:${proposalId}`;
+
 /**
- * Carry out one approved proposal. `claims` comes from a verified execution
- * token (platform-minted, single use); the fingerprint in it must match.
+ * Carry out one approved proposal (v3 §6: no token — the row says APPROVED, and the checks below are made
+ * at effect time against the book itself). Takes the execution lock on its own connection; a concurrent
+ * attempt is told "in progress".
  */
-export async function executeProposal(
-  core: Core,
-  companyId: string,
-  proposalId: string,
-  claims: { fingerprint: string; sub: string; ability_version?: string | null; request_id?: string | null; trace?: string | null },
-): Promise<Proof> {
-  // Liveness, not a timer: whoever carries this proposal out holds a session-level
-  // advisory lock for the whole effect. If that process dies, its connection closes
-  // and the lock is released at once, so a retry resumes immediately; while it is
-  // alive, a concurrent execute is told "in progress".
+export async function executeProposal(core: Core, companyId: string, proposalId: string, by: ExecBy): Promise<Proof> {
+  // Liveness, not a timer: whoever carries this proposal out holds a session-level advisory lock for the
+  // whole effect. If that process dies, its connection closes and the lock is released at once, so the
+  // runner's poll resumes it (read back first); while it is alive, a concurrent execute is told "in progress".
   const lock = await core.execLockPool.connect();
-  let released = false;
-  const release = async () => {
-    if (released) return;
-    released = true;
-    await lock.query('select pg_advisory_unlock(hashtext($1))', [`exec:${proposalId}`]).catch(() => {});
-    lock.release();
-  };
+  let got: boolean;
   try {
-    const got = (await lock.query<{ ok: boolean }>('select pg_try_advisory_lock(hashtext($1)) as ok', [`exec:${proposalId}`])).rows[0]!.ok;
-    if (!got) {
-      released = true;
-      lock.release();
-      throw new ExecError(409, 'in_progress', 'this proposal is being carried out right now');
-    }
-    return await executeLocked(core, companyId, proposalId, claims);
+    got = (await lock.query<{ ok: boolean }>('select pg_try_advisory_lock(hashtext($1)) as ok', [execLockKey(proposalId)])).rows[0]!.ok;
+  } catch (e) {
+    lock.release();
+    throw e;
+  }
+  if (!got) {
+    lock.release();
+    throw new ExecError(409, 'in_progress', 'this proposal is being carried out right now');
+  }
+  return executeHeld(core, lock, companyId, proposalId, by);
+}
+
+/**
+ * Carry out a proposal whose execution lock `lock` already holds (the runner's claim), then release the
+ * lock and the connection, whatever happens.
+ */
+export async function executeHeld(core: Core, lock: PoolClient, companyId: string, proposalId: string, by: ExecBy): Promise<Proof> {
+  try {
+    return await executeLocked(core, companyId, proposalId, by);
   } finally {
-    await release();
+    await lock.query('select pg_advisory_unlock(hashtext($1))', [execLockKey(proposalId)]).catch(() => {});
+    lock.release();
   }
 }
 
-async function executeLocked(
-  core: Core,
-  companyId: string,
-  proposalId: string,
-  claims: { fingerprint: string; sub: string; ability_version?: string | null; request_id?: string | null; trace?: string | null },
-): Promise<Proof> {
+/**
+ * Why an APPROVED proposal must not run now, checked at effect time under its row lock (v3 §6): the
+ * approving answer was given against exactly this fingerprint (the `answered:yes` event a person's yes left
+ * through answer_proposal(), or the `approved_by_grant` event of a standing yes), and the proposal has not
+ * expired. Null when it may run.
+ */
+async function refusalAtEffectTime(core: Core, c: PoolClient, p: ProposalRow): Promise<string | null> {
+  const ev = (
+    await c.query<{ fingerprint_seen: string | null; expired: boolean }>(
+      `select e.fingerprint_seen, p.expires_at <= now() as expired
+         from ${core.key}.proposals p
+         left join lateral (select fingerprint_seen from ${core.key}.proposal_events
+                             where proposal_id = p.id and event in ('answered:yes', 'approved_by_grant') order by id desc limit 1) e on true
+        where p.id = $1`,
+      [p.id],
+    )
+  ).rows[0];
+  if (!ev || ev.fingerprint_seen === null) return 'fingerprint_mismatch: no yes is on record for this proposal';
+  if (ev.fingerprint_seen !== p.fingerprint) return 'fingerprint_mismatch: the yes on record was given to a different version of this proposal';
+  if (ev.expired) return `expired: proposal ${p.id.slice(0, 8)} expired before it could be carried out`;
+  return null;
+}
+
+async function executeLocked(core: Core, companyId: string, proposalId: string, by: ExecBy): Promise<Proof> {
   // 1. Lock the row, check, move to EXECUTING.
   const start = await core.company(companyId, async (c) => {
     const p = await core.book.getProposal(c, proposalId, true);
     if (!p) throw new ExecError(404, 'not_found', 'no such proposal');
-    if (p.fingerprint !== claims.fingerprint) throw new ExecError(409, 'fingerprint_mismatch', 'token fingerprint does not match the proposal');
-    if (EXECUTION_TERMINAL.includes(p.status)) return { p, stored: p.proof as Proof };
+    if (EXECUTION_TERMINAL.includes(p.status)) return { p, stored: p.proof as Proof, resumed: false, refused: null as string | null };
     if (p.status !== 'APPROVED' && p.status !== 'EXECUTING') {
       throw new ExecError(409, 'not_approved', `proposal is ${p.status}`);
     }
     // EXECUTING while we hold the lock means the previous executor died: resume (read back first).
     const resumed = p.status === 'EXECUTING';
+    let refused: string | null = null;
     if (!resumed) {
+      refused = await refusalAtEffectTime(core, c, p);
+      // A refusal still takes the legal road (APPROVED → EXECUTING → FAILED), so the job wakes to say why.
       await core.book.updateProposal(c, p.id, { status: 'EXECUTING' });
-      await core.book.proposalEvent(c, { company_id: companyId, proposal_id: p.id, event: 'executing', actor: claims.sub, fingerprint_seen: claims.fingerprint });
+      await core.book.proposalEvent(c, { company_id: companyId, proposal_id: p.id, event: 'executing', actor: by.actor, fingerprint_seen: p.fingerprint });
     } else {
-      await core.book.proposalEvent(c, { company_id: companyId, proposal_id: p.id, event: 'execute_resumed', actor: claims.sub });
+      await core.book.proposalEvent(c, { company_id: companyId, proposal_id: p.id, event: 'execute_resumed', actor: by.actor });
     }
-    return { p, stored: null as Proof | null, resumed };
+    return { p, stored: null as Proof | null, resumed, refused };
   });
   if (start.stored) return start.stored;
   const p = start.p;
+  if (start.refused) {
+    return finish(core, p, { outcome: 'FAILED', external_ref: null, read_back: null, error: start.refused }, by);
+  }
   const resolved = await core.resolve(companyId, p.ability_key);
   const ability = resolved?.meta;
   const handler = resolved?.handler;
   if (!ability || !handler || handler.kind !== 'write') {
-    return finish(core, p, { outcome: 'FAILED', external_ref: null, read_back: null, error: `ability ${p.ability_key} is not a write in this version` }, claims);
+    return finish(core, p, { outcome: 'FAILED', external_ref: null, read_back: null, error: `ability ${p.ability_key} is not a write in this version` }, by);
   }
 
-  // Gate step 2 at effect time: the yes was given to one version of the ability. If the
-  // app now runs another (or the token was minted for another), nothing runs; the job
-  // wakes to tell the person and propose again. A resumed execute has already begun.
-  if (!start.resumed) {
-    const approved = claims.ability_version ?? p.ability_version;
-    if (p.ability_version !== ability.version || approved !== p.ability_version) {
-      return finish(core, p, { outcome: 'FAILED', external_ref: null, read_back: null, error: `version_changed: proposed against ${p.ability_key}@${p.ability_version}${approved !== p.ability_version ? ` (approved as ${approved})` : ''}, this app now runs ${ability.version}` }, claims);
-    }
+  // Gate step 2 at effect time: the yes was given to one version of the ability. If the app now runs
+  // another, nothing runs; the job wakes to tell the person and propose again. A resumed execute has begun.
+  if (!start.resumed && p.ability_version !== ability.version) {
+    return finish(core, p, { outcome: 'FAILED', external_ref: null, read_back: null, error: `version_changed: proposed against ${p.ability_key}@${p.ability_version}, this app now runs ${ability.version}` }, by);
   }
 
   // The setting is re-read, not trusted from a cache: switched off since the yes → it does not run.
   core.board.invalidate(companyId);
   const board = await core.board.get(companyId);
   if (!start.resumed && board.setting(ability) === 'off') {
-    return finish(core, p, { outcome: 'FAILED', external_ref: null, read_back: null, error: `switched_off: ${p.ability_key} was switched off before it could run` }, claims);
+    return finish(core, p, { outcome: 'FAILED', external_ref: null, read_back: null, error: `switched_off: ${p.ability_key} was switched off before it could run` }, by);
   }
 
   // 2. Company rules are checked again at effect time ("nothing goes out on weekends").
@@ -214,24 +249,25 @@ async function executeLocked(
   const usage = await core.company(companyId, (c) => ruleUsage(core, c, board, m.currency, p.id));
   const violation = checkRules(board.rules, { ability_key: p.ability_key, external: !!ability.effects?.external, ...m }, new Date(), board.company.time_zone, usage);
   if (violation) {
-    return finish(core, p, { outcome: 'FAILED', external_ref: null, read_back: null, error: `rule ${violation.rule_id}: ${violation.reason}` }, claims);
+    return finish(core, p, { outcome: 'FAILED', external_ref: null, read_back: null, error: `rule ${violation.rule_id}: ${violation.reason}` }, by);
   }
 
   // 3. The effect, outside any transaction.
   await core.hooks.beforeExecuteEffect?.(p.id);
-  const ctx = execCtx(core, p, claims.sub, board.company.name);
-  const span = core.tracer.start(`door ${p.ability_key}`, claims.trace ?? null, { 'neop.proposal': p.id, 'neop.resumed': !!start.resumed });
+  const ctx = execCtx(core, p, by.actor, board.company.name);
+  const span = core.tracer.start(`door ${p.ability_key}`, by.trace ?? null, { 'neop.proposal': p.id, 'neop.resumed': !!start.resumed });
   const res = await runEffect(handler, p.args, ctx, !!start.resumed);
   span.set('neop.outcome', res.outcome).end(res.outcome === 'DONE' ? 'ok' : 'error', res.error ?? undefined);
   core.metrics.inc('neop_execute_total', 'Approved actions carried out, by outcome', { app: core.key, ability: p.ability_key, outcome: res.outcome });
-  return finish(core, p, res, claims, m);
+  await core.hooks.afterExecuteEffect?.(p.id);
+  return finish(core, p, res, by, m);
 }
 
 async function finish(
   core: Core,
   p: ProposalRow,
   res: { outcome: ExecOutcome; external_ref: string | null; read_back: unknown; error: string | null },
-  claims: { sub: string; request_id?: string | null; trace?: string | null },
+  by: ExecBy,
   m: Measure = {},
 ): Promise<Proof> {
   const proof: Proof = { outcome: res.outcome, external_ref: res.external_ref, read_back: res.read_back, error: res.error, at: new Date().toISOString() };
@@ -241,16 +277,16 @@ async function finish(
     if (cur && cur.status !== 'EXECUTING') return cur.proof as Proof;
     // executed_at: the attempt is over (whatever its outcome); verified_at: a read-back found the effect (t007).
     await core.book.updateProposal(c, p.id, { status: res.outcome, proof }, { executed: true, verified: res.outcome === 'DONE' });
-    await core.book.proposalEvent(c, { company_id: p.company_id, proposal_id: p.id, event: `executed:${res.outcome}`, actor: claims.sub, detail: proof });
+    await core.book.proposalEvent(c, { company_id: p.company_id, proposal_id: p.id, event: `executed:${res.outcome}`, actor: by.actor, detail: proof });
     await core.book.recordOperation(c, {
       company_id: p.company_id,
       job_id: p.job_id,
-      caller: claims.sub,
+      caller: by.actor,
       ability_key: p.ability_key,
       idempotency_key: p.idempotency_key,
       outcome: res.outcome,
-      gateway_request_id: claims.request_id ?? null,
-      trace_id: claims.trace ?? null,
+      gateway_request_id: by.request_id ?? null,
+      trace_id: by.trace ?? null,
       detail: { proposal_id: p.id, amount_minor: m.amount_minor ?? null, currency: m.currency ?? null, external_ref: res.external_ref },
       request: p.args,
       result: proof,

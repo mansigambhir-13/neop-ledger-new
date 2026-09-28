@@ -300,9 +300,105 @@ What WP v3 §6, §11 and §13 ask of the standard tables, the DBA path and the s
   `hardening`, `doors-switch` (the probe app gets a template schema), `verify-install` (the check reads the app's
   switchboard over the runner link).
 - **Not done here.** Approver policy is still checked by the platform (`checkApprover`, now from the app's board) —
-  moving it into `answer_proposal` is S2/S3. Matrix identity, `room_ids` and `agent_senders` are columns only (S4
+  moving it into `answer_proposal` is S2/S3 (**done in S2**, below). Matrix identity, `room_ids` and `agent_senders` are columns only (S4
   fills them). An app on its own cluster (D2) cannot be written through from the platform's pool; its board must be
   written with a desk connection to that cluster (the backfill script takes one).
+
+## v3 S2 · the runner carries out the yes (2026-09-28)
+`docs/V3-MIGRATION-PLAN.md` stage S2; WP v3 §5–§7 and §15 "a yes lands on one row, and the runner carries it out before
+the assistant wakes". Template migration **t011** (proof: `apps/ledger/tests/approved-path.test.ts` › "t011 applies
+forward on a populated book") and platform migration **020** (proof: `packages/platform/tests/migration-020.test.ts`).
+- **One row, one function (t011).** `<schema>.answer_proposal(p_id, p_fingerprint, p_decision, p_by, p_feedback,
+  p_roles text[] default null)` replaces t009's five-argument function (dropped and re-created in one transaction; a
+  five-argument call still resolves to it through the default). New: the **approver policy** (defaults 5) is checked
+  here — the write's own `switchboard.approvers`, else the company row `*`. `roles`: only a person holding one of them
+  may say yes or "change this first"; `p_roles` is the person's roles as the caller knows them, and none given with a
+  roles policy is a refusal (fail closed). `four_eyes`: the person the job serves (`jobs.on_behalf_of`, else a
+  `user:` requester) may not approve it, decided in the database whatever the caller passes; nobody on record → it
+  cannot be satisfied. Anyone may say no or withdraw. Refusals raise `not_an_approver: …` / `four_eyes: …` (42501)
+  and record nothing; the policy is checked before the idempotent-repeat branch. A yes still readies **no** wait (B2).
+  Also: `approved_via` is kept on a withdrawal after a yes (t009 nulled it). Grants: app, runner, `neos_desk`
+  (pgkit `deskGrantsSql` grants whichever signature exists).
+- **The hint (t011).** `proposals_approved_notify` / `proposals_insert_approved_notify` `pg_notify('neop_<schema>',
+  'approved:<id>')` when a proposal becomes or is born APPROVED; index `proposals_approved_ix`.
+- **The approved path in the runner** (`packages/neop-template/src/runner/waits.ts`, `ApprovedPath`). The runner's
+  LISTEN connection routes `approved:` to `approved.kick()`; the job poll interval kicks it too (the poll is the
+  truth). A pass claims, up to capacity (exec-lock pool − 1, one left for the gate's inline grants): `select … where
+  status = 'EXECUTING' or (status = 'APPROVED' and (approved_via <> 'grant' or updated_at < now() − 30 s)) … for
+  update skip locked limit 20` on an exec-lock (direct) connection, then `pg_try_advisory_lock('exec:<id>')` — the
+  first it gets is the claim; the session lock outlives the claim's commit and dies with the connection. An EXECUTING
+  row whose lock is free is an executor that died → resumed. Execution runs under actor `runner:<runnerId>`, in the
+  job's trace (`runner.approved` span → `door …`). `pause()`/`resume()` hold claiming (tests); `stop()` does not wait
+  for executions in flight (`Core.close()` abandons them as a crash would).
+- **execute.ts without a token.** `executeProposal(core, company, id, {actor, trace?, request_id?})` (gate, tests) and
+  `executeHeld(core, lock, …)` (the runner's claim). Under the row lock, for an APPROVED row, the effect-time checks
+  are made against the book: the latest `answered:yes` / `approved_by_grant` event's `fingerprint_seen` must equal the
+  row's fingerprint (`fingerprint_mismatch: …`), and `expires_at > now()` (`expired: …`); then, as before, the ability
+  version (`version_changed`, now just the row's `ability_version` against what runs — there is no separately
+  "approved" version), the switch (`switched_off`), the company rules. Every refusal takes the legal road APPROVED →
+  EXECUTING → FAILED and wakes the job (the prompt now also explains `fingerprint_mismatch` and `expired`). Operations
+  and proposal events carry the actor (`runner:<id>` / `grant:<id>`). New hook `afterExecuteEffect` (tests: a crash
+  after the door answered). A resumed execution (dead executor) reads back first and re-sends only with the same
+  idempotency key — unchanged.
+- **Grants: one code path.** A standing yes is still carried out inline by the gate (the assistant's call returns the
+  proof), through the same `executeProposal`; the runner only adopts a grant-approved proposal left APPROVED for 30 s
+  (`APPROVED_GRANT_GRACE`: a gate that died between the commit and the effect). Chosen over routing grants through the
+  runner so the model's tool call keeps its synchronous answer and there is still exactly one execute.
+- **Platform: answers go to the row.** `Platform.answer(card, user, {decision, fingerprint_seen, feedback})` looks the
+  card up in `neos.v_desk_cards` (a legacy approval id maps through the frozen `neos.approvals`), then calls
+  `<app>.answer_proposal()` as `neos_desk` (`AppBoards.answer`, S1's `SET LOCAL ROLE` write-through) with the person's
+  role. HTTP contract unchanged: `409 stale_fingerprint` (the refusal is kept in the proposal's events), `409 not_open`
+  (also for a repeat of an answer already held — the function's idempotent repeat is a no-op, the desk contract has
+  always been one answer per card), `409 too_late` (withdraw once the runner started), `403 not_an_approver` /
+  `four_eyes` (now from the database), `404`. Withdraw after a yes is the same call (`withdraw` through the function;
+  it wins only while APPROVED — the runner takes the same row lock). `checkApprover`, `approvalsTick`,
+  `driveApproval`, `withdrawApproved`, the backoff and `hooks.afterResolve` are deleted; so are the L3 routes
+  `proposals.resolve` / `proposals.execute`, `capabilities/platform/proposals.resolve.ts`,
+  `GatewayAuth.verifyExecution`, the gateway's `exec` claims and `GatewayCall.exec`, and the contracts' `exec`,
+  `proposal_id`, `fingerprint` token claims. The retired names stay on the gateway's platform-door deny list (no ACL
+  row can turn them into an ability call). The bridges (room reply, DM reply, typed approve) call the same
+  `Platform.answer`; a bridge still never approves.
+- **Desk cards (020).** `neos.desk_cards(app)` + `neos.v_desk_cards` (rebuilt by `neos.refresh_desk_cards()` at every
+  `registerApp` and platform migration, like 018): every person-facing proposal (not grant-approved) with the desk's
+  columns and statuses — PROPOSED → PENDING, APPROVED/EXECUTING → RESOLVED, DONE → EXECUTED, FAILED, UNKNOWN,
+  EXPIRED, REJECTED/SUPERSEDED/WITHDRAWN → CLOSED (`decision` no/change/withdraw); `decided_by` the person's uuid,
+  `decided_at` = `answered_at`, `last_error` = the proof's error. A card's **id is its proposal id**. `GET /api/desk`,
+  the task view's approvals, `/api/tasks`' pending count (once per list; `v_pending_approvals` stays the desk role's alone — its grants are rebuilt by 018's refresh), the bridges and
+  `/metrics` read it; `neos_desk` and `neos_app` may. The card is on the desk as soon as the app writes it, so it can
+  be seen a moment before the outbox mirror marks the task WAITING.
+- **neos.approvals frozen (020).** INSERT/UPDATE/DELETE revoked from `neos_app`; the FKs from `room_events`,
+  `room_messages`, `chat_client_events` dropped and every legacy approval id there rewritten to its proposal id (and
+  `typed:propose:<approval>` keys to `typed:propose:<proposal>`, so a typed card is not posted twice). The outbox
+  consumer no longer writes approvals; `proposal.created` mirrors the card with the proposal id.
+- **Drain.** `drainApprovals` (`packages/platform/src/drain.ts`), `scripts/v3/drain-approvals.ts`, and the end of
+  `scripts/migrate.ts`: every `RECORDED`/`RESOLVED` row is answered again through the function (same person, role,
+  fingerprint, decision). Idempotent (`already`); audited `approval.drained`. Deploy order: migrate (020, t011, drain)
+  → new backends (their runners carry out what the drain handed over, and any APPROVED row the old worker left).
+- **Tests.** New `apps/ledger/tests/approved-path.test.ts` (NOTIFY heard and the yes wakes nothing; a missed NOTIFY
+  caught by the poll; a yes with no runner up carried out when one starts; two runners → once (deterministic race of
+  two passes, and live); withdraw vs execute (before the claim, too late while EXECUTING, raced); killed after the door
+  answered and before it was called → resumed read-back first, never twice; fingerprint changed after the yes and
+  expired → FAILED, nothing sent, the job told; the desk role cannot read/write proposals, events or waits; woken only
+  after DONE with the proof; roles and four-eyes in the database whoever calls; the drain; a slow effect (was
+  stuck-approval) once with no gateway call on a yes; the t011 proof) and `packages/platform/tests/migration-020.test.ts`.
+  `stuck-approval.test.ts` is **deleted** (its premise — the platform's execute call timing out and being retried —
+  is gone; its cases are in approved-path). Ported, same meaning unless noted: `proposal` (the "defence in depth"
+  wrong-fingerprint resolve is now a direct `answer_proposal` as the desk; a retried/racing execute is two
+  `executeProposal`s; the execution-token test became "nothing carries out what nobody approved"), `runtime-gate`
+  (the token-version test became "a yes on record for one version does not run under another, whoever edited the
+  row"; the switch-off test resumes the runner instead of calling execute), `wake-order` (the crash is a held runner
+  replaced by a restart), `input-waits` (withdraw-after-yes by holding the runner, not the platform hook), `lifecycle`,
+  `matrix-go-ahead` (cards closed by a person's withdraw, not a platform row update), `flow` (waits for the task to
+  reach WAITING — ordering, above), `sender` / `inbound-auth` / `injection` (the answer/execute routes are 404 for
+  everyone — premise gone; the book's own refusal of a non-person stays), `observability` (`runner.approved` replaces
+  the gateway hops in the one trace), `desk-views` (reconciles with the desk's cards; `neos.approvals` stays empty),
+  `v3-conformance` / `board-db` / `migration` / `migration-018-019` (the applied lists include t011 / 020), and every
+  test that read `neos.approvals` now reads `neos.v_desk_cards` (same columns and statuses).
+- **For S4** (presence in the NEOP): `runner/inbound.ts` should call `answer_proposal(…, p_roles)` with the person's
+  roles (a roles policy refuses a call without them); `runner.ts` gained only the `approved` field, the `approved:`
+  notification branch, the poll kick, the start kick and the stop line.
+- **Not done here.** No ops command to pause the approved path (in-process only). `neos.approvals` and its table stay
+  until S9. The desk views are function-backed union views with no predicate push-down (fine at pilot volume).
 
 ## v3 S8 · doors from the secret store; LLM tokens without the platform (2026-09-28)
 - **Door credentials (v3 §12).** `packages/neop-template/src/doors/secrets.ts`: `SecretStore { get(company, door) }`;
@@ -364,7 +460,7 @@ What WP v3 §6, §11 and §13 ask of the standard tables, the DBA path and the s
 - **Identity** — dev bearer tokens in `neos.users`. Real sign-in replaces it.
 - **LLM proxy prices** — defaults are placeholders (`NEOP_LLM_PRICES` sets per-contract prices); unknown models are refused.
 - **The desk** — a test harness that renders blocks; the NEOS app adopts the renderer (`docs/pilot-ledger-integration.md`).
-- **Approvals on the NEOS platform** — My Desk there is read-only today; until it gains the fingerprint-bound decide route, yeses are answered on this repo's platform module.
+- **Approvals on the NEOS platform** — My Desk there is read-only today; until it gains the fingerprint-bound decide route, yeses are answered on this repo's platform module (which, since v3 S2, only calls the app's `answer_proposal()`).
 
 ## Not built yet
 - **To confirm with a commercial GSP account** (cannot be tested without one; the fake GSP follows the public GSTN taxpayer API pattern):

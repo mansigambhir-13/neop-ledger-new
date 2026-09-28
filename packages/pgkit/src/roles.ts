@@ -184,7 +184,13 @@ export function deskGrantsSql(schema: string): string {
     `    grant usage on schema ${s} to ${DESK_ROLE};\n` +
     `    grant select, insert, update, delete on ${s}.switchboard, ${s}.installs to ${DESK_ROLE};\n` +
     `    grant select on ${s}.switchboard_history, ${s}.grants, ${s}.grant_uses to ${DESK_ROLE};\n` +
-    `    grant execute on function ${s}.answer_proposal(uuid, text, text, text, text), ${s}.create_grant(text, jsonb, timestamptz, text, uuid),\n` +
+    // t011 replaced answer_proposal's signature (a sixth, defaulted argument: the person's roles).
+    `    if to_regprocedure('${s}.answer_proposal(uuid, text, text, text, text, text[])') is not null then\n` +
+    `      grant execute on function ${s}.answer_proposal(uuid, text, text, text, text, text[]) to ${DESK_ROLE};\n` +
+    `    else\n` +
+    `      grant execute on function ${s}.answer_proposal(uuid, text, text, text, text) to ${DESK_ROLE};\n` +
+    `    end if;\n` +
+    `    grant execute on function ${s}.create_grant(text, jsonb, timestamptz, text, uuid),\n` +
     `      ${s}.revoke_grant(uuid, text), ${s}.set_schedule(uuid, text, text, jsonb, boolean), ${s}.board_version_for(uuid, integer),\n` +
     `      ${s}.import_grant(jsonb, jsonb) to ${DESK_ROLE};\n` +
     `  end if;\n` +

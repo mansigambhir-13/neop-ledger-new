@@ -36,7 +36,7 @@ async function oneCall(key: string, args: Record<string, unknown>) {
 }
 async function approve(card: any) {
   await P.api('POST', `/api/desk/${card.id}/answer`, { decision: 'yes', fingerprint_seen: card.fingerprint });
-  return P.waitFor(async () => (await P.platform.db.query("select status, proof from neos.approvals where id = $1 and status in ('EXECUTED','FAILED','UNKNOWN','REFUSED')", [card.id])).rows[0], 'executed');
+  return P.waitFor(async () => (await P.platform.db.query("select status, proof from neos.v_desk_cards where id = $1 and status in ('EXECUTED','FAILED','UNKNOWN','REFUSED')", [card.id])).rows[0], 'executed');
 }
 
 describe('B1 · door credentials and internal endpoints are scoped to installs and declared doors', () => {

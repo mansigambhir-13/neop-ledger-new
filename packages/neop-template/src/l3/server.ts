@@ -3,11 +3,10 @@
 
 import type { GatewayClaims } from '@neop/contracts';
 import { Hono, type Context } from 'hono';
-import { ExecError, executeProposal } from '../capabilities/execute.ts';
+import { ExecError } from '../capabilities/execute.ts';
 import { cancelJob } from '../capabilities/platform/tasks.cancel.ts';
 import { openJob, requesterMatches, validateOpen } from '../capabilities/platform/tasks.open.ts';
 import { readOutbox } from '../capabilities/platform/outbox.read.ts';
-import { resolveProposal, validateResolve } from '../capabilities/platform/proposals.resolve.ts';
 import { answerWait, validateAnswer } from '../capabilities/platform/waits.answer.ts';
 import type { Core } from '../core.ts';
 import { renderBackendMetrics } from './metrics.ts';
@@ -132,15 +131,6 @@ export function l3App(core: Core): Hono {
     return c.json(await cancelJob(core, claims.company_id!, b));
   });
 
-  app.post('/l3/proposals.resolve', async (c) => {
-    const claims = await authed(c, 'proposals.resolve');
-    if (claims.sub !== 'platform') return c.json({ error: { code: 'denied', message: 'only the platform records answers' } }, 403);
-    const body = await c.req.json().catch(() => null);
-    const bad = validateResolve(body);
-    if (bad) return c.json({ error: { code: 'bad_request', message: bad } }, 400);
-    return c.json(await resolveProposal(core, claims.company_id!, body));
-  });
-
   // WP §8 `answer`: an answer to a question a job asked (job.ask). Platform only — a person on the
   // desk, in their conversation or DM; a bridge or the reasoning agent only as relayed, untrusted data.
   // Another app never answers here: its calls are refused at the gateway and again below.
@@ -165,24 +155,6 @@ export function l3App(core: Core): Hono {
     });
     if (!out) return c.json({ error: { code: 'not_found', message: 'no such job' } }, 404);
     return c.json(out);
-  });
-
-  app.post('/l3/proposals.execute', async (c) => {
-    const body = await c.req.json().catch(() => null);
-    if (!body || typeof body.proposal_id !== 'string') return c.json({ error: { code: 'bad_request', message: 'proposal_id required' } }, 400);
-    const tok = bearer(c);
-    const pre = await core.gatewayAuth.verify(tok, { ability: 'proposals.execute', contractVersion: c.req.header('contract-version') ?? null });
-    if (!pre.exec || !pre.company_id || pre.proposal_id !== body.proposal_id || !pre.fingerprint) {
-      return c.json({ error: { code: 'not_execution_token', message: 'an execution token bound to this proposal is required' } }, 403);
-    }
-    const proof = await executeProposal(core, pre.company_id, body.proposal_id, {
-      fingerprint: pre.fingerprint,
-      sub: pre.sub,
-      ability_version: pre.ability_version ?? null,
-      request_id: c.req.header('x-request-id') ?? null,
-      trace: trace(c),
-    });
-    return c.json(proof);
   });
 
   app.get('/l3/outbox', async (c) => {

@@ -6,7 +6,7 @@ import { applyDeskGrants, bootstrapFamily, migrate } from '@neop/pgkit';
 export const PLATFORM_MIGRATIONS = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../migrations');
 
 /** Functions that must read every app's schema (018): owned by the admin role, not the platform's migrator. */
-const DESK_FUNCTIONS = ['neos.desk_pending(text)', 'neos.desk_activity(text)', 'neos.refresh_desk_views()'];
+const DESK_FUNCTIONS = ['neos.desk_pending(text)', 'neos.desk_activity(text)', 'neos.refresh_desk_views()', 'neos.desk_cards(text)', 'neos.refresh_desk_cards()'];
 
 export async function migratePlatform(adminUrl: string, log?: (m: string) => void) {
   // The platform never needs a BYPASSRLS runner role (it reads no tenant rows as a runner).
@@ -83,10 +83,13 @@ async function afterMigrate(adminUrl: string, log?: (m: string) => void): Promis
     const has = async (fn: string) => (await c.query('select to_regprocedure($1) is not null as ok', [fn])).rows[0].ok as boolean;
     if (await has('neos.refresh_desk_views()')) {
       for (const fn of DESK_FUNCTIONS) {
+        if (!(await has(fn))) continue;
         await c.query(`alter function ${fn} owner to current_user`).catch((e) => log?.(`[neos] ${fn} stays with the migrator: ${(e as Error).message}`));
       }
       await c.query('select neos.refresh_desk_views()');
     }
+    // v3 S2 (020): the desk's cards, straight from every app's proposals.
+    if (await has('neos.refresh_desk_cards()')) await c.query('select neos.refresh_desk_cards()');
     if (await has('neos.grant_registry_read(text)')) {
       await c.query("select neos.grant_registry_read(key) from neos.apps where status <> 'platform' and key ~ '^[a-z][a-z0-9_]{0,40}$'");
     }

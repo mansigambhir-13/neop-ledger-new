@@ -1,5 +1,7 @@
-// wake-order.test · B2 + B3: no assistant wakes before execute is terminal; a
-// platform crash between resolve and execute recovers without losing the yes.
+// wake-order.test · B2 + B3: no assistant wakes before execute is terminal; a crash between the yes and the
+// effect recovers without losing the yes. (v3 S2: the yes is on the app's row — APPROVED — and it is the app's
+// runner, not a platform worker, that carries it out; a runner that dies before it does is replaced by one that
+// finds the row on its first poll.)
 import { readdir } from 'node:fs/promises';
 import { afterAll, beforeAll, expect, it } from 'vitest';
 import { bootPilot, call, finish, type Pilot } from './harness.ts';
@@ -10,7 +12,7 @@ beforeAll(async () => {
 });
 afterAll(async () => P?.close());
 
-it('a yes never wakes the job before the effect is done, and survives a crash between resolve and execute', async () => {
+it('a yes never wakes the job before the effect is done, and survives a crash between the yes and the effect', async () => {
   const wakes: string[] = [];
   P.setBrain((v) => {
     if (v.job.includes('WOKEN')) {
@@ -31,12 +33,9 @@ it('a yes never wakes the job before the effect is done, and survives a crash be
     return (await P.desk()).find((c) => c.job_id === job_id && c.status === 'PENDING');
   }, 'card');
 
-  // The platform crashes right after the app accepted the yes.
-  P.platform.hooks.afterResolve = async () => {
-    throw new Error('simulated platform crash');
-  };
-  await P.api('POST', `/api/desk/${card.id}/answer`, { decision: 'yes', fingerprint_seen: card.fingerprint });
-  await P.waitFor(async () => (await P.platform.db.query("select status from neos.approvals where id = $1", [card.id])).rows[0].status === 'RESOLVED', 'resolved');
+  // The runner dies right after the yes landed on the row, before it carried it out (held here, then replaced).
+  P.backend.runner.approved.pause();
+  expect((await P.api('POST', `/api/desk/${card.id}/answer`, { decision: 'yes', fingerprint_seen: card.fingerprint })).status).toBe(200);
 
   const p = await P.backend.core.runnerPool.query('select status from ledger.proposals where id = $1', [card.proposal_id]);
   expect(p.rows[0].status).toBe('APPROVED');
@@ -47,12 +46,11 @@ it('a yes never wakes the job before the effect is done, and survives a crash be
   expect(wakes).toHaveLength(0);
   expect((await P.jobRow(job_id)).status).toBe('WAITING');
   expect(await readdir(P.mailDir)).toHaveLength(0);
+  expect((await P.desk()).find((c) => c.id === card.id).status).toBe('RESOLVED'); // the yes is recorded, not yet carried out
 
-  // Restart: the worker picks the RESOLVED row back up and carries it out.
-  P.platform.hooks.afterResolve = undefined;
-  await P.platform.db.query('update neos.approvals set next_attempt_at = now() where id = $1', [card.id]);
-  await P.platform.approvalsTick();
-  expect((await P.platform.db.query('select status from neos.approvals where id = $1', [card.id])).rows[0].status).toBe('EXECUTED');
+  // Restart: the new runner's first poll finds the APPROVED row and carries it out, once, before anything wakes.
+  await P.restartBackend();
+  await P.waitFor(async () => (await P.desk()).find((c) => c.id === card.id).status === 'EXECUTED', 'executed');
   expect(await readdir(P.mailDir)).toHaveLength(1);
   await P.waitFor(async () => {
     await P.platform.outboxTick();

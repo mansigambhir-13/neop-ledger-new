@@ -222,7 +222,7 @@ describe('names that match nothing: "Did you mean …?" (4fa4f94, 7055884)', () 
     });
     expect(ok.first).toMatch(/Proposal .* is written/);
     const card = await P.waitFor(async () => (await P.desk()).find((c) => c.task_id === ok.task_id && c.status === 'PENDING'), 'card');
-    const row = (await P.platform.db.query('select args from neos.approvals where id = $1', [card.id])).rows[0];
+    const row = (await P.platform.db.query('select args from neos.v_desk_cards where id = $1', [card.id])).rows[0];
     expect(row.args.account_code).toBe('6200');
     P.setBrain((v) => (v.job.includes('WOKEN') ? finish('declined, nothing recorded') : { text: 'waiting' }));
     await P.api('POST', `/api/desk/${card.id}/answer`, { decision: 'no', fingerprint_seen: card.fingerprint });

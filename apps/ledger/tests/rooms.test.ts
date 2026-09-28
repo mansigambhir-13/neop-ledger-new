@@ -60,7 +60,7 @@ describe('rooms', () => {
     expect(await readdir(P.mailDir)).toHaveLength(1);
     const ans = await P.platform.db.query("select outcome, fingerprint_shown from neos.room_events where direction = 'inbound' and approval_id = $1", [approval.id]);
     expect(ans.rows[0]).toEqual({ outcome: 'answered:yes', fingerprint_shown: approval.fingerprint });
-    const a = await P.platform.db.query('select status, decided_by from neos.approvals where id = $1', [approval.id]);
+    const a = await P.platform.db.query('select status, decided_by from neos.v_desk_cards where id = $1', [approval.id]);
     expect(a.rows[0]).toEqual({ status: 'EXECUTED', decided_by: P.admin.id });
     expect(inRoom().some((m) => /^Done and verified: proposal/.test(m.body))).toBe(true);
   });

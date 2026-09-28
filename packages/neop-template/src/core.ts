@@ -40,7 +40,12 @@ export class Core {
   readonly llm: LlmSessions | null;
   readonly metrics = new Metrics();
   /** Test/fault-injection hooks; empty in production. */
-  readonly hooks: { beforeExecuteEffect?: (proposalId: string) => Promise<void>; afterGrantMatched?: (proposalId: string) => Promise<void> } = {};
+  readonly hooks: {
+    beforeExecuteEffect?: (proposalId: string) => Promise<void>;
+    /** After the door answered, before the outcome is written (a crash here is the "did it happen?" case). */
+    afterExecuteEffect?: (proposalId: string) => Promise<void>;
+    afterGrantMatched?: (proposalId: string) => Promise<void>;
+  } = {};
 
   constructor(app: AppDefinition, cfg: NeopConfig) {
     this.app = app;

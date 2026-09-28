@@ -21,6 +21,9 @@ This whole sequence has been run end to end in Docker Compose. Every image sets 
    - It runs platform, template (`t###`) and Ledger (`###`) migrations, plus any package migrations that installs are waiting on.
    - It is safe to re-run.
    - `NEOS_APPS` picks the apps (default `ledger`).
+   - At the end it hands over what the retired approvals worker had in hand (v3 S2, see *Approvals*): every
+     `neos.approvals` row still `RECORDED`/`RESOLVED` is answered once more through the app's `answer_proposal()`.
+     It prints `[approvals] N in hand, M handed over, K already held` and exits 1 if one could not be handed over.
 3. **Start:**
    ```
    docker compose -f deploy/compose.pilot.yml up -d
@@ -133,6 +136,38 @@ Every provider must either accept an `Idempotency-Key` and let us look the effec
 - **Backups** run nightly by themselves (see *Backups and restore*). Check that last night's run logged `backup complete`.
 - **Metrics, alerts, traces:** the `observability` profile (see *Observability*).
 - **Migrations:** see *Writing a migration* before adding one.
+
+## Approvals (v3 S2: a yes lands on one row; the app's runner carries it out)
+- **Where a yes goes.** A person's answer on the desk (`POST /api/desk/<card>/answer`, unchanged) or their own reply /
+  typed approve in their DM or room goes to **one** place: `<app>.answer_proposal()` on the app's own proposal row,
+  called by the platform as `neos_desk` (`SET LOCAL ROLE`, transaction-scoped). The function checks the fingerprint
+  the person saw, the expiry, that the card is still open, and the company's **approver policy** (the write's own
+  `approvers`, else the company row `*`: `roles` — only a person holding one may say yes or "change this first";
+  `four_eyes` — the person the job serves may not approve it). The platform passes the person's role; four-eyes is
+  decided in the database from the job's own requester. Refusals: `409 stale_fingerprint` (kept in the proposal's
+  history), `409 not_open` (answered, closed or expired), `403 not_an_approver`, `403 four_eyes`, `409 too_late`
+  (a withdrawal after the runner started). Nothing else in the app's schema is open to the desk.
+- **Who carries it out.** The app's **runner**, not the platform and not a model: it hears `approved:<proposal>` on
+  its channel (the hint) and polls `APPROVED` rows every `pollMs` (the truth), claims one with `FOR UPDATE SKIP
+  LOCKED` plus the execution advisory lock, re-checks at effect time (the fingerprint on the `answered:yes` event,
+  not expired, the ability version, the switch, the company rules), calls the door once (idempotency key, read-back),
+  writes DONE / FAILED / UNKNOWN, and only then makes the job's wait ready and wakes a fresh assistant with the proof.
+  Several runners carry a yes out once. A runner that dies mid-effect leaves the proposal `EXECUTING` with no lock
+  holder; the next poll (any runner) resumes it read-back first, with the same idempotency key. A standing yes
+  (grant) is carried out inline by the gate through the same code; the runner adopts one left `APPROVED` > 30 s.
+- **The desk list** is the apps' own rows: `neos.v_desk_cards` (every person-facing proposal, in the desk's statuses
+  PENDING / RESOLVED = a yes being carried out / EXECUTED / FAILED / UNKNOWN / CLOSED / EXPIRED; a card's id is its
+  proposal id) and `neos.v_pending_approvals` (the waiting ones). `neos.approvals` is a **frozen** legacy copy
+  (platform migration 020): read only to map a card id from before the move, never written.
+- **The drain.** `scripts/v3/drain-approvals.ts [--app ledger] [--json]` (also the end of `scripts/migrate.ts`)
+  re-answers every `neos.approvals` row still `RECORDED`/`RESOLVED` through `answer_proposal()` — same person, same
+  fingerprint, same decision — and the runner carries a yes out. Idempotent: a re-run reports `already`. `closed`
+  (expired/withdrawn meanwhile), `refused` (policy/fingerprint) and `not_found` rows are reported and left alone;
+  `error`/`no_schema` exit 1. Each hand-over is audited `approval.drained` (actor `migration:v3-s2`).
+- **Holding execution** (an incident: a door misbehaving): the runner's approved path has an in-process pause
+  (`runner.approved.pause()`, used by the tests; no ops command yet); a yes then stays `APPROVED` (RESOLVED on the desk) and is
+  carried out when resumed or on the next backend start. Switching the ability **off** on the switchboard is the
+  company-facing way: a yes on an off line ends FAILED `switched_off` and the job says so.
 
 ## Backups and restore
 Point-in-time recovery of the cluster (your Postgres host's job) rewinds every app at once. The `backup` service adds per-schema logical exports so one app, or one company in one app, can come back alone.
@@ -263,10 +298,10 @@ docker compose -p neops-chaos -f deploy/compose.pilot.yml -f deploy/compose.chao
 | `NeopDeadLetters` | The platform could not apply an app event | Fix the cause, then `POST /api/dead-letters/ledger/<id>/replay`. Nothing is lost while it is parked. |
 | `NeopAckSlow` | New jobs are acknowledged slowly | Check PgBouncer (`SHOW POOLS`) and Postgres; check `neop_gateway_latency_seconds`. |
 | `NeopApprovalsPiling` | People are not answering cards | Product issue, not an outage. |
-| Card stuck in RESOLVED | The app was unreachable when executing | The approvals worker retries with backoff. An execution whose process died is resumed as soon as its connection closes. |
+| Card stuck in RESOLVED | The yes is on the row (APPROVED) but no runner has carried it out | Check the app backend is up (`/l3/ready`) and its runner log (`approved path …`). The runner's poll picks it up within `pollMs` of starting; an execution whose process died (EXECUTING, no lock holder) is resumed read-back first by the next poll. Nothing on the platform side drives it. |
 | A job keeps failing | The assistant cannot finish | Read the job's steps (activity feed). After 5 interrupted sessions it fails honestly and asks a person to look. |
 
 ## Limits worth knowing
 - **Model spend** is capped per job ($5) and per company-app per day ($50) by default; change them on the switchboard (`budget`). A job over its cap is refused before it calls the model.
-- **Approval policy.** Companies can require roles or four-eyes per ability on the switchboard (`approvals`).
+- **Approval policy.** Companies can require roles or four-eyes per ability on the switchboard (`approvals`); it is enforced inside the app's `answer_proposal()` (v3 S2), so no caller can get past it.
 - **Closed months** take no postings until someone reopens them with a reason.

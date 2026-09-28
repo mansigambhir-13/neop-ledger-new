@@ -101,8 +101,9 @@ const gated = new Set(abilities.filter((a: any) => a.kind === 'write' && a.setti
 const c1 = rows.every((r) => r.job_id && r.ack_ms !== null);
 const executed = mine.filter((c: any) => c.status === 'EXECUTED');
 const c2bad = executed.filter((c: any) => !(c.decision === 'yes' && c.fingerprint_seen === c.fingerprint && c.decided_by_name));
-// Every effect of a gated ability during the run was carried out on an execution token (a person's
-// yes or a standing yes); one performed by an assistant directly would be recorded as `assistant:<job>`.
+// Every effect of a gated ability during the run was carried out by the app's runner on a person's yes
+// (`runner:<id>`, v3 S2) or by the gate on a standing yes (`grant:<id>`); one performed by an assistant directly would
+// be recorded as `assistant:<job>`.
 const ops = since.filter((x) => x.action === 'app.operation' && gated.has(x.ability_key) && jobIds.has(x.detail?.job_id));
 const c3bad = ops.filter((x) => String(x.actor ?? x.detail?.caller).startsWith('assistant:'));
 const execByProposal = new Map<string, number>();

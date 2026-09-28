@@ -22,7 +22,7 @@ beforeAll(async () => {
 });
 afterAll(async () => P?.close());
 afterEach(() => {
-  P.platform.hooks.afterResolve = undefined;
+  P.backend.runner.approved.resume();
 });
 
 const q = async (sql: string, params: unknown[] = []) => (await P.backend.core.runnerPool.query(sql, params)).rows;
@@ -337,7 +337,7 @@ describe('withdraw (WP §7 "a person withdrawing a yes → the job stops")', () 
     await settled(r.body.task_id);
     expect(seen[0]).toContain(`Proposal ${card.proposal_id} (ledger.journal.post) is now WITHDRAWN.`);
     expect((await q('select status, decided_by from ledger.proposals where id = $1', [card.proposal_id]))[0]).toEqual({ status: 'WITHDRAWN', decided_by: `user:${P.member.id}` });
-    expect((await P.platform.db.query('select status, decision from neos.approvals where id = $1', [card.id])).rows[0]).toEqual({ status: 'CLOSED', decision: 'withdraw' });
+    expect((await P.platform.db.query('select status, decision from neos.v_desk_cards where id = $1', [card.id])).rows[0]).toEqual({ status: 'CLOSED', decision: 'withdraw' });
     expect(await posted('Withdraw-pending ad spend')).toBe(0);
   });
 
@@ -346,14 +346,17 @@ describe('withdraw (WP §7 "a person withdrawing a yes → the job stops")', () 
     brain('Withdraw-approved ad spend', seen);
     const r = await ask('Post the ad spend, again');
     const card = await P.waitFor(async () => (await P.desk()).find((c) => c.task_id === r.body.task_id && c.status === 'PENDING'), 'card');
-    // Between the app's APPROVED and the platform's execute call, the person changes their mind.
+    // Between the yes on the app's row (APPROVED) and the runner carrying it out, the person changes their mind.
+    // (v3 S2: the runner's approved path is held for the moment, where the platform's hook used to be.)
+    P.backend.runner.approved.pause();
     let withdrew: { status: number } | null = null;
-    P.platform.hooks.afterResolve = async (id) => {
-      if (id !== card.id) return;
+    try {
+      await P.api('POST', `/api/desk/${card.id}/answer`, { decision: 'yes', fingerprint_seen: card.fingerprint });
       expect((await q('select status from ledger.proposals where id = $1', [card.proposal_id]))[0].status).toBe('APPROVED');
       withdrew = await P.api('POST', `/api/desk/${card.id}/answer`, { decision: 'withdraw', fingerprint_seen: card.fingerprint });
-    };
-    await P.api('POST', `/api/desk/${card.id}/answer`, { decision: 'yes', fingerprint_seen: card.fingerprint });
+    } finally {
+      P.backend.runner.approved.resume();
+    }
     await settled(r.body.task_id);
     expect(withdrew!.status).toBe(200);
     expect(seen[0]).toContain('is now WITHDRAWN');
@@ -361,11 +364,10 @@ describe('withdraw (WP §7 "a person withdrawing a yes → the job stops")', () 
     expect(ev.slice(0, 3)).toEqual(['proposed', 'answered:yes', 'answered:withdraw']);
     expect(ev).not.toContain('executing');
     expect(await posted('Withdraw-approved ad spend')).toBe(0);
-    await P.waitFor(async () => (await P.platform.db.query('select status, decision from neos.approvals where id = $1', [card.id])).rows[0].status === 'CLOSED', 'card closed');
-    expect((await P.platform.db.query('select decision from neos.approvals where id = $1', [card.id])).rows[0].decision).toBe('withdraw');
+    await P.waitFor(async () => (await P.platform.db.query('select status, decision from neos.v_desk_cards where id = $1', [card.id])).rows[0].status === 'CLOSED', 'card closed');
+    expect((await P.platform.db.query('select decision from neos.v_desk_cards where id = $1', [card.id])).rows[0].decision).toBe('withdraw');
 
     // Carried out already: the yes stands and the desk says it is too late.
-    P.platform.hooks.afterResolve = undefined;
     P.setBrain((v) => (v.job.includes('WOKEN') ? finish('Posted.') : v.calls === 0 ? post('Too-late ad spend') : { text: 'waiting' }));
     const r2 = await ask('Post the ad spend, for real');
     const c2 = await P.waitFor(async () => (await P.desk()).find((c) => c.task_id === r2.body.task_id && c.status === 'PENDING'), 'card 2');

@@ -1,5 +1,5 @@
 // THE GATEWAY · one for all apps (D4: a module in the platform backend).
-// Caller auth, ACL, execution tokens, idempotency ledger, audit. It protects
+// Caller auth, ACL, idempotency ledger, audit. It protects
 // every app from every other caller; the gate inside each app protects the app
 // from its own model. Both are required.
 
@@ -13,14 +13,12 @@ export interface GatewayCall {
   /** `platform`, `user:<id>` or `app:<key>` */
   caller: string;
   app: string;
-  /** L3 endpoint: tasks.open, proposals.resolve, proposals.execute, outbox.read, switchboard.changed, inbox.deliver, manifest, or an ability key */
+  /** L3 endpoint: tasks.open, outbox.read, switchboard.changed, inbox.deliver, manifest, or an ability key */
   endpoint: string;
   company_id: string | null;
   body?: unknown;
   query?: Record<string, string | number>;
   idem_key?: string;
-  /** Extra claims (execution tokens only); ability_version is the proposal's. */
-  exec?: { proposal_id: string; fingerprint: string; ability_version?: string };
   /** W3C traceparent of the caller's span; the call continues that trace. */
   trace?: string | null;
   /**
@@ -50,8 +48,6 @@ export class GatewayError extends Error {
 const PATHS: Record<string, { method: 'GET' | 'POST'; path: string }> = {
   'tasks.open': { method: 'POST', path: '/l3/tasks.open' },
   'inbox.deliver': { method: 'POST', path: '/l3/inbox.deliver' },
-  'proposals.resolve': { method: 'POST', path: '/l3/proposals.resolve' },
-  'proposals.execute': { method: 'POST', path: '/l3/proposals.execute' },
   'outbox.read': { method: 'GET', path: '/l3/outbox' },
   'switchboard.changed': { method: 'POST', path: '/l3/switchboard.changed' },
   'tasks.cancel': { method: 'POST', path: '/l3/tasks.cancel' },
@@ -119,6 +115,8 @@ export class Gateway {
   }
 
   async call<T = any>(req: GatewayCall): Promise<GatewayResponse<T>> {
+    // proposals.resolve / proposals.execute were removed in v3 S2 (an answer goes to <app>.answer_proposal(); the app's
+    // runner carries a yes out): the names stay refused to apps, so no ACL row can ever make them an ability call.
     const PLATFORM_DOORS = ['proposals.resolve', 'proposals.execute', 'outbox.read', 'inbox.deliver', 'switchboard.changed', 'tasks.cancel', 'outbox.ack', 'tasks.result', 'schedules.set', 'schedules.list', 'waits.answer', 'jobs.transcript', 'documents.fetch'];
     const callerApp = req.caller.startsWith('app:') ? req.caller.slice(4) : null;
     const isAbility = !PATHS[req.endpoint];
@@ -181,10 +179,8 @@ export class Gateway {
       ability: req.endpoint,
       idem_key: req.idem_key ?? requestId,
       sb_version: pre.sb_version ?? undefined,
-      // Contracts: the version the caller was offered (ability calls, from the app's manifest or its
-      // pinned package) or the version the person approved (execution, from the proposal).
+      // Contracts: the version the caller was offered (ability calls, from the app's manifest or its pinned package).
       ...(isAbility && pre.ability_version ? { ability_version: pre.ability_version } : {}),
-      ...(req.exec ? { exec: true as const, proposal_id: req.exec.proposal_id, fingerprint: req.exec.fingerprint, ...(req.exec.ability_version ? { ability_version: req.exec.ability_version } : {}) } : {}),
     });
     const span = this.tracer.start(`gateway ${req.endpoint}`, req.trace ?? null, { 'neop.app': req.app, 'neop.caller': req.caller, 'neop.request_id': requestId });
     const t0 = process.hrtime.bigint();
@@ -231,7 +227,7 @@ export class Gateway {
     this.metrics.inc('neop_gateway_calls_total', 'Gateway calls into apps', { app: req.app, endpoint: endpointLabel, status: String(res.status) });
     this.metrics.observe('neop_gateway_latency_seconds', 'Gateway call latency', Number(process.hrtime.bigint() - t0) / 1e9, { app: req.app, endpoint: endpointLabel });
     // Only terminal answers are stored and replayed. A retryable one (5xx, 408, 429, or 409
-    // in_progress while a slow execute still holds its lock) must reach the app again on retry,
+    // in_progress) must reach the app again on retry,
     // or a retry after a gateway timeout would replay "in progress" forever. Ledger + audit in one round trip.
     const store = ledgered && !retryableStatus(res.status, body);
     const audit = req.endpoint !== 'outbox.read';

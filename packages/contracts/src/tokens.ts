@@ -17,20 +17,12 @@ export interface GatewayClaims {
   company_id: string | null;
   /** The L3 endpoint or ability key this token is good for. */
   ability: string;
-  /**
-   * The ability version a yes was given to (plan gate step 2). Execution tokens carry
-   * the proposal's version; the app refuses to run it (version_changed) if it no
-   * longer runs that version.
-   */
+  /** The ability version the caller was offered (an ability call: the app's manifest or its pinned package). */
   ability_version?: string;
   idem_key: string;
   jti: string;
   /** Switchboard version at mint time; the gate refetches when newer than its cache. */
   sb_version?: number;
-  /** Execution tokens only. */
-  exec?: true;
-  proposal_id?: string;
-  fingerprint?: string;
   iat?: number;
   exp?: number;
 }

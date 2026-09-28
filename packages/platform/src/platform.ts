@@ -74,8 +74,6 @@ export class Platform {
   private timers: NodeJS.Timeout[] = [];
   /** NeuralChat's routing model (null: keyword fallback, recorded as such). */
   routerModel: string | null;
-  /** Test/fault-injection hooks. */
-  readonly hooks: { afterResolve?: (approvalId: string) => Promise<void> } = {};
 
   constructor(opts: PlatformOptions) {
     this.opts = opts;
@@ -473,6 +471,7 @@ export class Platform {
     // v3 §11: the desk's union views now include this app; v3 §10: its roles may read neos_registry (and nothing else in neos).
     for (const [what, sql] of [
       ['desk_views', 'select neos.refresh_desk_views()'],
+      ['desk_cards', 'select neos.refresh_desk_cards()'],
       ['registry_read', 'select neos.grant_registry_read($1)'],
     ] as const) {
       await this.db.query(sql, what === 'registry_read' ? [a.key] : []).catch(async (e) => {
@@ -1211,13 +1210,7 @@ export class Platform {
     for (const t of due.rows) await this.deliverTask(t.id).catch(() => {});
   }
 
-  // ── desk: the recorded yes (B3) ──────────────────────────────────────────
-  /**
-   * A person answers a card against the fingerprint they saw. The platform
-   * writes its own row first (RECORDED), then a worker drives resolve → execute
-   * until terminal, so a crash between the two never strands a yes.
-   */
-  /** The person who started the chain that led to this card (walks a2a parents). */
+  /** The person who started the chain that led to this task (walks a2a parents). */
   private async rootRequester(taskId: string | null): Promise<string | null> {
     let id = taskId;
     for (let i = 0; id && i < 10; i++) {
@@ -1354,172 +1347,83 @@ export class Platform {
     return { task_id: t.id, app: t.app_key, ...res.body };
   }
 
-  /** R8: who may answer this card. The company sets it; a person may never approve past it. */
-  private async checkApprover(approvalId: string, user: { id: string; company_id: string; role?: string }, decision: Decision): Promise<void> {
-    const a = (await this.db.query('select app_key, ability_key, task_id, company_id from neos.approvals where id = $1 and company_id = $2', [approvalId, user.company_id])).rows[0];
-    if (!a) return; // not found is reported by answer()
-    const sb = await this.switchboard(user.company_id, a.app_key);
-    const pol: ApproverPolicy = sb.approvals?.[a.ability_key] ?? sb.approvals?.['*'] ?? {};
-    if (decision === 'withdraw' || decision === 'no') return; // anyone may stop; only saying yes is restricted
-    const role = user.role ?? (await this.db.query<{ role: string }>('select role from neos.users where id = $1', [user.id])).rows[0]?.role;
-    if (pol.roles?.length && !pol.roles.includes(role as 'admin' | 'member')) {
-      throw new PlatformError(403, 'not_an_approver', `only ${pol.roles.join(' or ')} may approve ${a.ability_key}`);
-    }
-    if (pol.four_eyes) {
-      const root = await this.rootRequester(a.task_id);
-      if (!root) throw new PlatformError(403, 'four_eyes', 'nobody on record asked for this; four-eyes cannot be satisfied');
-      if (root === user.id) throw new PlatformError(403, 'four_eyes', 'the person who asked cannot also approve this');
-    }
-  }
-
-  async answer(approvalId: string, user: { id: string; company_id: string; role?: string }, a: { decision: Decision; fingerprint_seen: string; feedback?: string }): Promise<void> {
-    await this.checkApprover(approvalId, user, a.decision);
-    if (a.decision === 'withdraw') {
-      const cur = (await this.db.query('select * from neos.approvals where id = $1 and company_id = $2', [approvalId, user.company_id])).rows[0];
-      if (cur && ((cur.status === 'RECORDED' && cur.decision === 'yes') || cur.status === 'RESOLVED')) return this.withdrawApproved(cur, user, a.fingerprint_seen);
-    }
-    const r = await this.db.query(
-      `update neos.approvals set status = 'RECORDED', decision = $3, fingerprint_seen = $4, feedback = $5,
-         decided_by = $2, decided_at = now(), next_attempt_at = now(), updated_at = now()
-       where id = $1 and company_id = $6 and status = 'PENDING' and expires_at > now()
-         and ($3 <> 'yes' or fingerprint = $4)
-       returning id`,
-      [approvalId, user.id, a.decision, a.fingerprint_seen, a.feedback ?? null, user.company_id],
-    );
-    if (!r.rowCount) {
-      const cur = await this.db.query('select status, expires_at, fingerprint from neos.approvals where id = $1 and company_id = $2', [approvalId, user.company_id]);
-      if (!cur.rows[0]) throw new PlatformError(404, 'not_found', 'no such card');
-      // A yes only covers what was shown (WP §5). A mismatch is refused at the door and the card stays
-      // open for a yes to what is really on it — not recorded, which would burn the card and strand the job.
-      if (cur.rows[0].status === 'PENDING' && new Date(cur.rows[0].expires_at) > new Date() && a.decision === 'yes' && cur.rows[0].fingerprint !== a.fingerprint_seen) {
-        await this.gateway.audit({ company_id: user.company_id, actor: `user:${user.id}`, action: 'desk.answer', outcome: 'refused_stale_fingerprint', detail: { approval_id: approvalId, fingerprint_seen: a.fingerprint_seen } });
-        throw new PlatformError(409, 'stale_fingerprint', 'what you approved is not what is on the card now; look at it again and answer that');
-      }
-      throw new PlatformError(409, 'not_open', `this card is ${cur.rows[0].status === 'PENDING' ? 'expired' : cur.rows[0].status}`);
-    }
-    await this.gateway.audit({ company_id: user.company_id, actor: `user:${user.id}`, action: 'desk.answer', outcome: a.decision, detail: { approval_id: approvalId, fingerprint_seen: a.fingerprint_seen } });
-    void this.approvalsTick().catch(() => {});
+  // ── desk: a person's answer lands on the app's own row (v3 S2) ─────────────
+  /**
+   * The app and proposal a card id names, with the card as the desk shows it (neos.v_desk_cards). A card id is
+   * the app's proposal id (020); an id from before the move (a frozen neos.approvals row — say a desk tab left
+   * open across the deploy) maps to its proposal.
+   */
+  async cardFor(cardId: string, companyId: string): Promise<{ app_key: string; proposal_id: string; status: string; fingerprint: string; task_id: string | null } | null> {
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(cardId)) return null;
+    const q = 'select app_key, proposal_id, status, fingerprint, task_id from neos.v_desk_cards where id = $1 and company_id = $2';
+    const hit = (await this.db.query(q, [cardId, companyId])).rows[0];
+    if (hit) return hit;
+    const legacy = (await this.db.query<{ proposal_id: string }>('select proposal_id from neos.approvals where id = $1 and company_id = $2', [cardId, companyId])).rows[0];
+    return legacy ? ((await this.db.query(q, [legacy.proposal_id, companyId])).rows[0] ?? null) : null;
   }
 
   /**
-   * A person changes their mind after a yes, before it is carried out (WP §7 "a person withdrawing a
-   * yes → the job stops"). The proposal state machine allows APPROVED → WITHDRAWN and never
-   * EXECUTING → WITHDRAWN; the app decides under the proposal's row lock, the same lock execute takes,
-   * so exactly one of them wins. Too late (already being carried out, or done) is a 409, and the yes stands.
+   * A person answers a card against the fingerprint they saw (WP v3 §5–§6). One call, one row: the answer goes
+   * to the app's own proposal through <app>.answer_proposal(), as neos_desk — the function checks the fingerprint,
+   * the expiry, that it is still open, and the company's approver policy (roles from the platform's record of the
+   * person; four-eyes against the job's own requester, in the database). A yes is then carried out by the app's
+   * runner, which hears it on the row; the platform holds no approval state and drives nothing. A withdrawal after
+   * a yes is the same call: it wins only while the proposal is still APPROVED (the runner takes the same row lock
+   * before it starts), else it is too late and the yes stands.
    */
-  private async withdrawApproved(cur: any, user: { id: string; company_id: string }, fingerprintSeen: string): Promise<void> {
-    if (fingerprintSeen !== cur.fingerprint) throw new PlatformError(409, 'stale_fingerprint', 'withdraw what is on the card: its fingerprint does not match');
-    let res;
+  async answer(
+    cardId: string,
+    user: { id: string; company_id: string; role?: string },
+    a: { decision: Decision; fingerprint_seen: string; feedback?: string },
+  ): Promise<{ status: string; idempotent: boolean; app_key: string; proposal_id: string }> {
+    const card = await this.cardFor(cardId, user.company_id);
+    if (!card) throw new PlatformError(404, 'not_found', 'no such card');
+    const role = user.role ?? (await this.db.query<{ role: string }>('select role from neos.users where id = $1 and company_id = $2', [user.id, user.company_id])).rows[0]?.role;
+    const detail = { approval_id: card.proposal_id, app: card.app_key, fingerprint_seen: a.fingerprint_seen };
+    const audit = (outcome: string, extra: Record<string, unknown> = {}) =>
+      this.gateway.audit({ company_id: user.company_id, actor: `user:${user.id}`, app_key: card.app_key, action: 'desk.answer', outcome, detail: { ...detail, ...extra } });
+    let out: { status: string; idempotent: boolean; refused?: string };
     try {
-      res = await this.gateway.call({
-        caller: 'platform',
-        app: cur.app_key,
-        endpoint: 'proposals.resolve',
-        company_id: cur.company_id,
-        body: { proposal_id: cur.proposal_id, decision: 'withdraw', fingerprint_seen: cur.fingerprint, decided_by: `user:${user.id}`, feedback: null },
-        idem_key: `withdraw:${cur.id}`,
+      out = await this.boards.answer(card.app_key, user.company_id, {
+        proposal_id: card.proposal_id,
+        fingerprint_seen: a.fingerprint_seen,
+        decision: a.decision,
+        by: `user:${user.id}`,
+        feedback: a.feedback ?? null,
+        roles: role ? [role] : null,
       });
     } catch (e) {
-      throw new PlatformError(502, 'unavailable', `the app could not be reached to withdraw it: ${(e as Error).message}`);
+      const err = e as { message?: string; status?: number; code?: string };
+      if (err.code === 'no_app_schema') throw new PlatformError(409, 'no_app_schema', String(err.message));
+      const m = /^(not_found|not_open|expired|bad_request|not_an_approver|four_eyes): (.*)$/s.exec(String(err.message ?? ''));
+      if (!m) throw e;
+      const [, code, msg] = m as unknown as [string, string, string];
+      await audit(`refused_${code}`);
+      if (code === 'not_found') throw new PlatformError(404, 'not_found', 'no such card');
+      if (code === 'bad_request') throw new PlatformError(400, 'bad_request', msg);
+      if (code === 'not_an_approver' || code === 'four_eyes') throw new PlatformError(403, code, msg);
+      if (code === 'expired') throw new PlatformError(409, 'not_open', 'this card is expired');
+      const now = (await this.cardFor(card.proposal_id, user.company_id))?.status ?? card.status;
+      if (a.decision === 'withdraw' && ['RESOLVED', 'EXECUTED', 'FAILED', 'UNKNOWN'].includes(now)) {
+        throw new PlatformError(409, 'too_late', 'this yes is already being carried out (or done); it can no longer be withdrawn');
+      }
+      throw new PlatformError(409, 'not_open', `this card is ${now === 'PENDING' ? 'expired' : now}`);
     }
-    if (res.status >= 500) throw new PlatformError(502, 'unavailable', 'the app could not record the withdrawal; try again');
-    if (res.status !== 200) {
-      await this.gateway.audit({ company_id: user.company_id, actor: `user:${user.id}`, action: 'desk.answer', outcome: 'withdraw_refused', detail: { approval_id: cur.id, app: res.body?.error ?? null } });
-      throw new PlatformError(409, 'too_late', 'this yes is already being carried out (or done); it can no longer be withdrawn');
+    // A yes only covers what was shown (WP §5): a mismatch is refused and the card stays open for a yes to
+    // what is really on it (the app keeps the refusal in its proposal_events).
+    if (out.refused === 'fingerprint_mismatch') {
+      await audit('refused_stale_fingerprint');
+      throw new PlatformError(409, 'stale_fingerprint', a.decision === 'withdraw' ? 'withdraw what is on the card: its fingerprint does not match' : 'what you approved is not what is on the card now; look at it again and answer that');
     }
-    // The worker's own updates are conditional on the state it expects, so this is where the card ends.
-    await this.db.query(
-      `update neos.approvals set status = 'CLOSED', decision = 'withdraw', decided_by = $2, decided_at = now(), last_error = 'withdrawn after a yes, before it was carried out', updated_at = now()
-        where id = $1 and status in ('RECORDED', 'RESOLVED', 'REFUSED')`,
-      [cur.id, user.id],
-    );
-    await this.gateway.audit({ company_id: user.company_id, actor: `user:${user.id}`, action: 'desk.answer', outcome: 'withdraw', detail: { approval_id: cur.id, after_yes: true, fingerprint_seen: fingerprintSeen } });
-  }
-
-  async approvalsTick(): Promise<void> {
-    // Lease rows so two workers never drive the same approval at once.
-    const due = await this.db.query(
-      `update neos.approvals set next_attempt_at = now() + interval '60 seconds'
-        where id in (select id from neos.approvals where status in ('RECORDED', 'RESOLVED') and next_attempt_at <= now()
-                      order by next_attempt_at limit 10 for update skip locked)
-        returning *`,
-    );
-    for (const a of due.rows) await this.driveApproval(a).catch((e) => this.log('approval step failed', { id: a.id, e: String(e) }));
-  }
-
-  private async backoff(a: { id: string; attempts: number }, err: string): Promise<void> {
-    const n = a.attempts + 1;
-    await this.db.query(
-      `update neos.approvals set attempts = $2, last_error = $3, next_attempt_at = now() + ($4 || ' milliseconds')::interval, updated_at = now() where id = $1`,
-      [a.id, n, err.slice(0, 500), String(BACKOFF_MS[Math.min(n, BACKOFF_MS.length - 1)])],
-    );
-  }
-
-  private async driveApproval(a: any): Promise<void> {
-    a.trace_parent ??= a.task_id ? (await this.db.query<{ trace_parent: string | null }>('select trace_parent from neos.tasks where id = $1', [a.task_id])).rows[0]?.trace_parent : null;
-    if (a.status === 'RECORDED') {
-      let res;
-      try {
-        res = await this.gateway.call({
-          caller: 'platform',
-          app: a.app_key,
-          endpoint: 'proposals.resolve',
-          company_id: a.company_id,
-          body: { proposal_id: a.proposal_id, decision: a.decision, fingerprint_seen: a.fingerprint_seen, decided_by: `user:${a.decided_by}`, feedback: a.feedback },
-          idem_key: `resolve:${a.id}`,
-          trace: a.trace_parent,
-        });
-      } catch (e) {
-        return this.backoff(a, String(e));
-      }
-      if (res.status >= 500) return this.backoff(a, `resolve ${res.status}`);
-      if (res.status !== 200) {
-        // Conditional: a withdrawal after the yes may already have closed this card.
-        await this.db.query(`update neos.approvals set status = 'REFUSED', last_error = $2, updated_at = now() where id = $1 and status = 'RECORDED'`, [a.id, JSON.stringify(res.body)]);
-        return;
-      }
-      const next = a.decision === 'yes' ? 'RESOLVED' : 'CLOSED';
-      // Keep the lease while this worker carries on to execute; a crash lets it lapse and another worker resumes.
-      const moved = await this.db.query(`update neos.approvals set status = $2, next_attempt_at = now() + interval '60 seconds', attempts = 0, updated_at = now() where id = $1 and status = 'RECORDED'`, [a.id, next]);
-      if (!moved.rowCount) return; // withdrawn meanwhile
-
-      await this.hooks.afterResolve?.(a.id);
-      if (next === 'CLOSED') return;
-      a = { ...a, status: 'RESOLVED', attempts: 0 };
+    // The function takes a repeat of an answer it already holds as a no-op (a retried call must not fail); the
+    // desk's contract has always been that a card answered once is no longer open to another answer.
+    if (out.idempotent) {
+      await audit('refused_not_open', { status: out.status });
+      const now = (await this.cardFor(card.proposal_id, user.company_id))?.status ?? card.status;
+      throw new PlatformError(409, 'not_open', `this card is ${now}`);
     }
-    if (a.status === 'RESOLVED') {
-      // The execution token is minted only against a matching recorded yes.
-      if (a.decision !== 'yes' || a.fingerprint_seen !== a.fingerprint) {
-        await this.db.query(`update neos.approvals set status = 'REFUSED', last_error = 'no matching yes', updated_at = now() where id = $1`, [a.id]);
-        return;
-      }
-      let res;
-      try {
-        res = await this.gateway.call({
-          caller: 'platform',
-          app: a.app_key,
-          endpoint: 'proposals.execute',
-          company_id: a.company_id,
-          body: { proposal_id: a.proposal_id },
-          idem_key: `execute:${a.id}`,
-          exec: { proposal_id: a.proposal_id, fingerprint: a.fingerprint, ability_version: a.ability_version },
-          trace: a.trace_parent,
-        });
-      } catch (e) {
-        return this.backoff(a, String(e));
-      }
-      if (res.status >= 500 || (res.status === 409 && res.body?.error?.code === 'in_progress')) return this.backoff(a, `execute ${res.status}`);
-      if (res.status !== 200) {
-        await this.db.query(`update neos.approvals set status = 'REFUSED', last_error = $2, updated_at = now() where id = $1 and status = 'RESOLVED'`, [a.id, JSON.stringify(res.body)]);
-        return;
-      }
-      // The outbox consumer may already have settled the card from proposal.executed; never undo that.
-      await this.db.query(`update neos.approvals set status = $3, proof = $2, updated_at = now() where id = $1 and status = 'RESOLVED'`, [
-        a.id,
-        JSON.stringify(res.body),
-        approvalStatusFor(res.body?.outcome),
-      ]);
-    }
+    await audit(a.decision, { status: out.status });
+    return { status: out.status, idempotent: out.idempotent, app_key: card.app_key, proposal_id: card.proposal_id };
   }
 
   // ── outbox consumer ──────────────────────────────────────────────────────
@@ -1620,12 +1524,8 @@ export class Platform {
         break;
       }
       case 'proposal.created': {
+        // v3 S2: the card is the app's proposal row (neos.v_desk_cards); the platform keeps no copy. Its id is the proposal id.
         const pc = p as ProposalCreatedPayload;
-        const ins = await c.query<{ id: string }>(
-          `insert into neos.approvals (company_id, app_key, proposal_id, job_id, task_id, ability_key, ability_version, args, card, fingerprint, expires_at)
-           values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) on conflict (app_key, proposal_id) do update set updated_at = neos.approvals.updated_at returning id`,
-          [e.company_id, app, pc.proposal_id, pc.job_id, pc.task_id, pc.ability_key, pc.ability_version, JSON.stringify(pc.args), JSON.stringify(pc.card), pc.fingerprint, pc.expires_at],
-        );
         const task = await this.taskFor(c, app, pc, e.company_id);
         if (task) await c.query(`update neos.tasks set status = 'WAITING', updated_at = now() where id = $1 and status in ('OPEN','ACKNOWLEDGED')`, [task.id]);
         await this.say(task?.conversation_id ?? null, e.company_id, `app:${app}`, `Waiting for a yes on your desk: ${pc.card.what}`, 'waiting', task?.id ?? null, c);
@@ -1633,26 +1533,17 @@ export class Platform {
           dedupe_key: `card:${pc.proposal_id}`,
           kind: 'card',
           body: roomText.card(appName, pc),
-          approval_id: ins.rows[0]!.id,
+          approval_id: pc.proposal_id,
           fingerprint_shown: pc.fingerprint,
         });
         break;
       }
       case 'proposal.resolved': {
-        // An app-side withdrawal (e.g. the task was cancelled) closes a card nobody answered.
-        if (p.status === 'WITHDRAWN') {
-          await c.query(
-            `update neos.approvals set status = 'CLOSED', decision = 'withdraw', last_error = case when decision is null then 'withdrawn by the app' else last_error end, updated_at = now()
-              where app_key = $1 and proposal_id = $2 and status in ('PENDING', 'RECORDED', 'RESOLVED')`,
-            [app, p.proposal_id],
-          );
-        }
         const task = await this.taskFor(c, app, p, e.company_id);
         await this.mirror(c, await this.roomFor(c, e.company_id, app, task), { dedupe_key: `resolved:${p.proposal_id}:${p.decision}`, kind: 'answer', body: roomText.resolved(p) });
         break;
       }
       case 'proposal.expired': {
-        await c.query(`update neos.approvals set status = 'EXPIRED', updated_at = now() where app_key = $1 and proposal_id = $2 and status = 'PENDING'`, [app, p.proposal_id]);
         const task = await this.taskFor(c, app, p, e.company_id);
         await this.mirror(c, await this.roomFor(c, e.company_id, app, task), { dedupe_key: `expired:${p.proposal_id}`, kind: 'notice', body: `Proposal ${String(p.proposal_id).slice(0, 8)} expired: nobody answered in time. Nothing was done.` });
         break;
@@ -1665,14 +1556,6 @@ export class Platform {
           p.outcome,
           JSON.stringify(p),
         ]);
-        // The app's own record of the execution settles the card, even when the platform's execute call
-        // timed out and every retry is still pending. Reconciliation later moves an UNKNOWN to where it
-        // really ended, with the settled proof.
-        await c.query(
-          `update neos.approvals set status = $3, proof = coalesce($4::jsonb, proof), last_error = null, updated_at = now()
-            where app_key = $1 and proposal_id = $2 and status in (${p.reconciled ? "'RESOLVED', 'EXECUTED', 'FAILED', 'UNKNOWN'" : "'RESOLVED'"})`,
-          [app, p.proposal_id, approvalStatusFor(p.outcome), p.proof ? JSON.stringify(p.proof) : null],
-        );
         const task = await this.taskFor(c, app, p, e.company_id);
         // The job is working again until it reports.
         if (task) await c.query(`update neos.tasks set status = 'ACKNOWLEDGED', updated_at = now() where id = $1 and status = 'WAITING'`, [task.id]);
@@ -1850,12 +1733,12 @@ export class Platform {
     const q = async (sql: string) => (await this.db.query(sql)).rows;
     const g = [
       Metrics.lines('neop_tasks', 'Tasks by app and status', 'gauge', (await q('select app_key, status, count(*)::int as n from neos.tasks group by 1, 2')).map((r) => ({ labels: { app: r.app_key, status: r.status }, value: r.n }))),
-      Metrics.lines('neop_approvals', 'Desk approvals by status', 'gauge', (await q('select app_key, status, count(*)::int as n from neos.approvals group by 1, 2')).map((r) => ({ labels: { app: r.app_key, status: r.status }, value: r.n }))),
+      Metrics.lines('neop_approvals', 'Desk approvals by status', 'gauge', (await q('select app_key, status, count(*)::int as n from neos.v_desk_cards group by 1, 2')).map((r) => ({ labels: { app: r.app_key, status: r.status }, value: r.n }))),
       Metrics.lines(
         'neop_approval_answer_seconds_avg',
         'Mean time from card to answer (last 7 days)',
         'gauge',
-        (await q("select app_key, coalesce(avg(extract(epoch from decided_at - created_at)), 0)::float as s from neos.approvals where decided_at > now() - interval '7 days' group by 1")).map((r) => ({ labels: { app: r.app_key }, value: r.s })),
+        (await q("select app_key, coalesce(avg(extract(epoch from decided_at - created_at)), 0)::float as s from neos.v_desk_cards where decided_at > now() - interval '7 days' group by 1")).map((r) => ({ labels: { app: r.app_key }, value: r.s })),
       ),
       Metrics.lines('neop_dead_letters', 'Parked outbox events not yet replayed', 'gauge', (await q('select app_key, count(*)::int as n from neos.outbox_dead_letters where replayed_at is null group by 1')).map((r) => ({ labels: { app: r.app_key }, value: r.n }))),
       Metrics.lines(
@@ -1941,7 +1824,6 @@ export class Platform {
         }, ms),
       );
     };
-    loop(() => this.approvalsTick(), t.approvalsMs);
     loop(() => this.outboxTick(), t.outboxMs);
     loop(() => this.tasksTick(), t.tasksMs);
     loop(() => this.a2aResultsTick(), t.approvalsMs);
@@ -1966,10 +1848,6 @@ export function isEd25519Jwk(k: unknown): boolean {
 /** The first instant of the current month in a time zone, as SQL over a tz expression. */
 export const MONTH_START_SQL = (tz: string) => `(date_trunc('month', now() at time zone ${tz}) at time zone ${tz})`;
 
-/** Where a card ends once its execution reports: DONE → EXECUTED; FAILED and UNKNOWN say so. */
-export function approvalStatusFor(outcome: unknown): 'EXECUTED' | 'FAILED' | 'UNKNOWN' {
-  return outcome === 'FAILED' ? 'FAILED' : outcome === 'UNKNOWN' ? 'UNKNOWN' : 'EXECUTED';
-}
 
 /** The owner's task for a borrowed write: the one step, its inputs as data (the owner's assistant proposes it). */
 export function borrowedWriteAsk(host: string, ability: { key: string; title: string; version: string }, args: unknown): string {

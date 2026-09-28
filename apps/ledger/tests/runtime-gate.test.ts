@@ -40,21 +40,12 @@ const proposal = async (id: string) => (await P.backend.core.runnerPool.query('s
 const entries = (memo: string) =>
   withCompany(P.backend.core.appPool, P.company.id, async (c) => (await c.query('select count(*)::int as n from ledger.journal_entries where memo = $1', [memo])).rows[0].n as number);
 
-/** Record a person's yes in the app without the platform's worker executing it. */
+/** Record a person's yes (answer_proposal, through the desk) while the runner's approved path is held: it stays APPROVED. */
 async function yesWithoutExecuting(card: any) {
-  await P.platform.db.query(
-    "update neos.approvals set status = 'RESOLVED', decision = 'yes', fingerprint_seen = fingerprint, decided_by = $2, next_attempt_at = now() + interval '1 hour' where id = $1",
-    [card.id, P.admin.id],
-  );
-  const r = await P.platform.gateway.call({
-    caller: 'platform',
-    app: 'ledger',
-    endpoint: 'proposals.resolve',
-    company_id: P.company.id,
-    idem_key: `yes:${card.id}`,
-    body: { proposal_id: card.proposal_id, decision: 'yes', fingerprint_seen: card.fingerprint, decided_by: `user:${P.admin.id}` },
-  });
+  P.backend.runner.approved.pause();
+  const r = await P.api('POST', `/api/desk/${card.id}/answer`, { decision: 'yes', fingerprint_seen: card.fingerprint });
   expect(r.status).toBe(200);
+  expect((await proposal(card.proposal_id)).status).toBe('APPROVED');
 }
 
 /**
@@ -110,31 +101,27 @@ describe('the approved path re-checks at effect time', () => {
     expect(woke).toContain('changed version after you proposed this, so it was NOT carried out');
   });
 
-  it('an execution token naming another ability version is refused the same way (token claim ability_version)', async () => {
+  it('a yes on record for one ability version does not run under another, whoever edited the row (v3: no token claim; the row is the truth)', async () => {
+    // Was: an execution token naming another ability version was refused. v3 has no token: the version the yes
+    // covers is the proposal's own ability_version, re-checked against what this app runs at effect time.
     P.setBrain((v) => (v.job.includes('WOKEN') ? finish('not run', 'blocked') : v.calls === 0 ? post(111_200, 'token version probe') : { text: 'waiting' }));
     const { job_id } = await P.ask('Accrue the token probe');
     const card = await pendingCard(job_id);
     await yesWithoutExecuting(card);
-    const token = await P.platform.gateway.mint({
-      aud: 'ledger',
-      sub: 'platform',
-      company_id: P.company.id,
-      ability: 'proposals.execute',
-      idem_key: `tv:${card.id}`,
-      exec: true,
-      proposal_id: card.proposal_id,
-      fingerprint: card.fingerprint,
-      ability_version: '0.9.0',
-    });
-    const res = await fetch(`http://127.0.0.1:${P.backend.ports.l3}/l3/proposals.execute`, {
-      method: 'POST',
-      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json', 'contract-version': '1' },
-      body: JSON.stringify({ proposal_id: card.proposal_id }),
-    });
-    expect(res.status).toBe(200);
-    const proof = await res.json();
-    expect(proof.outcome).toBe('FAILED');
-    expect(proof.error).toMatch(/^version_changed: .*\(approved as 0\.9\.0\)/);
+    const dba = new pg.Client({ connectionString: P.adminUrl });
+    await dba.connect();
+    try {
+      await dba.query("update ledger.proposals set ability_version = '0.9.0' where id = $1", [card.proposal_id]);
+    } finally {
+      await dba.end();
+    }
+    P.backend.runner.approved.resume();
+    const p = await P.waitFor(async () => {
+      const x = await proposal(card.proposal_id);
+      return ['DONE', 'FAILED', 'UNKNOWN'].includes(x.status) && x;
+    }, 'carried out');
+    expect(p.status).toBe('FAILED');
+    expect(p.proof.error).toMatch(/^version_changed: proposed against ledger\.journal\.post@0\.9\.0, this app now runs 1\.0\.0/);
     expect(await entries('token version probe')).toBe(0);
     // The wait is ready: the job wakes to say so.
     await P.waitFor(async () => (await P.jobRow(job_id)).status === 'DONE', 'job reported');
@@ -154,19 +141,11 @@ describe('the approved path re-checks at effect time', () => {
     await yesWithoutExecuting(card);
     expect((await P.backend.core.board.get(P.company.id)).setting(P.backend.core.ability('ledger.journal.post')!)).toBe('ask_first'); // cache warm: on
     await silentSwitchboard({ 'ledger.journal.post': 'off' });
-    const r = await P.platform.gateway.call({
-      caller: 'platform',
-      app: 'ledger',
-      endpoint: 'proposals.execute',
-      company_id: P.company.id,
-      body: { proposal_id: card.proposal_id },
-      idem_key: `off:${card.id}`,
-      exec: { proposal_id: card.proposal_id, fingerprint: card.fingerprint },
-    });
-    expect(r.status).toBe(200);
-    expect(r.body.outcome).toBe('FAILED');
-    expect(r.body.error).toMatch(/^switched_off/);
+    P.backend.runner.approved.resume(); // the runner carries the yes out now: the setting is re-read, not the cache
     await taskDone(task_id);
+    const p = await proposal(card.proposal_id);
+    expect(p.status).toBe('FAILED');
+    expect(p.proof.error).toMatch(/^switched_off/);
     expect(await entries('switched off probe')).toBe(0);
     expect(woke).toContain('switched off before it could run');
     await P.api('PUT', '/api/switchboards/ledger', { settings: { 'ledger.journal.post': 'ask_first' } });

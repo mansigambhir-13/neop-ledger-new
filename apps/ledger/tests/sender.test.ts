@@ -140,7 +140,8 @@ describe('in a DM (client road) and on L3: senders and their classes', () => {
     const r = await P.ask('Email the August pack to the CFO');
     const card = await P.waitFor(async () => (await P.desk()).find((c) => c.job_id === r.job_id && c.status === 'PENDING'), 'the card');
     const resolve = { proposal_id: card.proposal_id, decision: 'yes', fingerprint_seen: card.fingerprint, decided_by: `user:${P.admin.id}` };
-    // The gateway: an app is not a caller of proposals.resolve / waits.answer.
+    // The gateway: an app is not a caller of waits.answer — nor of proposals.resolve, which is no endpoint at all
+    // any more (v3 S2: an answer goes to <app>.answer_proposal() as the desk; there is no route into the app for it).
     for (const endpoint of ['proposals.resolve', 'waits.answer']) {
       await expect(P.platform.gateway.call({ caller: 'app:marketing', app: 'ledger', endpoint, company_id: P.company.id, body: resolve, idem_key: `app-${endpoint}` })).rejects.toMatchObject({ status: 403 });
     }
@@ -148,10 +149,13 @@ describe('in a DM (client road) and on L3: senders and their classes', () => {
     const l3 = async (p: string, ability: string, body: unknown, sub: string) => {
       const token = await P.platform.gateway.mint({ aud: 'ledger', sub, company_id: P.company.id, ability, idem_key: crypto.randomUUID() });
       const res = await fetch(`http://127.0.0.1:${P.backend.ports.l3}${p}`, { method: 'POST', headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json', 'contract-version': '1' }, body: JSON.stringify(body) });
-      return { status: res.status, body: (await res.json()) as any };
+      const text = await res.text();
+      return { status: res.status, body: (() => { try { return JSON.parse(text); } catch { return text; } })() as any };
     };
-    expect((await l3('/l3/proposals.resolve', 'proposals.resolve', resolve, 'app:marketing')).status).toBe(403);
-    expect((await l3('/l3/proposals.resolve', 'proposals.resolve', { ...resolve, decided_by: 'app:marketing' }, 'platform')).status).toBe(400);
+    // L3 has no answer route for anyone (the platform's own token included): v3 S2 removed proposals.resolve.
+    expect((await l3('/l3/proposals.resolve', 'proposals.resolve', resolve, 'app:marketing')).status).toBe(404);
+    expect((await l3('/l3/proposals.resolve', 'proposals.resolve', { ...resolve, decided_by: 'app:marketing' }, 'platform')).status).toBe(404);
+    expect((await l3('/l3/proposals.execute', 'proposals.execute', { proposal_id: card.proposal_id }, 'platform')).status).toBe(404);
     // The book: answer_proposal() takes an answer only from a person, whoever calls it.
     await expect(
       withCompany(P.backend.core.appPool, P.company.id, (c) => c.query('select ledger.answer_proposal($1, $2, $3, $4, null)', [card.proposal_id, card.fingerprint, 'yes', 'app:marketing'])),
@@ -188,13 +192,13 @@ describe('in a DM (client road) and on L3: senders and their classes', () => {
     );
     hs.say(dm, PLAIN, text('Please prepare, but do not apply, an expense of ₹500 for printer paper.'));
     await P.waitFor(async () => hs.notices(dm).length >= 1, 'the proposal reply');
-    const card = await P.waitFor(async () => (await P.platform.db.query("select * from neos.approvals where status = 'PENDING' and card->>'what' like '%printer paper' order by created_at desc limit 1")).rows[0], 'the card');
+    const card = await P.waitFor(async () => (await P.platform.db.query("select * from neos.v_desk_cards where status = 'PENDING' and card->>'what' like '%printer paper' order by created_at desc limit 1")).rows[0], 'the card');
     const before = await count(P);
     hs.say(dm, PLAIN, text('Go ahead with the ₹500 change.'));
     const replies = await P.waitFor(async () => hs.notices(dm).length >= 2 && hs.notices(dm), 'the refusal');
     expect(replies[1]!.content.body).toMatch(/^Nothing was done: a bridge cannot approve\./);
     await pause(400);
-    expect((await P.platform.db.query('select status, decided_by from neos.approvals where id = $1', [card.id])).rows[0]).toEqual({ status: 'PENDING', decided_by: null });
+    expect((await P.platform.db.query('select status, decided_by from neos.v_desk_cards where id = $1', [card.id])).rows[0]).toEqual({ status: 'PENDING', decided_by: null });
     const p = (await P.backend.core.runnerPool.query('select status, decided_by, answered_at from ledger.proposals where id = $1', [card.proposal_id])).rows[0];
     expect(p).toEqual({ status: 'PROPOSED', decided_by: null, answered_at: null });
     expect((await P.backend.core.runnerPool.query("select count(*)::int as n from ledger.proposal_events where proposal_id = $1 and event like 'answered:%'", [card.proposal_id])).rows[0].n).toBe(0);

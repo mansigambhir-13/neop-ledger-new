@@ -1,7 +1,8 @@
 // desk-views.test · v3 §11 union views and §10 the registry schema, on a real two-app pilot (Ledger + Marketing).
 //   A4  neos_desk (NOLOGIN) reads neos.v_pending_approvals and neos.v_activity — built by neos.refresh_desk_views()
 //       over every registered app schema at registration — and nothing else. Reconciliation: the proposals the
-//       union view shows as waiting are exactly the neos.approvals rows that are PENDING, before and after a yes.
+//       union view shows as waiting are exactly the desk's PENDING cards (v3 S2: neos.v_desk_cards, the apps' own
+//       rows — neos.approvals is frozen and stays empty), before and after a yes.
 //   A6  every app's app/runner role reads neos_registry (apps, abilities, doors, uses, skills, packages) and nothing
 //       else in neos.
 import pg from 'pg';
@@ -41,7 +42,7 @@ async function denied(role: string, sql: string): Promise<string> {
 }
 const key = (r: { app_key: string; proposal_id: string; fingerprint: string }) => `${r.app_key}:${r.proposal_id}:${r.fingerprint}`;
 const pendingInView = async () => (await as('neos_desk', 'select app_key, proposal_id, fingerprint, company_id from neos.v_pending_approvals')).map(key).sort();
-const pendingInDesk = async () => (await c.query("select app_key, proposal_id, fingerprint from neos.approvals where status = 'PENDING'")).rows.map(key).sort();
+const pendingInDesk = async () => (await P.desk()).filter((x: { status: string }) => x.status === 'PENDING').map(key).sort();
 
 describe('A4 · the desk’s union views', () => {
   it('neos_desk is NOLOGIN and the views cover every registered app schema', async () => {
@@ -54,7 +55,7 @@ describe('A4 · the desk’s union views', () => {
     expect(deps).toEqual([]);
   });
 
-  it('reconciles with neos.approvals: the pending proposals of both apps, before and after a person’s yes', async () => {
+  it('reconciles with the desk: the pending proposals of both apps, before and after a person’s yes', async () => {
     P.setBrain((v) => {
       if (v.job.includes('WOKEN')) return finish('Done.');
       if (v.calls > 0) return { text: 'waiting' };
@@ -73,9 +74,12 @@ describe('A4 · the desk’s union views', () => {
 
     const first = (await P.desk()).find((x) => x.status === 'PENDING' && x.app_key === 'ledger')!;
     await P.api('POST', `/api/desk/${first.id}/answer`, { decision: 'yes', fingerprint_seen: first.fingerprint });
-    await P.waitFor(async () => (await c.query('select status from neos.approvals where id = $1', [first.id])).rows[0].status === 'EXECUTED', 'executed');
+    expect(first.id).toBe(first.proposal_id); // a card's id is its proposal id (020)
+    await P.waitFor(async () => (await P.desk()).find((x) => x.id === first.id)?.status === 'EXECUTED', 'executed');
     await P.waitFor(async () => JSON.stringify(await pendingInView()) === JSON.stringify(await pendingInDesk()) && true, 'the view agrees after the yes');
     expect((await pendingInView()).some((k) => k.includes(first.proposal_id))).toBe(false);
+    // the platform wrote no approval state of its own (neos.approvals is frozen, 020)
+    expect((await c.query('select count(*)::int n from neos.approvals')).rows[0].n).toBe(0);
   });
 
   it('v_activity has both apps’ steps; neos_desk reads nothing else', async () => {
@@ -106,7 +110,7 @@ describe('A6 · the registry schema', () => {
       expect(await as(role, "select owner_app, ability from neos_registry.uses where app = 'marketing' and ability = 'ledger.expense.record'")).toEqual([{ owner_app: 'ledger', ability: 'ledger.expense.record' }]);
       await as(role, 'select * from neos_registry.skills');
       await as(role, 'select * from neos_registry.packages');
-      for (const t of ['neos.apps', 'neos.registry_entries', 'neos.approvals', 'neos.tasks', 'neos.vault_secrets', 'neos.v_pending_approvals']) expect(await denied(role, `select 1 from ${t} limit 1`), `${role} ${t}`).toBe('42501');
+      for (const t of ['neos.apps', 'neos.registry_entries', 'neos.approvals', 'neos.tasks', 'neos.vault_secrets', 'neos.v_pending_approvals', 'neos.v_desk_cards']) expect(await denied(role, `select 1 from ${t} limit 1`), `${role} ${t}`).toBe('42501');
       expect((await c.query("select has_schema_privilege($1, 'neos', 'usage') as u", [role])).rows[0].u).toBe(false);
     }
   });

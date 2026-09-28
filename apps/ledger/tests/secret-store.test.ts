@@ -108,7 +108,7 @@ describe('a door with no credential', () => {
     const t = await P.ask('send the pack');
     const card = await P.waitFor(async () => (await P.desk()).find((c) => c.task_id === t.task_id && c.status === 'PENDING'), 'card');
     await P.api('POST', `/api/desk/${card.id}/answer`, { decision: 'yes', fingerprint_seen: card.fingerprint });
-    const done = await P.waitFor(async () => (await P.platform.db.query("select status, proof from neos.approvals where id = $1 and status in ('EXECUTED','FAILED','UNKNOWN','REFUSED')", [card.id])).rows[0], 'executed');
+    const done = await P.waitFor(async () => (await P.platform.db.query("select status, proof from neos.v_desk_cards where id = $1 and status in ('EXECUTED','FAILED','UNKNOWN','REFUSED')", [card.id])).rows[0], 'executed');
     expect(done.proof.outcome).toBe('FAILED');
     expect(JSON.stringify(done.proof)).toMatch(/not connected/);
     expect(await inbox(P.mailDir)).toEqual(before);

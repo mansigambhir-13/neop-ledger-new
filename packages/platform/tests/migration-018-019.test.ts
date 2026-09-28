@@ -68,7 +68,7 @@ describe('018 and 019 on a populated platform database', () => {
     const before = await snap();
 
     const applied = await migratePlatform(db.adminUrl);
-    expect(applied.map((m) => m.name)).toEqual(['018_desk_union_views.sql', '019_registry_schema.sql']);
+    expect(applied.map((m) => m.name)).toEqual(['018_desk_union_views.sql', '019_registry_schema.sql', '020_approvals_frozen.sql']); // 020 (S2) follows; its own proof is migration-020.test.ts
     expect(await snap()).toEqual(before);
     expect((await c.query('select count(*)::int n from neos.tasks where borrowed_ability is not null')).rows[0].n).toBe(0);
 

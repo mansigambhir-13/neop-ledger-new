@@ -9,7 +9,7 @@
 //        the desk ask path (platform.openTask), never a raw push. Strangers, notices, other msgtypes, empty
 //        bodies, backlog from before this start and rooms that are not 1:1 get nothing: no task, no reply.
 //   out  EXACTLY ONE m.notice per message, m.in_reply_to → that message, txnId reply-<event_id>, sent when the
-//        task settles as the outbox reports it (neos.tasks status/result, neos.approvals) — never scraped from
+//        task settles as the outbox reports it (neos.tasks status/result, neos.v_desk_cards) — never scraped from
 //        the app. Past the deadline (MATRIX_REPLY_DEADLINE_MS, default 55 s: under NeuralChat's 60 s wait) or on failure: one fixed sentence, and nothing more if the late
 //        result arrives. The cursor and every message's reply state live in the platform database, so a restart
 //        never answers a message twice.
@@ -562,7 +562,7 @@ export class ChatClient {
         } catch (e) {
           return this.replyNow(eventId, room, 'answer_refused', `That answer was not recorded: ${(e as Error).message}.`, { approval_id: card.approval_id });
         }
-        const task = (await this.platform.db.query<{ task_id: string | null }>('select task_id from neos.approvals where id = $1', [card.approval_id])).rows[0]?.task_id ?? null;
+        const task = (await this.platform.db.query<{ task_id: string | null }>('select task_id from neos.v_desk_cards where id = $1', [card.approval_id])).rows[0]?.task_id ?? null;
         if (d.decision === 'yes' && task) return this.owe(eventId, `answered:${d.decision}`, task, { approval_id: card.approval_id, fingerprint: card.fingerprint_shown });
         const said: Record<string, string> = { yes: 'approved', no: 'declined', change: 'sent back with your changes', withdraw: 'withdrawn' };
         return this.replyNow(eventId, room, `answered:${d.decision}`, `Recorded: card ${card.approval_id.slice(0, 8)} ${said[d.decision]}.`, { approval_id: card.approval_id, fingerprint: card.fingerprint_shown });
@@ -580,7 +580,7 @@ export class ChatClient {
       // v3 §5/§8/§16: a bridge's "go ahead" is never a yes. If a card from its asks is open, re-show it and say where a person approves it.
       const open = (
         await this.platform.db.query<{ id: string; card: any; args: any; expires_at: Date; fingerprint: string; task_id: string }>(
-          `select a.id, a.card, a.args, a.expires_at, a.fingerprint, a.task_id from neos.approvals a
+          `select a.id, a.card, a.args, a.expires_at, a.fingerprint, a.task_id from neos.v_desk_cards a
             where a.status = 'PENDING' and a.company_id = $3 and a.app_key = $4
               and a.task_id in (select task_id from neos.chat_client_events where account = $1 and sender = $2 and task_id is not null)
             order by a.created_at desc limit 5`,
@@ -732,7 +732,7 @@ export class ChatClient {
         `select e.approval_id, e.fingerprint_shown, e.event_id, a.fingerprint, a.task_id
            from neos.chat_client_events e
            join neos.chat_dms d on d.account = e.account and d.room_id = e.room_id and d.peer = $3
-           join neos.approvals a on a.id = e.approval_id
+           join neos.v_desk_cards a on a.id = e.approval_id
           where e.account = $1 and e.room_id = $2 and e.direction = 'outbound' and e.approval_id is not null
             and a.status = 'PENDING' and a.company_id = $4
           order by e.at desc`,
@@ -1034,7 +1034,7 @@ export class ChatClient {
     if (r.task_status === 'FAILED' || r.task_status === 'CANCELLED') return { text: FIXED_FAILURE };
     // A card raised by this task since the message: the reply states what is proposed; only a person may say yes.
     const a = (
-      await this.platform.db.query('select * from neos.approvals where task_id = $1 and status = $2 and created_at >= $3 order by created_at desc limit 1', [r.task_id, 'PENDING', r.at])
+      await this.platform.db.query('select * from neos.v_desk_cards where task_id = $1 and status = $2 and created_at >= $3 order by created_at desc limit 1', [r.task_id, 'PENDING', r.at])
     ).rows[0];
     if (a) {
       const shown = { card: a.card, args: a.args, expires_at: new Date(a.expires_at).toISOString(), fingerprint: a.fingerprint } as unknown as ProposalCreatedPayload;
