@@ -256,6 +256,43 @@ export class AppBoards {
     );
   }
 
+  /**
+   * v3 S3 · one transaction as the desk, scoped to one company, with no app schema in it: reads of the desk's union
+   * views (neos.v_questions, neos.v_open_questions, neos.v_activity, …). The views carry every company's rows, so the
+   * caller filters on company_id; the setting scopes any app schema a view's function reads with row-level security.
+   */
+  async deskRead<T>(companyId: string, fn: (c: PoolClient) => Promise<T>): Promise<T> {
+    if (!isUuid(companyId)) throw Object.assign(new Error('company_id required'), { status: 400, code: 'bad_request' });
+    return tx(this.db, async (c) => {
+      await c.query(`set local role ${DESK_ROLE}`);
+      await c.query("select set_config('neos.company_id', $1, true)", [companyId]);
+      return fn(c);
+    });
+  }
+
+  /**
+   * v3 S3 · an answer to a job's question lands on the app's own wait through <app>.answer_wait() (template t013),
+   * as the desk: who may answer, open-ness, expiry, the fields and the idempotent repeat are all checked there.
+   * Returns the function's result ({status: 'answered', idempotent} | {status: 'stale', reason}); a refusal comes back
+   * as the database error (message `<code>: …`). Throws `no_app_schema` when the app has no schema at t013 here.
+   */
+  async answerWait(
+    app: string,
+    companyId: string,
+    a: { wait_id: string; answers: Record<string, unknown>; by: string; via: string },
+  ): Promise<{ status: 'answered' | 'stale'; wait_id: string; job_id: string; idempotent?: boolean; reason?: string }> {
+    return this.asDesk(
+      app,
+      companyId,
+      async (c, s) => {
+        const fn = s ? (await c.query<{ ok: boolean }>('select to_regprocedure($1) is not null as ok', [`${s}.answer_wait(uuid, jsonb, text, text)`])).rows[0]?.ok : false;
+        if (!s || !fn) throw Object.assign(new Error(`${app} has no answer_wait on this database: the answer cannot be recorded`), { status: 409, code: 'no_app_schema' });
+        return (await c.query(`select ${s}.answer_wait($1, $2::jsonb, $3, $4) as r`, [a.wait_id, JSON.stringify(a.answers), a.by, a.via])).rows[0]!.r;
+      },
+      a.by,
+    );
+  }
+
   /** What standing yeses approved for one job (the task view's grant_uses). */
   async grantUsesForJob(app: string, companyId: string, jobId: string): Promise<{ at: Date; ability_key: string; detail: Record<string, unknown> }[]> {
     if (!isUuid(jobId)) return [];

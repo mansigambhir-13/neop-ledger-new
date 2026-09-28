@@ -9,7 +9,7 @@ import { Platform, PlatformError } from './platform.ts';
 
 const DESK_HTML = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), 'desk.html'), 'utf8');
 
-// proposals.* are retired (v3 S2) but stay here: never a read, never callable as an ability.
+// proposals.* (v3 S2) and waits.answer (v3 S3) are retired but stay here: never a read, never callable as an ability.
 const PLATFORM_ENDPOINTS = ['tasks.open', 'inbox.deliver', 'proposals.resolve', 'proposals.execute', 'outbox.read', 'outbox.ack', 'switchboard.changed', 'tasks.cancel', 'tasks.result', 'schedules.set', 'schedules.list', 'waits.answer', 'jobs.transcript', 'manifest', 'documents.fetch'];
 
 export function platformApp(p: Platform): Hono {
@@ -303,15 +303,10 @@ export function platformApp(p: Platform): Hono {
   });
 
   // The desk activity feed (C6): job steps and a2a hand-offs across the company's apps, newest first.
+  // v3 S3: the steps are the apps' own rows (neos.v_activity, read as neos_desk); the a2a hand-offs are the platform's.
   app.get('/api/activity', async (c) => {
     const u = await user(c);
-    const r = await p.db.query(
-      `select id, app_key, job_id, seq, kind, summary, at from neos.activity
-        where company_id = $1 and ($2::text is null or kind = $2) and ($3::text is null or app_key = $3)
-        order by at desc, id desc limit $4`,
-      [u.company_id, c.req.query('kind') ?? null, c.req.query('app') ?? null, Math.min(Number(c.req.query('limit') ?? 100) || 100, 500)],
-    );
-    return c.json({ activity: r.rows.map((x) => ({ ...x, id: Number(x.id) })) });
+    return c.json({ activity: await p.activity(u.company_id, { kind: c.req.query('kind') ?? null, app: c.req.query('app') ?? null, limit: Math.min(Number(c.req.query('limit') ?? 100) || 100, 500) }) });
   });
 
   app.get('/api/dead-letters', async (c) => {
@@ -364,13 +359,13 @@ export function platformApp(p: Platform): Hono {
       `with pending as materialized (select job_id, count(*)::int as n from neos.v_desk_cards where company_id = $1 and status = 'PENDING' group by job_id)
        select t.*,
               (select coalesce(sum(cost_micros), 0)::bigint from neos.llm_usage l where l.job_id = t.job_id) as cost_micros,
-              coalesce((select n from pending where pending.job_id = t.job_id), 0) as pending_approvals,
-              (select count(*)::int from neos.questions q where q.task_id = t.id and q.status = 'OPEN') as open_questions,
-              (select count(*)::int from neos.activity v where v.job_id = t.job_id and v.company_id = t.company_id) as steps
+              coalesce((select n from pending where pending.job_id = t.job_id), 0) as pending_approvals
          from neos.tasks t where t.company_id = $1 order by t.created_at desc limit $2`,
       [u.company_id, Math.min(Number(c.req.query('limit') ?? 50) || 50, 200)],
     );
-    return c.json({ tasks: r.rows });
+    // v3 S3: open questions and steps are the apps' own rows (neos.v_open_questions, neos.v_activity), read once per list as the desk.
+    const counts = await p.deskCounts(u.company_id);
+    return c.json({ tasks: r.rows.map((t) => ({ ...t, open_questions: counts.questions.get(String(t.id)) ?? 0, steps: (t.job_id && counts.steps.get(`${t.app_key}:${t.job_id}`)) || 0 })) });
   });
 
   app.get('/api/tasks/:id', async (c) => {
@@ -378,9 +373,8 @@ export function platformApp(p: Platform): Hono {
     const t = await p.db.query('select * from neos.tasks where id = $1 and company_id = $2', [c.req.param('id'), u.company_id]);
     if (!t.rows[0]) throw new PlatformError(404, 'not_found', 'no such task');
     const msgs = await p.db.query('select author, kind, body, task_id, at from neos.conversation_messages where task_id = $1 order by id', [t.rows[0].id]);
-    const act = t.rows[0].job_id
-      ? await p.db.query('select seq, kind, summary, at from neos.activity where job_id = $1 and company_id = $2 order by at, seq nulls last', [t.rows[0].job_id, u.company_id])
-      : { rows: [] };
+    // v3 S3: the job's steps from the app's own rows (neos.v_activity) and the platform's a2a hand-offs.
+    const act = { rows: t.rows[0].job_id ? await p.jobActivity(u.company_id, t.rows[0].job_id) : [] };
     const job = t.rows[0].job_id;
     const approvals = job
       ? await p.db.query(
@@ -394,10 +388,8 @@ export function platformApp(p: Platform): Hono {
       : { rows: [{ micros: 0, calls: 0, tokens: 0 }] };
     // v3 S1: a standing yes's uses are recorded in the app's own schema (<app>.grant_uses).
     const grants = { rows: job && t.rows[0].app_key ? await p.grantUsesForJob(t.rows[0].app_key, u.company_id, job) : [] };
-    const questions = await p.db.query(
-      'select id, app_key, wait_id, text, why, fields, due_at, status, answers, answered_by, answered_via, answered_at, created_at from neos.questions where (task_id = $1 or root_task_id = $1) and company_id = $2 order by created_at',
-      [t.rows[0].id, u.company_id],
-    );
+    // v3 S3: the apps' own input waits (neos.v_questions), for this task and every a2a task under it.
+    const questions = { rows: await p.questionsForTask(u.company_id, t.rows[0].id) };
     const c0 = cost.rows[0];
     return c.json({ task: t.rows[0], messages: msgs.rows, activity: act.rows, approvals: approvals.rows, questions: questions.rows, grant_uses: grants.rows, cost: { usd: Number(c0.micros) / 1e6, calls: c0.calls, tokens: Number(c0.tokens) } });
   });
@@ -427,7 +419,8 @@ export function platformApp(p: Platform): Hono {
   });
 
   // WP §8 `ask`: what the company's jobs are waiting to be told. An answer is information for the job,
-  // never a yes; it goes to the app's waits.answer through the gateway, recorded as this person's.
+  // never a yes. v3 S3: read from neos.v_open_questions / neos.v_questions and answered through <app>.answer_wait(),
+  // both as neos_desk; recorded as this person's. A question's id is its wait id (an older id still maps).
   app.get('/api/questions', async (c) => {
     const u = await user(c);
     const s = c.req.query('status');

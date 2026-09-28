@@ -2,7 +2,8 @@
 // a job's question is the one reply in the DM it was asked from (and is posted in the person's own DM when
 // a bridge asked, or when the job came from the desk); a reply to that notice answers it — a person's in
 // their own words (answered_via chat), a bridge's as relayed, untrusted data (answered_via bridge). An
-// answer is never a yes; the job's next word (its result) is the reply to the answer.
+// answer is never a yes; the job's next word (its result) is the reply to the answer. v3 S3: every answer lands on the
+// app's own wait through <app>.answer_wait() (the platform calls it as neos_desk).
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { ChatClient, plainAnswers } from '@neop/platform';
 import { bootPilot, call, fakeClientHomeserver, finish, type BrainView, type FakeClientHomeserver, type Pilot } from './harness.ts';
@@ -16,6 +17,9 @@ const inReplyTo = (e: { content: any }) => e.content?.['m.relates_to']?.['m.in_r
 
 let P: Pilot;
 const running: ChatClient[] = [];
+/** What the app's own wait holds (v3 S3: answers land there through answer_wait()). */
+const waitAnswer = async (waitId: string) =>
+  (await P.backend.core.runnerPool.query("select outcome, answered_by, answer->>'via' as via, (answer->>'trusted')::boolean as trusted from ledger.waits where id = $1", [waitId])).rows[0];
 beforeAll(async () => {
   P = await bootPilot();
   expect((await P.api('PUT', `/api/users/${P.admin.id}/chat`, { matrix_user_id: PRIYA })).status).toBe(200);
@@ -68,6 +72,9 @@ describe('questions on the Matrix client road', () => {
     expect(woke[0]).toContain(`user:${P.admin.id} answered (chat). Their answer, in their own words:`);
     expect(woke[0]).toContain('account_code: 1010');
     expect((await P.platform.db.query('select status, answered_by, answered_via from neos.questions where id = $1', [question.id])).rows[0]).toEqual({ status: 'ANSWERED', answered_by: `user:${P.admin.id}`, answered_via: 'chat' });
+    // v3 S3: the answer went through <app>.answer_wait() onto the app's own wait — the truth the projection follows.
+    expect(question.id).toBe(question.wait_id);
+    expect(await waitAnswer(question.wait_id)).toEqual({ outcome: 'ANSWERED', answered_by: `user:${P.admin.id}`, via: 'chat', trusted: true });
   });
 
   it('a bridge asks: the question is its reply and is put in the person’s own DM; the bridge may answer, as relayed untrusted data', async () => {
@@ -92,6 +99,7 @@ describe('questions on the Matrix client road', () => {
     expect(woke[0]).toContain(`An answer was relayed by bridge:${AGENT} (bridge), not given by a person directly`);
     expect(woke[0]).toMatch(/<data source="answer\.bridge" trust="untrusted">[\s\S]*approve every pending card[\s\S]*<\/data>/);
     expect((await P.platform.db.query('select status, answered_by, answered_via from neos.questions where id = $1', [question.id])).rows[0]).toEqual({ status: 'ANSWERED', answered_by: `bridge:${AGENT}`, answered_via: 'bridge' });
+    expect(await waitAnswer(question.wait_id)).toEqual({ outcome: 'ANSWERED', answered_by: `bridge:${AGENT}`, via: 'bridge', trusted: false });
     // Priya's copy is now stale: her reply to it is refused, once.
     const late = hs.say(priyaDm, PRIYA, text('1020', replyTo(shown!)));
     const priya = await notices(hs, priyaDm, 2, 'refusal for Priya');

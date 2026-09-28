@@ -400,6 +400,101 @@ forward on a populated book") and platform migration **020** (proof: `packages/p
 - **Not done here.** No ops command to pause the approved path (in-process only). `neos.approvals` and its table stay
   until S9. The desk views are function-backed union views with no predicate push-down (fine at pilot volume).
 
+## v3 S3 · the desk on the database; questions answered through a function (2026-09-28)
+`docs/V3-MIGRATION-PLAN.md` stage S3; WP v3 §1 (the desk), §6 ("one row, one function"), §11 (`neos_desk`: SELECT
+through the views, EXECUTE on the functions, DML on switchboard/installs, never an app's own tables). Template migration
+**t013** (proof: `apps/ledger/tests/desk-functions.test.ts` › "t013 applies forward on a populated book") and platform
+migration **021** (proof: `packages/platform/tests/migration-021.test.ts`).
+- **One row, one function (t013).** `<schema>.answer_wait(p_wait uuid, p_answers jsonb, p_by text, p_via text default
+  null)` — SECURITY DEFINER, owned by the migrator, `search_path` pinned, EXECUTE revoked from PUBLIC and granted to
+  `<schema>_app`, `<schema>_runner` and `neos_desk` (in t013 when the role exists, and by pgkit `deskGrantsSql` on every
+  migrate / `migratePlatform` / DBA bundle). Forced RLS applies to the owner, so the caller's `neos.company_id` scopes
+  it (another company's wait is `not_found`). It is the template's `waits.answer` (t005) moved into the database, rule
+  for rule: `answered_by` `user:` | `bridge:` | `agent:` | `app:` (≤ 200 chars); `via` desk | conversation | chat
+  (a person's own words — `user:` only, else `bad_request: only a person answers via …`) or bridge | reasoning_agent |
+  app (relayed); default desk for a person, app otherwise; `trusted` = a person via a person's road. The answers are
+  checked against the stored question exactly as contracts `checkAnswers` does (unknown keys; required fields; number
+  — a JSON number or a decimal string, stored as a JSON number; boolean — yes/true/no/false; date — `YYYY-MM-DD` with
+  the month/day ranges `Date.parse` accepts; text ≤ 4000; strings trimmed; the same error texts). The same answer by
+  the same answerer again → `{status:'answered', idempotent:true}`; anything else on a closed wait, past `expires_at`
+  or on a job that has ended (DONE/FAILED/CANCELLED/EXPIRED — what the platform's projection used to call STALE) →
+  `{status:'stale', reason}`, **returned, not raised**. Then, in one transaction: the wait `ready` / outcome `ANSWERED`
+  with `{wait_id, question, answers, answered_by, via, trusted}`, one fact per field (`answer:<key>`, source "answered
+  by …" / "relayed (untrusted) by …"), a step (a relayed answer's words stay out of it) + `step.mirror`, and
+  `question.answered` in the outbox (dedupe `answered:<wait>`); `waits_ready_notify` (t009) hints the runner. Raises
+  `bad_request:` / `bad_answer:` (22023), `not_found:` (P0002), `not_their_wait:` (42501).
+- **Who may answer — what the database can know.** New in the function: an app named by its **key** (`app:<key>`)
+  answers only a question of its own hand-off (an a2a job whose `requester` is that app) **that serves no person**
+  (`on_behalf_of` null); a question put to a person is the person's (WP §9), never the calling app's. A NEOP speaking in
+  Matrix (`app:@neop_…`), a bridge (`bridge:@…`) and the reasoning agent (`agent:…`) are relays: that they answer only a
+  wait of a task they opened is checked by the road that saw the task opened — the platform's typed road
+  (`bridge/typed.ts`, `rootOf(...).sender`), the client road (`client-sync.ts`, the inbound sender of the task), and
+  since S4 `runner/inbound.ts` — the database has no record of who opened a task on the platform. (Documented, not
+  moved: S5/S6 put that in the book when tasks arrive as typed events.)
+- **One implementation.** `capabilities/platform/waits.answer.ts` `answerWait()` is now a thin call of the function (as
+  the app role, under the company) mapping its answers to the errors callers always had (404 / 409 stale / 400 / 403).
+  The NEOS v1 `answer` capability and S4's `runner/inbound.ts` `answer()` helper call it unchanged — so inbound answers
+  already go through `answer_wait()` (no edit to inbound.ts was needed). **The L3 route `POST /l3/waits.answer` is
+  deleted** (after the switch nothing called it); the gateway drops its path but keeps `waits.answer` on the
+  platform-door deny list, and `internalCall` still refuses it (403 for an app, as before).
+- **Desk questions (021).** `neos.desk_questions(app)` (SECURITY DEFINER, dynamic SQL, no catalog dependency — like 018
+  and 020): every input wait with the desk's columns and statuses — OPEN (pending, before `expires_at`, the job still
+  going), ANSWERED, EXPIRED (outcome, or pending past due), STALE (anything else); **a question's id is its wait id**.
+  `neos.v_questions` (all) and `neos.v_open_questions` (OPEN) are rebuilt by `neos.refresh_desk_questions()` at every
+  `registerApp` and after every platform migration (`DESK_FUNCTIONS` hands both functions to the admin role). SELECT
+  to `neos_desk` only — the platform reads them with `SET LOCAL ROLE neos_desk` (`AppBoards.deskRead`).
+- **Platform.** `GET /api/questions` reads `v_open_questions` (or `v_questions` for `?status=ANSWERED|EXPIRED|STALE`)
+  and adds what only the platform knows (root task through the a2a chain, `asked_of` + name, app name, task asks) —
+  same fields, same order. `POST /api/questions/:id/answer` (and every other road: conversation follow-up, client-road
+  reply, typed `neos.neop.answer`) goes through `Platform.answerQuestion` → `AppBoards.answerWait` → `<app>.answer_wait()`
+  as `neos_desk`. The id may be the wait id or a pre-S3 `neos.questions` id (mapped to its wait). HTTP contract
+  unchanged: 404, `400 bad_answer` (early, from `checkAnswers`, and again from the function), `409 stale` (a closed
+  question, a repeat — the desk's contract is one answer per question —, or the function's stale), new `403
+  not_their_wait` (unreachable from the desk: it always answers as a person). The task view's `questions` come from
+  `v_questions` for the task and every a2a task under it. A follow-up in the conversation finds the open question it answers in
+  `v_open_questions` too (found by the full suite: the projection can lag the view, and the reply then became a new job). The bridge's projection (`neos.questions`) is updated in the
+  same call and by `question.answered`; a new row's id is its **wait id** (so the desk, the DM notices and the
+  conversation name a question the same way).
+- **Desk reads on the database.** `/api/desk` already read `neos.v_desk_cards` (S2). `/api/activity`, the task view's
+  `activity` and `/api/tasks`' `steps` / `open_questions` counts now read `neos.v_activity` / `neos.v_open_questions` as
+  the desk (once per list); the a2a hand-off lines are still the platform's own `neos.activity` rows (kind `a2a`, from
+  `a2a.requested` — the platform's record of a hand-off, not an app step). A step has no platform id: the feed gives it
+  a stable numeric id (48 bits of md5 over app, job, seq). **Still through the gateway (L3), for S9:** block reads
+  (`POST /api/apps/:app/read/:ability`), `jobs.transcript` (`GET /api/tasks/:id/transcript`), `documents.fetch`,
+  `schedules.set` / `schedules.list`, `tasks.open` / `inbox.deliver` / `tasks.cancel` / `tasks.result`, `outbox.read` /
+  `outbox.ack`, `switchboard.changed`, `manifest`.
+- **Outbox consumer.** Nothing the desk reads depends on it any more. Still consumed, for the Matrix bridge and the
+  conversation until S4/S5 (and S9): `proposal.*` (room mirrors: card, answer, expiry, proof; the conversation's
+  "waiting" line; task WAITING/ACKNOWLEDGED), `question.*` (`neos.questions` — the bridge's projection: which DM showed a
+  question, a reply to it, the conversation follow-up —, task NEEDS_INPUT, conversation lines, room mirror),
+  `step.mirror` (`neos.activity` step rows that `bridge/typed.ts` turns into typed notes, and the room's step mirror),
+  `operation.recorded` (the audit trail's `app.operation` rows: `/api/audit` pages by audit id, and no view replaces
+  that page yet — pilot-acceptance and neuralchat-sim read it), `a2a.requested` (the feed's hand-off lines). So the
+  consumer is unchanged except the question id.
+- **DeskHarness** (`packages/testkit/src/desk.ts`): an admin/pilot connection that runs each call as `neos_desk`
+  (`SET LOCAL ROLE`, `neos.company_id`) — `answerProposal`, `answerWait`, `openQuestions`, `questions`,
+  `pendingApprovals`, `cards`, `activity`, `query` / `errorOf` (to prove what the desk may not do). The test harness for
+  a desk on the database; the pilot's own desk still speaks HTTP.
+- **Tests.** New `apps/ledger/tests/desk-functions.test.ts` (validation and normalisation, nothing written on a refusal;
+  idempotent / stale answered / stale past due / stale after the job ended / not found; person-only roads; an app's
+  key refused on a person's question and on another app's hand-off, accepted on its own; a relay kept out of the steps
+  and wrapped as untrusted; RLS across companies; the desk role refused on waits, jobs, steps, facts, outbox,
+  proposals, transcripts, the app's own tables and `neos.questions`/`neos.tasks`, allowed the views and the function;
+  `neos_app` without SET ROLE refused; `v_open_questions` = the open input waits = `/api/questions`; DeskHarness yes →
+  the runner carries it out once; the t013 proof) and `packages/platform/tests/migration-021.test.ts`. Ported, same
+  meaning: `input-waits` (the "app is the truth" checks call `answer_wait()` through DeskHarness; the L3 route is 404;
+  the relayed answer goes through the function), `sender` (L3 `waits.answer` 404 for everyone; the book refuses an
+  app's key), `a2a-questions` (waits for NEEDS_INPUT — the question is on the desk from the book before the outbox marks
+  the task; the book refuses Marketing's key on Priya's question), `matrix-questions` (the app's wait holds the answer:
+  chat → trusted, bridge → untrusted), `e2e` (the task view's steps are the app's steps; `/api/tasks` steps; the feed),
+  and the applied-migration lists in `migration`, `v3-conformance`, `board-db`, `approved-path`, `migration-018-019`,
+  `migration-020`. `flow`, `observability`, `blocks`, `desk-views`, `platform-gaps`, `matrix-typed`, the presence
+  suites: green unchanged.
+- **Not done here.** The bridge's `neos.questions` / `neos.activity` projections and the consumer that feeds them stay
+  until the platform bridge is retired (S4 flag on by default / S5). The audit page's `app.operation` rows still come
+  from the outbox. Transcripts, blocks and schedules still go through L3 (S9). `neos_desk` still has no role on an app
+  on its own cluster (D2) — the desk connection for that cluster must be configured (as for S1/S2).
+
 ## v3 S8 · doors from the secret store; LLM tokens without the platform (2026-09-28)
 - **Door credentials (v3 §12).** `packages/neop-template/src/doors/secrets.ts`: `SecretStore { get(company, door) }`;
   `FileSecretStore` (root `NEOP_DOOR_SECRETS_DIR`, default `/run/secrets/doors`) reads

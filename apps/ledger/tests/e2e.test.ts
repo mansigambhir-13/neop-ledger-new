@@ -30,6 +30,13 @@ describe('pilot end to end', () => {
     expect(t.task.result.outcome).toBe('done');
     expect(t.task.result.summary).toMatch(/Net profit for August 2026 was -?\d+ paise/);
     expect(t.activity.map((a: any) => a.kind)).toEqual(expect.arrayContaining(['received', 'note', 'ability', 'report']));
+    // v3 S3: the desk's steps are the app's own rows (neos.v_activity), in order — not a copy the outbox carried.
+    const steps = (await P.backend.core.runnerPool.query('select seq, kind, summary from ledger.steps where job_id = $1 order by seq', [job_id])).rows;
+    expect(t.activity.map((a: any) => [a.seq, a.kind, a.summary])).toEqual(steps.map((s) => [s.seq, s.kind, s.summary]));
+    expect((await P.api('GET', '/api/tasks')).body.tasks.find((x: any) => x.id === task_id).steps).toBe(steps.length);
+    const feed = (await P.api('GET', '/api/activity?app=ledger&limit=500')).body.activity.filter((a: any) => a.job_id === job_id);
+    expect(feed.map((a: any) => a.seq).sort((a: number, b: number) => a - b)).toEqual(steps.map((s) => s.seq));
+    expect(feed.every((a: any) => Number.isSafeInteger(a.id) && a.at)).toBe(true);
   });
 
   it('a gated email becomes a proposal, a yes carries it out once, the assistant reports proof', async () => {

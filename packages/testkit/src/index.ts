@@ -8,3 +8,4 @@ export * from './chaos.ts';
 export * from './fake-providers.ts';
 export * from './fake-gsp.ts';
 export * from './fake-client-hs.ts';
+export * from './desk.ts';

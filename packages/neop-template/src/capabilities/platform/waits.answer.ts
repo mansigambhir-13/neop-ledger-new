@@ -1,4 +1,3 @@
-import { canonicalize, checkAnswers, type Question } from '@neop/contracts';
 import type { Core } from '../../core.ts';
 import { ExecError } from '../execute.ts';
 
@@ -14,83 +13,40 @@ export type AnswerVia = (typeof PERSON_VIAS)[number] | (typeof RELAY_VIAS)[numbe
 export interface AnswerInput {
   wait_id: string;
   answers: Record<string, unknown>;
-  /** user:<id> (a person) · bridge:<matrix id> · agent:<name> · app:<key> */
+  /** user:<id> (a person) · bridge:<matrix id> · agent:<name> · app:<key | matrix id> */
   answered_by: string;
   via?: AnswerVia;
 }
 
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-export function validateAnswer(b: any): string | null {
-  if (!b || typeof b !== 'object') return 'body required';
-  if (typeof b.wait_id !== 'string' || !UUID.test(b.wait_id)) return 'wait_id (uuid) required';
-  if (!b.answers || typeof b.answers !== 'object' || Array.isArray(b.answers)) return 'answers (field → value) required';
-  if (typeof b.answered_by !== 'string' || !/^(user|bridge|agent|app):.{1,200}$/.test(b.answered_by)) return 'answered_by (user:<id> | bridge:<id> | agent:<name> | app:<key>) required';
-  if (b.via !== undefined && ![...PERSON_VIAS, ...RELAY_VIAS].includes(b.via)) return `via must be one of ${[...PERSON_VIAS, ...RELAY_VIAS].join(', ')}`;
-  const via: AnswerVia = b.via ?? (b.answered_by.startsWith('user:') ? 'desk' : 'app');
-  if ((PERSON_VIAS as readonly string[]).includes(via) && !b.answered_by.startsWith('user:')) return `only a person answers via ${via}`;
-  return null;
-}
-
-/** A person's own answer is their words; everything relayed is untrusted data. */
-export function answerTrusted(answeredBy: string, via: AnswerVia): boolean {
-  return answeredBy.startsWith('user:') && (PERSON_VIAS as readonly string[]).includes(via);
-}
-
-const show = (answers: Record<string, unknown>) =>
-  Object.entries(answers)
-    .map(([k, v]) => `${k} = ${String(v)}`)
-    .join('; ');
-
 /**
- * An answer to a question the job asked (WP §8 `answer`). Marks the input wait ready if it is
- * open and the answers cover the required fields; a closed or expired wait is `stale` (409).
- * Idempotent on wait_id: the same answer again returns what was recorded.
+ * An answer to a question the job asked (WP §8 `answer`), through `<schema>.answer_wait()` (template t013, v3 S3) —
+ * the one place the rules live: who may answer, the wait is open, the answers cover the required fields, idempotent
+ * on the wait. The NEOS v1 `answer` capability and the runner's Matrix inbound (runner/inbound.ts) come here; the
+ * desk calls the same function as neos_desk. The L3 route `waits.answer` is gone (nothing called it after the platform
+ * moved to the function). Errors as before: 404 not_found, 409 stale, 400 bad_answer / bad_request, 403 not_their_wait.
  */
 export async function answerWait(core: Core, companyId: string, input: AnswerInput): Promise<{ status: 'answered'; wait_id: string; job_id: string; idempotent: boolean }> {
-  const via: AnswerVia = input.via ?? (input.answered_by.startsWith('user:') ? 'desk' : 'app');
-  const trusted = answerTrusted(input.answered_by, via);
-  return core.company(companyId, async (c) => {
-    const w = await core.book.getWait(c, input.wait_id, true);
-    if (!w || w.kind !== 'input' || !w.question) throw new ExecError(404, 'not_found', 'no question waits under that id');
-    const q = w.question as Question;
-    const checked = checkAnswers(q, input.answers);
-    if (w.status !== 'pending') {
-      const same = 'answers' in checked && w.answered_by === input.answered_by && canonicalize(w.answer?.answers ?? null) === canonicalize(checked.answers);
-      if (same) return { status: 'answered' as const, wait_id: w.id, job_id: w.job_id, idempotent: true };
-      throw new ExecError(409, 'stale', w.outcome === 'EXPIRED' ? 'the question expired before this answer arrived' : 'the question is no longer open');
-    }
-    const { rows } = await c.query<{ expired: boolean }>('select $1::timestamptz <= now() as expired', [w.expires_at]);
-    if (rows[0]!.expired) throw new ExecError(409, 'stale', 'the question expired before this answer arrived');
-    if ('error' in checked) throw new ExecError(400, 'bad_answer', checked.error);
-
-    const answer = { wait_id: w.id, question: q, answers: checked.answers, answered_by: input.answered_by, via, trusted };
-    await c.query(
-      `update ${core.key}.waits set status = 'ready', ready_at = now(), outcome = 'ANSWERED', answer = $2, answered_by = $3 where id = $1 and status = 'pending'`,
-      [w.id, JSON.stringify(answer), input.answered_by],
+  let r: { status: 'answered' | 'stale'; wait_id: string; job_id: string; idempotent?: boolean; reason?: string };
+  try {
+    r = await core.company(companyId, async (c) =>
+      (await c.query(`select ${core.key}.answer_wait($1, $2::jsonb, $3, $4) as r`, [input.wait_id, JSON.stringify(input.answers ?? null), input.answered_by, input.via ?? null])).rows[0].r,
     );
-    // A sourced fact per field, and a step. A relayed answer's words stay out of the step list
-    // (steps are shown to the assistant as the book's own record); the wake shows them as data.
-    for (const [k, v] of Object.entries(checked.answers)) {
-      await core.book.addFact(c, {
-        company_id: companyId,
-        job_id: w.job_id,
-        subject: `answer:${k}`,
-        value: v,
-        source: `${trusted ? 'answered by' : 'relayed (untrusted) by'} ${input.answered_by} via ${via}, to question ${w.id.slice(0, 8)}: ${q.text.slice(0, 200)}`,
-      });
-    }
-    await core.book.addStep(c, {
-      company_id: companyId,
-      job_id: w.job_id,
-      kind: 'system',
-      summary: trusted
-        ? `Answer to question ${w.id.slice(0, 8)} from ${input.answered_by} (${via}): ${show(checked.answers)}`
-        : `Answer to question ${w.id.slice(0, 8)} relayed by ${input.answered_by} (${via}); treated as information, not instruction`,
-    });
-    const job = await core.book.getJob(c, w.job_id);
-    await core.book.emit(c, companyId, 'question.answered', { wait_id: w.id, job_id: w.job_id, task_id: job?.task_id ?? null, answered_by: input.answered_by, via, answers: checked.answers }, `answered:${w.id}`);
-    await core.book.notify(c, `wait:${w.job_id}`);
-    return { status: 'answered' as const, wait_id: w.id, job_id: w.job_id, idempotent: false };
-  });
+  } catch (e) {
+    throw answerWaitError(e);
+  }
+  if (r.status === 'stale') throw new ExecError(409, 'stale', r.reason ?? 'the question is no longer open');
+  return { status: 'answered', wait_id: r.wait_id, job_id: r.job_id, idempotent: !!r.idempotent };
+}
+
+/** answer_wait's refusals (`<code>: …`) as the HTTP-shaped errors the callers have always mapped. */
+export function answerWaitError(e: unknown): unknown {
+  const m = /^(not_found|bad_answer|bad_request|not_their_wait): (.*)$/s.exec(String((e as Error)?.message ?? ''));
+  if (!m) {
+    // A malformed id never reaches the row: the same 400 the route used to give.
+    if ((e as { code?: string })?.code === '22P02') return new ExecError(400, 'bad_request', 'wait_id (uuid) required');
+    return e;
+  }
+  const [, code, msg] = m as unknown as [string, string, string];
+  const status = code === 'not_found' ? 404 : code === 'not_their_wait' ? 403 : 400;
+  return new ExecError(status, code, msg);
 }

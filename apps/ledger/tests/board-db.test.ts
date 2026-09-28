@@ -343,7 +343,7 @@ describe('t010 on a populated book', () => {
       const before = await runner.query('select line, setting, version from ledger.switchboard order by line');
 
       const applied = await run(TEMPLATE_MIGRATIONS);
-      expect(applied.map((m) => m.name)).toEqual(['t010_board_truth.sql', 't011_approved_path.sql', 't012_presence.sql']); // t011 (S2), t012 (S4) follow; their own proofs are in approved-path.test.ts and presence-dedupe.test.ts
+      expect(applied.map((m) => m.name)).toEqual(['t010_board_truth.sql', 't011_approved_path.sql', 't012_presence.sql', 't013_answer_wait.sql']); // t011 (S2), t012 (S4), t013 (S3) follow; their own proofs are in approved-path.test.ts, presence-dedupe.test.ts and desk-functions.test.ts
 
       // Kept as it was; what the rows never knew is NULL.
       expect((await runner.query('select line, setting, version from ledger.switchboard order by line')).rows).toEqual(before.rows);

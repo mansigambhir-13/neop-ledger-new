@@ -170,7 +170,7 @@ export const DESK_ROLE = 'neos_desk';
 
 /**
  * What the desk may do in one NEOP schema (v3 §11, template t010): DML on <schema>.switchboard and
- * <schema>.installs, SELECT on the board history and the grants, EXECUTE on answer_proposal / create_grant /
+ * <schema>.installs, SELECT on the board history and the grants, EXECUTE on answer_proposal / answer_wait (t013) / create_grant /
  * revoke_grant / set_schedule — and nothing on the app's own tables. Idempotent, and a no-op unless the
  * role exists and the schema is at t010 or later. Run as the schema's migrator (the objects' owner).
  */
@@ -189,6 +189,10 @@ export function deskGrantsSql(schema: string): string {
     `      grant execute on function ${s}.answer_proposal(uuid, text, text, text, text, text[]) to ${DESK_ROLE};\n` +
     `    else\n` +
     `      grant execute on function ${s}.answer_proposal(uuid, text, text, text, text) to ${DESK_ROLE};\n` +
+    `    end if;\n` +
+    // t013 (v3 S3): an answer to a job's question, through the one function.
+    `    if to_regprocedure('${s}.answer_wait(uuid, jsonb, text, text)') is not null then\n` +
+    `      grant execute on function ${s}.answer_wait(uuid, jsonb, text, text) to ${DESK_ROLE};\n` +
     `    end if;\n` +
     `    grant execute on function ${s}.create_grant(text, jsonb, timestamptz, text, uuid),\n` +
     `      ${s}.revoke_grant(uuid, text), ${s}.set_schedule(uuid, text, text, jsonb, boolean), ${s}.board_version_for(uuid, integer),\n` +
