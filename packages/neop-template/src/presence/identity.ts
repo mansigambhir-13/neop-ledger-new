@@ -32,7 +32,7 @@ export interface Person {
   company_id: string;
   name: string;
   role: string;
-  matrix_id: string;
+  matrix_id: string | null; // null: a person a bridge relays for, with no Matrix id of their own (t017)
   /** On the app's chat allowlist as a person (may DM it on the client road). */
   chat_person: boolean;
 }
@@ -94,7 +94,15 @@ export class Identity {
       `select user_id as id, company_id, coalesce(name, 'a person') as name, coalesce(role, 'member') as role, matrix_id, chat_person from ${this.s}.people where company_id = $1 and user_id = $2 order by chat_person desc limit 1`,
       [companyId, userId],
     );
-    return r.rows[0] ?? null;
+    if (r.rows[0]) return r.rows[0];
+    // t017: a person a bridge relays for need not have a Matrix id of their own.
+    const has = (await this.pool.query<{ ok: boolean }>('select to_regclass($1) is not null as ok', [`${this.s}.acted_for`])).rows[0]?.ok;
+    if (!has) return null;
+    const a = await this.pool.query<Person>(
+      `select user_id as id, company_id, coalesce(name, 'a person') as name, coalesce(role, 'member') as role, null::text as matrix_id, false as chat_person from ${this.s}.acted_for where company_id = $1 and user_id = $2`,
+      [companyId, userId],
+    );
+    return a.rows[0] ?? null;
   }
 
   /**

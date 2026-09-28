@@ -201,6 +201,9 @@ export function deskGrantsSql(schema: string): string {
     `    if to_regclass('${s}.people') is not null then\n` +
     `      grant select, insert, update, delete on ${s}.people to ${DESK_ROLE};\n` +
     `    end if;\n` +
+    `    if to_regclass('${s}.acted_for') is not null then\n` +
+    `      grant select, insert, update, delete on ${s}.acted_for to ${DESK_ROLE};\n` +
+    `    end if;\n` +
     `  end if;\n` +
     `end $$;`
   );

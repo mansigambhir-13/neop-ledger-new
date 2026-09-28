@@ -302,7 +302,7 @@ describe('t007 + t008 + t009 + 007 on a populated book', () => {
       const before = await withCompany(pool, CO, async (c) => (await c.query("select md5(string_agg(id::text || status, ',' order by id)) h, count(*)::int n from ledger.jobs")).rows[0]);
 
       const applied = await run(TEMPLATE_MIGRATIONS, path.join(LEDGER_ROOT, 'migrations'));
-      expect(applied.map((m) => m.name)).toEqual(['t007_standard_columns.sql', 't008_transitions.sql', 't009_notify.sql', 't010_board_truth.sql', 't011_approved_path.sql', 't012_presence.sql', 't013_answer_wait.sql', 't015_bus_room.sql', '007_views.sql']);
+      expect(applied.map((m) => m.name)).toEqual(['t007_standard_columns.sql', 't008_transitions.sql', 't009_notify.sql', 't010_board_truth.sql', 't011_approved_path.sql', 't012_presence.sql', 't013_answer_wait.sql', 't015_bus_room.sql', 't017_acted_for.sql', '007_views.sql']);
 
       await withCompany(pool, CO, async (c) => {
         expect((await c.query("select md5(string_agg(id::text || status, ',' order by id)) h, count(*)::int n from ledger.jobs")).rows[0]).toEqual(before);

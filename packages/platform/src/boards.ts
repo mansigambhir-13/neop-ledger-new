@@ -130,6 +130,8 @@ export class AppBoards {
     companyId: string,
     d: {
       people?: { matrix_id: string; user_id: string; name: string | null; role: string | null; chat_person: boolean }[];
+      /** t017: the people a bridge relays for (they need no Matrix id of their own); replaces the company's rows. */
+      acted_for?: { user_id: string; name: string | null; role: string | null }[];
       agent_senders?: string[];
       agent_acts_for?: Record<string, string>;
       company_slug?: string;
@@ -155,6 +157,18 @@ export class AppBoards {
                on conflict (company_id, matrix_id) do update set user_id = excluded.user_id, name = excluded.name, role = excluded.role, chat_person = excluded.chat_person, updated_at = now()
                  where (p.user_id, p.name, p.role, p.chat_person) is distinct from (excluded.user_id, excluded.name, excluded.role, excluded.chat_person)`,
               [companyId, p.matrix_id, p.user_id, p.name, p.role, p.chat_person],
+            );
+          }
+        }
+        if (d.acted_for && (await c.query<{ ok: boolean }>('select to_regclass($1) is not null as ok', [`${s}.acted_for`])).rows[0]?.ok) {
+          const ids = d.acted_for.map((p) => p.user_id);
+          await c.query(`delete from ${s}.acted_for where company_id = $1 and not (user_id = any($2::text[]))`, [companyId, ids]);
+          for (const p of d.acted_for) {
+            await c.query(
+              `insert into ${s}.acted_for as p (company_id, user_id, name, role, updated_at) values ($1, $2, $3, $4, now())
+               on conflict (company_id, user_id) do update set name = excluded.name, role = excluded.role, updated_at = now()
+                 where (p.name, p.role) is distinct from (excluded.name, excluded.role)`,
+              [companyId, p.user_id, p.name, p.role],
             );
           }
         }

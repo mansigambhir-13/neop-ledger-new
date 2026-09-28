@@ -141,7 +141,7 @@ export class Bus implements BusRoad {
   async personMxid(companyId: string, job: Pick<JobRow, 'on_behalf_of' | 'requester'>): Promise<string> {
     const who = job.on_behalf_of?.startsWith('user:') ? job.on_behalf_of : job.requester.startsWith('user:') ? job.requester : null;
     const p = who ? await this.identity.personById(companyId, who.slice(5)) : null;
-    if (!p) throw new BusError('no_person', 'the person this job is for has no Matrix id at this company, so no other app can be asked on their behalf; nothing was sent');
+    if (!p?.matrix_id) throw new BusError('no_person', 'the person this job is for has no Matrix id at this company, so no other app can be asked on their behalf; nothing was sent');
     return p.matrix_id;
   }
 

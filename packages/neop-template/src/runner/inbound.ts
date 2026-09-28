@@ -272,7 +272,7 @@ export class Inbound {
     if (!who) return null;
     const p = await this.identity.personById(road.companyId, who.slice(5));
     if (!p) return null;
-    const dm = p.chat_person && road.kind === 'client' ? await this.dmOf(road, p.matrix_id) : null;
+    const dm = p.chat_person && p.matrix_id && road.kind === 'client' ? await this.dmOf(road, p.matrix_id) : null;
     return { id: p.id, name: p.name, role: p.role, dm };
   }
 

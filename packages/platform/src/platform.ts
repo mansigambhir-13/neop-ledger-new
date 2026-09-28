@@ -158,7 +158,12 @@ export class Platform {
       const allow = (await this.db.query<{ matrix_id: string; kind: string; acts_for: string | null }>('select matrix_id, kind, acts_for from neos.chat_allowlist where company_id = $1 and app_key = $2', [companyId, a])).rows;
       const persons = new Set(allow.filter((x) => x.kind === 'person').map((x) => x.matrix_id));
       const bridges = allow.filter((x) => x.kind === 'bridge');
+      const actsFor = [...new Set(bridges.map((b) => b.acts_for).filter((x): x is string => !!x))];
+      const actedFor = actsFor.length
+        ? (await this.db.query<{ id: string; name: string; role: string }>('select id, name, role from neos.users where company_id = $1 and id = any($2::uuid[])', [companyId, actsFor])).rows
+        : [];
       await this.boards.writeChat(a, companyId, {
+        acted_for: actedFor.map((u) => ({ user_id: u.id, name: u.name, role: u.role })),
         people: users.map((u) => ({ matrix_id: u.matrix_user_id, user_id: u.id, name: u.name, role: u.role, chat_person: persons.has(u.matrix_user_id) })),
         agent_senders: bridges.map((b) => b.matrix_id).sort(),
         agent_acts_for: Object.fromEntries(bridges.filter((b) => b.acts_for).map((b) => [b.matrix_id, b.acts_for!])),

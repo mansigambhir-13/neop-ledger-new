@@ -3,8 +3,17 @@
 // (neos-agent-neuralchat #143) sends plain m.text and may send a free-text go-ahead ("Go ahead with the ₹500
 // expense.") — never a yes. The one reply re-shows the card and says "I can't take a yes through NeuralChat. Please
 // approve #<id> on your desk."; nothing executes and no job opens. A person's yes on the desk then executes it once.
-// A bridge's clear DECLINE still binds (PLAIN_DECLINE, never when it only postpones).
+// A bridge's clear DECLINE still binds (PLAIN_DECLINE, never when it only postpones) — also for a person the bridge
+// relays for who has no Matrix id of their own (t017, found in the v3 rehearsal).
+import { cp, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import pg from 'pg';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { bootstrapFamily, createPool, createTestDatabase, migrate, roleUrl, templateFiles, withCompany } from '@neop/pgkit';
+import { migratePlatform } from '@neop/platform';
+import { TEMPLATE_INFRA_TABLES, TEMPLATE_MIGRATIONS } from '@neop/template';
+import { LEDGER_ROOT, seedLedger } from '../src/index.ts';
 import { cardTextOf, goAheadOf, numbersIn, numbersNotOn, PRESENCE_REPLY_DEADLINE_MS, type PresenceClient } from '@neop/template';
 import { bootPilot, call, fakeClientHomeserver, finish, type FakeClientHomeserver, type Pilot } from './harness.ts';
 
@@ -210,5 +219,68 @@ describe('a bridge’s clear decline still binds (caution may be added, never re
     const r = await notices(hs, dm, 2, 'the decline');
     expect(r[1]!.content.body).toBe(`Recorded: card ${id8} declined for Priya, via ${AGENT2}. Nothing will be done.`);
     expect(await proposal(card.id)).toMatchObject({ status: 'REJECTED', decided_by: `user:${P.admin.id}`, feedback: `declined via ${AGENT2} on behalf of Priya` });
+  });
+});
+
+describe('a person the bridge relays for need not have a Matrix id (found in the v3 rehearsal, t017)', () => {
+  it('a plain decline relayed for a person with no Matrix link is recorded for them', async () => {
+    const AGENT3 = '@reasoning_agent_three:hs.test';
+    const r = await P.api('PUT', '/api/chat/allowlist', { app: 'ledger', matrix_id: AGENT3, kind: 'bridge', acts_for: P.member.id });
+    expect(r.status, JSON.stringify(r.body)).toBe(200);
+    // The member has no Matrix id: not in people, only in acted_for.
+    expect((await db().query('select count(*)::int as n from ledger.people where user_id = $1', [P.member.id])).rows[0].n).toBe(0);
+    expect((await db().query('select count(*)::int as n from ledger.acted_for where user_id = $1', [P.member.id])).rows[0].n).toBe(1);
+    const hs = fakeClientHomeserver({ me: ME });
+    await client(hs);
+    const dm = await dmWith(hs, AGENT3);
+    const { card, id8 } = await propose(hs, dm, AGENT3, 'printer toner');
+    P.setBrain((v) => (v.job.includes('WOKEN') ? finish('Nothing was recorded.') : { text: 'waiting' }));
+    hs.say(dm, AGENT3, text('The user declined. Please drop that proposal.'));
+    const replies = await notices(hs, dm, 2, 'the decline');
+    const name = (await db().query('select name from ledger.acted_for where user_id = $1', [P.member.id])).rows[0].name;
+    expect(replies[1]!.content.body).toBe(`Recorded: card ${id8} declined for ${name}, via ${AGENT3}. Nothing will be done.`);
+    expect(await proposal(card.id)).toMatchObject({ status: 'REJECTED', decided_by: `user:${P.member.id}` });
+  });
+
+  it('t017 applies forward on a populated book: nothing lost, acted_for empty, company-scoped, read-only to the app', async () => {
+    const tdb = await createTestDatabase();
+    const CO = '11111111-2222-3333-4444-555555555555';
+    const tdir = await mkdtemp(path.join(os.tmpdir(), 'neop-t017-'));
+    try {
+      await migratePlatform(tdb.adminUrl);
+      await cp(TEMPLATE_MIGRATIONS, tdir, { recursive: true });
+      const tled = JSON.parse(await readFile(path.join(tdir, 'migrate.json'), 'utf8'));
+      for (const m of tled.migrations.filter((x: any) => x.file >= 't017')) await rm(path.join(tdir, m.file));
+      tled.migrations = tled.migrations.filter((m: any) => m.file < 't017');
+      await writeFile(path.join(tdir, 'migrate.json'), JSON.stringify(tled));
+      await bootstrapFamily(tdb.adminUrl, 'ledger');
+      const run = async (dir: string) => migrate({ adminUrl: tdb.adminUrl, schema: 'ledger', sources: { dir: path.join(LEDGER_ROOT, 'migrations'), prepend: await templateFiles(dir) }, lintExempt: TEMPLATE_INFRA_TABLES });
+      await run(tdir);
+      const pool = createPool(roleUrl(tdb.adminUrl, 'ledger_app'));
+      const admin = new pg.Client({ connectionString: tdb.adminUrl });
+      await admin.connect();
+      try {
+        await seedLedger(pool, CO);
+        await admin.query("insert into ledger.installs (company_id, status, company_name, time_zone, matrix_user) values ($1, 'active', 'Old Co', 'Asia/Kolkata', '@ledger_old:hs')", [CO]);
+        await admin.query("insert into ledger.people (company_id, matrix_id, user_id, name, role, chat_person) values ($1, '@priya:hs', 'aaaaaaaa-0000-0000-0000-000000000001', 'Priya', 'admin', true)", [CO]);
+        const count = async () => (await admin.query('select (select count(*) from ledger.people) + (select count(*) from ledger.installs) + (select count(*) from ledger.accounts) as n')).rows[0].n;
+        const before = await count();
+        const applied = await run(TEMPLATE_MIGRATIONS);
+        expect(applied.map((m) => m.name)).toContain('t017_acted_for.sql');
+        expect(await count()).toBe(before);
+        expect((await admin.query('select count(*)::int as n from ledger.acted_for')).rows[0].n).toBe(0);
+        const row = (co: string) => `insert into ledger.acted_for (company_id, user_id, name, role) values ('${co}', 'aaaaaaaa-0000-0000-0000-000000000002', 'Rahul', 'member')`;
+        await expect(withCompany(pool, CO, (c) => c.query(row(CO)))).rejects.toThrow(/permission denied/); // the app only reads it
+        await admin.query(row(CO));
+        expect((await withCompany(pool, CO, (c) => c.query('select name from ledger.acted_for'))).rows).toEqual([{ name: 'Rahul' }]);
+        expect((await withCompany(pool, '99999999-2222-3333-4444-555555555555', (c) => c.query('select 1 from ledger.acted_for'))).rowCount).toBe(0);
+      } finally {
+        await admin.end();
+        await pool.end();
+      }
+    } finally {
+      await tdb.drop();
+      await rm(tdir, { recursive: true, force: true });
+    }
   });
 });

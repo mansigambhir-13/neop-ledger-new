@@ -111,7 +111,13 @@ await step(room, 'read: who are my vendors', 'Who are my vendors?', async (r) =>
   if (!parties.length) return [/\b(no|none|not any)\b.*vendor|vendor.*\b(none|no)\b/i.test(r), 'no vendors on file — said so'];
   return [named >= Math.min(2, parties.length), `${named}/${parties.length} vendors named`];
 });
-await step(room, 'read: cash position', 'What is our cash position at the end of September 2026?', (r) => [/₹/.test(r) && !/can't reach/i.test(r), 'an amount in rupees']);
+// Empty books (a fresh install) have no cash position: an honest "nothing posted yet" passes, as for vendors.
+await step(room, 'read: cash position', 'What is our cash position at the end of September 2026?', (r) => {
+  if (/can't reach/i.test(r)) return [false, 'the books were not reached'];
+  if (/₹/.test(r)) return [true, 'an amount in rupees'];
+  const empty = /(no|zero) (journal )?(entries|transactions)|nothing (has been )?(posted|recorded)|(books|ledger) (are|is) empty/i.test(r);
+  return [empty, empty ? 'empty books — said so' : 'neither an amount nor an honest "nothing posted"'];
+});
 
 // A change, proposed first (prepare, do not apply). A relayed go-ahead is not a yes; a person approves on the desk.
 let t = Date.now();

@@ -501,7 +501,7 @@ describe('t011 on a populated book', () => {
       const before = await snap();
 
       const applied = await run(TEMPLATE_MIGRATIONS);
-      expect(applied.map((m) => m.name)).toEqual(['t011_approved_path.sql', 't012_presence.sql', 't013_answer_wait.sql', 't015_bus_room.sql']); // t012 (S4), t013 (S3), t015 (S6) follow; their own proofs are in presence-dedupe.test.ts and desk-functions.test.ts and bus-room.test.ts
+      expect(applied.map((m) => m.name)).toEqual(['t011_approved_path.sql', 't012_presence.sql', 't013_answer_wait.sql', 't015_bus_room.sql', 't017_acted_for.sql']); // t012 (S4), t013 (S3), t015 (S6) follow; their own proofs are in presence-dedupe.test.ts and desk-functions.test.ts and bus-room.test.ts
       expect(await snap()).toEqual(before);
 
       const admin = new pg.Client({ connectionString: db.adminUrl });
