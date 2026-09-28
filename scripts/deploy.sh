@@ -84,7 +84,11 @@ case "$PRESENCE" in
   client) CHAT_OVERLAY=deploy/compose.presence-client.yml
     # The backend reaches the homeserver through egress-proxy (443 only): allow its host.
     HS_HOST=$(printf '%s' "$MATRIX_HOMESERVER_URL" | sed -E 's#^[a-z]+://##; s#[:/].*$##')
-    export NEOS_EGRESS_EXTRA="${NEOS_EGRESS_EXTRA:+$NEOS_EGRESS_EXTRA,}$HS_HOST" ;;
+    export NEOS_EGRESS_EXTRA="${NEOS_EGRESS_EXTRA:+$NEOS_EGRESS_EXTRA,}$HS_HOST"
+    # …and its port, when the homeserver is not on 443 (found in rehearsal: http on 8108 was refused).
+    HS_PORT=$(printf '%s' "$MATRIX_HOMESERVER_URL" | sed -nE 's#^[a-z]+://[^/:]+:([0-9]+).*$#\1#p')
+    [ -z "$HS_PORT" ] && case "$MATRIX_HOMESERVER_URL" in http://*) HS_PORT=80 ;; esac
+    [ -n "$HS_PORT" ] && [ "$HS_PORT" != 443 ] && export NEOS_EGRESS_PORTS="${NEOS_EGRESS_PORTS:-443},$HS_PORT" ;;
   *) die "NEOP_PRESENCE must be off or client for scripts/deploy.sh (the appservice road is set up with scripts/matrix-setup.sh + deploy/compose.chat.yml)";;
 esac
 ATTEST="$ROOT/deploy/attestations/ledger.json"
@@ -193,12 +197,17 @@ if [ -n "${EMAIL_DOOR_JSON:-}" ]; then
 else echo "not configured: gated emails will fail cleanly until ops runs: scripts/deploy.sh door set $CO email ledger < credential.json"; fi
 
 say "10/11 verify the install (read-only)"
+# With Ledger on Matrix itself, check the token its backend holds (the platform holds none for it).
+PRESENCE_VERIFY=()
+[ "$PRESENCE" = client ] && PRESENCE_VERIFY=(-e NEOP_PRESENCE=client -e "NEOP_MATRIX_HOMESERVER_URL=$MATRIX_HOMESERVER_URL" -e "NEOP_MATRIX_ACCOUNT=$LEDGER_MXID"
+  -e NEOP_MATRIX_TOKEN_FILE=/tmp/mt -v "$NEOS_SECRETS_DIR/matrix_ledger_token:/tmp/mt:ro")
 # The door files are checked by name and mode only (never opened); the rendered compose config shows who mounts them.
 RENDERED=$(mktemp /tmp/neops-compose.XXXXXX); dc config > "$RENDERED" 2>/dev/null || die "docker compose config failed"; chmod 644 "$RENDERED"
 dc run --rm --no-deps -T -e NEOS_DB_URL_FILE=/run/secrets/neos_app_url -e NEOP_RUNNER_DB_URL_FILE=/tmp/r -e NEOS_PLATFORM_URL=http://platform:4000 -e NEOP_LLM_UPSTREAM_KEY_FILE=/tmp/k \
   -e NEOP_DOOR_SECRETS_DIR=/run/secrets/doors -e NEOS_COMPOSE_FILE=/tmp/compose.yml \
   -v "$NEOS_SECRETS_DIR/ledger_runner_url:/tmp/r:ro" -v "$NEOS_SECRETS_DIR/llm_upstream_key:/tmp/k:ro" \
   -v "$NEOS_SECRETS_DIR/doors:/run/secrets/doors:ro" -v "$RENDERED:/tmp/compose.yml:ro" \
+  ${PRESENCE_VERIFY[@]+"${PRESENCE_VERIFY[@]}"} \
   platform tsx scripts/verify-install.ts ledger "$CO" 2>/dev/null | grep -v '^ *Container ' | tee /tmp/neops-verify.txt | tail -16
 rm -f "$RENDERED"
 grep -q 'All checks passed' /tmp/neops-verify.txt || die "verify-install reported failures (above)"

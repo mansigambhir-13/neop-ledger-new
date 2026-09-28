@@ -188,12 +188,20 @@ export class PresenceClient {
     } catch (e: any) {
       if (e?.fatal) return void (await this.halt('token_rejected', { status: e.status, errcode: e.errcode }));
       this.stopped = { reason: 'unreachable' };
-      return void this.log('not started — the homeserver could not be reached', { e: String(e?.message ?? e).slice(0, 200) });
+      this.log('not started — the homeserver could not be reached; trying again', { e: String(e?.message ?? e).slice(0, 200) });
+      return void this.retryStart();
     }
     this.account = who;
     if (this.cfg.account && who !== this.cfg.account) return void (await this.halt('account_mismatch', { whoami: who }));
     const installs = await this.host.identity.installsOf(who);
-    if (installs.length !== 1) return void (await this.halt(installs.length ? 'bound_to_two_installs' : 'no_install', { whoami: who }));
+    if (installs.length > 1) return void (await this.halt('bound_to_two_installs', { whoami: who }));
+    if (!installs.length) {
+      // The install (installs.matrix_user) is usually written after the backend starts (deploy step 8): wait for it.
+      this.stopped = { reason: 'no_install' };
+      this.log('not started — no install of this app speaks as this account yet (PUT /api/chat/presence matrix_user); trying again', { whoami: who });
+      return void this.retryStart();
+    }
+    this.stopped = null;
     this.companyId = installs[0]!.company_id;
     const row = (
       await this.host.db.query<{ company_id: string; road: string; next_batch: string | null }>(
@@ -236,7 +244,22 @@ export class PresenceClient {
     }
   }
 
+  /** A start that could not finish (homeserver unreachable, install not written yet) is tried again, backing off to 60 s. */
+  private retryTimer: ReturnType<typeof setTimeout> | null = null;
+  private retries = 0;
+  private retryStart(): void {
+    if (this.stopping) return;
+    const ms = Math.min(60_000, 2_000 * 2 ** Math.min(this.retries++, 5));
+    this.retryTimer = setTimeout(() => {
+      this.retryTimer = null;
+      if (!this.stopping) void this.start().catch((e) => this.log('start failed', { e: String((e as Error)?.message ?? e).slice(0, 200) }));
+    }, ms);
+    this.retryTimer.unref?.();
+  }
+
   async stop(): Promise<void> {
+    if (this.retryTimer) clearTimeout(this.retryTimer);
+    this.retryTimer = null;
     this.stopping = true;
     this.controller?.abort();
     if (this.replyTimer) clearInterval(this.replyTimer);

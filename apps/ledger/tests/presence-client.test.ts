@@ -467,6 +467,22 @@ describe('deadline and token handling', () => {
     const c3 = await client(nobody, { account: '@nobody_speaks_as_me:hs.test' });
     expect(c3.status().stopped?.reason).toBe('no_install');
   });
+
+  it('a homeserver not reachable at boot (found in rehearsal): the client keeps trying and starts once it answers', async () => {
+    const hs = fakeClientHomeserver({ me: ME });
+    let down = true;
+    const flaky = (async (url: any, init?: any) => {
+      if (down) throw new TypeError('fetch failed');
+      return hs.fetchImpl(url, init);
+    }) as typeof hs.fetchImpl;
+    await db().query('update ledger.presence_accounts set next_batch = null where account = $1', [ME]);
+    const c = await P.presence!.addClient({ account: ME, accessToken: hs.token }, { homeserverUrl: 'http://hs.test', fetchImpl: flaky, syncTimeoutMs: 100, replyEveryMs: 50 });
+    running.push(c);
+    expect(c.status().stopped?.reason).toBe('unreachable');
+    down = false;
+    await P.waitFor(async () => c.status().running, 'started after the homeserver came back', 15_000);
+    expect(c.status().stopped).toBeNull();
+  });
 });
 
 describe('the identity API (PUT /api/chat/presence) and NEOP_PRESENCE', () => {

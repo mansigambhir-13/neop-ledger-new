@@ -16,6 +16,7 @@
 //                                       mounts the doors; no agent, no web
 //   NEOP_LLM_UPSTREAM_KEY[_FILE]        the LLM proxy's provider key — present, never read (run where the proxy's env is)
 //   MATRIX_MODE=client + MATRIX_HOMESERVER_URL + MATRIX_CLIENT_ACCOUNTS[_FILE]   each account's token: whoami
+//   NEOP_PRESENCE=client + NEOP_MATRIX_HOMESERVER_URL + NEOP_MATRIX_ACCOUNT + NEOP_MATRIX_TOKEN_FILE   the app's own account: whoami
 //   NEOS_ENV=production                 an app registered without a conformance attestation is a FAIL (else a WARN)
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
@@ -364,6 +365,24 @@ export async function verifyInstall(o: {
     }
     must(r.ok, `${base}/l3/ready answered ${r.status} — the backend cannot reach its database`);
     return base;
+  });
+  // v3 S4: with NEOP_PRESENCE=client the app's backend holds its own account (the platform holds none for it).
+  await check('matrix: the app\'s own account token valid (whoami, NEOP_PRESENCE=client)', async () => {
+    if ((env.NEOP_PRESENCE ?? 'off') !== 'client') throw new Skip(`NEOP_PRESENCE=${env.NEOP_PRESENCE ?? 'off'}`);
+    const hs = env.NEOP_MATRIX_HOMESERVER_URL;
+    const account = env.NEOP_MATRIX_ACCOUNT;
+    const tokenFile = env.NEOP_MATRIX_TOKEN_FILE;
+    must(hs && account && tokenFile, 'NEOP_MATRIX_HOMESERVER_URL, NEOP_MATRIX_ACCOUNT and NEOP_MATRIX_TOKEN_FILE must be set');
+    must(existsSync(tokenFile!), `${account}: token file ${tokenFile} is missing`);
+    const http = new MatrixClientHttp({ homeserverUrl: hs!, account: account!, accessToken: readFileSync(tokenFile!, 'utf8').trim(), fetchImpl: o.fetchImpl as any });
+    let who: string;
+    try {
+      who = await http.whoami();
+    } catch (e) {
+      throw new Error(`${account}: the homeserver refused the token (${(e as Error).message}) — ask the Matrix operator for a new one`);
+    }
+    must(who === account, `${account}: the token belongs to ${who}`);
+    return who;
   });
   await check('matrix: client tokens valid (whoami)', async () => {
     if ((env.MATRIX_MODE ?? 'appservice') !== 'client') throw new Skip(`MATRIX_MODE=${env.MATRIX_MODE ?? 'appservice'}`);
