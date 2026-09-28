@@ -1,9 +1,11 @@
 // Platform gaps the audit found: a2a results (a 404 is retried, a give-up is loud),
-// a2a hand-offs in the desk activity feed (C6), switchboard pushes that survive an
-// app being briefly away, and standing yeses (company-month limits, recipients,
+// a2a hand-offs in the desk activity feed (C6), switchboard changes that reach an
+// app while it is away (NOTIFY, v3 S1), and standing yeses (company-month limits, recipients,
 // self-suspension on FAILED/UNKNOWN).
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { withCompany } from '@neop/pgkit';
+import { matchGrant, recordGrantUse } from '@neop/template';
 import { marketingApp, seedMarketing } from '@neop/marketing';
 import { bootPilot, ledgerUnderTest, toolName, type BrainView, type Pilot } from './harness.ts';
 
@@ -88,108 +90,122 @@ describe('a2a results and the activity feed', () => {
   }, 30_000);
 });
 
-describe('switchboard pushes', () => {
-  it('a switch-off reaches an app that was briefly unreachable as soon as it is back (no 30 s cache lag)', async () => {
+describe('switchboard changes reach the gate from the database (v3 S1)', () => {
+  it('a switch-off reaches the gate even while its L3 is unreachable: the NOTIFY needs no push, and nothing is owed', async () => {
     const ledger = P.backends.ledger!;
+    const cashFlow = ledger.core.ability('ledger.report.cash_flow')!;
     const url = (await P.platform.db.query("select l3_url from neos.apps where key = 'ledger'")).rows[0].l3_url;
     const before = (await ledger.core.board.get(P.company.id)).version; // the gate's cache is warm
+    expect((await ledger.core.board.get(P.company.id)).setting(cashFlow)).toBe('on');
     await P.platform.db.query("update neos.apps set l3_url = 'http://127.0.0.1:9' where key = 'ledger'");
-    let version = 0;
     try {
+      const t0 = Date.now();
       const r = await P.api('PUT', '/api/switchboards/ledger', { settings: { 'ledger.report.cash_flow': 'off' } });
       expect(r.status).toBe(200);
-      version = r.body.version;
+      const version = r.body.version;
       expect(version).toBeGreaterThan(before);
-      const owed = await P.waitFor(async () => (await P.platform.db.query("select * from neos.app_notifications where app_key = 'ledger' and company_id = $1 and attempts >= 2", [P.company.id])).rows[0], 'push retried');
-      expect(owed.version).toBe(version);
-      expect(owed.last_error).toMatch(/unreachable|did not answer/);
-      expect((await ledger.core.board.get(P.company.id)).version).toBe(before); // the app still has the old board
+      // No cache lag and no retries: the app's own switchboard told its gate.
+      await P.waitFor(async () => (await ledger.core.board.get(P.company.id)).version === version, 'the gate dropped its cached board', 1_000);
+      expect(Date.now() - t0).toBeLessThan(2_000);
+      expect((await ledger.core.board.get(P.company.id)).setting(cashFlow)).toBe('off');
+      expect((await P.platform.db.query("select 1 from neos.app_notifications where app_key = 'ledger' and company_id = $1", [P.company.id])).rowCount).toBe(0);
     } finally {
       await P.platform.db.query("update neos.apps set l3_url = $1 where key = 'ledger'", [url]);
     }
-    const t0 = Date.now();
-    await P.waitFor(async () => (await ledger.core.board.get(P.company.id)).version === version, 'the app dropped its cached board', 10_000);
-    expect(Date.now() - t0).toBeLessThan(10_000);
-    await P.waitFor(async () => !(await P.platform.db.query("select 1 from neos.app_notifications where app_key = 'ledger' and company_id = $1", [P.company.id])).rowCount, 'push acknowledged');
     await P.api('PUT', '/api/switchboards/ledger', { settings: { 'ledger.report.cash_flow': 'on' } });
   }, 30_000);
 });
 
-describe('standing yeses (grants)', () => {
-  const req = (over: Record<string, unknown> = {}) => ({
-    company_id: P.company.id,
-    job_id: randomUUID(),
-    proposal_id: randomUUID(),
-    ability_key: 'ledger.close_pack.email',
-    ability_version: '1.0.0',
-    fingerprint: `sha256:${randomUUID()}`,
-    ...over,
-  });
+describe('standing yeses (grants) — matched in the app’s own schema', () => {
+  const core = () => P.backends.ledger!.core;
   const grant = (limits: Record<string, unknown>, ability_key = 'ledger.close_pack.email') =>
     P.platform.createGrant({ company_id: P.company.id, app_key: 'ledger', ability_key, limits, expires_at: new Date(Date.now() + 86_400_000), created_by: P.admin.id });
-  const revokeAll = () => P.platform.db.query("update neos.grants set status = 'REVOKED' where company_id = $1", [P.company.id]);
+  const revokeAll = async () => {
+    for (const g of (await P.api('GET', '/api/grants')).body.grants) if (g.status !== 'REVOKED') expect((await P.api('DELETE', `/api/grants/${g.id}`)).status).toBe(200);
+  };
+  /** What the gate does for an ask-first call: match a grant and, when one covers it, record the use. */
+  const ask = (ability_key: string, m: { amount_minor?: number; currency?: string; recipients?: string[] }) =>
+    withCompany(core().appPool, P.company.id, async (c) => {
+      const g = await matchGrant(c, 'ledger', ability_key, m, 'Asia/Kolkata');
+      if (g) await recordGrantUse(c, 'ledger', { company_id: P.company.id, grant_id: g.grant_id, proposal_id: randomUUID(), job_id: null, ability_key, fingerprint: `sha256:${randomUUID()}`, amount_minor: m.amount_minor, currency: m.currency });
+      return g;
+    });
+  const grantRow = async (gid: string) => (await core().runnerPool.query('select status, suspended_reason from ledger.grants where grant_id = $1', [gid])).rows[0];
 
   it('recipients_allow: only calls to the listed recipients are covered, and a call that names none is not', async () => {
     await revokeAll();
     await grant({ recipients_allow: ['cfo@acme.example'] });
-    expect(await P.platform.grantExecutionToken('ledger', req({ recipients: ['cfo@acme.example'] }))).not.toBeNull();
-    expect(await P.platform.grantExecutionToken('ledger', req({ recipients: ['cfo@acme.example', 'x@evil.example'] }))).toBeNull();
-    expect(await P.platform.grantExecutionToken('ledger', req({ recipients: [] }))).toBeNull();
-    expect(await P.platform.grantExecutionToken('ledger', req({}))).toBeNull();
+    const email = (recipients?: string[]) => ask('ledger.close_pack.email', recipients ? { recipients } : {});
+    expect(await email(['cfo@acme.example'])).not.toBeNull();
+    expect(await email(['cfo@acme.example', 'x@evil.example'])).toBeNull();
+    expect(await email([])).toBeNull();
+    expect(await email()).toBeNull();
   });
 
   it('per_month counts the company’s month (Asia/Kolkata), not the UTC month', async () => {
     await revokeAll();
     const monthStart = `(date_trunc('month', now() at time zone 'Asia/Kolkata') at time zone 'Asia/Kolkata')`;
     const used = (gid: string, amount: number, at: string) =>
-      P.platform.db.query(`insert into neos.audit (company_id, actor, app_key, action, outcome, detail, at) values ($1, $2, 'ledger', 'grant.used', 'token_minted', $3, ${at})`, [
-        P.company.id,
-        `grant:${gid}`,
-        JSON.stringify({ grant_id: gid, proposal_id: randomUUID(), amount_minor: amount }),
-      ]);
-    const ask = (amount: number) => P.platform.grantExecutionToken('ledger', req({ ability_key: 'ledger.payment.record', amount_minor: amount, currency: 'INR' }));
+      withCompany(core().appPool, P.company.id, (c) =>
+        c.query(`insert into ledger.grant_uses (company_id, grant_id, proposal_id, ability_key, amount_minor, currency, at) values ($1, $2, $3, 'ledger.payment.record', $4, 'INR', ${at})`, [P.company.id, gid, randomUUID(), amount]),
+      );
+    const pay = (amount: number) => ask('ledger.payment.record', { amount_minor: amount, currency: 'INR' });
 
     // Spent 10 minutes into this month in Kolkata — which is still last month in UTC.
     const g1 = await grant({ per_month_minor: 1000, currency: 'INR' }, 'ledger.payment.record');
     await used(g1, 900, `${monthStart} + interval '10 minutes'`);
     const inUtcLastMonth = (await P.platform.db.query(`select (${monthStart} + interval '10 minutes') < date_trunc('month', now() at time zone 'UTC') at time zone 'UTC' as x`)).rows[0].x;
     expect(inUtcLastMonth).toBe(true); // the case a UTC month gets wrong
-    expect(await ask(200)).toBeNull(); // 900 + 200 > 1000 this (company) month
-    expect(await ask(100)).not.toBeNull(); // exactly 1000
-    await P.platform.db.query("update neos.grants set status = 'REVOKED' where id = $1", [g1]);
+    expect(await pay(200)).toBeNull(); // 900 + 200 > 1000 this (company) month
+    expect(await pay(100)).not.toBeNull(); // exactly 1000
+    expect((await P.api('DELETE', `/api/grants/${g1}`)).status).toBe(200);
 
     // Spent 10 minutes before this month began in Kolkata: last month there, so it does not count.
     const g2 = await grant({ per_month_minor: 1000, currency: 'INR' }, 'ledger.payment.record');
     await used(g2, 900, `${monthStart} - interval '10 minutes'`);
-    expect(await ask(600)).not.toBeNull();
-    expect(await ask(500)).toBeNull(); // 600 + 500 > 1000
-    // The grants list reports the same month.
+    expect(await pay(600)).not.toBeNull();
+    expect(await pay(500)).toBeNull(); // 600 + 500 > 1000
+    // The grants list (read from the app's schema) reports the same month.
     const listed = (await P.api('GET', '/api/grants')).body.grants.find((x: any) => x.id === g2);
     expect(listed.used_this_month_minor).toBe(600);
   });
 
-  it('a grant suspends itself when an execution under it ends FAILED or UNKNOWN (from the app’s outbox)', async () => {
+  it('a grant suspends itself in the app’s schema when an execution under it ends FAILED or UNKNOWN; DONE never does', async () => {
     await revokeAll();
+    /** A proposal the grant approved, carried through the approved path's states to `outcome`. */
+    const executedUnder = (gid: string, outcome: 'FAILED' | 'UNKNOWN' | 'DONE') =>
+      withCompany(core().appPool, P.company.id, async (c) => {
+        const job = (await c.query("insert into ledger.jobs (company_id, source, requester, task_id, ask, status) values ($1, 'task', 'user:x', gen_random_uuid(), 'grant probe', 'DONE') returning id", [P.company.id])).rows[0].id;
+        const p = (
+          await c.query(
+            `insert into ledger.proposals (company_id, job_id, ability_key, ability_version, args, card, fingerprint, status, approved_via, grant_id, decided_by, expires_at, idempotency_key)
+             values ($1, $2, 'ledger.close_pack.email', '1.0.0', '{}', '{}', 'sha256:' || md5(random()::text), 'APPROVED', 'grant', $3::uuid, 'grant:' || $3::text, now() + interval '1 day', gen_random_uuid()::text) returning id`,
+            [P.company.id, job, gid],
+          )
+        ).rows[0].id;
+        await c.query("update ledger.proposals set status = 'EXECUTING' where id = $1", [p]);
+        await c.query('update ledger.proposals set status = $2 where id = $1', [p, outcome]);
+        return p as string;
+      });
     for (const outcome of ['FAILED', 'UNKNOWN'] as const) {
       const gid = await grant({ recipients_allow: ['cfo@acme.example'] });
-      const r = req({ recipients: ['cfo@acme.example'] });
-      const tok = await P.platform.grantExecutionToken('ledger', r);
-      expect(tok?.grant_id).toBe(gid);
-      const core = P.backends.ledger!.core;
-      await core.company(P.company.id, (c) => core.book.emit(c, P.company.id, 'proposal.executed', { proposal_id: r.proposal_id, job_id: r.job_id, outcome, proof: { outcome } }, `executed:${r.proposal_id}`));
-      const g = await P.waitFor(async () => (await P.platform.db.query("select status, suspended_reason from neos.grants where id = $1 and status = 'SUSPENDED'", [gid])).rows[0], `suspended on ${outcome}`);
+      expect(await ask('ledger.close_pack.email', { recipients: ['cfo@acme.example'] })).toEqual({ grant_id: gid });
+      const pid = await executedUnder(gid, outcome);
+      // In the same transaction that wrote the outcome: no platform, no outbox round trip.
+      const g = await grantRow(gid);
+      expect(g.status).toBe('SUSPENDED');
       expect(g.suspended_reason).toContain(outcome);
-      expect(await P.platform.grantExecutionToken('ledger', req({ recipients: ['cfo@acme.example'] }))).toBeNull();
-      const a = (await P.platform.db.query("select outcome from neos.audit where action = 'grant.suspended' and detail->>'grant_id' = $1", [gid])).rows;
-      expect(a).toEqual([{ outcome }]);
+      expect(await ask('ledger.close_pack.email', { recipients: ['cfo@acme.example'] })).toBeNull();
+      const ev = (await core().runnerPool.query("select actor, detail from ledger.proposal_events where proposal_id = $1 and event = 'grant_suspended'", [pid])).rows;
+      expect(ev).toEqual([{ actor: `grant:${gid}`, detail: { grant_id: gid, outcome } }]);
+      // The desk lists it suspended, with why.
+      const listed = (await P.api('GET', '/api/grants')).body.grants.find((x: any) => x.id === gid);
+      expect(listed).toMatchObject({ status: 'SUSPENDED', suspended_reason: g.suspended_reason });
     }
     // DONE never suspends.
     const gid = await grant({ recipients_allow: ['cfo@acme.example'] });
-    const r = req({ recipients: ['cfo@acme.example'] });
-    await P.platform.grantExecutionToken('ledger', r);
-    const core = P.backends.ledger!.core;
-    await core.company(P.company.id, (c) => core.book.emit(c, P.company.id, 'proposal.executed', { proposal_id: r.proposal_id, job_id: r.job_id, outcome: 'DONE', proof: { outcome: 'DONE' } }, `executed:${r.proposal_id}`));
-    await P.waitFor(async () => (await P.platform.db.query("select 1 from neos.audit where action = 'proposal.executed' and detail->>'proposal_id' = $1", [r.proposal_id])).rowCount, 'consumed');
-    expect((await P.platform.db.query('select status from neos.grants where id = $1', [gid])).rows[0].status).toBe('ACTIVE');
+    await executedUnder(gid, 'DONE');
+    expect((await grantRow(gid)).status).toBe('ACTIVE');
+    await revokeAll();
   });
 });

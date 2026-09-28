@@ -8,7 +8,7 @@
 // package migrations) to its own cluster; every other app stays on NEOS_ADMIN_URL.
 import { readFileSync } from 'node:fs';
 import { adminUrlFromEnv, roleUrl } from '@neop/pgkit';
-import { migratePlatform, Platform, generateSigningKeys } from '@neop/platform';
+import { backfillBoards, migratePlatform, Platform, generateSigningKeys } from '@neop/platform';
 import { migrateApp, migratePackage } from '@neop/template';
 
 const admin = adminUrlFromEnv();
@@ -43,5 +43,9 @@ for (const p of await platform.pendingPackageMigrations()) {
   }
 }
 if (failedPackages) process.exitCode = 1;
+// v3 S1 (t010): the data half — what the platform held (installs, boards, grants) into each app's own schema,
+// in the same window (idempotent; scripts/v3/backfill-boards.ts runs it on its own).
+const filled = await backfillBoards(platform.db, { log: (m, e) => log(`[boards] ${m} ${e ? JSON.stringify(e) : ''}`) });
+log(`[boards] ${filled.length} install(s) checked, ${filled.filter((r) => r.install === 'written' || r.board === 'written' || r.grants > 0).length} written`);
 await platform.stop();
 log('migrations complete');

@@ -69,8 +69,8 @@ describe('rotation', () => {
     expect(r.rows[0].service_secret_hash).toMatch(/^[0-9a-f]{64}$/);
     await P.platform.rotateServiceSecret('ledger', 'n'.repeat(48));
     // The backend still holds the old secret: it keeps working inside the window.
-    const sb = await P.backend.core.platform.switchboard(P.company.id);
-    expect(sb.company.id).toBe(P.company.id);
+    // (v3 S1: the board is no longer fetched from the platform; any service call proves the old secret.)
+    expect(Array.isArray(await P.backend.core.platform.registryEntries(P.company.id))).toBe(true);
     expect(await P.platform.authService(`Service ledger:${'n'.repeat(48)}`)).toBe('ledger');
     expect(await P.platform.authService(`Service ledger:${'z'.repeat(48)}`)).toBeNull();
   });

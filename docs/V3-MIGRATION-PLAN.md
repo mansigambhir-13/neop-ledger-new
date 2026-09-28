@@ -28,7 +28,7 @@ Companies, users/auth, Conversations, NeuralChat (reads `neos_registry`), the de
 | Stage | What | Risk |
 |---|---|---|
 | S0 | t007–t009, answer_proposal, NOTIFY, mirrors, DBA bundle, desk views, `neos_registry`, typed events (in flight) | — |
-| S1 | Switchboard/installs/grants become truth in the app schema (t010, backfill script); gate reads the DB | medium |
+| S1 ✅ | Switchboard/installs/grants become truth in the app schema (t010, backfill script); gate reads the DB | medium — **done 2026-09-28** (below) |
 | S2 | The runner carries out the yes (LISTEN + poll, SKIP LOCKED, fingerprint check); approvals worker and execution tokens deleted | high — money path |
 | S3 | Desk on the database; `answer_wait()`; DeskHarness in testkit | medium |
 | S4 | Presence in the NEOP (appservice + client road, flag `NEOP_PRESENCE`); NeuralChat #143 plain text keeps working (task/answer, never approve) | high |
@@ -42,6 +42,30 @@ Merge order: A-S1 → B-S1 → A-S2 → B-S3 → C-S4 → B-S5 → C-S6; D-S8 af
 
 Work packages (disjoint files): A book + approved path (template); B platform + desk (platform, testkit);
 C presence + Matrix + bus room; D packages, doors, deploy kit.
+
+## S1 — done (2026-09-28)
+What changed (details: `docs/IMPLEMENTATION-NOTES.md` › "v3 S1"):
+- **t010** makes `<neop>.switchboard` (the company's switches, the company row `*` with rules/caps/default approver
+  policy, per-write approver policy, a board version per transaction, `switchboard_history`), `<neop>.installs`
+  (company name, time zone, Matrix user, rooms, agent senders, status) and `<neop>.grants` (+ `grant_uses`) the truth.
+  A tighten-only trigger mirrors the platform's checks; every change NOTIFYs `board:<company>`; a grant suspends
+  itself (trigger) when a grant-approved proposal ends FAILED/UNKNOWN. SECURITY DEFINER `create_grant`,
+  `revoke_grant`, `suspend_grant`, `set_schedule`, `import_grant`.
+- **Roles.** `neos_desk`: DML on switchboard/installs, EXECUTE on answer_proposal and the grant/schedule functions,
+  SELECT on history and grants — via t010, pgkit `applyDeskGrants` (every migrate, `migratePlatform`) and the DBA
+  bundle. The app role only reads. The platform reaches app schemas as `neos_app` → `SET LOCAL ROLE neos_desk`
+  (membership WITH INHERIT FALSE; transaction-scoped, PgBouncer-safe).
+- **Platform** writes through (`boards.ts`) and reads the board, installs and grants from the app schema; the HTTP API
+  is unchanged. `neos.switchboards` / `neos.grants` are frozen legacy copies; `neos.installs` is kept in step for the
+  gateway/bridge/NeuralChat until S9. No switchboard push; `grantExecutionToken` and its internal route removed.
+- **Template.** The gate's board comes from the database (runner pool), dropped on NOTIFY, 5 s TTL; grants are matched
+  and recorded locally and executed inline (no platform, no token). `data/mirror.ts` retired.
+- **Backfill.** `scripts/v3/backfill-boards.ts` (idempotent, never stale-over-new); also at `registerApp`,
+  `installApp` and the end of `scripts/migrate.ts`. **Deploy order:** migrate (t010) → backfill (automatic in
+  `scripts/migrate.ts`) → new backends. A backend that meets an install row without a time zone refuses to act for
+  that company (fail closed) until the backfill ran.
+- Deferred: approver policy still checked by the platform (S2/S3 moves it into `answer_proposal`); person-approved
+  execution still uses the execution token (S2); `room_ids`/`agent_senders`/`matrix_user` filled by S4.
 
 ## Deploy kit after the move
 DBA bundle per NEOP (schema, roles, grants, functions, triggers, view registration) → one DB link per NEOP role

@@ -29,6 +29,8 @@ export async function purgeCompany(adminUrl: string, schema: string, companyId: 
     await c.query('begin');
     await c.query('select pg_advisory_xact_lock(hashtext($1))', [`migrate:${schema}`]); // not while its migrations run
     const order = [...(await tablesInOrder(c, schema))].reverse();
+    // A company-scoped purge: the board triggers (t010) stand aside (no history, no version for rows going away).
+    await c.query("select set_config('neos.restore', 'on', true)");
     await c.query(`set local role ${familyRoles(schema).migrator}`);
     await c.query("select set_config('neos.company_id', $1, true)", [companyId]);
     const counts: Record<string, number> = {};

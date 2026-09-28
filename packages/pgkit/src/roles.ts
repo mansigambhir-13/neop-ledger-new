@@ -165,6 +165,63 @@ export function familyBootstrapSql(schema: string, opts: { runner?: boolean } = 
   return out.join('\n');
 }
 
+/** The platform desk's role (v3 §11): NOLOGIN, created by the platform's migrations; reached with SET ROLE. */
+export const DESK_ROLE = 'neos_desk';
+
+/**
+ * What the desk may do in one NEOP schema (v3 §11, template t010): DML on <schema>.switchboard and
+ * <schema>.installs, SELECT on the board history and the grants, EXECUTE on answer_proposal / create_grant /
+ * revoke_grant / set_schedule — and nothing on the app's own tables. Idempotent, and a no-op unless the
+ * role exists and the schema is at t010 or later. Run as the schema's migrator (the objects' owner).
+ */
+export function deskGrantsSql(schema: string): string {
+  assertIdent(schema);
+  const s = schema;
+  return (
+    `do $$ begin\n` +
+    `  if exists (select 1 from pg_roles where rolname = '${DESK_ROLE}') and to_regclass('${s}.switchboard_history') is not null\n` +
+    `     and to_regprocedure('${s}.create_grant(text, jsonb, timestamptz, text, uuid)') is not null then\n` +
+    `    grant usage on schema ${s} to ${DESK_ROLE};\n` +
+    `    grant select, insert, update, delete on ${s}.switchboard, ${s}.installs to ${DESK_ROLE};\n` +
+    `    grant select on ${s}.switchboard_history, ${s}.grants, ${s}.grant_uses to ${DESK_ROLE};\n` +
+    `    grant execute on function ${s}.answer_proposal(uuid, text, text, text, text), ${s}.create_grant(text, jsonb, timestamptz, text, uuid),\n` +
+    `      ${s}.revoke_grant(uuid, text), ${s}.set_schedule(uuid, text, text, jsonb, boolean), ${s}.board_version_for(uuid, integer),\n` +
+    `      ${s}.import_grant(jsonb, jsonb) to ${DESK_ROLE};\n` +
+    `  end if;\n` +
+    `end $$;`
+  );
+}
+
+/** Apply deskGrantsSql as the schema's migrator over an admin connection (idempotent; see deskGrantsSql). */
+export async function applyDeskGrants(adminUrlOrClient: string | pg.Client, schema: string): Promise<boolean> {
+  assertIdent(schema);
+  const own = typeof adminUrlOrClient === 'string';
+  const c = own ? new pg.Client({ connectionString: adminUrlOrClient }) : adminUrlOrClient;
+  if (own) await c.connect();
+  try {
+    const ready = (
+      await c.query<{ ok: boolean }>(
+        `select exists (select 1 from pg_roles where rolname = $1) and exists (select 1 from pg_roles where rolname = $2)
+                and to_regclass($3) is not null as ok`,
+        [DESK_ROLE, familyRoles(schema).migrator, `${schema}.switchboard_history`],
+      )
+    ).rows[0]?.ok;
+    if (!ready) return false;
+    await c.query('begin');
+    try {
+      await c.query(`set local role ${familyRoles(schema).migrator}`);
+      await c.query(deskGrantsSql(schema));
+      await c.query('commit');
+    } catch (e) {
+      await c.query('rollback').catch(() => {});
+      throw e;
+    }
+    return true;
+  } finally {
+    if (own) await c.end();
+  }
+}
+
 /** Build a connection string for one role against the same host/database as the admin URL. */
 export function roleUrl(adminUrl: string, role: string): string {
   const u = new URL(adminUrl);

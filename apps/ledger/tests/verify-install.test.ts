@@ -4,6 +4,7 @@
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { verifyInstall, type CheckResult } from '../../../scripts/verify-install.ts';
 import { ledgerApp } from '../src/index.ts';
@@ -53,12 +54,19 @@ describe('verify-install (read-only, against a running deployment)', () => {
   });
 
   it('a switchboard line looser than its floor, a missing key and an unreachable platform are named FAILs; the run fails', async () => {
-    // A write whose floor is ask_first, recorded as "on" behind the platform's back (the API would refuse it).
+    // A write whose floor is ask_first, recorded as "on" behind everyone's back: in the app's own switchboard, with
+    // its triggers switched off by a superuser's hand (the API and the tighten-only trigger would both refuse it).
     const m = (await ledgerApp()).manifest;
     const write = m.abilities.find((a) => a.kind === 'write' && a.floor === 'ask_first')!;
-    const [cur] = (await P.platform.db.query('select version, settings from neos.switchboards where company_id = $1 and app_key = $2 order by version desc limit 1', [P.company.id, 'ledger'])).rows;
-    const v = (cur?.version ?? 0) + 1;
-    await P.platform.db.query('insert into neos.switchboards (company_id, app_key, version, settings) values ($1, $2, $3, $4)', [P.company.id, 'ledger', v, { ...(cur?.settings ?? {}), [write.key]: 'on' }]);
+    const dba = new pg.Client({ connectionString: P.adminUrl });
+    await dba.connect();
+    const behindTheBack = async (sql: string) => {
+      await dba.query('begin');
+      await dba.query('set local session_replication_role = replica');
+      await dba.query(sql, [P.company.id, write.key]);
+      await dba.query('commit');
+    };
+    await behindTheBack("insert into ledger.switchboard (company_id, line, kind, floor, setting, version) values ($1, $2, 'write', 'ask_first', 'on', 999)");
     try {
       const r = await run({ NEOP_LLM_UPSTREAM_KEY: '', NEOS_PLATFORM_URL: 'http://127.0.0.1:1' });
       expect(r.ok).toBe(false);
@@ -68,7 +76,8 @@ describe('verify-install (read-only, against a running deployment)', () => {
       expect(r.by['platform: reachable']).toMatchObject({ status: 'FAIL' });
       expect(r.text).toMatch(/\d+ check\(s\) FAILED/);
     } finally {
-      await P.platform.db.query('delete from neos.switchboards where company_id = $1 and app_key = $2 and version = $3', [P.company.id, 'ledger', v]);
+      await behindTheBack('delete from ledger.switchboard where company_id = $1 and line = $2');
+      await dba.end();
     }
   });
 

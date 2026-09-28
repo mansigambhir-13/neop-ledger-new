@@ -95,6 +95,21 @@
       ],
       "baseline": false,
       "proven_on_populated_data": "2026-09-28 \u00b7 apps/ledger/tests/v3-conformance.test.ts \u203a t007 + t008 + t009 + 007 apply forward on a populated book"
+    },
+    {
+      "file": "t010_board_truth.sql",
+      "tables": [
+        "grant_uses",
+        "grants",
+        "installs",
+        "proposal_events",
+        "proposals",
+        "schedules",
+        "switchboard",
+        "switchboard_history"
+      ],
+      "baseline": false,
+      "proven_on_populated_data": "2026-09-28 \u00b7 apps/ledger/tests/board-db.test.ts \u203a t010 applies forward on a populated book"
     }
   ]
 }

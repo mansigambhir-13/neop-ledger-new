@@ -161,7 +161,7 @@ What WP v3 §6, §11 and §13 ask of the standard tables, the DBA path and the s
 - **B4 · transitions in the database (t008).** `<schema>.legal_transition(table, from, to)` holds the allowed sets, derived from the code: proposals = `domain/proposals.ts` NEXT (incl. APPROVED → WITHDRAWN on withdraw/cancel and UNKNOWN → DONE | FAILED on reconcile); jobs RECEIVED → RUNNING (claim) | CANCELLED (cancel) | EXPIRED (a timer job past `run_by`), RUNNING → WAITING | DONE | FAILED | CANCELLED, WAITING → RUNNING (claim with a ready wait) | CANCELLED; waits pending → ready | consumed (not opened, cancel), ready → consumed. BEFORE UPDATE OF status triggers refuse anything else with 23514 `illegal transition: <table>.status A → B`. An UPDATE that leaves the status alone always passes; INSERTs are not constrained (a proposal may be born APPROVED under a grant). The full suite runs green with the triggers on; no allowed set had to be widened.
 - **A8 · NOTIFY triggers (t009).** AFTER triggers `pg_notify('neop_<schema>', 'wait:<job>' | 'job:<id>')` when a wait becomes ready (update or insert) and when a job is inserted — the channel `Runner.start` LISTENs on. The app code's own notifies stay; duplicate hints are harmless; the poll is the truth.
 - **A3 · `answer_proposal()` (t009).** `<schema>.answer_proposal(p_id, p_fingerprint, p_decision, p_by, p_feedback)` — SECURITY DEFINER, owned by `<schema>_migrator`, `search_path` pinned, EXECUTE revoked from PUBLIC and granted to `<schema>_app` and `<schema>_runner` only. Forced RLS applies to the owner too, so the caller's `neos.company_id` still scopes it. It checks decision and person (`user:`), the idempotent repeat, open-ness and the legal transition, the fingerprint (a mismatch is kept as `answer_refused:fingerprint` and returned as `refused`, not raised, so the record commits), expiry; then writes the status, `decided_by`, `feedback`, `approved_via`, `answered_at`, the `answered:<decision>` event, the step (+ `step.mirror`) and `proposal.resolved` in the outbox, and for anything but a yes readies the wait and notifies. Returns `{status, idempotent, job_id[, refused]}`; raises `not_found:` / `not_open:` / `expired:` / `bad_request:`, which `proposals.resolve.ts` maps to the same HTTP errors as before.
-- **A7/A9 · read-only mirrors (t009).** `<schema>.switchboard(company_id, line, kind, floor, setting, caps, rules, version, updated_at)`, `<schema>.installs(company_id, status, matrix_user, updated_at)`, `<schema>.grants(company_id, grant_id, ability_key, limits, expires_at, status, updated_at)`: company_id + forced RLS, SELECT for the app role, DML for the runner. `data/mirror.ts` (`PlatformMirror`, the `SwitchboardCache` observer) writes a board whenever the backend loads a version it has not written (and deletes lines the platform no longer lists), marks the install `active` on a load and `not_installed` on a 403; `l3 switchboard.changed` now reloads the board before it answers, so the mirror is current when the platform hears "ok". A grant is noted when a grant lookup returns one. Limits: the platform does not tell the backend a grant's limits/expiry or a later suspension, or the company's Matrix name, so those stay NULL / as last seen — the platform remains the source of truth and nothing reads the mirrors to decide.
+- **A7/A9 · read-only mirrors (t009) — superseded by S1 below: these tables are now the truth.** (As first built:) `<schema>.switchboard(company_id, line, kind, floor, setting, caps, rules, version, updated_at)`, `<schema>.installs(company_id, status, matrix_user, updated_at)`, `<schema>.grants(company_id, grant_id, ability_key, limits, expires_at, status, updated_at)`: company_id + forced RLS, SELECT for the app role, DML for the runner. `data/mirror.ts` (`PlatformMirror`, the `SwitchboardCache` observer) writes a board whenever the backend loads a version it has not written (and deletes lines the platform no longer lists), marks the install `active` on a load and `not_installed` on a 403; `l3 switchboard.changed` now reloads the board before it answers, so the mirror is current when the platform hears "ok". A grant is noted when a grant lookup returns one. Limits: the platform does not tell the backend a grant's limits/expiry or a later suspension, or the company's Matrix name, so those stay NULL / as last seen — the platform remains the source of truth and nothing reads the mirrors to decide.
 - **B5 · the DBA bundle.** `scripts/dba-bundle.ts <app> [--out file.sql]` → `renderDbaBundle` (pgkit `bundle.ts`): the checksum table, `familyBootstrapSql` (roles, options, role defaults incl. `search_path`, database grants — idempotent, no passwords), the schema and `schema_migrations`, each migration in its own transaction as the migrator with its ledger insert, and the SELECT grant `migrate` makes. It refuses a `.ts` data migration (run those with `scripts/migrate.ts`). It does not run the tenant lint — that is `migrate`'s and the DBA's review. Roles now get `search_path = <schema>` in `bootstrapFamily` too (app families only; the platform's `neos` family is unchanged).
 - **B11 · views (Ledger 007).** `ledger.v_account_balances` and `ledger.v_ageing`, `security_invoker = true`. The reads were not switched (they already filter in SQL; switching changes nothing observable and would need its own proof).
 - **Standard tests.** `schema-only.test.ts`, `sender.test.ts`, `honesty.test.ts` (generatedAt on every read), `v3-conformance.test.ts`, `dba-bundle.test.ts`. Two existing tests changed shape, not meaning: `migration.test.ts` lists the new files; `company-data.test.ts` takes the trial balance before its snapshot (a read loads the board, which the book now mirrors).
@@ -223,6 +223,86 @@ What WP v3 §6, §11 and §13 ask of the standard tables, the DBA path and the s
   `neos.grant_registry_read(app)` (SECURITY DEFINER, owned by the views' owner) grants USAGE + SELECT to
   `<app>_app` and `<app>_runner` when they exist; called by `registerApp` and after every platform migration.
   Tests: `apps/ledger/tests/desk-views.test.ts` (both apps' roles read it; `neos.*` is 42501; no usage on `neos`).
+
+## v3 S1 · switchboard, installs and grants are the truth in the app's schema (2026-09-28)
+`docs/V3-MIGRATION-PLAN.md` stage S1. Template migration **t010** (expand-only; proven on a populated book by
+`apps/ledger/tests/board-db.test.ts` › "t010 applies forward on a populated book") plus the backfill script.
+- **The tables (t010).** `<schema>.switchboard` is one row per (company, line): `setting` is now the **company's own
+  switch** (t009 stored the effective one — never looser, so old rows stay safe until the backfill replaces them),
+  `floor`/`kind` the app's, `approvers` the approver policy of a write, `updated_by`. The **company row** `line = '*'`
+  (kind `company`) holds `rules`, `caps` (the model budget) and the default policy. A line without a row is at its floor.
+  Every change takes the company's next **board version** (one per transaction, `board_version_for`), is kept in
+  `<schema>.switchboard_history` (before/after, who) and `pg_notify('neop_<schema>', 'board:<company>')`s — installs
+  and grants notify the same. `<schema>.installs` gains `company_name`, `time_zone`, `room_ids`, `agent_senders`,
+  `installed_by/at`, status `removed`/`suspended`. `<schema>.grants` gains `created_by`, `created_at`,
+  `suspended_reason`, `revoked_by`; `<schema>.grant_uses` records each use (the per-month limit sums it).
+- **Tighten-only trigger** (`switchboard_guard`, runs as the caller): mirrors `Platform.setSwitchboard` — refuses a
+  setting looser than the floor (`cannot_loosen`), an ask-first read (`read_cannot_ask_first`), a `door:`/`skill:`
+  line that is not on/off, an approver policy on anything but a write (`bad_policy`); errcode 23514, message
+  `<code>: …` (the platform maps it to a 422). The desk may never loosen a floor or recast a line's kind; only the
+  app's roles (`<schema>_runner`, migrator) may. A DBA's exact restore / company purge (pgkit `importCompany`,
+  `purgeCompany`) sets `neos.restore = on`, honoured only when the login is a superuser (`dba_restore()`): rows go
+  back as dumped, no history or version is added — the desk's pool setting it changes nothing. The runner re-stamps its manifest's floors at boot
+  (`SwitchboardCache.syncFloors`; a floor that tightened pulls the company's switch up with it).
+- **Functions (SECURITY DEFINER, under the caller's company).** `create_grant(ability, limits, expires_at, user:<id>)`
+  (limits, currency, recipients and a ≤ 1 year expiry checked as the platform checked; `not_grantable` on a known
+  non-write line), `revoke_grant(id, user:<id>)` → `{changed}` (not_found P0002), `suspend_grant(id, reason)` (the
+  runner's), `set_schedule(…)` (the install's time zone), `import_grant(grant, uses)` (the backfill's only way in).
+  A trigger on `proposals` suspends a grant when something approved under it ends FAILED or UNKNOWN, in the same
+  transaction, with a `grant_suspended` proposal event — the platform's outbox-driven suspension is gone.
+- **Roles.** App role: SELECT only (plus INSERT on `grant_uses`). Runner: SELECT, `UPDATE (kind, floor, setting, …)`
+  on switchboard, `UPDATE (status)` on installs, EXECUTE `suspend_grant` — no more copying. `neos_desk`: USAGE on the
+  schema, DML on `switchboard` and `installs`, SELECT on `switchboard_history`, `grants`, `grant_uses`, EXECUTE
+  `answer_proposal`, `create_grant`, `revoke_grant`, `set_schedule`, `import_grant` — never the app's own tables.
+  Granted in t010 when the role exists, and idempotently by pgkit `applyDeskGrants` (end of every `migrate`, and
+  `migratePlatform` for every registered app) and the DBA bundle's new section 5 (`deskGrantsSql`).
+- **How the platform writes through (PgBouncer-safe).** `neos_desk` stays NOLOGIN. `migratePlatform` grants it to
+  the platform pool's role `neos_app` **WITH INHERIT FALSE, SET TRUE** (PostgreSQL 16+): `neos_app` holds none of the
+  desk's rights until a transaction says `SET LOCAL ROLE neos_desk`, which lasts to the end of that transaction only —
+  nothing is left on a pooled connection, so the same pool works through PgBouncer in transaction mode.
+  `packages/platform/src/boards.ts` (`AppBoards.asDesk`) does exactly that, sets `neos.company_id` for the app
+  schema's row-level security, and reads/writes the board, the install and the grants. `Platform.switchboard()`
+  (so the abilities screen, NeuralChat's registry context, approver policy, door lines, `lend()`'s door check and the
+  LLM budget), `setSwitchboard` (same validation, then one desk transaction; no push), `installApp` /
+  `uninstallApp` / new `updateCompany` (name and time zone into every install row), `createGrant` / `revokeGrant` /
+  `listGrants` (the `/api/grants` list sums `grant_uses` in the company's month), the task view's `grant_uses` and
+  `/api/switchboards/:app/history` (replayed from `switchboard_history`) all go to the app's schema. The HTTP API is
+  unchanged. `neos.switchboards` and `neos.grants` are frozen legacy copies (never read to decide; only the
+  backfill reads them); `neos.installs` stays the platform's own record for what it still routes itself (gateway,
+  Matrix bridge, NeuralChat) and is written in the same call as the app's row. The gateway no longer puts
+  `sb_version` in tokens. `notifyApp` / `switchboard.changed` stay only for what the platform still holds (ACL rows,
+  registry installs); `setSwitchboard` no longer pushes. `Platform.grantExecutionToken` and
+  `POST /internal/grants/execution-token` are removed.
+- **The gate (template).** `SwitchboardCache` reads `<schema>.switchboard` + `installs` + history version over the
+  runner pool (`loadBoard`); a missing/inactive install, or one without a time zone yet, is `NotInstalled` (fail
+  closed). The runner's LISTEN connection routes `board:<company>` to `invalidate` (board, borrow list, package
+  lines); the cache otherwise lives `BOARD_TTL_MS` = 5 s (the poll stays the truth). Step 7 matches a standing yes
+  in `<schema>.grants` (`gate/grants.ts` `matchGrant`: ACTIVE, unexpired, currency / per-call / recipients /
+  per-month in the install's time zone, serialised per grant), writes the proposal APPROVED `approved_via 'grant'`
+  and its `grant_uses` row in one transaction, and executes inline — no platform call, no execution token
+  (`executeProposal` still re-reads the setting and rules at effect time). Person-approved proposals still execute
+  through the platform's execution token (S2 removes it). `data/mirror.ts` is deleted; `PlatformClient` has no
+  `switchboard()` / `grantExecutionToken()`.
+- **Backfill.** `scripts/v3/backfill-boards.ts [--app] [--company] [--json]` (`backfillBoards` in `boards.ts`) copies
+  `neos.installs`, the latest `neos.switchboards` version and `neos.grants` + their `grant.used` audit rows into each
+  app schema. Idempotent and never stale-over-new: an install row is written when missing or a t009 mirror (no
+  company name); a board is replaced (lines stamped with the platform's version, t009 mirror lines deleted) only when
+  the platform's version is newer or the app has no company row and no history; grants go in through
+  `import_grant` (completing a t009 mirror row, else kept). It also runs at `registerApp` (the app), `installApp`
+  (app, company) and at the end of `scripts/migrate.ts`, so a fresh install has its rows.
+- **Tests.** New `apps/ledger/tests/board-db.test.ts` (trigger refusals, NOTIFY → gate within 1 s, uninstall stops
+  the gate, role isolation incl. the platform pool without SET ROLE, create/revoke/suspend/set_schedule, a real
+  grant-approved write that FAILs suspends its grant, backfill idempotent and never over newer truth, fresh install,
+  the populated t010 proof). Ported, same meaning: `runtime-gate` (the "silent" change is a DBA's hand with triggers
+  off; the cache test is NOTIFY + TTL instead of sb_version + 30 s; the grant window uses `hooks.afterGrantMatched`),
+  `platform-gaps` (a switch-off reaches the gate while its L3 is unreachable, nothing owed; grant limits via
+  `matchGrant`; self-suspension in the app schema), `v3-conformance` A7/A9 (truth, not mirror), `security`,
+  `hardening`, `doors-switch` (the probe app gets a template schema), `verify-install` (the check reads the app's
+  switchboard over the runner link).
+- **Not done here.** Approver policy is still checked by the platform (`checkApprover`, now from the app's board) —
+  moving it into `answer_proposal` is S2/S3. Matrix identity, `room_ids` and `agent_senders` are columns only (S4
+  fills them). An app on its own cluster (D2) cannot be written through from the platform's pool; its board must be
+  written with a desk connection to that cluster (the backfill script takes one).
 
 ## Deliberately not built from WP v3
 - **Voice.** The NEOS app transcribes speech on the device/client before it calls `POST /api/ask`; the platform and every NEOP take text only. Nothing here receives audio, so there is no speech model, audio store or consent flow to build or secure on this side. An audio note a person wants kept is an attachment like any other file (kept by the document store).

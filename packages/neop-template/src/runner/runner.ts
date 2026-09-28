@@ -48,14 +48,31 @@ export class Runner {
     this.listener = new pg.Client({ connectionString: this.core.cfg.directDbUrl ?? this.core.cfg.runnerDbUrl });
     this.listener.on('error', () => {});
     await this.listener.connect();
-    this.listener.on('notification', () => this.kick());
+    this.listener.on('notification', (n) => {
+      // v3 §4: 'board:<company>' — the switchboard, the install or a grant changed (t010 triggers):
+      // the gate drops that company's board, borrow list and package lines now; the TTL stays the truth.
+      if (n.payload?.startsWith('board:')) {
+        this.onBoardChanged(n.payload.slice(6));
+        return;
+      }
+      this.kick();
+    });
     await this.listener.query(`listen ${this.core.book.channel}`);
+    // A new manifest may have moved a floor: re-stamp it on the lines companies have set (t010).
+    await this.core.board.syncFloors(this.core.runnerPool).catch((e) => this.core.log('floor sync failed', { e: String(e) }));
     this.timers.push(setInterval(() => this.kick(), t.pollMs));
     this.every(t.expiryMs, () => this.expire(), 'expiry');
     this.every(t.expiryMs, () => this.fireSchedules(), 'schedules');
     this.every(t.reconcileMs, () => this.reconcile(), 'reconcile');
     this.every(60_000, () => this.core.gatewayAuth.pruneSeen(), 'prune');
     this.kick();
+  }
+
+  /** A company's board changed in the database: drop every cache built on it. */
+  onBoardChanged(companyId: string): void {
+    this.core.board.invalidate(companyId);
+    this.core.borrowed.invalidate(companyId);
+    this.core.packages.invalidate(companyId);
   }
 
   /** A loop that never overlaps itself. */

@@ -2,10 +2,11 @@
 // they hold, on real calls: the version a yes was given to (gate step 2), the
 // setting at effect time, superseded_by, the tool-call cap with a report still
 // possible, company rules through the real ruleUsage SQL, the switchboard cache
-// (sb_version, 30 s TTL) and step.mirror dedup on replay.
+// (NOTIFY from the app's own switchboard, the short TTL) and step.mirror dedup on replay.
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import pg from 'pg';
 import { withCompany } from '@neop/pgkit';
-import { ruleUsage, zonedParts } from '@neop/template';
+import { BOARD_TTL_MS, ruleUsage, zonedParts } from '@neop/template';
 import { bootPilot, call, finish, type BrainView, type Pilot } from './harness.ts';
 
 let P: Pilot;
@@ -56,14 +57,29 @@ async function yesWithoutExecuting(card: any) {
   expect(r.status).toBe(200);
 }
 
-/** A new switchboard version written straight to the platform's table: no switchboard.changed reaches the app. */
+/**
+ * A new board version written straight into the app's own switchboard by a DBA's hand with its triggers off
+ * (session_replication_role = replica): no history, no NOTIFY — nothing tells the gate its cache is stale.
+ */
 async function silentSwitchboard(settings: Record<string, string>) {
-  await P.platform.db.query(
-    `insert into neos.switchboards (company_id, app_key, version, settings, rules, budget, approvals)
-     select company_id, app_key, version + 1, settings || $3::jsonb, rules, budget, approvals from neos.switchboards
-      where company_id = $1 and app_key = $2 order by version desc limit 1`,
-    [P.company.id, 'ledger', JSON.stringify(settings)],
-  );
+  const dba = new pg.Client({ connectionString: P.adminUrl });
+  await dba.connect();
+  try {
+    await dba.query('begin');
+    await dba.query('set local session_replication_role = replica');
+    const v = (await dba.query(`select greatest(coalesce((select max(version) from ledger.switchboard where company_id = $1), 0), coalesce((select max(version) from ledger.switchboard_history where company_id = $1), 0)) + 1 as v`, [P.company.id])).rows[0].v;
+    for (const [line, setting] of Object.entries(settings)) {
+      const a = P.backend.core.ability(line)!;
+      await dba.query(
+        `insert into ledger.switchboard (company_id, line, kind, floor, setting, version) values ($1, $2, $3, $4, $5, $6)
+         on conflict (company_id, line) do update set setting = excluded.setting, version = excluded.version`,
+        [P.company.id, line, a.kind, a.floor, setting, v],
+      );
+    }
+    await dba.query('commit');
+  } finally {
+    await dba.end();
+  }
 }
 
 describe('the approved path re-checks at effect time', () => {
@@ -164,15 +180,13 @@ describe('the approved path re-checks at effect time', () => {
       expires_at: new Date(Date.now() + 86_400_000).toISOString(),
     });
     expect(g.status).toBe(200);
-    // Switched off (silently, no switchboard.changed) after the gate decided and the grant was
-    // issued, before the effect: exactly the window a cached setting would miss.
-    const platform = P.backend.core.platform;
-    const real = platform.grantExecutionToken.bind(platform);
-    const spy = vi.spyOn(platform, 'grantExecutionToken').mockImplementation(async (req) => {
-      const t = await real(req);
+    // Switched off (silently: no NOTIFY reaches the gate) after the gate decided and the grant was
+    // matched, before the effect: exactly the window a cached setting would miss.
+    const hooks = P.backend.core.hooks;
+    const spy = vi.fn(async () => {
       await silentSwitchboard({ 'ledger.journal.post': 'off' });
-      return t;
     });
+    hooks.afterGrantMatched = spy;
     let res = '';
     P.setBrain((v) => {
       if (v.calls === 0) return post(111_400, 'grant switched off probe');
@@ -189,8 +203,8 @@ describe('the approved path re-checks at effect time', () => {
       expect(res).toContain('switched_off');
       expect(await entries('grant switched off probe')).toBe(0);
     } finally {
-      spy.mockRestore();
-      await P.platform.db.query("update neos.grants set status = 'REVOKED' where company_id = $1 and ability_key = 'ledger.journal.post'", [P.company.id]);
+      delete hooks.afterGrantMatched;
+      expect((await P.api('DELETE', `/api/grants/${g.body.id}`)).status).toBe(200);
       await P.api('PUT', '/api/switchboards/ledger', { settings: { 'ledger.journal.post': 'ask_first' } });
     }
   });
@@ -335,40 +349,56 @@ describe('company rules on real gate calls', () => {
 });
 
 describe('the switchboard cache', () => {
-  it('a gateway token with a newer sb_version forces a refetch; otherwise the cache lives 30 s', async () => {
+  it('a change to the app’s own switchboard NOTIFYs the gate, which drops its cache at once; with no notice the cache lives its short TTL', async () => {
+    // (Before v3 S1 a gateway token carrying a newer sb_version forced the refetch; the board now lives in the
+    // app's own schema and every change there NOTIFYs 'board:<company>', so no token needs to carry it.)
     const core = P.backend.core;
-    const fetches = vi.spyOn(core.board.client, 'switchboard');
+    const loads = vi.spyOn(core.board, 'load');
     try {
       const pnl = core.ability('ledger.report.pnl')!;
       core.board.invalidate(P.company.id);
       const v0 = await core.board.get(P.company.id);
       expect(v0.setting(pnl)).toBe('on');
       await core.board.get(P.company.id);
-      expect(fetches).toHaveBeenCalledTimes(1); // cached
+      expect(loads).toHaveBeenCalledTimes(1); // cached
 
-      // Switched off on the platform with no switchboard.changed: the next gateway call carries the new version.
+      // Switched off by a hand that bypasses the triggers: no NOTIFY, so the cache stands until its TTL.
       await silentSwitchboard({ 'ledger.report.pnl': 'off' });
+      const n = loads.mock.calls.length;
       expect((await core.board.get(P.company.id)).setting(pnl)).toBe('on'); // still the cached board
+      expect(loads.mock.calls.length).toBe(n);
       const r = await P.platform.gateway.call({ caller: 'platform', app: 'ledger', endpoint: 'ledger.report.pnl', company_id: P.company.id, body: { from: '2026-08-01', to: '2026-08-31' }, idem_key: `sbv:${Date.now()}` });
-      expect(r.status).toBe(403);
-      expect(r.body.error.code).toBe('switched_off');
-      expect((await core.board.get(P.company.id)).version).toBe(v0.version + 1);
-
-      // Back on, silently: nothing refetches until the cache is 30 s old.
-      await silentSwitchboard({ 'ledger.report.pnl': 'on' });
-      const n = fetches.mock.calls.length;
-      expect((await core.board.get(P.company.id)).setting(pnl)).toBe('off');
-      expect(fetches.mock.calls.length).toBe(n);
+      expect(r.status).toBe(200); // the cached board said on
       const now = Date.now();
-      const clock = vi.spyOn(Date, 'now').mockReturnValue(now + 31_000);
+      const clock = vi.spyOn(Date, 'now').mockReturnValue(now + BOARD_TTL_MS + 1_000);
       try {
-        expect((await core.board.get(P.company.id)).setting(pnl)).toBe('on');
+        const b = await core.board.get(P.company.id);
+        expect(b.setting(pnl)).toBe('off');
+        expect(b.version).toBe(v0.version + 1);
       } finally {
         clock.mockRestore();
       }
-      expect(fetches.mock.calls.length).toBe(n + 1);
+      expect(loads.mock.calls.length).toBe(n + 1);
+
+      // Back on through the desk (the platform writes through as neos_desk): the trigger NOTIFYs, the gate drops
+      // its board well within a second, without waiting for the TTL.
+      await core.board.get(P.company.id); // warm
+      const t0 = Date.now();
+      expect((await P.api('PUT', '/api/switchboards/ledger', { settings: { 'ledger.report.pnl': 'on' } })).status).toBe(200);
+      await P.waitFor(async () => (await core.board.get(P.company.id)).setting(pnl) === 'on', 'the NOTIFY dropped the cache', 1_000);
+      expect(Date.now() - t0).toBeLessThan(BOARD_TTL_MS);
+      const r2 = await P.platform.gateway.call({ caller: 'platform', app: 'ledger', endpoint: 'ledger.report.pnl', company_id: P.company.id, body: { from: '2026-08-01', to: '2026-08-31' }, idem_key: `sbv2:${Date.now()}` });
+      expect(r2.status).toBe(200);
+
+      // And off through the desk: refused on the very next call.
+      expect((await P.api('PUT', '/api/switchboards/ledger', { settings: { 'ledger.report.pnl': 'off' } })).status).toBe(200);
+      await P.waitFor(async () => (await core.board.get(P.company.id)).setting(pnl) === 'off', 'the NOTIFY dropped the cache', 1_000);
+      const r3 = await P.platform.gateway.call({ caller: 'platform', app: 'ledger', endpoint: 'ledger.report.pnl', company_id: P.company.id, body: { from: '2026-08-01', to: '2026-08-31' }, idem_key: `sbv3:${Date.now()}` });
+      expect(r3.status).toBe(403);
+      expect(r3.body.error.code).toBe('switched_off');
     } finally {
-      fetches.mockRestore();
+      loads.mockRestore();
+      await P.api('PUT', '/api/switchboards/ledger', { settings: { 'ledger.report.pnl': 'on' } });
       P.backend.core.board.invalidate(P.company.id);
     }
   });

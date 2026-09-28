@@ -6,7 +6,7 @@
 //   A3  answer_proposal() is the one SQL place an answer enters: SECURITY DEFINER, owned by the migrator,
 //       executable by the app's roles and nobody else; the desk-shaped direct call wakes the job like resolve.
 //   A8  a wait made ready by a plain SQL UPDATE wakes its job through LISTEN/NOTIFY, with the poll 60 s away.
-//   A7/A9 the read-only mirrors (switchboard, installs, grants) reflect the platform after switchboard.changed.
+//   A7/A9 the switchboard, installs and grants are the truth in the app's schema (t010, v3 S1): written by the desk.
 //   B11 Ledger's declared views (007) agree with the trial balance and ageing reads on the demo books.
 //   And t007 + t008 + t009 + 007 applied forward on a populated book (their proof in migrate.json).
 import { cp, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
@@ -153,33 +153,42 @@ describe('on a running pilot', () => {
     expect((await q("select count(*)::int as n from ledger.outbox where dedupe_key = $1", [`resolved:${card.proposal_id}:no`]))[0].n).toBe(1);
   });
 
-  it('A7/A9: the read-only mirrors reflect the platform — the switchboard after switchboard.changed, the install, a grant used', async () => {
+  it('A7/A9: the switchboard, the install and the grants are the TRUTH in the app’s schema — the desk writes them, the gate reads them, the app role only reads', async () => {
     const lines = () => withCompany(P.backend.core.appPool, P.company.id, async (c) => (await c.query("select line, kind, floor, setting, version from ledger.switchboard where line in ('ledger.report.pnl', 'ledger.journal.post') order by line")).rows);
     const r = await P.api('PUT', '/api/switchboards/ledger', { settings: { 'ledger.report.pnl': 'off' } });
     expect(r.status).toBe(200);
-    const v = r.body.version ?? (await P.platform.db.query("select max(version)::int as v from neos.switchboards where company_id = $1 and app_key = 'ledger'", [P.company.id])).rows[0].v;
-    // switchboard.changed reloads the board before the platform hears "ok": the mirror is already there.
-    expect(await lines()).toEqual([
-      { line: 'ledger.journal.post', kind: 'write', floor: 'ask_first', setting: 'ask_first', version: v },
-      { line: 'ledger.report.pnl', kind: 'read', floor: 'on', setting: 'off', version: v },
-    ]);
+    const v = r.body.version;
+    // Written through, in the same call, as the desk: the company's switch with the app's floor, at the new version.
+    // A line the company never set has no row: it is at its floor.
+    expect(await lines()).toEqual([{ line: 'ledger.report.pnl', kind: 'read', floor: 'on', setting: 'off', version: v }]);
+    // …and that row is what the gate decides with (read from the database, not from the platform).
+    await P.waitFor(async () => (await P.backend.core.board.get(P.company.id)).version === v, 'the gate on the new board', 1_000);
+    expect((await P.backend.core.board.get(P.company.id)).setting(P.backend.core.ability('ledger.report.pnl')!)).toBe('off');
     await P.api('PUT', '/api/switchboards/ledger', { settings: { 'ledger.report.pnl': 'on' } });
     expect((await lines()).find((l) => l.line === 'ledger.report.pnl')).toMatchObject({ setting: 'on', version: v + 1 });
-    const installs = await withCompany(P.backend.core.appPool, P.company.id, async (c) => (await c.query('select status, matrix_user from ledger.installs')).rows);
-    expect(installs).toEqual([{ status: 'active', matrix_user: null }]);
-    // Read-only to the app: the platform is the source of truth.
+    // Every version is kept.
+    const hist = await withCompany(P.backend.core.appPool, P.company.id, async (c) => (await c.query("select version, op, after->>'setting' as setting from ledger.switchboard_history where line = 'ledger.report.pnl' order by id")).rows);
+    expect(hist.slice(-2)).toEqual([{ version: v, op: expect.stringMatching(/insert|update/), setting: 'off' }, { version: v + 1, op: 'update', setting: 'on' }]);
+    const installs = await withCompany(P.backend.core.appPool, P.company.id, async (c) => (await c.query('select status, matrix_user, company_name, time_zone from ledger.installs')).rows);
+    expect(installs).toEqual([{ status: 'active', matrix_user: null, company_name: 'Acme Traders', time_zone: 'Asia/Kolkata' }]);
+    // Read-only to the app: the desk writes them.
     for (const sql of ["update ledger.switchboard set setting = 'on'", "insert into ledger.installs (company_id, status) values (current_setting('neos.company_id')::uuid, 'active')", 'delete from ledger.grants']) {
       expect(await errCode(withCompany(P.backend.core.appPool, P.company.id, (c) => c.query(sql))), sql).toBe('42501');
     }
-    // A grant lookup that comes back with a standing yes is noted.
+    // A standing yes written on the desk lives in ledger.grants; the gate matches it there and records its use.
     const g = await P.api('POST', '/api/grants', { app_key: 'ledger', ability_key: 'ledger.journal.post', limits: { per_call_minor: 1_000_000, currency: 'INR' }, expires_at: new Date(Date.now() + 86_400_000).toISOString() });
     expect(g.status).toBe(200);
     P.setBrain((v2) => (v2.calls === 0 ? call('ledger.journal.post', { date: '2026-08-31', memo: 'v3 under the grant', currency: 'INR', lines: [{ account_code: '6300', debit_minor: 500, credit_minor: 0 }, { account_code: '2000', debit_minor: 0, credit_minor: 500 }], card: { ...CARD, what: 'Post a small accrual' } }) : finish('posted')));
     const t = await P.ask('Accrue a tiny fee');
     await settled(t.task_id);
-    const [pr] = await q('select grant_id from ledger.proposals where job_id = $1', [t.job_id]);
-    const grants = await withCompany(P.backend.core.appPool, P.company.id, async (c) => (await c.query('select grant_id, ability_key, status from ledger.grants')).rows);
-    expect(grants).toEqual([{ grant_id: pr.grant_id, ability_key: 'ledger.journal.post', status: 'ACTIVE' }]);
+    const [pr] = await q('select id, grant_id, approved_via, status from ledger.proposals where job_id = $1', [t.job_id]);
+    expect(pr).toMatchObject({ grant_id: g.body.id, approved_via: 'grant', status: 'DONE' });
+    const grants = await withCompany(P.backend.core.appPool, P.company.id, async (c) => (await c.query('select grant_id, ability_key, status, created_by from ledger.grants')).rows);
+    expect(grants).toEqual([{ grant_id: g.body.id, ability_key: 'ledger.journal.post', status: 'ACTIVE', created_by: `user:${P.admin.id}` }]);
+    const uses = await withCompany(P.backend.core.appPool, P.company.id, async (c) => (await c.query('select grant_id, proposal_id, amount_minor, currency from ledger.grant_uses')).rows);
+    expect(uses).toEqual([{ grant_id: g.body.id, proposal_id: pr.id, amount_minor: 500, currency: 'INR' }]);
+    // Nothing of it was kept on the platform.
+    expect((await P.platform.db.query("select count(*)::int as n from neos.grants where company_id = $1", [P.company.id])).rows[0].n).toBe(0);
   });
 
   it('B11: the declared views agree with the trial balance and ageing reads on the demo books', async () => {
@@ -293,7 +302,7 @@ describe('t007 + t008 + t009 + 007 on a populated book', () => {
       const before = await withCompany(pool, CO, async (c) => (await c.query("select md5(string_agg(id::text || status, ',' order by id)) h, count(*)::int n from ledger.jobs")).rows[0]);
 
       const applied = await run(TEMPLATE_MIGRATIONS, path.join(LEDGER_ROOT, 'migrations'));
-      expect(applied.map((m) => m.name)).toEqual(['t007_standard_columns.sql', 't008_transitions.sql', 't009_notify.sql', '007_views.sql']);
+      expect(applied.map((m) => m.name)).toEqual(['t007_standard_columns.sql', 't008_transitions.sql', 't009_notify.sql', 't010_board_truth.sql', '007_views.sql']);
 
       await withCompany(pool, CO, async (c) => {
         expect((await c.query("select md5(string_agg(id::text || status, ',' order by id)) h, count(*)::int n from ledger.jobs")).rows[0]).toEqual(before);

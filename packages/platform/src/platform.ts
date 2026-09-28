@@ -1,7 +1,8 @@
-// NEOS platform-lite for the pilot: task store, desk approvals, grants,
-// switchboards, vault and the workers that move them. It never reads an app's
-// book; everything it knows about an app comes from signed L3 calls and the
-// app's outbox (S4).
+// NEOS platform-lite for the pilot: task store, desk approvals, vault and the
+// workers that move them. It never reads an app's book; what it knows about an
+// app comes from signed L3 calls and the app's outbox (S4) — except the board,
+// the install and the standing yeses, which live in the app's own schema since
+// v3 S1 and which it reads and writes there as the desk (boards.ts).
 
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { answersFromText, blocksProblem, canonicalize, checkAnswers, isSetting, Metrics, personalDataProblems, rulesProblem, satisfies, sha256, strictest, type Decision, type Manifest, type OutboxEvent, type ProposalCreatedPayload, type QuestionAskedPayload, type Setting, type TaskResult } from '@neop/contracts';
@@ -13,6 +14,7 @@ import { roomText } from './bridge/format.ts';
 import { attestationProblem, manifestSha256, type ConformanceAttestation } from './conformance.ts';
 import { createPool, tx, type Pool, type PoolClient } from '@neop/pgkit';
 import { Gateway, GatewayError, retryableStatus } from './gateway.ts';
+import { AppBoards, backfillBoards, lineMetaFrom, readBoard, writeBoard, EMPTY_BOARD } from './boards.ts';
 import type { SigningKeys } from './keys.ts';
 
 export interface PlatformOptions {
@@ -65,6 +67,8 @@ export class Platform {
   readonly db: Pool;
   readonly gateway: Gateway;
   readonly vault: VaultCipher;
+  /** v3 S1: each app's switchboard, install and grants, in the app's own schema (as neos_desk). */
+  readonly boards: AppBoards;
   registry!: Registry;
   readonly opts: PlatformOptions;
   private timers: NodeJS.Timeout[] = [];
@@ -79,6 +83,7 @@ export class Platform {
     this.gateway = new Gateway(this.db, opts.keys, { timeoutMs: opts.gatewayTimeoutMs });
     this.routerModel = opts.routerModel !== undefined ? opts.routerModel : (process.env.NEOS_ROUTER_MODEL ?? null);
     this.vault = new VaultCipher(opts.vaultKeys ?? VaultCipher.generate());
+    this.boards = new AppBoards(this.db, (m, e) => this.log(m, e));
     if (opts.registryKeys) this.registry = new Registry(this, opts.registryKeys);
   }
 
@@ -108,6 +113,17 @@ export class Platform {
     }
   }
 
+  /**
+   * A company's name or time zone changed: the platform's record, and — written through — every app's
+   * install row, which is what each app's gate decides with (documents, rules, schedules; v3 S1).
+   */
+  async updateCompany(companyId: string, patch: { name?: string; time_zone?: string }): Promise<void> {
+    const r = await this.db.query('update neos.companies set name = coalesce($2, name), time_zone = coalesce($3, time_zone) where id = $1', [companyId, patch.name ?? null, patch.time_zone ?? null]);
+    if (!r.rowCount) throw new PlatformError(404, 'not_found', 'no such company');
+    const apps = await this.db.query<{ app_key: string; status: string; installed_by: string | null }>('select app_key, status, installed_by::text as installed_by from neos.installs where company_id = $1', [companyId]);
+    for (const a of apps.rows) await this.writeInstall(companyId, a.app_key, a.status === 'active' ? 'active' : 'removed', null);
+  }
+
   /** (5a) A company installs an app; nothing reaches the app for a company that has not. */
   async installApp(companyId: string, app: string, by?: string): Promise<void> {
     await this.db.query(
@@ -115,6 +131,18 @@ export class Platform {
        on conflict (company_id, app_key) do update set status = 'active'`,
       [companyId, app, by ?? null],
     );
+    // v3 §11: installing is a row in the app's own schema (the truth the gate reads); neos.installs above
+    // is the platform's record for what it still routes itself (gateway, bridge, NeuralChat).
+    await this.writeInstall(companyId, app, 'active', by ? `user:${by}` : null);
+    // Anything the platform held for this company before S1 (a board, grants) comes along once.
+    await backfillBoards(this.db, { app, company: companyId, log: (m, e) => this.log(m, e) });
+  }
+
+  private async writeInstall(companyId: string, app: string, status: 'active' | 'removed', by: string | null): Promise<void> {
+    const co = (await this.db.query<{ name: string; time_zone: string }>('select name, time_zone from neos.companies where id = $1', [companyId])).rows[0];
+    if (!co) throw new PlatformError(404, 'not_found', 'no such company');
+    const wrote = await this.boards.writeInstall(app, companyId, { status, company_name: co.name, time_zone: co.time_zone, installed_by: by });
+    if (!wrote) this.log(`${app} has no schema on this database: its install is recorded on the platform only`, { company_id: companyId });
   }
 
   /**
@@ -129,6 +157,8 @@ export class Platform {
       [companyId, app],
     );
     if (!r.rows[0]) throw new PlatformError(404, 'not_installed', `${app} was never installed for this company`);
+    // The app's own install row says so too: its gate stops acting for the company at once (NOTIFY).
+    await this.writeInstall(companyId, app, 'removed', by.includes(':') ? by : `user:${by}`);
     await this.gateway.audit({ company_id: companyId, actor: by, app_key: app, action: 'app.uninstall', outcome: 'removed', detail: { previous: r.rows[0].previous } });
     return r.rows[0];
   }
@@ -146,12 +176,17 @@ export class Platform {
                 'version', a.manifest->'version',
                 'abilities', coalesce((select jsonb_agg(jsonb_build_object('key', x->'key', 'title', x->'title', 'description', x->'description',
                   'kind', x->'kind', 'floor', x->'floor') order by o) from jsonb_array_elements(a.manifest->'abilities') with ordinality as e(x, o)), '[]'::jsonb)) as manifest,
-              sb.settings, sb.rules
+              null::jsonb as settings, null::jsonb as rules
          from neos.installs i join neos.apps a on a.key = i.app_key
-         left join lateral (select settings, rules from neos.switchboards s where s.company_id = i.company_id and s.app_key = a.key order by version desc limit 1) sb on true
         where i.company_id = $1 and i.status = 'active' and a.status = 'active' order by a.key`,
       [companyId],
     );
+    // v3 S1: each app's lines in force come from its own schema (<app>.switchboard).
+    for (const row of r.rows) {
+      const sb = await this.boards.read(row.key, companyId);
+      row.settings = sb?.settings ?? {};
+      row.rules = sb?.rules ?? [];
+    }
     return r.rows.map((row) => {
       const forced = new Set((row.rules ?? []).filter((x) => x?.type === 'require_person').flatMap((x) => x.abilities ?? []));
       return {
@@ -445,6 +480,12 @@ export class Platform {
         await this.gateway.audit({ company_id: null, actor: 'platform', app_key: a.key, action: 'app.register_views', outcome: `failed:${what}`, detail: { error: String(e).slice(0, 300) } });
       });
     }
+    // v3 S1: whatever the platform held for this app before (installs, boards, grants) is carried into the
+    // app's own schema once (idempotent; scripts/v3/backfill-boards.ts is the DBA's way to run it too).
+    await backfillBoards(this.db, { app: a.key, log: (m, e) => this.log(m, e) }).catch(async (e) => {
+      this.log(`register ${a.key}: boards not backfilled`, { e: String(e) });
+      await this.gateway.audit({ company_id: null, actor: 'platform', app_key: a.key, action: 'app.register_views', outcome: 'failed:boards_backfill', detail: { error: String(e).slice(0, 300) } });
+    });
     // Dev accepts an app without a green attestation, but never silently.
     await this.gateway.audit({
       company_id: null,
@@ -529,12 +570,9 @@ export class Platform {
   async switchboard(companyId: string, app: string) {
     const co = await this.db.query('select id, name, time_zone from neos.companies where id = $1', [companyId]);
     if (!co.rows[0]) throw new PlatformError(404, 'not_found', 'no such company');
-    const r = await this.db.query(
-      'select version, settings, rules, budget, approvals from neos.switchboards where company_id = $1 and app_key = $2 order by version desc limit 1',
-      [companyId, app],
-    );
-    const sb = r.rows[0] ?? { version: 0, settings: {}, rules: [], budget: {}, approvals: {} };
-    return { ...sb, company: co.rows[0] };
+    // v3 §4 "one table, one truth": the app's own <app>.switchboard (an app without a schema here has no board).
+    const sb = (await this.boards.read(app, companyId)) ?? EMPTY_BOARD;
+    return { ...sb, company: co.rows[0] as { id: string; name: string; time_zone: string } };
   }
 
   /** A company can only tighten a switch; it can never loosen the app's floor. */
@@ -577,120 +615,86 @@ export class Platform {
       if (k !== '*' && !lines.some((a) => a.key === k && a.kind === 'write')) throw new PlatformError(422, 'unknown_ability', `${k} is not a write of ${app}`);
       if (pol.roles && (!Array.isArray(pol.roles) || pol.roles.some((r) => !['admin', 'member'].includes(r)))) throw new PlatformError(422, 'bad_policy', `${k}: roles must be admin/member`);
     }
-    const version = await tx(this.db, async (c) => {
-      const cur = await c.query('select version, settings, rules, budget, approvals from neos.switchboards where company_id = $1 and app_key = $2 order by version desc limit 1 for update', [
-        companyId,
+    // v3 §4: written through to the app's own <app>.switchboard, as the desk, in one transaction: the
+    // tighten-only trigger there checks it again, the version moves, and NOTIFY 'board:<company>' tells the
+    // app's gate to drop its cached board — no push from here.
+    const pkgs = await this.packageAbilities(app, companyId);
+    const meta = lineMetaFrom(manifest, pkgs);
+    const version = await this.boards
+      .asDesk(
         app,
-      ]);
-      const prev = cur.rows[0] ?? { version: 0, settings: {}, rules: [], budget: {}, approvals: {} };
-      const next = prev.version + 1;
-      await c.query(
-        'insert into neos.switchboards (company_id, app_key, version, settings, rules, budget, updated_by, approvals) values ($1,$2,$3,$4,$5,$6,$7,$8)',
-        [
-          companyId,
-          app,
-          next,
-          JSON.stringify({ ...prev.settings, ...(patch.settings ?? {}) }),
-          JSON.stringify(patch.rules ?? prev.rules),
-          JSON.stringify({ ...prev.budget, ...(patch.budget ?? {}) }),
-          by,
-          JSON.stringify({ ...prev.approvals, ...(patch.approvals ?? {}) }),
-        ],
-      );
-      return next;
-    });
+        companyId,
+        async (c, s) => {
+          if (!s) throw new PlatformError(409, 'no_app_schema', `${app} has no schema on this database: its switchboard cannot be written`);
+          await c.query(`select pg_advisory_xact_lock(hashtext($1))`, [`${s}:board:${companyId}`]);
+          const prev = await readBoard(c, s, companyId);
+          const next = {
+            settings: { ...prev.settings, ...(patch.settings ?? {}) },
+            rules: patch.rules ?? prev.rules,
+            budget: { ...prev.budget, ...(patch.budget ?? {}) },
+            approvals: { ...prev.approvals, ...(patch.approvals ?? {}) },
+          };
+          await writeBoard(c, s, companyId, `user:${by}`, next, meta, null);
+          return (await readBoard(c, s, companyId)).version;
+        },
+        `user:${by}`,
+      )
+      .catch((e: any) => {
+        // The trigger's refusal (tighten-only) is the company's mistake, not the platform's.
+        if (e?.code === '23514') throw new PlatformError(422, String(e.message).split(':')[0] || 'refused', String(e.message));
+        throw e;
+      });
     await this.gateway.audit({ company_id: companyId, actor: `user:${by}`, app_key: app, action: 'switchboard.changed', outcome: String(version), detail: patch });
-    // Tell the app so its gate drops its cache now, not in 30 s — and keep telling it until it answers.
-    await this.notifyApp(app, companyId);
     return version;
   }
 
-  // ── grants (standing yeses, D8) ──────────────────────────────────────────
+  // ── grants (standing yeses, D8 · v3 §5) ──────────────────────────────────
+  // v3 S1: a standing yes lives in the app's own <app>.grants, written through create_grant / revoke_grant
+  // as the desk. The app's gate matches it there and records each use (<app>.grant_uses); a grant suspends
+  // itself in the app's schema when something approved under it ends FAILED or UNKNOWN (t010 trigger).
   async createGrant(g: { company_id: string; app_key: string; ability_key: string; limits: Record<string, unknown>; expires_at: Date; created_by: string }): Promise<string> {
-    const r = await this.db.query<{ id: string }>(
-      'insert into neos.grants (company_id, app_key, ability_key, limits, expires_at, created_by) values ($1,$2,$3,$4,$5,$6) returning id',
-      [g.company_id, g.app_key, g.ability_key, JSON.stringify(g.limits), g.expires_at, g.created_by],
-    );
-    return r.rows[0]!.id;
+    try {
+      return await this.boards.createGrant(g.app_key, g.company_id, { ability_key: g.ability_key, limits: g.limits, expires_at: g.expires_at, by: `user:${g.created_by}` });
+    } catch (e: any) {
+      if (e?.code === '22023') throw new PlatformError(422, String(e.message).split(':')[0] || 'bad_request', String(e.message));
+      if (e?.status === 409) throw new PlatformError(409, e.code, e.message);
+      throw e;
+    }
   }
 
-  /** Mint an execution token for a gate-proposed action a grant covers; null if none does. */
-  async grantExecutionToken(app: string, req: { company_id: string; job_id: string; proposal_id: string; ability_key: string; ability_version?: string; fingerprint: string; amount_minor?: number; currency?: string; recipients?: string[] }) {
-    await this.assertInstalled(app, req.company_id);
-    const grants = await this.db.query(
-      `select * from neos.grants where company_id = $1 and app_key = $2 and ability_key = $3 and status = 'ACTIVE' and expires_at > now() order by created_at`,
-      [req.company_id, app, req.ability_key],
-    );
-    for (const g of grants.rows) {
-      const L = g.limits as { per_call_minor?: number; per_month_minor?: number; currency?: string; recipients_allow?: string[] };
-      // A limit the call cannot be measured against never auto-approves (H1): a person decides.
-      const hasAmountLimit = L.per_call_minor !== undefined || L.per_month_minor !== undefined;
-      if (hasAmountLimit && typeof req.amount_minor !== 'number') continue;
-      if (L.currency && req.currency !== L.currency) continue;
-      if (L.per_call_minor !== undefined && req.amount_minor! > L.per_call_minor) continue;
-      if (L.recipients_allow && (!req.recipients?.length || req.recipients.some((r) => !L.recipients_allow!.includes(r)))) continue;
-      if (L.per_month_minor !== undefined) {
-        // "This month" is the company's month (C5: company time zone), not the database's UTC month.
-        const used = await this.db.query<{ s: string }>(
-          `select coalesce(sum((a.detail->>'amount_minor')::bigint), 0)::bigint as s
-             from neos.audit a, neos.companies co
-            where co.id = $2 and a.action = 'grant.used' and a.detail->>'grant_id' = $1
-              and a.at >= ${MONTH_START_SQL('co.time_zone')}`,
-          [g.id, req.company_id],
-        );
-        if (Number(used.rows[0]!.s) + (req.amount_minor ?? 0) > L.per_month_minor) continue;
-      }
-      const token = await this.gateway.mint({
-        aud: app,
-        sub: `grant:${g.id}`,
-        company_id: req.company_id,
-        ability: 'proposals.execute',
-        idem_key: `grant:${req.proposal_id}`,
-        ...(req.ability_version ? { ability_version: req.ability_version } : {}),
-        exec: true,
-        proposal_id: req.proposal_id,
-        fingerprint: req.fingerprint,
-      });
-      await this.gateway.audit({
-        company_id: req.company_id,
-        actor: `grant:${g.id}`,
-        app_key: app,
-        action: 'grant.used',
-        ability_key: req.ability_key,
-        outcome: 'token_minted',
-        detail: { grant_id: g.id, proposal_id: req.proposal_id, fingerprint: req.fingerprint, amount_minor: req.amount_minor ?? null, job_id: req.job_id },
-      });
-      return { token, grant_id: g.id as string };
+  /** Withdraw a standing yes wherever it lives (the company's installed apps); null when there is no such grant. */
+  async revokeGrant(companyId: string, id: string, by: string): Promise<{ app_key: string; ability_key: string; changed: boolean } | null> {
+    if (!/^[0-9a-f-]{36}$/i.test(id)) return null;
+    for (const app of await this.grantApps(companyId)) {
+      const r = await this.boards.revokeGrant(app, companyId, id, `user:${by}`);
+      if (r) return { app_key: app, ...r };
     }
     return null;
   }
 
-  /** A grant suspends itself the moment something goes wrong under it. */
-  private async suspendGrantIfFailed(approvalOrProposal: { proposal_id: string; outcome: string }, c: { query: Pool['query'] } = this.db): Promise<void> {
-    if (approvalOrProposal.outcome === 'DONE') return;
-    const r = await c.query<{ grant_id: string }>(
-      `select detail->>'grant_id' as grant_id from neos.audit where action = 'grant.used' and detail->>'proposal_id' = $1 limit 1`,
-      [approvalOrProposal.proposal_id],
-    );
-    const gid = r.rows[0]?.grant_id;
-    if (gid) {
-      const s = await c.query(`update neos.grants set status = 'SUSPENDED', suspended_reason = $2 where id = $1 and status = 'ACTIVE' returning company_id, app_key, ability_key`, [
-        gid,
-        `execution ${approvalOrProposal.outcome} for proposal ${approvalOrProposal.proposal_id}`,
-      ]);
-      const g = s.rows[0];
-      if (g) {
-        await c.query(`insert into neos.audit (company_id, actor, app_key, action, ability_key, outcome, detail) values ($1, 'platform', $2, 'grant.suspended', $3, $4, $5)`, [
-          g.company_id,
-          g.app_key,
-          g.ability_key,
-          approvalOrProposal.outcome,
-          JSON.stringify({ grant_id: gid, proposal_id: approvalOrProposal.proposal_id }),
-        ]);
-      }
-    }
+  /** The company's standing yeses across its apps, with what each was used for (this month in its time zone). */
+  async listGrants(companyId: string): Promise<any[]> {
+    const tz = (await this.db.query<{ time_zone: string }>('select time_zone from neos.companies where id = $1', [companyId])).rows[0]?.time_zone ?? 'UTC';
+    const rows = (await Promise.all((await this.grantApps(companyId)).map((app) => this.boards.listGrants(app, companyId, tz)))).flat();
+    const ids = [...new Set(rows.map((g) => /^user:([0-9a-f-]{36})$/i.exec(g.created_by ?? '')?.[1]).filter(Boolean))] as string[];
+    const names = ids.length ? new Map((await this.db.query<{ id: string; name: string }>('select id::text as id, name from neos.users where id = any($1::uuid[])', [ids])).rows.map((u) => [u.id, u.name])) : new Map<string, string>();
+    return rows
+      .map((g) => {
+        const uid = /^user:([0-9a-f-]{36})$/i.exec(g.created_by ?? '')?.[1] ?? null;
+        return { ...g, created_by: uid ?? g.created_by, created_by_name: uid ? (names.get(uid) ?? null) : null, used_this_month_minor: Number(g.used_this_month_minor) };
+      })
+      .sort((a, b) => Number(b.status === 'ACTIVE') - Number(a.status === 'ACTIVE') || new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
   }
 
+  /** What standing yeses approved within one job of an app. */
+  async grantUsesForJob(app: string, companyId: string, jobId: string) {
+    return this.boards.grantUsesForJob(app, companyId, jobId);
+  }
+
+  /** Apps whose schema may hold this company's grants: every registered app it ever installed. */
+  private async grantApps(companyId: string): Promise<string[]> {
+    return (await this.db.query<{ app_key: string }>("select i.app_key from neos.installs i join neos.apps a on a.key = i.app_key where i.company_id = $1 and a.status <> 'platform' order by 1", [companyId])).rows.map((r) => r.app_key);
+  }
   /** A person lets one app call another's ability (borrowing) or hand it tasks (`tasks.open`). */
   async grantAcl(user: { id: string; company_id: string }, g: { caller_app: string; target_app: string; ability_key: string }): Promise<void> {
     const m = (await this.db.query<{ manifest: Manifest }>('select manifest from neos.apps where key = $1', [g.target_app])).rows[0]?.manifest;
@@ -984,9 +988,13 @@ export class Platform {
     );
   }
 
-  /** Tell an app its board changed (settings, installs): it drops its caches for that company. */
+  /**
+   * Tell an app that something the platform still holds changed (an ACL row, a registry install): it drops
+   * its borrow and package caches for that company. A change to the board itself needs no push — the app's
+   * own schema NOTIFYs 'board:<company>' (t010).
+   */
   async notifyApp(app: string, companyId: string): Promise<void> {
-    const v = (await this.db.query<{ v: number }>('select coalesce(max(version), 0)::int as v from neos.switchboards where company_id = $1 and app_key = $2', [companyId, app])).rows[0]!.v;
+    const v = (await this.boards.read(app, companyId).catch(() => null))?.version ?? 0;
     // Durable first: the push is owed until the app acknowledges it, across retries and restarts.
     const row = (
       await this.db.query(
@@ -1655,7 +1663,6 @@ export class Platform {
           p.outcome,
           JSON.stringify(p),
         ]);
-        await this.suspendGrantIfFailed({ proposal_id: p.proposal_id, outcome: p.outcome }, c);
         // The app's own record of the execution settles the card, even when the platform's execute call
         // timed out and every retry is still pending. Reconciliation later moves an UNKNOWN to where it
         // really ended, with the settled proof.

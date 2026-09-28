@@ -137,7 +137,7 @@ export class Gateway {
            select a.key, a.l3_url, a.status,
                   ($2::uuid is null or exists (select 1 from neos.installs i where i.company_id = $2 and i.app_key = a.key and i.status = 'active')) as installed,
                   ($3::text is null or ($2::uuid is not null and exists (select 1 from neos.acl x where x.caller_app = $3 and x.target_app = a.key and x.ability_key = coalesce($11, $4) and x.company_id = $2))) as acl_ok,
-                  (select max(version) from neos.switchboards s where s.company_id = $2 and s.app_key = a.key) as sb_version,
+                  null::int as sb_version, -- v3 S1: the board's version lives in the app's schema; NOTIFY replaces this hint
                   case when $10 then coalesce(
                     (select x->>'version' from jsonb_array_elements(a.manifest->'abilities') x where x->>'key' = $4 limit 1),
                     (select o->>'version' from neos.registry_installs ri
