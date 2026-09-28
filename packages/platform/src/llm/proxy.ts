@@ -353,8 +353,9 @@ export function llmProxyApp(cfg: ProxyConfig): Hono {
       } catch (e) {
         cfg.log?.('llm upstream stream broke', e);
       } finally {
-        // Settle before the client sees the end, so the usage row exists when the call is over.
-        await settleOnce();
+        // Settle before the client sees the end, so the usage row exists when the call is over. This runs detached
+        // from the request, so a failure (the database gone, e.g. at shutdown) is logged, never an unhandled rejection.
+        await settleOnce().catch((e) => cfg.log?.('llm usage not settled', e));
         if (!clientGone) {
           try {
             ctl.close();
