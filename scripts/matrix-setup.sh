@@ -41,6 +41,9 @@ mkdir -p "$SEC"
 for t in matrix_hs_token matrix_as_token; do [ -s "$SEC/$t" ] || { head -c 32 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 40 > "$SEC/$t"; chmod 600 "$SEC/$t"; }; done
 # The client road's token file must exist for compose; it stays empty (client off) until the operator fills it.
 [ -e "$SEC/matrix_ledger_token" ] || { : > "$SEC/matrix_ledger_token"; chmod 600 "$SEC/matrix_ledger_token"; }
+# v3 S4 (NEOP_PRESENCE=appservice): Ledger's OWN appservice tokens — never the platform's. Always present, so compose starts.
+for t in matrix_ledger_hs_token matrix_ledger_as_token; do [ -s "$SEC/$t" ] || { head -c 32 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 40 > "$SEC/$t"; chmod 600 "$SEC/$t"; }; done
+PRESENCE=${NEOP_PRESENCE:-off}
 VOL="${PROJ}_synapse-data"
 docker volume create "$VOL" >/dev/null
 docker run --rm -v "$VOL:/data" -e SYNAPSE_SERVER_NAME="$NAME" -e SYNAPSE_REPORT_STATS=no matrixdotorg/synapse:v1.139.0 generate >/dev/null
@@ -59,6 +62,8 @@ EOF
   exit 0
 fi
 
+# v3 S4: while Ledger speaks for itself (NEOP_PRESENCE=appservice), the platform's registration leaves @neop_ledger_.* to it.
+NEOP_RE='@neop_.*'; [ "$PRESENCE" = appservice ] && NEOP_RE='@neop_(?!ledger_).*'
 cat > "$SEC/appservice.yaml" <<YAML
 id: neos-chat-bridge
 url: http://platform:4000
@@ -69,13 +74,33 @@ rate_limited: false
 namespaces:
   users:
     - exclusive: true
-      regex: "@neop_.*"
+      regex: "$NEOP_RE"
     - exclusive: true
       regex: "@neuralchat_.*"
   rooms: []
   aliases: []
 YAML
-docker run --rm -v "$VOL:/data" -v "$SEC/appservice.yaml:/tmp/appservice.yaml:ro" --entrypoint sh matrixdotorg/synapse:v1.139.0 -c '
+# Ledger's own registration (deploy/appservice.ledger.yaml), used only with NEOP_PRESENCE=appservice.
+cat > "$SEC/appservice.ledger.yaml" <<YAML
+id: neop-ledger
+url: http://ledger-backend:4104
+as_token: "$(cat "$SEC/matrix_ledger_as_token")"
+hs_token: "$(cat "$SEC/matrix_ledger_hs_token")"
+sender_localpart: neop_ledger
+rate_limited: false
+namespaces:
+  users:
+    - exclusive: true
+      regex: "@neop_ledger_.*"
+  rooms: []
+  aliases: []
+YAML
+chmod 600 "$SEC/appservice.yaml" "$SEC/appservice.ledger.yaml"
+docker run --rm -e PRESENCE="$PRESENCE" -v "$VOL:/data" -v "$SEC/appservice.yaml:/tmp/appservice.yaml:ro" -v "$SEC/appservice.ledger.yaml:/tmp/appservice.ledger.yaml:ro" --entrypoint sh matrixdotorg/synapse:v1.139.0 -c '
   cp /tmp/appservice.yaml /data/neos-appservice.yaml && chown 991:991 /data/neos-appservice.yaml
-  grep -q "^app_service_config_files" /data/homeserver.yaml || printf "\napp_service_config_files:\n  - /data/neos-appservice.yaml\n" >> /data/homeserver.yaml'
-echo "Matrix ready for $NAME. Start with: docker compose -p $PROJ -f $F -f $DIR/compose.chat.yml up -d"
+  grep -q "^app_service_config_files" /data/homeserver.yaml || printf "\napp_service_config_files:\n  - /data/neos-appservice.yaml\n" >> /data/homeserver.yaml
+  if [ "$PRESENCE" = appservice ]; then
+    cp /tmp/appservice.ledger.yaml /data/neop-ledger-appservice.yaml && chown 991:991 /data/neop-ledger-appservice.yaml
+    grep -q "neop-ledger-appservice.yaml" /data/homeserver.yaml || sed -i "s|^  - /data/neos-appservice.yaml|  - /data/neos-appservice.yaml\n  - /data/neop-ledger-appservice.yaml|" /data/homeserver.yaml
+  fi'
+echo "Matrix ready for $NAME (NEOP_PRESENCE=$PRESENCE). Start with: NEOP_PRESENCE=$PRESENCE docker compose -p $PROJ -f $F -f $DIR/compose.chat.yml up -d"

@@ -19,7 +19,7 @@ describe('migrations', () => {
   it('apply once, then re-running is a no-op', async () => {
     const app = await ledgerApp();
     const first = await migrateApp(db.adminUrl, app);
-    expect(first.map((m) => m.name)).toEqual(['001_standard.sql', 't002_trace_and_acks.sql', 't003_door_journal.sql', 't004_timers_and_summary.sql', 't005_input_waits.sql', 't006_documents_files.sql', 't007_standard_columns.sql', 't008_transitions.sql', 't009_notify.sql', 't010_board_truth.sql', 't011_approved_path.sql', '002_ledger.sql', '003_budgets.sql', '004_bookkeeping.sql', '005_inherited.sql', '006_source_documents.sql', '007_views.sql']);
+    expect(first.map((m) => m.name)).toEqual(['001_standard.sql', 't002_trace_and_acks.sql', 't003_door_journal.sql', 't004_timers_and_summary.sql', 't005_input_waits.sql', 't006_documents_files.sql', 't007_standard_columns.sql', 't008_transitions.sql', 't009_notify.sql', 't010_board_truth.sql', 't011_approved_path.sql', 't012_presence.sql', '002_ledger.sql', '003_budgets.sql', '004_bookkeeping.sql', '005_inherited.sql', '006_source_documents.sql', '007_views.sql']);
     expect(await migrateApp(db.adminUrl, app)).toEqual([]);
   });
 

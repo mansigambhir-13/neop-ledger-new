@@ -132,6 +132,53 @@ a changed file is used on the next call, no restart). Ops provisions them; the a
 
 Every provider must either accept an `Idempotency-Key` and let us look the effect up afterwards, or (the GST portal) let us ask the system of record directly (RETSUM for a save, RETTRACK for a filing). Ledger journals each call before sending, so "did it happen?" always has an answer.
 
+## Chat: NEOP presence (v3 S4 — the NEOP on Matrix itself)
+`NEOP_PRESENCE` on the **ledger backend** says who speaks for Ledger in Matrix. Default `off`: the platform's bridge
+(everything in *Deploy* step 8 above), as rehearsed. `client` or `appservice`: the ledger backend itself — its jobs,
+answers and a person's yes go straight into Ledger's own schema; the platform keeps no Matrix token for Ledger.
+NeuralChat (#143) sees no difference: plain `m.text` to `@ledger`, exactly one threaded `m.notice` back within
+`MATRIX_REPLY_DEADLINE_MS`, a relayed go-ahead is never a yes ("Please approve #<id> on your desk").
+
+- **What the backend reads** — only Ledger's own schema: `ledger.installs.matrix_user` (its name at the company),
+  `room_ids`, `agent_senders` + `agent_acts_for` (the allowlisted bridges/NEOPs and whom each relays for), and
+  `ledger.people` (who a Matrix id is: user id, name, role, `chat_person` = may DM Ledger). The platform writes these
+  through as `neos_desk` whenever a person is linked, the allowlist changes or Ledger is installed (`Platform.syncChat`),
+  so the admin API is the same as before (`PUT /api/users/<id>/chat`, `PUT|DELETE /api/chat/allowlist`), plus
+  `GET|PUT /api/chat/presence {app, matrix_user?, room_ids?}` for Ledger's own name and rooms (admin, audited
+  `chat.presence_set`).
+- **Switch an install to the client road (production, external homeserver):**
+  1. `NEOP_PRESENCE=client` in the deploy env file, then `scripts/deploy.sh <env>`. It uses
+     `deploy/compose.presence-client.yml` instead of `compose.matrix-external.yml`: the platform starts **without** a
+     Matrix account for Ledger (its `MATRIX_CLIENT_ACCOUNTS` entry is gone — two processes must never /sync one
+     account), the ledger backend gets `matrix_ledger_token` and `NEOP_MATRIX_CLIENT_ACCOUNTS=[{account, token_file}]`,
+     the homeserver's host is added to the egress allow-list, and step 8 writes `PUT /api/chat/presence
+     {"app":"ledger","matrix_user":"$LEDGER_MXID"}`.
+  2. Check: `GET /api/chat/presence?app=ledger` names the account; the backend logs `NEOP presence on`, then
+     `presence: client: listening from now`. A stopped client logs `STOPPED — …` with the reason
+     (`token_rejected`, `account_mismatch`, `no_install`) and records it in `ledger.presence_accounts.stopped_reason`;
+     fix it and restart the **backend** (no retries, no login, never `/logout`).
+  3. The first start reads no history (the /sync cursor starts now, kept in `ledger.presence_accounts`); messages
+     sent during the switch-over are not answered twice — the old cursor lives in `neos.chat_accounts`, the new one
+     in Ledger's schema. Tell NeuralChat's operators nothing: its road is unchanged.
+- **Switch back** (`NEOP_PRESENCE=off`): set it in the env file and re-run `scripts/deploy.sh <env>` — the platform
+  gets its `MATRIX_CLIENT_ACCOUNTS` entry and the token back, the backend stops /syncing. Replies already owed by the
+  backend are dropped with it (each person gets at most one reply per message); cards and questions stay in the
+  books and on the desk.
+- **The appservice road (local Synapse, `deploy/compose.chat.yml`):** `NEOP_PRESENCE=appservice
+  scripts/matrix-setup.sh deploy/compose.pilot.yml` writes `secrets/appservice.ledger.yaml` (id `neop-ledger`, url
+  `http://ledger-backend:4104`, exclusive `@neop_ledger_.*`, Ledger's own `matrix_ledger_hs_token` /
+  `matrix_ledger_as_token`), registers it, and narrows the platform's registration to `@neop_(?!ledger_).*`. Start
+  with `NEOP_PRESENCE=appservice docker compose … -f deploy/compose.chat.yml up -d`; name the company's bot and bind its
+  rooms with `PUT /api/chat/presence {"app":"ledger","matrix_user":"@neop_ledger_<slug>:<server>","room_ids":["!…"]}`.
+  The backend joins each room once and checks it (invite-only, unencrypted, only people at the approve level); an
+  unfit room is logged `room not fit for this app` and nothing said there is acted on. A wrong `hs_token` is 403.
+- **What to look at:** `ledger.inbound_events` (each Matrix event once: outcome, job, proposal/wait, the reply's
+  state), `ledger.outbound_events` (what Ledger said where, by key = txn id — never twice), `ledger.presence_mirror`
+  (how far the room mirror read Ledger's outbox). The platform's desk keeps showing Ledger's cards (from its outbox).
+- **A person's yes in Matrix** goes into `ledger.answer_proposal()` with the person's role (the approver policy —
+  roles, four-eyes — is the database's, as for the desk) and is carried out by the runner's approved path, like a desk
+  yes; the desk shows the same card (`neos.v_desk_cards`).
+
 ## Everyday operations
 - **Backups** run nightly by themselves (see *Backups and restore*). Check that last night's run logged `backup complete`.
 - **Metrics, alerts, traces:** the `observability` profile (see *Observability*).

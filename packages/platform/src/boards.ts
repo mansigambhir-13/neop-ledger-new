@@ -117,6 +117,75 @@ export class AppBoards {
     );
   }
 
+  /**
+   * v3 S4 (template t012): who may talk to the app in Matrix at this company, written into the app's own schema
+   * so its presence (src/presence) never reads schema neos. `people` replaces the company's rows (every person
+   * linked to a Matrix id; `chat_person` = on this app's allowlist as a person); `agent_senders` /
+   * `agent_acts_for` are the allowlisted non-people (bridges, the reasoning agent, other NEOPs) and the person
+   * each relays for. `identity` (the app's own Matrix name here, its rooms) is written only when given.
+   * False when the app has no schema at t012 or later here (nothing to write).
+   */
+  async writeChat(
+    app: string,
+    companyId: string,
+    d: {
+      people?: { matrix_id: string; user_id: string; name: string | null; role: string | null; chat_person: boolean }[];
+      agent_senders?: string[];
+      agent_acts_for?: Record<string, string>;
+      company_slug?: string;
+      identity?: { matrix_user?: string | null; room_ids?: string[] };
+    },
+    actor?: string,
+  ): Promise<boolean> {
+    return this.asDesk(
+      app,
+      companyId,
+      async (c, s) => {
+        if (!s) return false;
+        const has = (await c.query<{ ok: boolean }>('select to_regclass($1) is not null as ok', [`${s}.people`])).rows[0]?.ok;
+        if (!has) return false;
+        const inst = await c.query(`select 1 from ${s}.installs where company_id = $1`, [companyId]);
+        if (!inst.rowCount) return false;
+        if (d.people) {
+          const ids = d.people.map((p) => p.matrix_id);
+          await c.query(`delete from ${s}.people where company_id = $1 and not (matrix_id = any($2::text[]))`, [companyId, ids]);
+          for (const p of d.people) {
+            await c.query(
+              `insert into ${s}.people as p (company_id, matrix_id, user_id, name, role, chat_person, updated_at) values ($1, $2, $3, $4, $5, $6, now())
+               on conflict (company_id, matrix_id) do update set user_id = excluded.user_id, name = excluded.name, role = excluded.role, chat_person = excluded.chat_person, updated_at = now()
+                 where (p.user_id, p.name, p.role, p.chat_person) is distinct from (excluded.user_id, excluded.name, excluded.role, excluded.chat_person)`,
+              [companyId, p.matrix_id, p.user_id, p.name, p.role, p.chat_person],
+            );
+          }
+        }
+        if (d.agent_senders || d.agent_acts_for) {
+          await c.query(
+            `update ${s}.installs set agent_senders = coalesce($2::text[], agent_senders), agent_acts_for = coalesce($3::jsonb, agent_acts_for), updated_at = now()
+              where company_id = $1 and (agent_senders, agent_acts_for) is distinct from (coalesce($2::text[], agent_senders), coalesce($3::jsonb, agent_acts_for))`,
+            [companyId, d.agent_senders ?? null, d.agent_acts_for ? JSON.stringify(d.agent_acts_for) : null],
+          );
+        }
+        if (d.company_slug) await c.query(`update ${s}.installs set company_slug = $2 where company_id = $1 and company_slug is distinct from $2`, [companyId, d.company_slug]);
+        if (d.identity) {
+          if (d.identity.matrix_user !== undefined) await c.query(`update ${s}.installs set matrix_user = $2, updated_at = now() where company_id = $1`, [companyId, d.identity.matrix_user]);
+          if (d.identity.room_ids) await c.query(`update ${s}.installs set room_ids = $2::text[], updated_at = now() where company_id = $1`, [companyId, d.identity.room_ids]);
+        }
+        return true;
+      },
+      actor,
+    );
+  }
+
+  /** The app's Matrix identity and rooms at this company, as its own schema holds them (null: no t012 schema). */
+  async readChatIdentity(app: string, companyId: string): Promise<{ matrix_user: string | null; room_ids: string[]; agent_senders: string[]; agent_acts_for: Record<string, string> } | null> {
+    return this.asDesk(app, companyId, async (c, s) => {
+      if (!s) return null;
+      const has = (await c.query<{ ok: boolean }>('select to_regclass($1) is not null as ok', [`${s}.people`])).rows[0]?.ok;
+      if (!has) return null;
+      return (await c.query(`select matrix_user, room_ids, agent_senders, agent_acts_for from ${s}.installs where company_id = $1`, [companyId])).rows[0] ?? null;
+    });
+  }
+
   /** Is the app installed for the company, as its own schema says? null when the app has no schema here. */
   async installStatus(app: string, companyId: string): Promise<string | null> {
     return this.asDesk(app, companyId, async (c, s) => (s ? ((await c.query<{ status: string }>(`select status from ${s}.installs where company_id = $1`, [companyId])).rows[0]?.status ?? 'none') : null));

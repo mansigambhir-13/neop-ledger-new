@@ -207,8 +207,9 @@ export function l3App(core: Core): Hono {
     if (!Number.isInteger(cursor) || cursor < 0) return c.json({ error: { code: 'bad_request', message: 'cursor required' } }, 400);
     await core.runnerPool.query(`update ${core.key}.outbox_acked set cursor = greatest(cursor, $1), acked_at = now() where id = 1`, [cursor]);
     const pruned = await core.runnerPool.query(
-      `delete from ${core.key}.outbox where id <= (select cursor from ${core.key}.outbox_acked where id = 1)
-         and created_at < now() - ($1 || ' milliseconds')::interval`,
+      `delete from ${core.key}.outbox o where o.id <= (select cursor from ${core.key}.outbox_acked where id = 1)
+         and o.created_at < now() - ($1 || ' milliseconds')::interval
+         and not exists (select 1 from ${core.key}.presence_mirror m where m.company_id = o.company_id and m.cursor < o.id)`, // v3 S4: never before the presence mirror read it
       [String(core.cfg.outboxRetentionMs ?? 7 * 86_400_000)],
     );
     return c.json({ ok: true, pruned: pruned.rowCount ?? 0 });

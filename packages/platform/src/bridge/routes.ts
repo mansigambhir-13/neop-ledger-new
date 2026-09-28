@@ -9,6 +9,10 @@
 //   DELETE /api/chat/allowlist/:app/:matrix_id
 //   GET    /api/chat/client                         → { accounts: [status…] } for this company
 //   PUT    /api/users/:id/chat                      { matrix_user_id }   (only when no appservice bridge mounts it)
+//   GET    /api/chat/presence?app=ledger           → { matrix_user, room_ids, agent_senders, agent_acts_for } (v3 S4)
+//   PUT    /api/chat/presence                       { app, matrix_user?, room_ids? }   the NEOP's own name and rooms
+// Every change here is written through to the app's own schema (Platform.syncChat, template t012), which is all
+// a NEOP running its own presence (NEOP_PRESENCE=appservice|client) reads.
 
 import { Hono } from 'hono';
 import type { Platform } from '../platform.ts';
@@ -85,6 +89,7 @@ export function chatClientRoutes(platform: Platform, clients: () => ChatClient[]
       outcome: b.kind,
       detail: { matrix_id: b.matrix_id, acts_for: actsFor },
     });
+    await platform.syncChat(a.u!.company_id, b.app); // v3 S4: the app's own presence reads its schema, never neos
     return c.json({ ok: true, app: b.app, matrix_id: b.matrix_id, kind: b.kind, acts_for: actsFor });
   });
 
@@ -94,6 +99,7 @@ export function chatClientRoutes(platform: Platform, clients: () => ChatClient[]
     const r = await platform.db.query('delete from neos.chat_allowlist where company_id = $1 and app_key = $2 and matrix_id = $3', [a.u!.company_id, c.req.param('app'), c.req.param('matrix_id')]);
     if (!r.rowCount) return c.json({ error: { code: 'not_found', message: 'not on the allowlist' } }, 404);
     await platform.gateway.audit({ company_id: a.u!.company_id, actor: `user:${a.u!.id}`, app_key: c.req.param('app'), action: 'chat.allowlist_removed', outcome: c.req.param('matrix_id') });
+    await platform.syncChat(a.u!.company_id, c.req.param('app'));
     return c.json({ ok: true });
   });
 
@@ -107,6 +113,41 @@ export function chatClientRoutes(platform: Platform, clients: () => ChatClient[]
     });
   });
 
+  // v3 S4 · NEOP presence: the app's own Matrix name at this company and its rooms live in the app's schema
+  // (<app>.installs.matrix_user / room_ids); its backend speaks as that name. Admins only, audited.
+  app.get('/api/chat/presence', async (c) => {
+    const a = await admin(c);
+    if (a.error) return a.error;
+    const appKey = c.req.query('app') ?? '';
+    if (!/^[a-z][a-z0-9_]{0,40}$/.test(appKey)) return bad(c, 'app required');
+    try {
+      await platform.assertInstalled(appKey, a.u!.company_id);
+    } catch (e: any) {
+      return c.json({ error: { code: e.code ?? 'not_installed', message: String(e.message ?? e) } }, e.status ?? 403);
+    }
+    const id = await platform.boards.readChatIdentity(appKey, a.u!.company_id);
+    if (!id) return c.json({ error: { code: 'no_app_schema', message: `${appKey} has no presence tables on this database` } }, 409);
+    return c.json({ app: appKey, ...id });
+  });
+
+  app.put('/api/chat/presence', async (c) => {
+    const a = await admin(c);
+    if (a.error) return a.error;
+    const b = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+    if (typeof b.app !== 'string' || !/^[a-z][a-z0-9_]{0,40}$/.test(b.app)) return bad(c, 'app required');
+    if (b.matrix_user !== undefined && b.matrix_user !== null && (typeof b.matrix_user !== 'string' || !MXID.test(b.matrix_user))) return bad(c, 'matrix_user is a Matrix id like @neop_ledger_acme:server');
+    if (b.room_ids !== undefined && (!Array.isArray(b.room_ids) || b.room_ids.length > 20 || b.room_ids.some((r) => typeof r !== 'string' || !/^![^:\s]+:\S+$/.test(r)))) return bad(c, 'room_ids is a list of room ids like !abc:server');
+    if (b.matrix_user === undefined && b.room_ids === undefined) return bad(c, 'matrix_user and/or room_ids');
+    // The app's name is its own: another app's (or another company's) install may not already speak as it.
+    try {
+      await platform.setChatIdentity(a.u!.company_id, b.app, { matrix_user: b.matrix_user as string | null | undefined, room_ids: b.room_ids as string[] | undefined }, `user:${a.u!.id}`);
+    } catch (e: any) {
+      return c.json({ error: { code: e.code ?? 'chat_error', message: String(e.message ?? e) } }, e.status ?? 500);
+    }
+    await platform.gateway.audit({ company_id: a.u!.company_id, actor: `user:${a.u!.id}`, app_key: b.app, action: 'chat.presence_set', outcome: 'ok', detail: { matrix_user: b.matrix_user ?? null, room_ids: b.room_ids ?? null } });
+    return c.json({ ok: true, app: b.app, ...(await platform.boards.readChatIdentity(b.app, a.u!.company_id)) });
+  });
+
   if (opts.linkUsers) {
     app.put('/api/users/:id/chat', async (c) => {
       const a = await admin(c);
@@ -116,6 +157,7 @@ export function chatClientRoutes(platform: Platform, clients: () => ChatClient[]
       const r = await platform.db.query('update neos.users set matrix_user_id = $3 where id = $1 and company_id = $2', [c.req.param('id'), a.u!.company_id, b.matrix_user_id]);
       if (!r.rowCount) return c.json({ error: { code: 'not_found', message: 'no such person in your company' } }, 404);
       await platform.gateway.audit({ company_id: a.u!.company_id, actor: `user:${a.u!.id}`, action: 'chat.user_linked', outcome: b.matrix_user_id });
+      await platform.syncChat(a.u!.company_id);
       return c.json({ ok: true });
     });
   }

@@ -193,6 +193,10 @@ export function deskGrantsSql(schema: string): string {
     `    grant execute on function ${s}.create_grant(text, jsonb, timestamptz, text, uuid),\n` +
     `      ${s}.revoke_grant(uuid, text), ${s}.set_schedule(uuid, text, text, jsonb, boolean), ${s}.board_version_for(uuid, integer),\n` +
     `      ${s}.import_grant(jsonb, jsonb) to ${DESK_ROLE};\n` +
+    // v3 S4 (template t012): who a Matrix id is at the company, written through by the platform.
+    `    if to_regclass('${s}.people') is not null then\n` +
+    `      grant select, insert, update, delete on ${s}.people to ${DESK_ROLE};\n` +
+    `    end if;\n` +
     `  end if;\n` +
     `end $$;`
   );

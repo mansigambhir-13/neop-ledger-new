@@ -451,6 +451,112 @@ forward on a populated book") and platform migration **020** (proof: `packages/p
   `llm` network, so in production that read fails soft (null) exactly as before S8 — the proxy still enforces both
   caps. Person-entered GST OTPs are written by ops into `gst_portal_otp` (a desk path for the person is later).
 
+## v3 S4 · presence: the NEOP is on Matrix itself (2026-09-28)
+`docs/V3-MIGRATION-PLAN.md` stage S4. Behind `NEOP_PRESENCE=off|appservice|client` on the backend (default **off**:
+today's platform bridge keeps speaking for the app, unchanged, and every platform-road test still runs). When on,
+the NEOP's own backend is the app's voice in Matrix; nothing it does goes through the platform API or reads schema
+`neos`. Template migration **t012** (expand-only; proven on a populated book by `presence-dedupe.test.ts` › "t012
+applies forward on a populated book").
+- **Who is who (`src/presence/identity.ts`).** From the app's schema only: `installs.matrix_user` (one name per
+  company — `@neop_<app>_<slug>` on the appservice road, an ordinary account such as `@ledger:hs` on the client road),
+  `room_ids`, `agent_senders` and the new `agent_acts_for` (the allowlisted non-people and the person each relays for),
+  `company_slug` (a typed task may name its company by it), and the new `<schema>.people` (company_id, matrix_id →
+  user_id, name, role, `chat_person` = on the app's allowlist as a person). **Choice (the "person identity" question):
+  a platform write-through**, not a view: the app must not read `neos`, and a SECURITY DEFINER lookup into `neos` would
+  be exactly that. `Platform.syncChat(company, app?)` rewrites the company's rows as `neos_desk` (the S1 `boards.ts`
+  path, `AppBoards.writeChat`) after `installApp`, `PUT /api/users/:id/chat` (both routes, and `ChatBridge.linkUser`),
+  and `PUT|DELETE /api/chat/allowlist`. `neos_desk` gets DML on `people` (t012 when the role exists; pgkit
+  `deskGrantsSql`/`applyDeskGrants` idempotently); app and runner roles only read it. The app's own name and rooms:
+  `GET|PUT /api/chat/presence {app, matrix_user?, room_ids?}` (admin, audited `chat.presence_set`;
+  `Platform.setChatIdentity`). Sender classes: client road — an `agent_senders` entry is `agent`/`neop` (`@neop_…`), a
+  person must be linked **and** `chat_person`; appservice road — a linked person of the room's company is a person
+  (membership is the allowlist), else an `agent_senders` entry; anyone else is ignored.
+- **The ear (`src/runner/inbound.ts`, one class for both roads).** Every event is claimed once in
+  `<schema>.inbound_events` (event_id primary key; `presence/events.ts claimInbound`) before anything happens: Matrix
+  redelivers. Typed events: `maySend(class, type)` and `validateTypedBody` from `@neop/contracts` (dropped + recorded
+  with the class and the validator's error in `inbound_events.detail`, nothing sent back — the NEOP's analogue of the
+  platform's `chat.typed_in` audit); `task` → `openJob` → `openJobAtomic` in the app's schema, `task_id` derived from
+  the event id (a redelivery with a lost record still finds the same job), `origin` = the event id, requester and
+  `on_behalf_of` = `user:<person>` (a person only for themselves; an agent/NEOP for the linked person it names, else
+  its `acts_for`; `company` = this install's id or slug); `answer` → the wait through the book exactly as
+  `waits.answer` writes it (`answerWait`: a person's words `user:<id>` via chat; relayed `bridge:<mxid>` /
+  `app:<mxid>` via bridge — untrusted data), only for a wait shown in this room, in the thread of its task, from the
+  sender that opened it (unless a person); a closed wait → a typed `note` `stale-<wait>` in the thread. (`answer_wait()`
+  arrives with S3; this is the one place to switch.) `approve` → **people only**, sending as themselves, for a card
+  shown to them here (and in a room at the approve power level): `<schema>.answer_proposal(p, fingerprint, decision,
+  'user:<id>', feedback, [the person's role])` — the approver policy (roles, four-eyes) is checked there (t011, S2);
+  `not_an_approver` / `four_eyes` come back as the one reply ("only admin may approve …"); a fingerprint mismatch
+  is refused ("what you approved is not what is on the card now…") and kept by the book as `answer_refused:fingerprint`;
+  an answer the book already holds (an identical second yes) is refused as "no longer open", as the desk did.
+  A yes is carried out by the runner's approved path (S2, `runner/waits.ts`), exactly like a desk yes; presence
+  starts nothing itself. Plain `m.text` keeps NeuralChat #143's meaning
+  byte for byte (ported with its tests): a task; a reply to a question notice answers it (answersFromText); a plain
+  next message answers only while the DM is **at** the question (`latestSaid` = the latest `outbound_events` row in the
+  DM), a person's whole text only for a one-field question and never text ending in "?", a bridge only with
+  `key: value` pairs (`plainAnswers`); a person's reply to a card in their own DM is their decision (`parseDecision`);
+  a bridge's clear decline (`DECLINE`, as a reply, naming the card, or plainly worded `PLAIN_DECLINE` while the DM is at
+  the card or only one card waits — never when it only postpones, `POSTPONE`) is the person's no, "declined via <bridge>
+  on behalf of <name>"; a bridge's go-ahead (`isConsent` = the platform's `parseDecision`/`CONSENT`/`goAheadOf` rule) is
+  never a yes: one reply "Nothing was done: a bridge cannot approve. I can't take a yes through NeuralChat. Please approve
+  #<id8> on your desk." re-showing the card (recorded with its fingerprint so a later "no" binds; `inbound_events.detail
+  {consent:'not_a_yes', proposals}`). Card ids shown are the proposal id's first 8 characters.
+- **The one reply (client road).** `inbound_events.reply_status` none → waiting (`owe`, due now +
+  `MATRIX_REPLY_DEADLINE_MS`, default 55 s) → sending → sent. `replyTick` settles from the book: job DONE → its summary
+  (+ could-not); FAILED/CANCELLED/EXPIRED or overdue → the fixed sentence; a card raised since the message → the card
+  (to a person) or the bridge text "awaits a person's approval…" plus the card shown in the person's own DM
+  (txn `card-<proposal>`); a question since the message → the question (and, for a bridge, in the person's DM, txn
+  `question-<wait>`). `questionsTick` puts questions of jobs not asked on this account (the desk) into the person's own
+  DM. txnId `reply-<event_id>`; a resend after a crash is the same event. Typed events get their one reply in the
+  typed thread.
+- **The mouth (`src/runner/mirror.ts`).** Reads the app's own outbox per company from its own cursor
+  (`<schema>.presence_mirror`; the platform keeps its own) and says, as the company's name: in the app's room (the room
+  the job was asked in; a desk job goes to the company's first room) the same m.notice text the platform's bridge posted
+  (`presence/cards.ts`, ported from `format.ts`): "On it — …", `· step`, the card (recorded with its fingerprint), the
+  answer, expiry, execution, heads-up, question (recorded with its wait), the result; in a typed thread (either road):
+  `note` ack and per step, `ask`, `propose`, `done` with the sender's own task id. Every message is keyed
+  (`outbound_events` unique (account, room, key); txnId = the key): a re-read outbox or a restart never says anything
+  twice. The first pass for a company starts at the outbox end, except for jobs opened from Matrix (whose whole story
+  is owed). L3's outbox prune never deletes past a presence cursor. A failed send stops the company's pass there (order
+  kept) and is retried, up to 10 times, then given up and logged; a client-road account that is not running has no voice
+  (its typed notes are not replayed; its one reply per message is, from the book).
+- **Roads.** `presence/appservice.ts`: `/_matrix/app/v1/transactions|users|rooms|ping` (+ legacy paths) on its own
+  listener (`APPSERVICE_PORT`, default 4104; L3 and the gate do not serve it), `hs_token` compared in constant time
+  (403 `M_FORBIDDEN` otherwise), a room not in any install's `room_ids` ignored (no record), our own names ignored;
+  sends with the `as_token` and `?user_id=<name>`; each bound room joined once per process and checked with contracts
+  `roomProblems` (unfit → never spoken in, events `room_unfit`); `createRoom` makes a v3 room. `presence/client.ts`: the
+  ordinary-account `/sync` road ported from `client-sync.ts` (whoami → the install whose `matrix_user` is that account;
+  `account_mismatch` / `no_install` / `token_rejected` stop it, no retries, no login, never `/logout`; cursor in
+  `<schema>.presence_accounts`; 1:1 DMs in `<schema>.presence_dms`; invites only from allowed senders; backlog,
+  notices, other msgtypes, empty bodies, non-direct rooms ignored). `presence/index.ts` (`Presence`,
+  `presenceConfigFromEnv`): `NEOP_PRESENCE`, `NEOP_MATRIX_HOMESERVER_URL`, `NEOP_MATRIX_HS_TOKEN[_FILE]`,
+  `NEOP_MATRIX_AS_TOKEN[_FILE]`, `APPSERVICE_PORT/HOST`, `NEOP_MATRIX_CLIENT_ACCOUNTS[_FILE]` (`[{account?, token_file}]`),
+  `MATRIX_REPLY_DEADLINE_MS`, `MATRIX_SYNC_TIMEOUT_MS`. Started by `startBackend` (`NeopConfig.presence`) after the
+  runner; `runner.ts` is untouched.
+- **Platform.** Unchanged when presence is off. Additions: `syncChat` / `setChatIdentity` / `AppBoards.writeChat` /
+  `readChatIdentity`, `GET|PUT /api/chat/presence`. The desk needs nothing new: since S2 its cards are the app's own
+  rows (`neos.v_desk_cards`), so an answer given in Matrix shows there at once, and a desk yes to a card first shown
+  in Matrix goes through the same `answer_proposal()`.
+- **Deploy.** `deploy/appservice.ledger.yaml` (id `neop-ledger`, `http://ledger-backend:4104`, exclusive
+  `@neop_ledger_.*`, Ledger's own tokens); `scripts/matrix-setup.sh` writes it with `NEOP_PRESENCE=appservice` and
+  narrows the platform's registration to `@neop_(?!ledger_).*`; `deploy/compose.chat.yml` gives the ledger backend the
+  presence settings and the chat network; `deploy/compose.presence-client.yml` (production, external homeserver:
+  the backend holds `matrix_ledger_token`, the platform none); `scripts/deploy.sh` honours `NEOP_PRESENCE` (default off —
+  unchanged; `client` swaps the overlay, allow-lists the homeserver host in egress, writes `PUT /api/chat/presence`);
+  `production.env.example` `NEOP_PRESENCE=off` with a note; `scripts/netcheck.sh` checks the backend reaches synapse
+  when a local synapse runs. `scripts/neuralchat-sim.ts` runs unchanged against a `NEOP_PRESENCE=client` install
+  (header note): its desk and audit checks follow the app's outbox.
+- **Tests** (new, both presence modes; the platform-road tests are untouched): `presence-client` (matrix-client's
+  checks), `presence-questions` (matrix-questions'), `presence-go-ahead` (matrix-go-ahead's, incl. the desk yes and the
+  desk card CLOSED/no the sim reads), `presence-typed` (matrix-typed's, client DMs and appservice rooms), `presence-rooms`
+  (rooms'), `presence-sender` (sender's, both roads), `presence-dedupe` (redelivery never opens twice or replies twice;
+  a rewound mirror/restarted backend says nothing twice; a resent reply is the same event; the t012 proof),
+  `appservice-auth` (wrong/missing hs_token 403, unknown room ignored, own echo ignored, L3/gate do not serve it).
+  `board-db`, `approved-path`, `migration` and `v3-conformance` list t012 among the files they see applied.
+- **Not done here.** The Matrix identity of other NEOPs / the bus room (S6); NeuralChat as its own typed identity (S5);
+  `answer_wait()` (S3); a2a questions asked of
+  the person on a callee NEOP's wait are still the platform's (`neos.questions` root task). Per-NEOP appservice
+  registration beyond Ledger is the same file with the app's key.
+
 ## Deliberately not built from WP v3
 - **Voice.** The NEOS app transcribes speech on the device/client before it calls `POST /api/ask`; the platform and every NEOP take text only. Nothing here receives audio, so there is no speech model, audio store or consent flow to build or secure on this side. An audio note a person wants kept is an attachment like any other file (kept by the document store).
 - **pgvector `similar_to`.** No Ledger ability needs similarity search: every Ledger read is exact (accounts, parties, documents by number, dates, amounts), and matching bank lines is rule- and amount-based. When an app does need it, it is the app's own concern inside its own schema, as §11 says: its migration adds `create extension if not exists vector` (the DBA enables the extension once per database), a `vector(n)` column on its own table with `company_id` and RLS like every other table, and an index (`hnsw`/`ivfflat`); a `similar_to` read is then ordinary SQL (`order by embedding <=> $1 limit k`) in that app's repository. Embeddings are computed in the backend through the LLM proxy, never by the assistant with a key. No separate vector store.

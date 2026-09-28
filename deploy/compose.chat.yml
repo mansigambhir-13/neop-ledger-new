@@ -11,6 +11,15 @@
 #                         platform. 1:1 DMs from allowlisted people and bridges only (PUT /api/chat/allowlist);
 #                         exactly one m.notice reply per message. A rejected token stops the client — issue a
 #                         new token into the secret file and restart the platform.
+#
+# v3 S4 · NEOP_PRESENCE (default off) moves Ledger's voice from the platform into the LEDGER BACKEND itself:
+#   off         as above: the platform's bridge speaks for Ledger.
+#   appservice  the ledger backend is its own application service (deploy/appservice.ledger.yaml, @neop_ledger_.*,
+#               its own tokens secrets/matrix_ledger_hs_token + matrix_ledger_as_token) on the chat network, port 4104.
+#               Narrow the platform's registration (deploy/appservice.yaml) so it no longer claims @neop_ledger_.*.
+#   client      the ledger backend runs @ledger's /sync road (secrets/matrix_ledger_token). Run the platform with
+#               MATRIX_MODE=appservice then (it must not /sync the same account: one reply per message, not two).
+# Either way: PUT /api/chat/presence {app:"ledger", matrix_user, room_ids} names Ledger's account/rooms per company.
 services:
   synapse:
     image: matrixdotorg/synapse:v1.139.0
@@ -33,6 +42,24 @@ services:
       MATRIX_REPLY_DEADLINE_MS: "${MATRIX_REPLY_DEADLINE_MS:-55000}"  # under NeuralChat's 60 s wait for a reply
     secrets: [neos_app_url, vault_keys, metrics_token, matrix_hs_token, matrix_as_token, matrix_ledger_token]
 
+  # v3 S4: Ledger on Matrix itself when NEOP_PRESENCE is appservice or client (off: these settings are unused).
+  ledger-backend:
+    environment:
+      NEOP_PRESENCE: ${NEOP_PRESENCE:-off}
+      NEOP_MATRIX_HOMESERVER_URL: http://synapse:8008
+      # appservice road: Ledger's own registration and tokens; the homeserver pushes to ledger-backend:4104
+      NEOP_MATRIX_HS_TOKEN_FILE: /run/secrets/matrix_ledger_hs_token
+      NEOP_MATRIX_AS_TOKEN_FILE: /run/secrets/matrix_ledger_as_token
+      APPSERVICE_PORT: "4104"
+      # client road: the account → company binding is ledger.installs.matrix_user (PUT /api/chat/presence)
+      NEOP_MATRIX_CLIENT_ACCOUNTS: '[{"account":"@ledger:${MATRIX_SERVER_NAME:-acme.example}","token_file":"/run/secrets/matrix_ledger_token"}]'
+      MATRIX_REPLY_DEADLINE_MS: "${MATRIX_REPLY_DEADLINE_MS:-55000}"
+      NO_PROXY: localhost,127.0.0.1,platform,llm-proxy,otel-collector,ledger-l3,ledger-gate,ledger-agent-rpc,ledger-agent,ledger-backend,ledger-metrics,pgbouncer,postgres,synapse
+    secrets: [ledger_app_url, ledger_runner_url, ledger_direct_url, ledger_service_secret, ledger_job_token_secret, ledger_pkg_pw_key, ledger_llm_signing_key, metrics_token, matrix_ledger_token, matrix_ledger_hs_token, matrix_ledger_as_token]
+    # The homeserver and the backend meet on the chat network only (no internet, no other app).
+    networks:
+      chat: {}
+
 volumes:
   synapse-data: {}
 
@@ -41,3 +68,6 @@ secrets:
   matrix_as_token: { file: "${NEOS_SECRETS_DIR:-./secrets}/matrix_as_token" }
   # client road: the operator-issued access token of @ledger (empty until issued; the client then stays off)
   matrix_ledger_token: { file: "${NEOS_SECRETS_DIR:-./secrets}/matrix_ledger_token" }
+  # v3 S4, NEOP_PRESENCE=appservice: Ledger's own appservice tokens (deploy/appservice.ledger.yaml)
+  matrix_ledger_hs_token: { file: "${NEOS_SECRETS_DIR:-./secrets}/matrix_ledger_hs_token" }
+  matrix_ledger_as_token: { file: "${NEOS_SECRETS_DIR:-./secrets}/matrix_ledger_as_token" }
