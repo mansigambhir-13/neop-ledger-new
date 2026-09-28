@@ -420,6 +420,11 @@
     },
     {
       "app": "ledger",
+      "ability": "ledger.expense.record",
+      "range": "^1.0.0"
+    },
+    {
+      "app": "ledger",
       "ability": "tasks.open",
       "range": "*"
     }

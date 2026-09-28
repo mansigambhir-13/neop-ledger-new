@@ -59,7 +59,8 @@ describe('borrowing is checked at registration (WP §10)', () => {
     const m = await base();
     const reg = (uses: any[]) => P.platform.registerApp({ key: 'probe', l3_url: 'http://127.0.0.1:9', manifest: { ...m, app: 'probe', name: 'Probe', abilities: [], uses, blocks: [] } as any, service_secret: 'p'.repeat(32) });
     await expect(reg([{ app: 'ledger', ability: 'ledger.budget.remaining', range: '^2.0.0' }])).rejects.toThrow(/serves 1\.0\.0/);
-    await expect(reg([{ app: 'ledger', ability: 'ledger.journal.post', range: '*' }])).rejects.toThrow(/no read/);
+    await expect(reg([{ app: 'ledger', ability: 'ledger.no_such_thing', range: '*' }])).rejects.toThrow(/ledger has no ledger\.no_such_thing/);
+    // (v3 §10: a `uses` line may name an owner's WRITE — a borrowed write, handed over as a task; apps/marketing borrowed-write.test.)
     // An owner not registered yet is checked when it registers (deploy order is free).
     await expect(reg([{ app: 'nobody', ability: 'nobody.y', range: '^1.0.0' }])).resolves.toBeUndefined();
     const nobody = { ...m, app: 'nobody', name: 'Nobody', abilities: [], uses: [], blocks: [] } as any;

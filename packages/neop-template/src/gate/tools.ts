@@ -150,12 +150,15 @@ export function buildTools(
   const out: ToolSpec[] = [];
   for (const b of borrowed) {
     if (b.setting === 'off') continue;
+    const write = b.ability.kind === 'write';
     out.push({
       name: toolName(b.key),
       key: b.key,
       version: b.ability.version,
       title: `${b.ability.title} (from ${b.owner})`,
-      description: `Borrowed from the ${b.owner} app, answered by that app. ${b.ability.description}`,
+      description: write
+        ? `Borrowed from the ${b.owner} app: one step in its subject. Using it hands this step to ${b.owner} as a task — its own switchboard and a person's yes there apply — and this job waits for its result. It does not do the thing here. ${b.ability.description}`
+        : `Borrowed from the ${b.owner} app, answered by that app. ${b.ability.description}`,
       kind: 'borrowed',
       setting: 'on',
       input: b.ability.input,

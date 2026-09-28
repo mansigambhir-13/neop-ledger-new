@@ -46,7 +46,7 @@ export class BorrowCache {
       seen.add(u.ability);
       try {
         const d = await this.core.platform.borrowDescribe({ company_id: companyId, app: u.app, ability: u.ability });
-        if (d.ability.kind !== 'read') continue; // borrowed writes go as a2a tasks, never direct
+        // A borrowed write is offered too, but runs only as an a2a task at its owner (gate.borrow), never direct.
         const setting = d.acl ? strictest(u.floor ?? 'on', d.owner_setting) : 'off';
         out.push({ key: u.ability, owner: u.app, ability: d.ability, setting });
       } catch {

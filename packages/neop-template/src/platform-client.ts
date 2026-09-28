@@ -76,7 +76,8 @@ export class PlatformClient {
     return { status: r.status, body: r.body, request_id: null };
   }
 
-  async openA2A(req: { company_id: string; target: string; ask: string; parent_task_id: string | null; host_job_id: string }): Promise<{ status: number; body: any }> {
+  /** An a2a hand-off; with `ability`/`args` it is a borrowed write (v3 §10): one step the owner proposes and a person approves there. */
+  async openA2A(req: { company_id: string; target: string; ask: string; parent_task_id: string | null; host_job_id: string; ability?: string; args?: unknown }): Promise<{ status: number; body: any }> {
     return this.call<any>('POST', '/internal/a2a/open', req);
   }
 
