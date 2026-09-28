@@ -160,6 +160,15 @@
       ],
       "baseline": false,
       "proven_on_populated_data": "2026-09-27 \u00b7 apps/ledger/tests/matrix-go-ahead.test.ts \u203a 016 applies forward on a populated platform database (allowlist rows kept, may_approve false)"
+    },
+    {
+      "file": "017_bridge_never_approves.sql",
+      "tables": [
+        "audit",
+        "chat_allowlist"
+      ],
+      "baseline": false,
+      "proven_on_populated_data": "2026-09-28 \u00b7 packages/platform/tests/migration-017.test.ts \u203a 017 applies forward on a populated platform database (allowlist rows kept, every may_approve grant revoked and audited, the check validated)"
     }
   ]
 }
