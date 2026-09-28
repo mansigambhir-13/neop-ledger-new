@@ -38,7 +38,12 @@ state() { [ -s "$STATE" ] && jq -r ".$1 // empty" "$STATE" || true; }
 setstate() { local cur='{}'; [ -s "$STATE" ] && cur=$(cat "$STATE"); echo "$cur" | jq --arg k "$1" --arg v "$2" '.[$k]=$v' > "$STATE.tmp" && mv "$STATE.tmp" "$STATE"; chmod 600 "$STATE"; }
 # The Matrix overlay (added once the company exists) needs the company id from the very first compose call.
 export NEOS_CHAT_COMPANY="$(state company_id)"
-api() { curl -sS -X "$1" "http://127.0.0.1:$PORT$2" -H "authorization: Bearer $(cat "$NEOS_SECRETS_DIR/admin_token")" -H 'content-type: application/json' ${3:+-d "$3"}; }
+# The body goes on stdin (printf is a builtin), never on a command line where `ps` could show a key.
+api() {
+  if [ -n "${3:-}" ]; then printf '%s' "$3" | curl -sS -X "$1" "http://127.0.0.1:$PORT$2" -H "@$NEOS_SECRETS_DIR/.auth_header" -H 'content-type: application/json' --data-binary @-
+  else curl -sS -X "$1" "http://127.0.0.1:$PORT$2" -H "@$NEOS_SECRETS_DIR/.auth_header" -H 'content-type: application/json'; fi
+}
+auth_header() { [ -s "$NEOS_SECRETS_DIR/admin_token" ] && { printf 'authorization: Bearer %s\n' "$(cat "$NEOS_SECRETS_DIR/admin_token")" > "$NEOS_SECRETS_DIR/.auth_header"; chmod 600 "$NEOS_SECRETS_DIR/.auth_header"; }; }
 OPS=(run --rm --no-deps -T -e NEOS_DB_URL_FILE=/run/secrets/neos_app_url -e NEOP_SERVICE_SECRET_FILE=/tmp/svc -v "$NEOS_SECRETS_DIR/ledger_service_secret:/tmp/svc:ro" -v "$ATTEST:/tmp/conformance.json:ro" platform tsx scripts/ops.ts)
 ops() { dc "${OPS[@]}" "$@" 2>/dev/null | grep -v '^ *Container ' | tail -1; }
 
@@ -55,7 +60,9 @@ install -m 600 "$LLM_KEY_FILE" "$NEOS_SECRETS_DIR/llm_upstream_key"
 install -m 600 "$LEDGER_MATRIX_TOKEN_FILE" "$NEOS_SECRETS_DIR/matrix_ledger_token"
 for f in matrix_hs_token matrix_as_token; do [ -e "$NEOS_SECRETS_DIR/$f" ] || : > "$NEOS_SECRETS_DIR/$f"; done
 # Containers run as their own users: they must be able to read the files mounted as secrets (the directory stays 0700).
-chmod a+r "$NEOS_SECRETS_DIR"/* && chmod 600 "$STATE" 2>/dev/null || true
+chmod a+r "$NEOS_SECRETS_DIR"/*
+# … except what no container reads: the admin's token and the deploy state stay owner-only.
+for f in admin_token deploy-state.json; do [ -e "$NEOS_SECRETS_DIR/$f" ] && chmod 600 "$NEOS_SECRETS_DIR/$f"; done
 chmod 755 "$NEOS_SECRETS_DIR"
 
 say "3/11 build images"
@@ -86,6 +93,7 @@ if [ "${STARTER_CHART:-in_sme}" != none ] && [ -z "$(state starter_chart)" ]; th
   dc exec -T ledger-backend tsx apps/ledger/scripts/seed.ts "$CO" --starter-chart | tail -1 || die "starter chart failed"
   setstate starter_chart "${STARTER_CHART:-in_sme}"
 fi
+auth_header
 echo "company $CO · admin token in $NEOS_SECRETS_DIR/admin_token"
 
 say "8/11 Matrix client road for this company"
@@ -100,8 +108,12 @@ api GET /api/chat/client | jq -c '.accounts[]|{account,running,stopped}'
 
 say "9/11 email door (optional)"
 if [ -n "${EMAIL_DOOR_JSON:-}" ]; then
-  body=$(echo "$EMAIL_DOOR_JSON" | jq -c 'if .api_key_file then .api_key = ($ENV.K) | del(.api_key_file) else . end' K="$(jq -r '.api_key_file // empty' <<<"$EMAIL_DOOR_JSON" | xargs -r cat 2>/dev/null)")
-  api PUT '/api/vault/email?app=ledger' "$body" | jq -c '{ok,door,app,provider}'
+  keyfile=$(jq -r '.api_key_file // empty' <<<"$EMAIL_DOOR_JSON") || die "EMAIL_DOOR_JSON is not valid JSON — in the env file it must be in single quotes: EMAIL_DOOR_JSON='{\"provider\":…}'"
+  key=""; if [ -n "$keyfile" ]; then [ -s "$keyfile" ] || die "email api_key_file ($keyfile) is empty or missing"; key=$(tr -d '\n' < "$keyfile"); fi
+  body=$(jq -c --arg k "$key" 'if .api_key_file then (.api_key = $k | del(.api_key_file)) else . end' <<<"$EMAIL_DOOR_JSON")
+  res=$(api PUT '/api/vault/email?app=ledger' "$body"); unset key body
+  jq -e '.ok == true' >/dev/null <<<"$res" || die "the email door was refused: $(jq -c '.error // .' <<<"$res")"
+  jq -c '{ok,door,app,provider}' <<<"$res"
 else echo "not configured: gated emails will fail cleanly until an admin connects the email door"; fi
 
 say "10/11 verify the install (read-only)"

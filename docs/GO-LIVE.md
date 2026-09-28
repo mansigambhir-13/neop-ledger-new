@@ -80,6 +80,7 @@ NeuralChat already enforces (#156/#157).
   Measured: p50 ≈ 20 s, p90 ≈ 32 s per reply (one slow job in 26 went over 50 s).
 - GST filing needs a commercial GSP account and a person's OTP (not wired for day one).
 - The person-facing desk in this repo is a test harness, not the product UI.
+- Observability (Jaeger/Prometheus/Grafana) is out of scope for go-live: leave `OBSERVABILITY=0`.
 
 ## Rehearsal (27 September 2026)
 
