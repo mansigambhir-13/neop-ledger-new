@@ -200,6 +200,12 @@
       "tables": [],
       "baseline": false,
       "proven_on_populated_data": "2026-09-28 \u00b7 packages/platform/tests/migration-021.test.ts \u203a 021 applies forward on a populated platform database (questions and tasks kept; the question views in place, reading the apps' waits)"
+    },
+    {
+      "file": "022_registry_pins.sql",
+      "tables": [],
+      "baseline": false,
+      "proven_on_populated_data": "2026-09-28 \u00b7 packages/platform/tests/registry-v3.test.ts \u203a 022 applies forward on a populated platform database (entries, installs and apps kept; skills carry their text and signature; pins from manifests)"
     }
   ]
 }

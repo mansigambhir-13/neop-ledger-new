@@ -3,6 +3,8 @@ import { fileURLToPath } from 'node:url';
 import { serve, type ServerType } from '@hono/node-server';
 import { assertSchemaInStep, bootstrapFamily, closeServer, migrate, templateFiles, type AppliedMigration, type MigrationSource } from '@neop/pgkit';
 import { Core } from './core.ts';
+import { LOCK_FILE, readLock } from './packages/lock.ts';
+import { applyPackageGrants } from './packages/migrate.ts';
 import { Gate } from './gate/gate.ts';
 import { gateApp } from './gate/server.ts';
 import { neosV1App } from './l3/neos-v1.ts';
@@ -24,13 +26,19 @@ export const TEMPLATE_INFRA_TABLES = ['seen_tokens', 'outbox_acked'];
 export async function migrateApp(adminUrl: string, app: AppDefinition, log?: (m: string) => void): Promise<AppliedMigration[]> {
   const schema = app.manifest.app;
   await bootstrapFamily(adminUrl, schema);
-  return migrate({
+  const applied = await migrate({
     adminUrl,
     schema,
     sources: await appMigrationSources(app),
     lintExempt: TEMPLATE_INFRA_TABLES,
     log,
   });
+  // v3 §10: installed packages' roles, and their DML on exactly their tables (the migrator cannot make roles).
+  if (app.packages) {
+    const roles = await applyPackageGrants(adminUrl, schema, await readLock(path.join(app.packages.root, LOCK_FILE)));
+    if (roles.length) log?.(`[${schema}] package roles: ${roles.join(', ')}`);
+  }
+  return applied;
 }
 
 /** The app's shipped migration set: the template stream (001_standard, t002 …) then the app's own (002 …). */

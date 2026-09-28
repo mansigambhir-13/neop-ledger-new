@@ -3,13 +3,13 @@
 // pool (:4703) in one process (base port: NEOP_DEV_PORT_BASE).
 //   NEOP_LLM_UPSTREAM_KEY=sk-ant-...  keyless agent through the platform LLM proxy (recommended)
 //   NEOP_LLM_VIRTUAL_KEY=...          direct model access from the agent (quick local only)
-//   NEOP_DEV_PACKAGES=nep-gst         publish, review, install and migrate the GST package
+//   (nep-gst is built into Ledger: apps/ledger/src/packages, installed with scripts/neos-install.ts)
 import { randomBytes } from 'node:crypto';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { adminUrlFromEnv, roleUrl } from '@neop/pgkit';
 import { hashSecret, loadOrCreateSigningKeys, migratePlatform, startPlatform, VaultCipher } from '@neop/platform';
-import { buildPackage, doorSecretPaths, FileSecretStore, generateLlmSigningKey, migrateApp, migratePackage, startBackend } from '@neop/template';
+import { doorSecretPaths, FileSecretStore, generateLlmSigningKey, migrateApp, startBackend } from '@neop/template';
 import { modelFromEnv, proxyModel, startAgentWorker } from '@neop/template/agent';
 import { ledgerApp, LEDGER_ROOT, manifest, seedLedger } from '../src/index.ts';
 
@@ -115,27 +115,11 @@ for (const [door, secret] of [
   if (!(await readFile(f, 'utf8').catch(() => null))) await writeFile(f, JSON.stringify(secret), { mode: 0o600 });
 }
 const seeded = await seedLedger(backend.core.appPool, co.id);
-
-// Optional: the GST package, end to end (operator review -> admin install -> migration runner).
-if ((process.env.NEOP_DEV_PACKAGES ?? '').split(',').includes('nep-gst')) {
-  const bundle = await buildPackage(path.join(root, 'registry', 'nep-gst'));
-  const version = bundle.manifest.version;
-  const entry = (await p.db.query("select status from neos.registry_entries where key = 'nep-gst' and version = $1", [version])).rows[0];
-  if (!entry) await p.registry.submit('user:dev', { kind: 'package', key: 'nep-gst', version, bundle });
-  const pending = (await p.db.query("select id, fingerprint from neos.registry_reviews where key = 'nep-gst' and version = $1 and status = 'PENDING'", [version])).rows[0];
-  if (pending) {
-    const op = (await p.db.query("select id from neos.users where token_hash = $1", [hashSecret('dev_operator')])).rows[0];
-    await p.registry.review({ id: op.id, role: 'operator' }, pending.id, { decision: 'yes', fingerprint_seen: pending.fingerprint });
-  }
-  const admin = (await p.db.query("select id, company_id from neos.users where token_hash = $1", [hashSecret('dev_admin')])).rows[0];
-  await p.registry.install({ ...admin, role: 'admin' }, { host_app: 'ledger', entry_key: 'nep-gst' });
-  for (const pk of await p.pendingPackageMigrations()) {
-    await p.applyPackageMigration(pk, () => migratePackage(adminUrl, pk.host_app, pk.bundle));
-  }
-  // GSTR-3B needs a GSP credential (provider 'gsp'); the dev-file door above cannot prepare or file one.
-  log(`nep-gst installed for Acme Traders (connect a GSP: write ${path.join(doorsDir, co.id, 'gst_portal.json')}, see docs/RUNBOOK.md)`);
+// v3 S7: the GST package is installed into Ledger at build time (apps/ledger/src/packages/nep-gst, pinned in
+// packages.lock.json); its migrations ran above with Ledger's own. GSTR-3B needs a GSP credential (provider 'gsp').
+if (manifest.packages?.some((x) => x.key === 'nep-gst')) {
+  log(`nep-gst is built into Ledger (connect a GSP: write ${path.join(doorsDir, co.id, 'gst_portal.json')}, see docs/RUNBOOK.md)`);
 }
-
 console.log(`
 NEOP pilot is up.
   Desk + ask:   ${plat.url}/        (token: dev_admin, or dev_member)

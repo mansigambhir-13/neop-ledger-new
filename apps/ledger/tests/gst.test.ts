@@ -5,13 +5,11 @@
 // a validation error fails cleanly; a lost or timed-out filing is confirmed by
 // status and never sent twice.
 process.env.NEOP_SANDBOX_TIMEOUT_MS = '8000';
-import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { fakeGstSuvidhaProvider, installAndMigrate, publishPackage, toolName, type FakeGsp } from '@neop/testkit';
+import { fakeGstSuvidhaProvider, toolName, type FakeGsp } from '@neop/testkit';
 import { resetGspSessions } from '@neop/template';
 import { withCompany } from '@neop/pgkit';
 import { bootPilot, type Pilot } from './harness.ts';
-import { LEDGER_ROOT } from '../src/index.ts';
 
 const GSTIN = '27AAPFU0939F1ZV';
 let P: Pilot;
@@ -22,7 +20,10 @@ let seen = '';
 beforeAll(async () => {
   resetGspSessions();
   GSP = await fakeGstSuvidhaProvider({ gstin: GSTIN, username: 'acme.traders', signatory_pan: 'AAPFU0939F' });
+  // v3 S7: nep-gst is built into Ledger (`neos install ledger nep-gst@2.0.0`: apps/ledger/src/packages/nep-gst,
+  // packages.lock.json, migrations 008–009). Nothing is published, installed or migrated at run time.
   P = await bootPilot();
+  expect(P.backend.core.packages.lock.packages.map((p) => `${p.key}@${p.version}`)).toEqual(['nep-gst@2.0.0']);
   // Ops connects the GSP in the secret store (v3 §12): the backend reads it per call, the assistant never.
   await P.setDoorSecret('gst_portal', {
     provider: 'gsp',
@@ -35,8 +36,6 @@ beforeAll(async () => {
     assume_supply: 'intra_state',
     timeout_ms: 1500,
   });
-  await publishPackage(P, path.resolve(LEDGER_ROOT, '../../registry/nep-gst'));
-  await installAndMigrate(P, 'ledger', 'nep-gst');
 });
 afterAll(async () => {
   await P?.close();

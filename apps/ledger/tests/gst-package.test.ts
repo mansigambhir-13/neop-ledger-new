@@ -42,6 +42,16 @@ describe('nep-gst handlers (offline)', () => {
     expect(H.GSTR3B_SCHEMA).toEqual(JSON.parse(await readFile(path.join(DIR, 'gstr3b.schema.json'), 'utf8')));
   });
 
+  it('the copy built into Ledger (neos install) is this source, byte for byte, pinned by the artifact hash', async () => {
+    const built = path.join(LEDGER_ROOT, 'src/packages/nep-gst');
+    expect(await readFile(path.join(built, 'handlers.js'), 'utf8')).toBe(await readFile(path.join(DIR, 'handlers.js'), 'utf8'));
+    for (const f of ['001_returns.sql', '002_gstr3b.sql']) expect(await readFile(path.join(built, 'migrations', f), 'utf8')).toBe(await readFile(path.join(DIR, 'migrations', f), 'utf8'));
+    const { buildPackage, readLock, verifyInstalledPackage } = await import('@neop/template');
+    const pin = (await readLock(path.join(LEDGER_ROOT, 'packages.lock.json'))).packages.find((p) => p.key === 'nep-gst')!;
+    expect(pin.version).toBe((await buildPackage(DIR)).manifest.version);
+    expect(await verifyInstalledPackage(LEDGER_ROOT, pin)).toMatchObject({ ok: true });
+  });
+
   it('its selftest passes, offline', async () => {
     const r = await H.selftest();
     expect(r.checks.filter((c: any) => !c.ok)).toEqual([]);

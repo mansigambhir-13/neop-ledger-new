@@ -16,7 +16,8 @@
     "test:load": "vitest run --config vitest.load.config.ts",
     "migrate": "tsx scripts/migrate.ts",
     "backup": "tsx scripts/backup.ts",
-    "publish-package": "tsx scripts/publish-package.ts"
+    "neos-publish": "tsx scripts/neos-publish.ts",
+    "neos-install": "tsx scripts/neos-install.ts"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

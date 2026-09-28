@@ -11,8 +11,7 @@
 //   tsx scripts/ops.ts keys-status
 //   tsx scripts/ops.ts keys-rotate [activate_after_ms]                  (publish now; activation is stored and survives restarts)
 //   tsx scripts/ops.ts keys-retire-previous [--force]                   (after 2× token TTL)
-// Registry (needs NEOS_ADMIN_URL[_FILE], the migration runner's connection):
-//   tsx scripts/ops.ts drop-package-tables <operator_user_id> <host_app> <package_key>   (audited; refused while installed anywhere)
+//   (v3 S7: a package's tables are the host's; dropping them is a contract migration in the host's own set, not an ops command)
 // Uninstall for one company (WP §11: a company-scoped delete the DBA runs from one script). NEOS_DB_URL, and for --purge NEOS_ADMIN_URL:
 //   tsx scripts/ops.ts uninstall <company_id> <app> [--purge] [--yes] [--backup-dir /backups]
 //     without --yes: a dry run — what would change, and with --purge the rows per table that would go.
@@ -61,7 +60,7 @@ const force = bool('--force');
 const [cmd, ...args] = argv;
 const usage = () => {
   console.error(
-    'usage: ops.ts register-app <app> <l3_url> [--conformance <file>] [--author-key <jwk file>] | create-company <name> [tz] | create-user <company_id> <name> <email> <role> | install <company_id> <app> | rotate-service-secret <app> | keys-status | keys-rotate [ms] | keys-retire-previous [--force] | drop-package-tables <operator_id> <host> <package> | uninstall <company_id> <app> [--purge] [--yes] [--backup-dir d] | personal-find|personal-export|personal-erase <company_id> <app> <subject> …',
+    'usage: ops.ts register-app <app> <l3_url> [--conformance <file>] [--author-key <jwk file>] | create-company <name> [tz] | create-user <company_id> <name> <email> <role> | install <company_id> <app> | rotate-service-secret <app> | keys-status | keys-rotate [ms] | keys-retire-previous [--force] | uninstall <company_id> <app> [--purge] [--yes] [--backup-dir d] | personal-find|personal-export|personal-erase <company_id> <app> <subject> …',
   );
   process.exit(64);
 };
@@ -128,14 +127,6 @@ try {
       need(1);
       await p.rotateServiceSecret(args[0]!, secret());
       console.log(JSON.stringify({ rotated: args[0], previous_valid_for: '24h' }));
-      break;
-    }
-    case 'drop-package-tables': {
-      need(3);
-      const op = (await p.db.query<{ id: string; role: string }>('select id, role from neos.users where id = $1', [args[0]])).rows[0];
-      if (!op) throw new Error('no such user');
-      const reg = await p.ensureRegistry();
-      console.log(JSON.stringify(await reg.dropPackageTables(env('NEOS_ADMIN_URL'), op, args[1]!, args[2]!)));
       break;
     }
     case 'uninstall': {

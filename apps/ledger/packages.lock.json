@@ -1,0 +1,50 @@
+{
+  "$comment": "Written by `neos install` (scripts/neos-install.ts). Never edit by hand: the backend re-verifies every hash here at spawn.",
+  "lock_version": 1,
+  "packages": [
+    {
+      "key": "nep-gst",
+      "version": "2.0.0",
+      "artifact_hash": "sha256:ebb7f64fe51584354404c146b25fb316d98f81f42aa04a492d177a84242c5b24",
+      "content_hash": "sha256:42e69336f6d3ab187343fcb31bc1f0d6b113021efd2b8cd75f9af57d41df9a48",
+      "signature": {
+        "platform_sig": "eyJhbGciOiJFZERTQSIsImtpZCI6ImI2ZWU2MmMxLTI2ZDUtNDdhYy05ODY3LTc0ZmQwNjFjMWZkNSJ9.eyJrZXkiOiJuZXAtZ3N0IiwidmVyc2lvbiI6IjIuMC4wIiwiY29udGVudF9oYXNoIjoic2hhMjU2OjQyZTY5MzM2ZjZkM2FiMTg3MzQzZmNiMzFiYzFmMGQ2YjExMzAyMWVmZDJiOGNkNzVmOWFmNTdkNDFkZjlhNDgiLCJpc3MiOiJuZW9zLXJlZ2lzdHJ5IiwiaWF0IjoxNzkwNTY4ODI0fQ.tLY4oD0GVhvHGAmKSFhqxDeniTnHKLdYLPO92UViK4Bs8NK6bAdHC0Txs80ukOlLSwJ7TvDrUkFJH9Lcfu1jCg",
+        "kid": "b6ee62c1-26d5-47ac-9867-74fd061c1fd5",
+        "public_key": {
+          "crv": "Ed25519",
+          "x": "HbM_m-ElIni3Jf5VqbIsCR_IU1iKjXwX_RZh850-PK4",
+          "kty": "OKP",
+          "kid": "b6ee62c1-26d5-47ac-9867-74fd061c1fd5",
+          "alg": "EdDSA",
+          "use": "sig"
+        }
+      },
+      "dir": "src/packages/nep-gst",
+      "files": {
+        "bundle.json": "sha256:ebb7f64fe51584354404c146b25fb316d98f81f42aa04a492d177a84242c5b24",
+        "handlers.js": "sha256:ff34e160db1402bc3c24990da685f65f6d34b74461cc01f52a701902b7c6590a",
+        "migrations/001_returns.sql": "sha256:957d1c710707c0f61d14901c49f75ffc2d24f5433827f3427ad448f4878f61ec",
+        "migrations/002_gstr3b.sql": "sha256:ce77c076c54064fd59ddfebea68bb47f59ceb1adbd8efad55e6da3564d10efad",
+        "nep.json": "sha256:56608c17cb454a51eaf402bfc84c82086e94ad34642d32966f0fbbb2b880143f",
+        "skills/gst-monthly-return.md": "sha256:0aba302549836aaf9d8fdf7ea7d141a1c92eec77bf4a87df88004fc1dd674c82"
+      },
+      "role": "ledger_nep_gst",
+      "tables": [
+        "nep_gst_returns"
+      ],
+      "migrations": [
+        {
+          "package_file": "001_returns.sql",
+          "host_file": "008_nep_gst__001_returns.sql",
+          "sha256": "sha256:957d1c710707c0f61d14901c49f75ffc2d24f5433827f3427ad448f4878f61ec"
+        },
+        {
+          "package_file": "002_gstr3b.sql",
+          "host_file": "009_nep_gst__002_gstr3b.sql",
+          "sha256": "sha256:ce77c076c54064fd59ddfebea68bb47f59ceb1adbd8efad55e6da3564d10efad"
+        }
+      ]
+    }
+  ],
+  "skills": []
+}

@@ -31,7 +31,8 @@ const b = await startBackend(
     gateUrl: env('NEOP_GATE_URL'),
     poolSize: Number(env('POOL_SIZE', '5')),
     runnerId: env('RUNNER_ID', `runner-${process.pid}`),
-    packageCacheDir: env('NEOP_PACKAGE_CACHE_DIR', '/var/lib/neop/packages'),
+    // v3 S7: packages are in the image (src/packages, packages.lock.json); NEOP_REGISTRY_JWKS pins the registry's keys.
+    registryJwks: process.env.NEOP_REGISTRY_JWKS || process.env.NEOP_REGISTRY_JWKS_FILE ? JSON.parse(env('NEOP_REGISTRY_JWKS')) : undefined,
     llm,
     presence,
     // Today's NEOS platform gateway (docs/pilot-ledger-integration.md): on only with its public key and a customer map.

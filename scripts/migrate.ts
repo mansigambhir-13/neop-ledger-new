@@ -1,6 +1,6 @@
 // Ops migration runner — the only process with the admin connection. Runs the
-// platform's migrations, every app's (template stream + app stream), then any
-// package migrations that company installs are waiting on. Apps never run DDL.
+// platform's migrations, then every app's (template stream + app stream, which carries the
+// migrations of the packages installed into it at build time). Apps never run DDL.
 //   NEOS_ADMIN_URL=... [NEOS_APPS=ledger] tsx scripts/migrate.ts
 // NEOS_APPS names the apps this install runs (default: ledger). Marketing is a
 // test fixture and is migrated only when listed.
@@ -9,7 +9,7 @@
 import { readFileSync } from 'node:fs';
 import { adminUrlFromEnv, roleUrl } from '@neop/pgkit';
 import { backfillBoards, drainApprovals, migratePlatform, Platform, generateSigningKeys } from '@neop/platform';
-import { migrateApp, migratePackage } from '@neop/template';
+import { migrateApp } from '@neop/template';
 
 const admin = adminUrlFromEnv();
 const appAdmin = (app: string): string => {
@@ -32,17 +32,8 @@ for (const name of (process.env.NEOS_APPS ?? 'ledger').split(',').map((s) => s.t
 
 const platform = new Platform({ dbUrl: roleUrl(admin, 'neos_app'), keys: await generateSigningKeys() });
 await platform.ensureRegistry();
-let failedPackages = 0;
-for (const p of await platform.pendingPackageMigrations()) {
-  try {
-    // Migrations, then the package's self-test; a failure undoes the run and settles the install.
-    for (const name of await platform.applyPackageMigration(p, () => migratePackage(appAdmin(p.host_app), p.host_app, p.bundle))) log(`[${p.host_app}] applied ${name}`);
-  } catch (e) {
-    failedPackages++;
-    log(`[${p.host_app}] ${p.entry_key}@${p.version} NOT installed: ${(e as Error).message}`);
-  }
-}
-if (failedPackages) process.exitCode = 1;
+// v3 S7: no package migrations of their own — `neos install` appended them to each app's numbered set, so they
+// ran above with the app's migrations (and migrateApp gave each installed package its role and its tables).
 // v3 S1 (t010): the data half — what the platform held (installs, boards, grants) into each app's own schema,
 // in the same window (idempotent; scripts/v3/backfill-boards.ts runs it on its own).
 const filled = await backfillBoards(platform.db, { log: (m, e) => log(`[boards] ${m} ${e ? JSON.stringify(e) : ''}`) });

@@ -9,7 +9,7 @@ import { answersFromText, blocksProblem, canonicalize, checkAnswers, isSetting, 
 import { modelRoute, pickApp, ROUTER_PRINCIPAL, type RouteDecision } from './neuralchat.ts';
 import { isEnvelope, VaultCipher, type VaultKeys } from './vault.ts';
 import { KeyRing } from './keys.ts';
-import { Registry, type PackageBundle } from './registry.ts';
+import { manifestPins, pinsOf, Registry } from './registry.ts';
 import { roomText } from './bridge/format.ts';
 import { attestationProblem, manifestSha256, type ConformanceAttestation } from './conformance.ts';
 import { createPool, tx, type Pool, type PoolClient } from '@neop/pgkit';
@@ -486,15 +486,11 @@ export class Platform {
     // …nor drop or break an ability an installed registry skill or package requires (v3 §10: what is pinned keeps working).
     const served = (await this.db.query<{ manifest: Manifest }>('select manifest from neos.apps where key = $1', [a.key])).rows[0]?.manifest;
     if (served) {
-      const needed = await this.db.query<{ req: string; entry_key: string; pinned_version: string; host_app: string }>(
-        `select distinct r.req, i.entry_key, i.pinned_version, i.host_app
-           from neos.registry_installs i
-           join neos.registry_entries e on e.key = i.entry_key and e.version = i.pinned_version
-           cross join lateral jsonb_array_elements_text(e.requires) as r(req)
-          where i.status <> 'disabled'
-          order by 1, 2`,
-      );
-      for (const n of needed.rows) {
+      // v3 S7: what is pinned is what each app's build installed (its manifest's `packages` and `registry_skills`).
+      const needed = [...(await manifestPins(this.db)).filter((p) => p.app !== a.key), ...pinsOf(a.key, a.manifest)]
+        .flatMap((p) => p.requires.filter((req) => !p.offers.includes(req)).map((req) => ({ req, entry_key: p.key, pinned_version: p.version, host_app: p.app })))
+        .sort((x, y) => x.req.localeCompare(y.req) || x.entry_key.localeCompare(y.entry_key));
+      for (const n of needed) {
         const was = served.abilities.find((x) => x.key === n.req);
         if (!was) continue; // not this app's ability
         const now = a.manifest.abilities.find((x) => x.key === n.req);
@@ -782,73 +778,6 @@ export class Platform {
     await this.notifyApp(g.caller_app, user.company_id).catch(() => {});
   }
 
-  // ── package migrations (run by the ops migration runner, never at request time) ──
-  async pendingPackageMigrations(): Promise<{ host_app: string; entry_key: string; version: string; bundle: PackageBundle }[]> {
-    const r = await this.db.query(
-      `select distinct i.host_app, i.entry_key, i.pinned_version as version, e.artifact_hash
-         from neos.registry_installs i join neos.registry_entries e on e.key = i.entry_key and e.version = i.pinned_version
-        where i.status = 'pending_migration' and e.kind = 'package'`,
-    );
-    const out = [];
-    for (const row of r.rows) {
-      const bytes = await this.registry.artifact(row.artifact_hash);
-      if (bytes) out.push({ host_app: row.host_app, entry_key: row.entry_key, version: row.version, bundle: JSON.parse(bytes.toString('utf8')) as PackageBundle });
-    }
-    return out;
-  }
-
-  async markPackageMigrated(host: string, key: string, version: string, detail: Record<string, unknown> = {}): Promise<void> {
-    await tx(this.db, async (c) => {
-      await c.query('insert into neos.package_migrations (host_app, entry_key, version) values ($1,$2,$3) on conflict do nothing', [host, key, version]);
-      await c.query(`update neos.registry_installs set status = 'active', last_error = null where host_app = $1 and entry_key = $2 and pinned_version = $3 and status = 'pending_migration'`, [host, key, version]);
-      await c.query(`insert into neos.audit (actor, app_key, action, outcome, detail) values ('platform', $1, 'registry.package_migrated', 'ok', $2)`, [host, JSON.stringify({ entry: key, version, ...detail })]);
-    });
-  }
-
-  /**
-   * A package's migrations or self-test failed: the install does not go active. An update goes back
-   * to the version it replaced (still migrated); a first install is marked failed. Audited.
-   */
-  async failPackageInstall(host: string, key: string, version: string, error: string): Promise<void> {
-    await tx(this.db, async (c) => {
-      const rows = (
-        await c.query<{ company_id: string; previous_version: string | null }>(
-          `select company_id, previous_version from neos.registry_installs where host_app = $1 and entry_key = $2 and pinned_version = $3 and status = 'pending_migration' for update`,
-          [host, key, version],
-        )
-      ).rows;
-      for (const r of rows) {
-        const back = r.previous_version
-          ? (await c.query('select 1 from neos.package_migrations where host_app = $1 and entry_key = $2 and version = $3', [host, key, r.previous_version])).rowCount
-          : 0;
-        await c.query(
-          `update neos.registry_installs set status = $5, pinned_version = $6, previous_version = null, last_error = $4
-            where company_id = $1 and host_app = $2 and entry_key = $3`,
-          [r.company_id, host, key, error.slice(0, 1000), back ? 'active' : 'failed', back ? r.previous_version : version],
-        );
-        await c.query(`insert into neos.audit (company_id, actor, app_key, action, outcome, detail) values ($1, 'platform', $2, 'registry.install_failed', $3, $4)`, [
-          r.company_id,
-          host,
-          back ? 'rolled_back' : 'failed',
-          JSON.stringify({ entry: key, version, back_to: back ? r.previous_version : null, error: error.slice(0, 500) }),
-        ]);
-      }
-    });
-  }
-
-  /** Run one pending package migration (with its self-test) and settle the install either way. */
-  async applyPackageMigration(p: { host_app: string; entry_key: string; version: string; bundle: PackageBundle }, run: () => Promise<string[]>): Promise<string[]> {
-    let applied: string[];
-    try {
-      applied = await run();
-    } catch (e) {
-      await this.failPackageInstall(p.host_app, p.entry_key, p.version, String((e as Error).message ?? e));
-      throw e;
-    }
-    await this.markPackageMigrated(p.host_app, p.entry_key, p.version, { applied, selftest: /\bselftest\b/.test(p.bundle.handlers) ? 'passed' : 'none' });
-    return applied;
-  }
-
   // ── borrowing and a2a (Phase 4) ───────────────────────────────────────────
   /** What a host needs to offer a borrowed ability: the owner's contract and its setting at this company. */
   async borrowDescribe(host: string, req: { company_id: string; app?: string | null; ability: string }) {
@@ -1035,17 +964,18 @@ export class Platform {
     if (!r.rowCount) throw new PlatformError(403, 'not_installed', `${app} is not installed for this company`);
   }
 
-  /** The doors an app may borrow keys for at a company: its manifest's, plus those of packages that company pinned for it. */
-  /** The abilities an installed package adds to a host's switchboard (WP §10: lines marked "from <package>"). */
-  async packageAbilities(app: string, companyId: string): Promise<{ key: string; kind: 'read' | 'write'; floor: Setting; version: string; package: string; package_version: string; install_status: string }[]> {
-    const r = await this.db.query<{ entry_key: string; version: string; offers: any; status: string }>(
-      `select i.entry_key, e.version, e.offers, i.status from neos.registry_installs i
-         join neos.registry_entries e on e.key = i.entry_key and e.version = i.pinned_version
-        where i.company_id = $1 and i.host_app = $2 and i.status <> 'disabled' and e.kind = 'package'`,
-      [companyId, app],
-    );
-    return r.rows.flatMap((row) =>
-      (Array.isArray(row.offers) ? row.offers : []).map((o: any) => ({ key: o.key, kind: o.kind, floor: o.floor, version: o.version, package: row.entry_key, package_version: row.version, install_status: row.status })),
+  /**
+   * The abilities installed packages add to a host's switchboard (WP §10: lines marked "from <package>"). v3 S7:
+   * packages are installed at build time, so these are the host's registered manifest's `packages` — the same for
+   * every company; each company switches the lines (`companyId` is kept for callers).
+   */
+  async packageAbilities(
+    app: string,
+    _companyId?: string,
+  ): Promise<{ key: string; kind: 'read' | 'write'; floor: Setting; version: string; title: string; description: string; effects: import('@neop/contracts').AbilityEffects; doors: string[]; package: string; package_version: string; install_status: string }[]> {
+    const m = (await this.db.query<{ manifest: Manifest }>('select manifest from neos.apps where key = $1', [app])).rows[0]?.manifest;
+    return (m?.packages ?? []).flatMap((p) =>
+      (p.abilities ?? []).map((a) => ({ key: a.key, kind: a.kind, floor: a.floor, version: a.version, title: a.title ?? a.key, description: a.description ?? '', effects: a.effects ?? {}, doors: a.doors ?? [], package: p.key, package_version: p.version, install_status: 'active' })),
     );
   }
 
@@ -1105,29 +1035,18 @@ export class Platform {
   }
 
   /** Skill lines on the board (WP §10): the app's own skills and registry skills pinned for it. */
-  async skillLines(app: string, companyId: string, manifest: Manifest) {
+  async skillLines(_app: string, _companyId: string, manifest: Manifest) {
     const own = (manifest.skills ?? []).map((s: any) => ({ key: s.key as string, requires: (s.requires ?? []) as string[], from: 'own' }));
-    const reg = await this.db.query<{ entry_key: string; requires: string[]; owner_app: string | null; pinned_version: string }>(
-      `select i.entry_key, e.requires, e.owner_app, i.pinned_version from neos.registry_installs i
-         join neos.registry_entries e on e.key = i.entry_key and e.version = i.pinned_version
-        where i.company_id = $1 and i.host_app = $2 and i.status = 'active' and e.kind = 'skill'`,
-      [companyId, app],
-    );
-    return [...own, ...reg.rows.map((r) => ({ key: r.entry_key, requires: r.requires ?? [], from: `${r.owner_app ?? 'registry'} v${r.pinned_version}` }))];
+    // v3 S7: registry skills this app's build pinned (`neos install`); a company switches the line, never the pin.
+    const reg = (manifest.registry_skills ?? []).map((s) => ({ key: s.key, requires: s.requires ?? [], from: `${s.owner_app ?? 'registry'} v${s.version}` }));
+    return [...own, ...reg];
   }
 
-  async declaredDoors(app: string, companyId: string): Promise<Set<string>> {
+  /** The doors an app may open at a company: its manifest's, plus those its installed packages declare. */
+  async declaredDoors(app: string, _companyId?: string): Promise<Set<string>> {
     const m = (await this.db.query<{ manifest: Manifest }>('select manifest from neos.apps where key = $1', [app])).rows[0]?.manifest;
     const doors = new Set((m?.doors ?? []).map((d) => d.key));
-    const pkgs = await this.db.query<{ artifact_hash: string }>(
-      `select e.artifact_hash from neos.registry_installs i join neos.registry_entries e on e.key = i.entry_key and e.version = i.pinned_version
-        where i.company_id = $1 and i.host_app = $2 and i.status = 'active' and e.kind = 'package'`,
-      [companyId, app],
-    );
-    for (const p of pkgs.rows) {
-      const bytes = await this.registry.artifact(p.artifact_hash);
-      for (const d of bytes ? (JSON.parse(bytes.toString('utf8')).manifest?.doors ?? []) : []) doors.add(String(d));
-    }
+    for (const p of m?.packages ?? []) for (const d of p.doors ?? []) doors.add(String(d));
     return doors;
   }
 

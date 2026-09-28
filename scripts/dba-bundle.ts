@@ -4,7 +4,8 @@
 //   tsx scripts/dba-bundle.ts ledger [--out ledger-dba.sql]
 import { writeFile } from 'node:fs/promises';
 import { renderDbaBundle } from '@neop/pgkit';
-import { appMigrationSources } from '@neop/template';
+import path from 'node:path';
+import { appMigrationSources, LOCK_FILE, packageBootstrapSql, readLock } from '@neop/template';
 
 const loaders: Record<string, () => Promise<Parameters<typeof appMigrationSources>[0]>> = {
   ledger: async () => (await import('@neop/ledger')).ledgerApp(),
@@ -20,7 +21,10 @@ if (!name || !loaders[name] || (outAt >= 0 && !out)) {
   process.exit(2);
 }
 const app = await loaders[name]!();
-const bundle = await renderDbaBundle({ schema: app.manifest.app, sources: await appMigrationSources(app), title: `${app.manifest.name} ${app.manifest.version}` });
+// v3 S7: the packages installed into this build — their migrations are in the set above; their roles and grants here.
+const lock = app.packages ? await readLock(path.join(app.packages.root, LOCK_FILE)) : null;
+const extra = lock?.packages.length ? [{ title: 'installed packages (v3 §10): each package role writes only its own tables; the app role reads them', sql: packageBootstrapSql(app.manifest.app, lock) }] : [];
+const bundle = await renderDbaBundle({ schema: app.manifest.app, sources: await appMigrationSources(app), title: `${app.manifest.name} ${app.manifest.version}`, extra });
 if (out) {
   await writeFile(out, bundle.sql);
   console.error(`wrote ${out}: ${bundle.migrations.length} migrations for schema ${bundle.schema}`);

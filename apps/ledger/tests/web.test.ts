@@ -77,7 +77,10 @@ describe('what it forwards', () => {
     const rules = await read('ledger.coding_rules.list');
     expect(rules.rules.map((r: any) => r.pattern).sort()).toEqual(['AWS', 'CHARGES']);
     const { abilities } = await (await call('GET', '/api/apps/ledger/abilities')).json();
-    expect(abilities).toHaveLength(44);
+    // Ledger's own 44, and (v3 S7) the five lines of nep-gst, installed into Ledger's build.
+    expect(abilities.filter((a: any) => a.from === 'own')).toHaveLength(44);
+    expect(abilities.filter((a: any) => a.from === 'nep-gst').map((a: any) => a.key).sort()).toEqual(['gst.gstr3b.file', 'gst.gstr3b.prepare', 'gst.gstr3b.save', 'gst.otp.request', 'gst.returns.list']);
+    expect(abilities).toHaveLength(49);
     const post = abilities.find((a: any) => a.key === 'ledger.journal.post');
     expect(post).toMatchObject({ kind: 'write', floor: 'ask_first', setting: 'ask_first' });
   });

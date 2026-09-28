@@ -163,9 +163,15 @@ export class SwitchboardCache {
    * the company never set follows the manifest by itself (no row means "the floor").
    */
   async syncFloors(runnerPool: Pool): Promise<number> {
+    // v3 S7: installed packages' abilities are the host's lines too (floor = the package's gated flag), and their
+    // doors are door lines; `neos install` wrote them into the manifest's `packages`.
+    const pkgs = this.manifest.packages ?? [];
+    const own = new Set(this.manifest.doors.map((d) => d.key));
     const lines = [
       ...this.manifest.abilities.map((a) => ({ line: a.key, kind: a.kind, floor: a.floor })),
+      ...pkgs.flatMap((p) => (p.abilities ?? []).map((a) => ({ line: a.key, kind: a.kind, floor: a.floor }))),
       ...this.manifest.doors.map((d) => ({ line: `door:${d.key}`, kind: 'door', floor: d.floor ?? 'on' })),
+      ...[...new Set(pkgs.flatMap((p) => p.doors ?? []))].filter((d) => !own.has(d)).map((d) => ({ line: `door:${d}`, kind: 'door', floor: 'on' })),
     ];
     const s = this.schema;
     const manifest = `jsonb_to_recordset($1::jsonb) as l(line text, kind text, floor text)`;

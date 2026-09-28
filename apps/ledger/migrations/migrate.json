@@ -59,6 +59,22 @@
       ],
       "baseline": false,
       "proven_on_populated_data": "2026-09-28 \u00b7 apps/ledger/tests/v3-conformance.test.ts \u203a t007 + t008 + t009 + 007 apply forward on a populated book"
+    },
+    {
+      "file": "008_nep_gst__001_returns.sql",
+      "tables": [
+        "nep_gst_returns"
+      ],
+      "baseline": false,
+      "proven_on_populated_data": "2026-09-28 · apps/ledger/tests/install.test.ts › nep-gst's host migrations apply forward on a populated book, and are skipped where the pre-v3 runtime installer ran them"
+    },
+    {
+      "file": "009_nep_gst__002_gstr3b.sql",
+      "tables": [
+        "nep_gst_returns"
+      ],
+      "baseline": false,
+      "proven_on_populated_data": "2026-09-28 · apps/ledger/tests/install.test.ts › nep-gst's host migrations apply forward on a populated book, and are skipped where the pre-v3 runtime installer ran them"
     }
   ]
 }

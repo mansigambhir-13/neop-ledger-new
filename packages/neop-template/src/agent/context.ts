@@ -79,9 +79,19 @@ export async function buildBundle(core: Core, c: PoolClient, job: JobRow, board:
   ).rows.map((p) => ({ id: p.id, ability_key: p.ability_key, what: String(p.card?.what ?? '').slice(0, 300), fingerprint: p.fingerprint, expires_at: p.expires_at.toISOString() }));
   const borrowed = await core.borrowed.list(job.company_id, board);
   const installed = await core.packages.forCompany(job.company_id).catch((e) => {
-    core.log('registry unavailable; packages and borrowed skills skipped', { e: String(e) });
-    return { abilities: [], skills: [] };
+    core.log('installed packages unreadable; packages and pinned skills skipped', { e: String(e) });
+    return { abilities: [], skills: [], skipped: [] as { key: string; version: string; reason: string }[] };
   });
+  // v3 S7: a package that fails verification (a hand-edited file, a changed registry row) is not offered — and the
+  // job's book says so, once per job, so the desk's activity shows why a line is missing.
+  if (installed.skipped.length) {
+    const said = new Set(recent.filter((s) => s.kind === 'note' && s.summary.startsWith('Not loaded: ')).map((s) => s.summary));
+    for (const s of installed.skipped) {
+      const summary = `Not loaded: ${s.key}@${s.version} — ${s.reason}`.slice(0, 500);
+      if (said.has(summary)) continue;
+      await core.book.addStep(c, { company_id: job.company_id, job_id: job.id, kind: 'note', summary, mirror: false });
+    }
+  }
   const tools = buildTools(core.manifest, board, borrowed, core.borrowed.a2aTargets(), installed.abilities.map((a) => a.meta), { bus: core.presenceOn });
   const on = new Set(tools.map((t) => t.key));
   // A skill loads only when every ability it requires is switched on — the app's own, a package's, or a borrowed skill.

@@ -47,17 +47,8 @@ export class PlatformClient {
     return this.call<any>('POST', '/internal/a2a/open', req);
   }
 
-  async registryEntries(companyId: string): Promise<any[]> {
-    const r = await this.call<{ entries: any[] }>('GET', `/internal/registry/entries?company_id=${encodeURIComponent(companyId)}`);
-    if (r.status !== 200) throw new Error(`registry entries: ${r.status}`);
-    return r.body.entries;
-  }
-
-  async registryArtifact(hash: string): Promise<string> {
-    const r = await this.call<{ base64: string }>('GET', `/internal/registry/artifacts/${encodeURIComponent(hash)}`);
-    if (r.status !== 200) throw new Error(`artifact ${hash}: ${r.status}`);
-    return r.body.base64;
-  }
+  // v3 (S7): no registry calls at run time. Packages are installed at build time (`neos install`: src/packages,
+  // packages.lock.json) and pinned skills are read from neos_registry.skills with the app's own role.
   // v3 (S8): door credentials come from the secret store (doors/secrets.ts) and LLM session tokens are minted by
   // the runner (runner/llm.ts); the backend no longer asks the platform for either.
 }
