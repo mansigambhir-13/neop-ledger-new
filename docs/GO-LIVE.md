@@ -103,3 +103,19 @@ stand-in external homeserver, and NeuralChat simulated exactly as #143 talks (`s
 Found and fixed by the rehearsal: a new company had **no chart of accounts** (now a starter chart on first
 install), NeuralChat's plain decline did not bind to the card (now it does, only on explicit decline words),
 and two `deploy.sh` portability bugs (macOS bash 3.2, the Matrix overlay on upgrade).
+
+## Rehearsal (28 September 2026, the deployment candidate)
+
+Upgrade of the same clean-room install to the candidate (typed Matrix events, database-level lifecycle and
+`answer_proposal()`, desk views, registry schema, **no approval on anyone's behalf**):
+
+| What | Result |
+| --- | --- |
+| `deploy.sh` upgrade | DEPLOYED · verify-install 13/13 (email door connected) · pre-upgrade backup taken |
+| NeuralChat conversation | **13/13**: a relayed "Go ahead with …" is refused ("approve on your desk"), nothing executed; the person's yes on the desk executes it — one operation row, one journal entry; a plain decline drops the card; money is never moved; a question asked and answered in plain text; replies p50 24.8 s, max 31.7 s |
+| Full test suite | 540 passed, 2 skipped; the one isolation test that needed updating for the read-only registry schema passes |
+| PDF bill → exact `ledger.bill.record` with its source document; XLSX statement read in rupees as written (₹23,600.00) | live, 28 Sep |
+| Backup → damage → restore | trial balance restored identical |
+
+Found and fixed by this rehearsal: image builds failed on a slow registry link (pnpm now waits 10 min per
+download, 5 retries).
