@@ -11,5 +11,9 @@ namespaces:
     # One chat user per app per company: @neop_<app>_<company>:server
     - exclusive: true
       regex: "@neop_.*"
+    # v3 §8 (A11): the reasoning agent's names (@neuralchat_<company>:server) are reserved too, so nobody can
+    # register a look-alike of it. Appservice road only — the client road has no appservice registration.
+    - exclusive: true
+      regex: "@neuralchat_.*"
   rooms: []
   aliases: []

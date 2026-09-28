@@ -3,9 +3,39 @@
 #   appservice (default): write the NEOS appservice registration (tokens from deploy/secrets) and register it;
 #   client:               no appservice — prepare the secret file that will hold the operator-issued token of the
 #                         app's ordinary account (@ledger:<server>), and print how to issue it.
+#   room:                 create one NEOP room the v3 §8 way (below), as an admin account, once the homeserver is up.
 #   scripts/matrix-setup.sh <compose file> [project] [server name] [appservice|client]
+#   MATRIX_ADMIN_TOKEN=… scripts/matrix-setup.sh <compose file> [project] [server name] room <app> <company slug> <@person:server>…
+#
+# NEOP rooms (v3 §8, B7): invite-only (private_chat preset), NEVER end-to-end encrypted (audit needs the plaintext;
+# we run the server — the platform refuses to bind a room with m.room.encryption), and power levels where only
+# people reach the level of neos.neop.approve (50): the app's identity @neop_<app>_<company>, the reasoning agent
+# @neuralchat_<company> and other NEOPs sit at 10. The appservice registration reserves BOTH @neop_.* and
+# @neuralchat_.* as exclusive namespaces (appservice road only), so nobody can register a look-alike name.
 set -euo pipefail
 F=${1:?compose file}; PROJ=${2:-neops}; NAME=${3:-acme.example}; MODE=${4:-${MATRIX_MODE:-appservice}}
+
+if [ "$MODE" = "room" ]; then
+  APP=${5:?app key}; CO=${6:?company slug}; : "${7:?at least one @person:server}"; shift 6; PEOPLE=("$@")
+  : "${MATRIX_ADMIN_TOKEN:?an admin account token to create the room with (it stays the room admin at 100)}"
+  HS=${MATRIX_HOMESERVER_URL:-http://127.0.0.1:8008}
+  BOT="@neop_${APP}_${CO}:${NAME}"; AGENT="@neuralchat_${CO}:${NAME}"
+  users="\"$BOT\": 10, \"$AGENT\": 10"; invite="\"$BOT\", \"$AGENT\""
+  for p in "${PEOPLE[@]}"; do users="$users, \"$p\": 50"; invite="$invite, \"$p\""; done
+  body=$(cat <<JSON
+{"preset": "private_chat", "visibility": "private", "name": "${APP} · ${CO}", "invite": [${invite}],
+ "initial_state": [{"type": "m.room.join_rules", "state_key": "", "content": {"join_rule": "invite"}}],
+ "power_level_content_override": {"users_default": 0, "events_default": 0, "state_default": 100, "users": {${users}},
+   "events": {"neos.neop.approve": 50, "neos.neop.task": 0, "neos.neop.answer": 0, "neos.neop.ask": 10, "neos.neop.propose": 10,
+              "neos.neop.done": 10, "neos.neop.note": 10, "m.room.power_levels": 100, "m.room.encryption": 100, "m.room.join_rules": 100}}}
+JSON
+)
+  # The token travels on stdin (curl -K -), never on a command line.
+  printf 'header = "Authorization: Bearer %s"\n' "$MATRIX_ADMIN_TOKEN" | curl -sf -K - -XPOST "$HS/_matrix/client/v3/createRoom" -H 'content-type: application/json' -d "$body"
+  echo
+  echo "Bind it (admin): POST /api/chat/rooms {\"app\": \"$APP\", \"room_id\": \"<room_id above>\"} — the platform checks the settings again."
+  exit 0
+fi
 DIR=$(cd "$(dirname "$F")" && pwd); SEC="$DIR/secrets"
 mkdir -p "$SEC"
 for t in matrix_hs_token matrix_as_token; do [ -s "$SEC/$t" ] || { head -c 32 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 40 > "$SEC/$t"; chmod 600 "$SEC/$t"; }; done
@@ -40,6 +70,8 @@ namespaces:
   users:
     - exclusive: true
       regex: "@neop_.*"
+    - exclusive: true
+      regex: "@neuralchat_.*"
   rooms: []
   aliases: []
 YAML

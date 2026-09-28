@@ -2,10 +2,13 @@
 //   inbound : the homeserver PUTs /_matrix/app/v1/transactions/{txnId} with hs_token
 //   outbound: PUT /_matrix/client/v3/rooms/{roomId}/send/m.room.message/{txnId}?user_id=@neop_…
 //             with as_token, as m.notice (bots do not answer notices: no loops)
-// Registration: deploy/appservice.yaml claims the @neop_.* namespace.
+//   typed   : v3 §8 neos.neop.* events in and out (typed.ts); PUT …/send/<type>/{txnId} the same way
+// Registration: deploy/appservice.yaml claims the @neop_.* namespace (apps) and @neuralchat_.* (the reasoning agent),
+// both exclusive: nobody else can register a look-alike name.
 
 import { timingSafeEqual } from 'node:crypto';
 import { Hono } from 'hono';
+import { isTypedEventType } from '@neop/contracts';
 import type { ChatBridge, RoomTransport } from './bridge.ts';
 
 export interface MatrixConfig {
@@ -53,17 +56,42 @@ export class MatrixTransport implements RoomTransport {
   }
 
   async send(roomId: string, asUser: string, body: string, txnId: string): Promise<{ event_id: string }> {
+    return this.sendEvent(roomId, asUser, 'm.room.message', { msgtype: 'm.notice', body }, txnId);
+  }
+
+  async sendEvent(roomId: string, asUser: string, type: string, content: Record<string, unknown>, txnId: string): Promise<{ event_id: string }> {
     const url =
       `${this.cfg.homeserverUrl.replace(/\/$/, '')}/_matrix/client/v3/rooms/${encodeURIComponent(roomId)}` +
-      `/send/m.room.message/${encodeURIComponent(txnId)}?user_id=${encodeURIComponent(asUser)}`;
+      `/send/${encodeURIComponent(type)}/${encodeURIComponent(txnId)}?user_id=${encodeURIComponent(asUser)}`;
     const res = await fetch(url, {
       method: 'PUT',
       headers: { authorization: `Bearer ${this.cfg.asToken}`, 'content-type': 'application/json' },
-      body: JSON.stringify({ msgtype: 'm.notice', body }),
+      body: JSON.stringify(content),
       signal: AbortSignal.timeout(10_000),
     });
     if (!res.ok) throw new Error(`homeserver answered ${res.status}: ${await res.text()}`);
     return (await res.json()) as { event_id: string };
+  }
+
+  async roomState(roomId: string, asUser: string): Promise<{ type?: string; state_key?: string; content?: any }[]> {
+    const url = `${this.cfg.homeserverUrl.replace(/\/$/, '')}/_matrix/client/v3/rooms/${encodeURIComponent(roomId)}/state?user_id=${encodeURIComponent(asUser)}`;
+    const res = await fetch(url, { headers: { authorization: `Bearer ${this.cfg.asToken}` }, signal: AbortSignal.timeout(10_000) });
+    if (!res.ok) throw new Error(`room state of ${roomId}: ${res.status} ${await res.text()}`);
+    return (await res.json()) as { type?: string; state_key?: string; content?: any }[];
+  }
+
+  async createRoom(asUser: string, body: Record<string, unknown>): Promise<{ room_id: string }> {
+    const base = this.cfg.homeserverUrl.replace(/\/$/, '');
+    const headers = { authorization: `Bearer ${this.cfg.asToken}`, 'content-type': 'application/json' };
+    const localpart = asUser.slice(1).split(':')[0];
+    const reg = await fetch(`${base}/_matrix/client/v3/register`, { method: 'POST', headers, body: JSON.stringify({ type: 'm.login.application_service', username: localpart }) });
+    if (!reg.ok) {
+      const b = (await reg.json().catch(() => ({}))) as { errcode?: string };
+      if (b.errcode !== 'M_USER_IN_USE') throw new Error(`register ${asUser}: ${reg.status} ${b.errcode ?? ''}`);
+    }
+    const res = await fetch(`${base}/_matrix/client/v3/createRoom?user_id=${encodeURIComponent(asUser)}`, { method: 'POST', headers, body: JSON.stringify(body), signal: AbortSignal.timeout(10_000) });
+    if (!res.ok) throw new Error(`createRoom as ${asUser}: ${res.status} ${await res.text()}`);
+    return (await res.json()) as { room_id: string };
   }
 }
 
@@ -78,6 +106,10 @@ export function matrixAppservice(bridge: ChatBridge, cfg: MatrixConfig): Hono {
     if (!authed(c)) return c.json({ errcode: 'M_FORBIDDEN', error: 'bad hs_token' }, 403);
     const body = (await c.req.json().catch(() => ({}))) as { events?: any[] };
     for (const ev of body.events ?? []) {
+      if (isTypedEventType(ev?.type) && typeof ev.event_id === 'string' && typeof ev.room_id === 'string' && typeof ev.sender === 'string') {
+        await bridge.onTyped({ event_id: ev.event_id, room_id: ev.room_id, sender: ev.sender, type: ev.type, content: ev.content ?? {} });
+        continue;
+      }
       if (ev?.type !== 'm.room.message' || ev.content?.msgtype !== 'm.text' || typeof ev.content?.body !== 'string') continue;
       await bridge.onMessage({
         event_id: ev.event_id,

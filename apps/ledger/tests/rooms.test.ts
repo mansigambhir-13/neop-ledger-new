@@ -140,3 +140,57 @@ describe('binding rooms and people (admin, audited)', () => {
     await P.bridge!.createAppRoom(P.company.id, 'ledger', ROOM); // restore the room the other tests use
   });
 });
+
+describe('v3 §8 room settings: invite-only, no end-to-end encryption, only people post neos.neop.approve', () => {
+  const bot = `@neop_ledger_acmetraders:${MATRIX.serverName}`;
+  const bind = (room_id: string) => P.api('POST', '/api/chat/rooms', { app: 'ledger', room_id });
+  const bound = async (room: string) => (await P.platform.db.query('select 1 from neos.rooms where room_id = $1', [room])).rowCount;
+
+  it('an encrypted room is refused, and nothing is bound', async () => {
+    P.hs!.setState('!e2ee:acme.example', 'm.room.encryption', { algorithm: 'm.megolm.v1.aes-sha2' });
+    const r = await bind('!e2ee:acme.example');
+    expect(r.status).toBe(409);
+    expect(r.body.error).toMatchObject({ code: 'room_unfit' });
+    expect(r.body.error.message).toMatch(/end-to-end encrypted/);
+    expect(await bound('!e2ee:acme.example')).toBe(0);
+  });
+
+  it('a room anyone can join is refused', async () => {
+    P.hs!.setState('!public:acme.example', 'm.room.join_rules', { join_rule: 'public' });
+    const r = await bind('!public:acme.example');
+    expect(r.status).toBe(409);
+    expect(r.body.error.message).toMatch(/not invite-only \(join rule: public\)/);
+    expect(await bound('!public:acme.example')).toBe(0);
+  });
+
+  it('power levels that let the app, a bridge or everyone post neos.neop.approve are refused; so is a level the app cannot post its notes at', async () => {
+    P.hs!.setState('!flat:acme.example', 'm.room.power_levels', { users: {}, users_default: 0, events: {} });
+    expect((await bind('!flat:acme.example')).body.error.message).toMatch(/neos\.neop\.approve needs level 0, which everyone has by default/);
+    P.hs!.setState('!botadmin:acme.example', 'm.room.power_levels', { users: { [bot]: 100 }, users_default: 0, events: { 'neos.neop.approve': 50 } });
+    expect((await bind('!botadmin:acme.example')).body.error.message).toContain(`${bot} could post neos.neop.approve`);
+    P.hs!.setState('!mute:acme.example', 'm.room.power_levels', { users: {}, users_default: 0, events: { 'neos.neop.approve': 50, 'neos.neop.done': 20 } });
+    expect((await bind('!mute:acme.example')).body.error.message).toContain(`${bot} cannot post neos.neop.done`);
+    // An allowlisted bridge (the reasoning agent) at the approve level is refused too.
+    const agent = `@neuralchat_acmetraders:${MATRIX.serverName}`;
+    expect((await P.api('PUT', '/api/chat/allowlist', { app: 'ledger', matrix_id: agent, kind: 'bridge' })).status).toBe(200);
+    P.hs!.setState('!agentup:acme.example', 'm.room.power_levels', { users: { [agent]: 50 }, users_default: 0, events: { 'neos.neop.approve': 50 } });
+    expect((await bind('!agentup:acme.example')).body.error.message).toContain(`${agent} could post neos.neop.approve`);
+    expect((await P.api('DELETE', `/api/chat/allowlist/ledger/${encodeURIComponent(agent)}`)).status).toBe(200);
+    for (const r of ['!flat:acme.example', '!botadmin:acme.example', '!mute:acme.example', '!agentup:acme.example']) expect(await bound(r)).toBe(0);
+    // The room the other tests use is still the active one.
+    expect((await P.platform.db.query("select room_id from neos.rooms where company_id = $1 and app_key = 'ledger' and status = 'active'", [P.company.id])).rows[0].room_id).toBe(ROOM);
+  });
+
+  it('a room the appservice creates is invite-only, unencrypted, people at the approve level and the app below it — and it binds', async () => {
+    const made = await P.bridge!.createRoom(P.company.id, 'ledger', { people: [PRIYA], name: 'Books · Acme' });
+    const req = P.hs!.created.find((c) => c.room_id === made.room_id)!;
+    expect(req.user).toBe(bot);
+    expect(req.body).toMatchObject({ preset: 'private_chat', visibility: 'private', invite: [PRIYA] });
+    expect(JSON.stringify(req.body.initial_state)).not.toContain('m.room.encryption');
+    expect(req.body.power_level_content_override.events['neos.neop.approve']).toBe(50);
+    expect(req.body.power_level_content_override.users).toMatchObject({ [PRIYA]: 50, [bot]: 10 });
+    expect(made.bot).toBe(bot);
+    expect(await bound(made.room_id)).toBe(1);
+    await P.bridge!.createAppRoom(P.company.id, 'ledger', ROOM); // restore the room the other tests use
+  });
+});

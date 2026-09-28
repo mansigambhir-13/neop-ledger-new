@@ -11,3 +11,4 @@ export * from './rules.ts';
 export * from './blocks.ts';
 export * from './semver.ts';
 export * from './questions.ts';
+export * from './matrix-events.ts';
