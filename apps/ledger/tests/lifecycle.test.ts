@@ -31,8 +31,8 @@ describe('lifecycle', () => {
     const { task_id, job_id } = await P.ask('Send the pack');
     const card = await P.waitFor(async () => (await P.desk()).find((c) => c.job_id === job_id), 'card');
     // Nobody answers: move the deadline into the past (expiry runs on database time).
+    // (v3 S2: the desk's card is this row — there is no platform copy to move as well.)
     await P.backend.core.runnerPool.query("update ledger.proposals set expires_at = now() - interval '1 second' where id = $1", [card.proposal_id]);
-    await P.platform.db.query("update neos.approvals set expires_at = now() - interval '1 second' where id = $1", [card.id]);
     const t = await P.waitFor(async () => {
       const t = await P.task(task_id);
       return t.task.status === 'COMPLETED' && t;

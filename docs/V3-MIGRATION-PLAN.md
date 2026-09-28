@@ -29,7 +29,7 @@ Companies, users/auth, Conversations, NeuralChat (reads `neos_registry`), the de
 |---|---|---|
 | S0 | t007–t009, answer_proposal, NOTIFY, mirrors, DBA bundle, desk views, `neos_registry`, typed events (in flight) | — |
 | S1 ✅ | Switchboard/installs/grants become truth in the app schema (t010, backfill script); gate reads the DB | medium — **done 2026-09-28** (below) |
-| S2 | The runner carries out the yes (LISTEN + poll, SKIP LOCKED, fingerprint check); approvals worker and execution tokens deleted | high — money path |
+| S2 ✅ | The runner carries out the yes (LISTEN + poll, SKIP LOCKED, fingerprint check); approvals worker and execution tokens deleted | high — money path — **done 2026-09-28** (below) |
 | S3 | Desk on the database; `answer_wait()`; DeskHarness in testkit | medium |
 | S4 | Presence in the NEOP (appservice + client road, flag `NEOP_PRESENCE`); NeuralChat #143 plain text keeps working (task/answer, never approve) | high |
 | S5 | NeuralChat posts typed tasks as its own Matrix identity; tasks/outbox delivery deleted | medium |
@@ -65,7 +65,24 @@ What changed (details: `docs/IMPLEMENTATION-NOTES.md` › "v3 S1"):
   `scripts/migrate.ts`) → new backends. A backend that meets an install row without a time zone refuses to act for
   that company (fail closed) until the backfill ran.
 - Deferred: approver policy still checked by the platform (S2/S3 moves it into `answer_proposal`); person-approved
-  execution still uses the execution token (S2); `room_ids`/`agent_senders`/`matrix_user` filled by S4.
+  execution still uses the execution token (S2); `room_ids`/`agent_senders`/`matrix_user` filled by S4. (Both S2 items
+  done — see S2 below.)
+
+## S2 — done (2026-09-28)
+What changed (details: `docs/IMPLEMENTATION-NOTES.md` › "v3 S2"; operations: `docs/RUNBOOK.md` › *Approvals*):
+- **t011**: `answer_proposal(…, p_roles)` checks the approver policy (roles; four-eyes against the job's own requester)
+  in the database; a yes still readies no wait; `approved:<id>` NOTIFY when a proposal becomes APPROVED.
+- **Runner** (`runner/waits.ts`): LISTEN hint + poll of APPROVED / orphaned EXECUTING rows, claimed with `FOR UPDATE
+  SKIP LOCKED` + the execution advisory lock, carried out once by `capabilities/execute.ts` under `runner:<id>`
+  (fingerprint on the `answered:yes` event, expiry, version, switch, rules checked at effect time), then the wait is
+  made ready and a fresh assistant woken with the proof. Grant-approved proposals stay inline in the gate (same
+  execute; the runner adopts one left APPROVED > 30 s).
+- **Platform**: the desk answer, the room/DM reply and the typed approve call `<app>.answer_proposal()` as `neos_desk`;
+  HTTP contracts unchanged. Deleted: the approvals worker (`approvalsTick`/`driveApproval`/`withdrawApproved`), the
+  platform's approver check, the L3 `proposals.resolve`/`proposals.execute` routes, `verifyExecution`, execution-token
+  claims. **020**: `neos.approvals` frozen (read-only legacy copy), card ids are proposal ids (room/DM rows rewritten),
+  `neos.v_desk_cards` feeds the desk list. **Drain**: `scripts/v3/drain-approvals.ts` (also end of `scripts/migrate.ts`).
+- **Deploy order:** migrate (020, t011, drain) → new backends.
 
 ## Deploy kit after the move
 DBA bundle per NEOP (schema, roles, grants, functions, triggers, view registration) → one DB link per NEOP role

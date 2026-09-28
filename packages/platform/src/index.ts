@@ -22,6 +22,7 @@ export * from './llm/proxy.ts';
 export * from './vault.ts';
 export * from './registry.ts';
 export * from './boards.ts';
+export * from './drain.ts';
 export * from './conformance.ts';
 export { modelRoute, readChoice, routeRequest, validateChoice, ROUTER_PRINCIPAL, type RouteDecision, type RouteMethod } from './neuralchat.ts';
 

@@ -159,6 +159,34 @@ export class AppBoards {
     });
   }
 
+  /**
+   * v3 S2: a person's answer on a card, written through to the app's own proposal row by the one function that
+   * takes answers (<app>.answer_proposal, template t011): fingerprint, expiry, the legal transition and the
+   * approver policy (roles, four-eyes) are all checked there. `roles` are the person's roles as the platform
+   * knows them. Returns the function's result ({status, idempotent, job_id[, refused]}); a refusal the function
+   * raises comes back as the database error (message `<code>: …`). Throws `no_app_schema` when the app has no
+   * schema here.
+   */
+  async answer(
+    app: string,
+    companyId: string,
+    a: { proposal_id: string; fingerprint_seen: string; decision: string; by: string; feedback?: string | null; roles?: string[] | null },
+  ): Promise<{ status: string; idempotent: boolean; job_id: string; refused?: string }> {
+    return this.asDesk(
+      app,
+      companyId,
+      async (c, s) => {
+        if (!s) throw Object.assign(new Error(`${app} has no schema on this database: the answer cannot be recorded`), { status: 409, code: 'no_app_schema' });
+        const r = await c.query<{ r: { status: string; idempotent: boolean; job_id: string; refused?: string } }>(
+          `select ${s}.answer_proposal($1, $2, $3, $4, $5, $6) as r`,
+          [a.proposal_id, a.fingerprint_seen, a.decision, a.by, a.feedback ?? null, a.roles ?? null],
+        );
+        return r.rows[0]!.r; // a fingerprint refusal commits its proposal_events row and is reported by the caller
+      },
+      a.by,
+    );
+  }
+
   /** What standing yeses approved for one job (the task view's grant_uses). */
   async grantUsesForJob(app: string, companyId: string, jobId: string): Promise<{ at: Date; ability_key: string; detail: Record<string, unknown> }[]> {
     if (!isUuid(jobId)) return [];

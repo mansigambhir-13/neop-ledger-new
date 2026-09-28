@@ -1,8 +1,9 @@
 // THE RUNNER · template-only · always on · holds no model.
 // Turns inbound calls and timers into jobs (via L3 and schedules), claims
 // runnable jobs, hands each to a fresh assistant session with a job token,
-// expires the late, reconciles UNKNOWN outcomes. The poll is the truth; NOTIFY
-// is latency.
+// expires the late, reconciles UNKNOWN outcomes, and carries out a person's yes
+// (runner/waits.ts, v3 S2) before it wakes the job. The poll is the truth;
+// NOTIFY is latency.
 
 import type { JobTokenClaims, TaskResult } from '@neop/contracts';
 import pg from 'pg';
@@ -10,6 +11,7 @@ import { buildBundle } from '../agent/context.ts';
 import { reconcileUnknown } from '../capabilities/execute.ts';
 import type { Core } from '../core.ts';
 import type { JobRow, ProposalRow, WaitRow } from '../data/book.ts';
+import { ApprovedPath } from './waits.ts';
 
 /** A timer job not started within this long of its slot is EXPIRED, not run stale (WP §7, t004). */
 export const TIMER_WINDOW = '1 hour';
@@ -33,9 +35,12 @@ export class Runner {
   private ticking = false;
   private again = false;
   private stopped = false;
+  /** v3 S2: the approved path — a yes on a proposal row is carried out here, once, before the job wakes. */
+  readonly approved: ApprovedPath;
 
   constructor(core: Core) {
     this.core = core;
+    this.approved = new ApprovedPath(core);
   }
 
   private get s(): string {
@@ -55,17 +60,23 @@ export class Runner {
         this.onBoardChanged(n.payload.slice(6));
         return;
       }
+      // v3 S2: 'approved:<proposal>' — a proposal became APPROVED (t011 trigger): carry it out now.
+      if (n.payload?.startsWith('approved:')) {
+        this.approved.kick();
+        return;
+      }
       this.kick();
     });
     await this.listener.query(`listen ${this.core.book.channel}`);
     // A new manifest may have moved a floor: re-stamp it on the lines companies have set (t010).
     await this.core.board.syncFloors(this.core.runnerPool).catch((e) => this.core.log('floor sync failed', { e: String(e) }));
-    this.timers.push(setInterval(() => this.kick(), t.pollMs));
+    this.timers.push(setInterval(() => (this.kick(), this.approved.kick()), t.pollMs));
     this.every(t.expiryMs, () => this.expire(), 'expiry');
     this.every(t.expiryMs, () => this.fireSchedules(), 'schedules');
     this.every(t.reconcileMs, () => this.reconcile(), 'reconcile');
     this.every(60_000, () => this.core.gatewayAuth.pruneSeen(), 'prune');
     this.kick();
+    this.approved.kick();
   }
 
   /** A company's board changed in the database: drop every cache built on it. */
@@ -93,6 +104,7 @@ export class Runner {
     this.stopped = true;
     for (const t of this.timers) clearInterval(t);
     this.timers = [];
+    this.approved.stop();
     await this.listener?.end().catch(() => {});
     this.listener = null;
   }

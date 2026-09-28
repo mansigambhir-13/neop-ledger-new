@@ -9,6 +9,7 @@ import { Platform, PlatformError } from './platform.ts';
 
 const DESK_HTML = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), 'desk.html'), 'utf8');
 
+// proposals.* are retired (v3 S2) but stay here: never a read, never callable as an ability.
 const PLATFORM_ENDPOINTS = ['tasks.open', 'inbox.deliver', 'proposals.resolve', 'proposals.execute', 'outbox.read', 'outbox.ack', 'switchboard.changed', 'tasks.cancel', 'tasks.result', 'schedules.set', 'schedules.list', 'waits.answer', 'jobs.transcript', 'manifest', 'documents.fetch'];
 
 export function platformApp(p: Platform): Hono {
@@ -358,10 +359,12 @@ export function platformApp(p: Platform): Hono {
 
   app.get('/api/tasks', async (c) => {
     const u = await user(c);
+    // v3 S2: a card waiting for a person is the app's PROPOSED row (neos.v_desk_cards PENDING), read once per list.
     const r = await p.db.query(
-      `select t.*,
+      `with pending as materialized (select job_id, count(*)::int as n from neos.v_desk_cards where company_id = $1 and status = 'PENDING' group by job_id)
+       select t.*,
               (select coalesce(sum(cost_micros), 0)::bigint from neos.llm_usage l where l.job_id = t.job_id) as cost_micros,
-              (select count(*)::int from neos.approvals a where a.job_id = t.job_id and a.status = 'PENDING') as pending_approvals,
+              coalesce((select n from pending where pending.job_id = t.job_id), 0) as pending_approvals,
               (select count(*)::int from neos.questions q where q.task_id = t.id and q.status = 'OPEN') as open_questions,
               (select count(*)::int from neos.activity v where v.job_id = t.job_id and v.company_id = t.company_id) as steps
          from neos.tasks t where t.company_id = $1 order by t.created_at desc limit $2`,
@@ -382,7 +385,7 @@ export function platformApp(p: Platform): Hono {
     const approvals = job
       ? await p.db.query(
           `select a.id, a.proposal_id, a.ability_key, a.args, a.card, a.fingerprint, a.expires_at, a.status, a.decision, a.feedback, a.decided_at, a.fingerprint_seen, a.proof, a.last_error, a.created_at, du.name as decided_by_name
-             from neos.approvals a left join neos.users du on du.id = a.decided_by where a.job_id = $1 and a.company_id = $2 order by a.created_at`,
+             from neos.v_desk_cards a left join neos.users du on du.id = a.decided_by where a.job_id = $1 and a.company_id = $2 order by a.created_at`,
           [job, u.company_id],
         )
       : { rows: [] };
@@ -399,12 +402,14 @@ export function platformApp(p: Platform): Hono {
     return c.json({ task: t.rows[0], messages: msgs.rows, activity: act.rows, approvals: approvals.rows, questions: questions.rows, grant_uses: grants.rows, cost: { usd: Number(c0.micros) / 1e6, calls: c0.calls, tokens: Number(c0.tokens) } });
   });
 
+  // v3 S2: the desk's cards are the apps' own proposal rows (neos.v_desk_cards; the waiting ones are exactly
+  // neos.v_pending_approvals). A card's id is its proposal id; answering it calls <app>.answer_proposal().
   app.get('/api/desk', async (c) => {
     const u = await user(c);
     const r = await p.db.query(
       `select a.id, a.app_key, a.proposal_id, a.job_id, a.task_id, a.ability_key, a.args, a.card, a.fingerprint, a.expires_at, a.status, a.decision, a.feedback,
               a.decided_at, a.fingerprint_seen, du.name as decided_by_name, a.proof, a.last_error, a.created_at, t.ask as task_ask, t.requester as task_requester
-         from neos.approvals a left join neos.users du on du.id = a.decided_by left join neos.tasks t on t.id = a.task_id
+         from neos.v_desk_cards a left join neos.users du on du.id = a.decided_by left join neos.tasks t on t.id = a.task_id
         where a.company_id = $1 order by (a.status = 'PENDING') desc, a.created_at desc limit 200`,
       [u.company_id],
     );

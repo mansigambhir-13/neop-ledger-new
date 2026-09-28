@@ -88,6 +88,8 @@ export function jobMessage(b: JobBundle): string {
         const err = (p.proof as { error?: string }).error ?? '';
         if (err.startsWith('version_changed')) lines.push('The ability changed version after you proposed this, so it was NOT carried out. Tell the person, and propose again if it is still wanted.');
         if (err.startsWith('switched_off')) lines.push('The ability was switched off before it could run, so it was NOT carried out. Tell the person.');
+        if (err.startsWith('fingerprint_mismatch')) lines.push('The yes on record was not given to exactly this proposal, so it was NOT carried out. Tell the person, and propose again if it is still wanted.');
+        if (err.startsWith('expired')) lines.push('The proposal expired before it could be carried out, so it was NOT carried out. Tell the person, and propose again if it is still wanted.');
         lines.push(`Proof from the app: ${untrusted('proof', p.proof)}`);
       }
     } else if (b.wake.kind === 'a2a_task') {

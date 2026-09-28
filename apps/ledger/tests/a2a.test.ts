@@ -28,7 +28,7 @@ it('refuses an app caller without an ACL row, allows it with one', async () => {
   expect(audit.rows[0].n).toBe(1);
 });
 
-it('an app can never use a platform door or a write directly, even with an ACL row', async () => {
+it('an app can never use a platform door (retired ones included) or a write directly, even with an ACL row', async () => {
   await P.platform.db.query('insert into neos.acl (caller_app, target_app, ability_key, company_id, granted_by) values ($1,$2,$3,$4,$5), ($1,$2,$6,$4,$5)', [
     'marketing',
     'ledger',

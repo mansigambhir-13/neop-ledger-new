@@ -1,7 +1,9 @@
 // proposal.test · execute once, fingerprint-bound, stale yes refused; change,
-// no, grants and money caps.
+// no, grants and money caps. (v3 S2: a yes goes through answer_proposal() and the app's runner carries it out;
+// there is no execution token — the checks it carried are made against the book at effect time.)
 import { readdir } from 'node:fs/promises';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { ExecError, executeProposal } from '@neop/template';
 import { bootPilot, call, finish, type BrainView, type Pilot } from './harness.ts';
 
 let P: Pilot;
@@ -46,17 +48,11 @@ describe('proposal', () => {
     expect(stale.status).toBe(409);
     expect(stale.body.error.code).toBe('stale_fingerprint');
     expect((await P.desk()).find((c) => c.id === card.id).status).toBe('PENDING');
-    // 2. Defence in depth: a resolve that reached the app with the wrong fingerprint changes nothing there.
-    const direct = await P.platform.gateway.call({
-      caller: 'platform',
-      app: 'ledger',
-      endpoint: 'proposals.resolve',
-      company_id: P.company.id,
-      body: { proposal_id: card.proposal_id, decision: 'yes', fingerprint_seen: 'sha256:' + '0'.repeat(64), decided_by: `user:${P.admin.id}` },
-      idem_key: `stale:${card.id}`,
-    });
-    expect(direct.status).not.toBe(200);
-    expect(String(JSON.stringify(direct.body))).toContain('fingerprint_mismatch');
+    // 2. Defence in depth: the same wrong fingerprint sent straight to the app's function (as the desk, past the
+    //    platform's HTTP) changes nothing there; the refusal is kept in the proposal's history.
+    const direct = await P.platform.boards.answer('ledger', P.company.id, { proposal_id: card.proposal_id, decision: 'yes', fingerprint_seen: 'sha256:' + '0'.repeat(64), by: `user:${P.admin.id}` });
+    expect(direct.refused).toBe('fingerprint_mismatch');
+    expect((await P.backend.core.runnerPool.query("select count(*)::int as n from ledger.proposal_events where proposal_id = $1 and event = 'answer_refused:fingerprint'", [card.proposal_id])).rows[0].n).toBe(2);
     const p = await P.backend.core.runnerPool.query('select status from ledger.proposals where id = $1', [card.proposal_id]);
     expect(p.rows[0].status).toBe('PROPOSED');
     expect(await mails()).toBe(before);
@@ -74,18 +70,9 @@ describe('proposal', () => {
     await P.api('POST', `/api/desk/${card.id}/answer`, { decision: 'yes', fingerprint_seen: card.fingerprint });
     await taskDone(task_id);
     expect(await mails()).toBe(before + 1);
-    // A second execute (new token, new idempotency key) must do nothing new.
-    const again = await P.platform.gateway.call({
-      caller: 'platform',
-      app: 'ledger',
-      endpoint: 'proposals.execute',
-      company_id: P.company.id,
-      body: { proposal_id: card.proposal_id },
-      idem_key: `retry:${card.id}`,
-      exec: { proposal_id: card.proposal_id, fingerprint: card.fingerprint },
-    });
-    expect(again.status).toBe(200);
-    expect(again.body.outcome).toBe('DONE');
+    // A second execute (another runner's pass, a retried claim) must do nothing new: it returns the stored proof.
+    const again = await executeProposal(P.backend.core, P.company.id, card.proposal_id, { actor: 'runner:again' });
+    expect(again.outcome).toBe('DONE');
     expect(await mails()).toBe(before + 1);
     const ops = await P.backend.core.runnerPool.query('select count(*)::int as n from ledger.operations where ability_key = $1 and detail->>\'proposal_id\' = $2', ['ledger.close_pack.email', card.proposal_id]);
     expect(ops.rows[0].n).toBe(1);
@@ -95,46 +82,33 @@ describe('proposal', () => {
     P.setBrain((v) => (v.job.includes('WOKEN') ? finish('sent') : v.calls === 0 ? email(['cfo@acme.example']) : { text: 'waiting' }));
     const { job_id } = await P.ask('Email the pack');
     const card = await pendingCard(job_id);
-    // Record the yes in the app without the platform worker executing it.
-    await P.platform.db.query("update neos.approvals set status = 'RESOLVED', decision = 'yes', fingerprint_seen = fingerprint, decided_by = $2, next_attempt_at = now() + interval '1 hour' where id = $1", [card.id, P.admin.id]);
-    const r = await P.platform.gateway.call({ caller: 'platform', app: 'ledger', endpoint: 'proposals.resolve', company_id: P.company.id, idem_key: `race-r:${card.id}`,
-      body: { proposal_id: card.proposal_id, decision: 'yes', fingerprint_seen: card.fingerprint, decided_by: `user:${P.admin.id}` } });
-    expect(r.status).toBe(200);
-    const before = await mails();
-    const exec = (k: string) => P.platform.gateway.call({ caller: 'platform', app: 'ledger', endpoint: 'proposals.execute', company_id: P.company.id, body: { proposal_id: card.proposal_id }, idem_key: k, exec: { proposal_id: card.proposal_id, fingerprint: card.fingerprint } });
-    const [a, b] = await Promise.all([exec(`race-a:${card.id}`), exec(`race-b:${card.id}`)]);
-    expect([a.status, b.status].sort()).toEqual([200, 409].sort()); // one carries it out, the other is told it is in progress
-    expect(await mails()).toBe(before + 1);
-    const ev = await P.backend.core.runnerPool.query("select count(*)::int as n from ledger.proposal_events where proposal_id = $1 and event like 'executed:%'", [card.proposal_id]);
-    expect(ev.rows[0].n).toBe(1);
+    // Record the yes in the app without the runner carrying it out yet.
+    P.backend.runner.approved.pause();
+    try {
+      expect((await P.api('POST', `/api/desk/${card.id}/answer`, { decision: 'yes', fingerprint_seen: card.fingerprint })).status).toBe(200);
+      const before = await mails();
+      const exec = (who: string) => executeProposal(P.backend.core, P.company.id, card.proposal_id, { actor: who }).then((p) => ({ ok: p.outcome }), (e) => ({ err: e instanceof ExecError ? `${e.status}:${e.code}` : String(e) }));
+      const [a, b] = await Promise.all([exec('runner:a'), exec('runner:b')]);
+      // one carries it out, the other is told it is in progress
+      expect([a, b].map((x) => JSON.stringify(x)).sort()).toEqual([JSON.stringify({ err: '409:in_progress' }), JSON.stringify({ ok: 'DONE' })].sort());
+      expect(await mails()).toBe(before + 1);
+      const ev = await P.backend.core.runnerPool.query("select count(*)::int as n from ledger.proposal_events where proposal_id = $1 and event like 'executed:%'", [card.proposal_id]);
+      expect(ev.rows[0].n).toBe(1);
+    } finally {
+      P.backend.runner.approved.resume();
+    }
   });
 
-  it('an execution token bound to another fingerprint is refused', async () => {
+  it('nothing carries out what nobody approved, and a yes to another fingerprint is refused at effect time', async () => {
     P.setBrain((v) => (v.job.includes('WOKEN') ? finish('x') : v.calls === 0 ? email(['cfo@acme.example']) : { text: 'waiting' }));
     const { job_id } = await P.ask('Email the pack');
     const card = await pendingCard(job_id);
-    const r = await P.platform.gateway.call({
-      caller: 'platform',
-      app: 'ledger',
-      endpoint: 'proposals.execute',
-      company_id: P.company.id,
-      body: { proposal_id: card.proposal_id },
-      idem_key: `forged:${card.id}`,
-      exec: { proposal_id: card.proposal_id, fingerprint: 'sha256:' + 'f'.repeat(64) },
-    });
-    expect(r.status).toBe(409);
-    // …and a correctly bound token still cannot execute something nobody approved.
-    const r2 = await P.platform.gateway.call({
-      caller: 'platform',
-      app: 'ledger',
-      endpoint: 'proposals.execute',
-      company_id: P.company.id,
-      body: { proposal_id: card.proposal_id },
-      idem_key: `unapproved:${card.id}`,
-      exec: { proposal_id: card.proposal_id, fingerprint: card.fingerprint },
-    });
-    expect(r2.status).toBe(409);
-    expect(r2.body.error.code).toBe('not_approved');
+    // (Was: an execution token bound to another fingerprint is refused. v3 has no token: the approving event's
+    // fingerprint is compared with the row's at effect time — approved-path.test.ts covers the tampered row.)
+    const r = await executeProposal(P.backend.core, P.company.id, card.proposal_id, { actor: 'runner:rogue' }).catch((e) => e);
+    expect(r).toBeInstanceOf(ExecError);
+    expect(r.code).toBe('not_approved');
+    expect((await P.backend.core.runnerPool.query('select status from ledger.proposals where id = $1', [card.proposal_id])).rows[0].status).toBe('PROPOSED');
     // Close it: while it waits, the gate refuses the same change proposed again (already_proposed).
     await P.api('POST', `/api/desk/${card.id}/answer`, { decision: 'no', fingerprint_seen: card.fingerprint });
   });

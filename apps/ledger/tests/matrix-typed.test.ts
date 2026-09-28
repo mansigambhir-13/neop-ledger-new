@@ -177,7 +177,7 @@ describe('typed events on the Matrix client road (DMs)', () => {
     const mails = (await readdir(P.mailDir)).length;
     const t = hs.sayTyped(dm, PRIYA, 'neos.neop.task', task('Email the August close pack to cfo@acme.example'));
     const propose = await typedOut(hs, dm, 'neos.neop.propose', 'typed propose');
-    const a = (await P.platform.db.query("select * from neos.approvals where status = 'PENDING' order by created_at desc limit 1")).rows[0];
+    const a = (await P.platform.db.query("select * from neos.v_desk_cards where status = 'PENDING' order by created_at desc limit 1")).rows[0];
     expect(propose.content).toMatchObject({ proposal_id: String(a.proposal_id), fingerprint: a.fingerprint, expires: new Date(a.expires_at).toISOString() });
     expect(propose.content.text).toContain(`Fingerprint: ${a.fingerprint}`);
     expect(inThread(propose, t.event_id)).toBe(true);
@@ -191,7 +191,7 @@ describe('typed events on the Matrix client road (DMs)', () => {
     expect(await outcome(stale.event_id)).toBe('typed:approve_refused');
     const refusal = await P.waitFor(async () => hs.notices(dm).find((n) => n.content['m.relates_to']?.['m.in_reply_to']?.event_id === stale.event_id), 'refusal');
     expect(refusal.content.body).toMatch(/^That answer was not recorded: what you approved is not what is on the card now/);
-    expect((await P.platform.db.query('select status from neos.approvals where id = $1', [a.id])).rows[0].status).toBe('PENDING');
+    expect((await P.platform.db.query('select status from neos.v_desk_cards where id = $1', [a.id])).rows[0].status).toBe('PENDING');
     const refused = (await P.platform.db.query("select outcome, detail->>'class' as cls from neos.audit where action = 'chat.typed_in' and detail->>'event_id' = any($1) order by id", [[byAgent.event_id, byNeop.event_id]])).rows;
     expect(refused).toEqual([
       { outcome: 'refused:approve', cls: 'agent' },
@@ -200,8 +200,8 @@ describe('typed events on the Matrix client road (DMs)', () => {
 
     const yes = hs.sayTyped(dm, PRIYA, 'neos.neop.approve', approve(a.fingerprint));
     expect(await outcome(yes.event_id)).toBe('typed:answered:yes');
-    await P.waitFor(async () => (await P.platform.db.query('select status from neos.approvals where id = $1', [a.id])).rows[0].status === 'EXECUTED', 'EXECUTED');
-    expect((await P.platform.db.query('select decided_by, fingerprint_seen from neos.approvals where id = $1', [a.id])).rows[0]).toEqual({ decided_by: P.admin.id, fingerprint_seen: a.fingerprint });
+    await P.waitFor(async () => (await P.platform.db.query('select status from neos.v_desk_cards where id = $1', [a.id])).rows[0].status === 'EXECUTED', 'EXECUTED');
+    expect((await P.platform.db.query('select decided_by, fingerprint_seen from neos.v_desk_cards where id = $1', [a.id])).rows[0]).toEqual({ decided_by: P.admin.id, fingerprint_seen: a.fingerprint });
     const done = await typedOut(hs, dm, 'neos.neop.done', 'done after the yes');
     expect(done.content.result.summary).toBe('Sent the August close pack to cfo@acme.example.');
     hs.redeliver(yes);
@@ -345,7 +345,7 @@ describe('typed events in appservice rooms', () => {
     const mails = (await readdir(P.mailDir)).length;
     const t = await P.hs!.pushTyped({ room_id: ROOM, sender: PRIYA, type: 'neos.neop.task', content: task('Email the August close pack to cfo@acme.example', 'T-2') });
     const propose = await typedOut('neos.neop.propose', 'typed propose', (e) => e.content['m.relates_to']?.event_id === t.event_id);
-    const a = (await P.platform.db.query('select * from neos.approvals where proposal_id::text = $1', [propose.content.proposal_id])).rows[0];
+    const a = (await P.platform.db.query('select * from neos.v_desk_cards where proposal_id::text = $1', [propose.content.proposal_id])).rows[0];
     expect(propose.content).toMatchObject({ fingerprint: a.fingerprint, expires: new Date(a.expires_at).toISOString() });
     const approve = (fingerprint: string) => ({ proposal_id: propose.content.proposal_id, fingerprint, decision: 'yes', ...thread(t.event_id) });
     const byAgent = await P.hs!.pushTyped({ room_id: ROOM, sender: AGENT, type: 'neos.neop.approve', content: approve(a.fingerprint) });
@@ -361,10 +361,10 @@ describe('typed events in appservice rooms', () => {
     const stale = await P.hs!.pushTyped({ room_id: ROOM, sender: PRIYA, type: 'neos.neop.approve', content: approve('f'.repeat(64)) });
     expect(await outcome(stale.event_id)).toBe('typed:approve_refused');
     await P.waitFor(async () => P.hs!.sent.find((m) => m.room === ROOM && /That answer was not recorded: what you approved is not what is on the card now/.test(m.body)), 'refusal notice');
-    expect((await P.platform.db.query('select status from neos.approvals where id = $1', [a.id])).rows[0].status).toBe('PENDING');
+    expect((await P.platform.db.query('select status from neos.v_desk_cards where id = $1', [a.id])).rows[0].status).toBe('PENDING');
     const yes = await P.hs!.pushTyped({ room_id: ROOM, sender: PRIYA, type: 'neos.neop.approve', content: approve(a.fingerprint) });
     expect(await outcome(yes.event_id)).toBe('typed:answered:yes');
-    await P.waitFor(async () => (await P.platform.db.query('select status from neos.approvals where id = $1', [a.id])).rows[0].status === 'EXECUTED', 'EXECUTED');
+    await P.waitFor(async () => (await P.platform.db.query('select status from neos.v_desk_cards where id = $1', [a.id])).rows[0].status === 'EXECUTED', 'EXECUTED');
     await typedOut('neos.neop.done', 'done after the yes', (e) => e.content.task_id === 'T-2');
     const again = await P.hs!.pushTyped({ room_id: ROOM, sender: PRIYA, type: 'neos.neop.approve', content: approve(a.fingerprint), event_id: yes.event_id });
     expect(again.status).toBe(200);

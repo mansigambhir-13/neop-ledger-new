@@ -250,7 +250,9 @@ export class Gate {
 
     if (grant) {
       await this.core.hooks.afterGrantMatched?.(proposalId);
-      const proof = await executeProposal(this.core, claims.company_id, proposalId, { fingerprint: fp, sub: `grant:${grant.grant_id}`, ability_version: ability.version });
+      // A standing yes is carried out inline, through the same approved path the runner takes for a person's yes
+      // (the runner adopts a grant-approved proposal left APPROVED past APPROVED_GRANT_GRACE — a gate that died here).
+      const proof = await executeProposal(this.core, claims.company_id, proposalId, { actor: `grant:${grant.grant_id}` });
       return { status: 'done_by_grant', ability: key, proposal_id: proposalId, proof };
     }
 

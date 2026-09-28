@@ -43,7 +43,9 @@ describe('platform user flow', () => {
     expect(r.body.handed_to).toBe('ledger'); // picked by NeuralChat, not named by the person
     expect(r.body.status).toBe('ACKNOWLEDGED');
     const card = await P.waitFor(async () => (await P.desk()).find((c) => c.task_id === r.body.task_id && c.status === 'PENDING'), 'card');
-    expect((await P.task(r.body.task_id)).task.status).toBe('WAITING');
+    // v3 S2: the card is read from the app's own row, so it can be on the desk a moment before the platform's outbox
+    // mirror marks the task WAITING; the task must still reach WAITING.
+    await P.waitFor(async () => (await P.task(r.body.task_id)).task.status === 'WAITING', 'task waiting');
     await P.api('POST', `/api/desk/${card.id}/answer`, { decision: 'yes', fingerprint_seen: card.fingerprint });
     await P.waitFor(async () => (await P.task(r.body.task_id)).task.status === 'COMPLETED', 'completed');
     const conv = await P.api('GET', `/api/conversations/${r.body.conversation_id}`);

@@ -183,6 +183,17 @@
       ],
       "baseline": false,
       "proven_on_populated_data": "2026-09-28 \u00b7 packages/platform/tests/migration-018-019.test.ts \u203a 018 and 019 apply forward on a populated platform database (every row kept; views, functions and the new column in place)"
+    },
+    {
+      "file": "020_approvals_frozen.sql",
+      "tables": [
+        "approvals",
+        "chat_client_events",
+        "room_events",
+        "room_messages"
+      ],
+      "baseline": false,
+      "proven_on_populated_data": "2026-09-28 \u00b7 packages/platform/tests/migration-020.test.ts \u203a 020 applies forward on a populated platform database (approvals kept and frozen, card ids rewritten to proposal ids, desk cards view in place)"
     }
   ]
 }

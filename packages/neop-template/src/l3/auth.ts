@@ -60,17 +60,6 @@ export class GatewayAuth {
     return claims;
   }
 
-  /** An execution token: single use, minted only when the platform holds a matching yes. */
-  async verifyExecution(token: string, expect: { company_id: string; proposal_id: string; fingerprint: string }): Promise<GatewayClaims> {
-    const claims = await this.verify(token, { ability: 'proposals.execute' });
-    if (!claims.exec) throw new AuthError(403, 'not_execution_token', 'not an execution token');
-    if (claims.company_id !== expect.company_id) throw new AuthError(403, 'customer_mismatch', 'company mismatch');
-    if (claims.proposal_id !== expect.proposal_id || claims.fingerprint !== expect.fingerprint) {
-      throw new AuthError(409, 'fingerprint_mismatch', 'execution token is bound to a different proposal or fingerprint');
-    }
-    return claims;
-  }
-
   async pruneSeen(): Promise<void> {
     await this.runnerPool.query(`delete from ${this.schema}.seen_tokens where expires_at < now() - interval '5 minutes'`);
   }

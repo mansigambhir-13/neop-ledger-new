@@ -219,7 +219,7 @@ async function onApprove(road: TypedRoad, ev: TypedIn, who: TypedWho, b: TypedBo
   if (road.mayApproveHere && !(await road.mayApproveHere(ev.room_id, ev.sender))) return drop(road, ev, who, 'below_approve_level');
   const db = road.platform.db;
   const a = (
-    await db.query<{ id: string; task_id: string | null; proposal_id: string }>('select id, task_id, proposal_id from neos.approvals where company_id = $1 and app_key = $2 and proposal_id::text = $3', [
+    await db.query<{ id: string; task_id: string | null; proposal_id: string }>('select id, task_id, proposal_id from neos.v_desk_cards where company_id = $1 and app_key = $2 and proposal_id::text = $3', [
       road.companyId,
       road.app,
       b.proposal_id,
@@ -272,7 +272,7 @@ export async function dueTypedOut(platform: Platform, t: { task_id: string; app_
       question_id: q.id,
     });
   }
-  const cards = (await db.query("select * from neos.approvals where task_id = $1 and status = 'PENDING' and expires_at > now() order by created_at", [task.id])).rows;
+  const cards = (await db.query("select * from neos.v_desk_cards where task_id = $1 and status = 'PENDING' and expires_at > now() order by created_at", [task.id])).rows;
   for (const a of cards) {
     const expires = new Date(a.expires_at).toISOString();
     const text = roomText.card(t.app_name, { card: a.card, args: a.args, expires_at: expires, fingerprint: a.fingerprint } as unknown as ProposalCreatedPayload);

@@ -48,9 +48,8 @@ describe('tracing', () => {
       'llm.messages',
       'agent.tool ledger.close_pack.email',
       'gate ledger.close_pack.email',
-      'gateway proposals.resolve',
-      'gateway proposals.execute',
-      'l3 proposals.execute',
+      // v3 S2: the yes lands on the row; the app's runner carries it out in the job's trace (no gateway hop).
+      'runner.approved',
       'door ledger.close_pack.email',
     ];
     const root = await P.waitFor(async () => {

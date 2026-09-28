@@ -59,7 +59,7 @@ async function dmWith(hs: FakeClientHomeserver, from: string) {
 }
 const notices = (hs: FakeClientHomeserver, room: string, n: number, what: string) => P.waitFor(async () => hs.notices(room).length >= n && hs.notices(room), what);
 const tasks = async () => (await P.platform.db.query('select count(*)::int as n from neos.tasks')).rows[0].n as number;
-const approval = async (id: string) => (await P.platform.db.query('select status, decision, decided_by, fingerprint_seen, feedback from neos.approvals where id = $1', [id])).rows[0];
+const approval = async (id: string) => (await P.platform.db.query('select status, decision, decided_by, fingerprint_seen, feedback from neos.v_desk_cards where id = $1', [id])).rows[0];
 const consentAudit = async (approvalId: string) =>
   (await P.platform.db.query("select actor, outcome from neos.audit where action = 'chat.bridge_consent' and detail->'approvals' ? $1 order by id", [approvalId])).rows;
 const executions = async (key: string) => (await P.backend.core.runnerPool.query("select count(*)::int as n from ledger.operations where ability_key = $1 and outcome = 'DONE'", [key])).rows[0].n as number;
@@ -91,7 +91,7 @@ async function propose(hs: FakeClientHomeserver, dm: string, bridge: string, des
   const proposal = all[n - 1]!;
   expect(inReplyTo(proposal)).toBe(ask.event_id);
   const card = await P.waitFor(
-    async () => (await P.platform.db.query("select * from neos.approvals where status = 'PENDING' and card->>'what' like $1 order by created_at desc limit 1", [`%${description}`])).rows[0],
+    async () => (await P.platform.db.query("select * from neos.v_desk_cards where status = 'PENDING' and card->>'what' like $1 order by created_at desc limit 1", [`%${description}`])).rows[0],
     'the card',
   );
   return { ask, proposal, card, id8: String(card.id).slice(0, 8) };
@@ -177,7 +177,8 @@ describe('a bridge’s go-ahead is never a yes (NeuralChat-shaped: plain message
     await pause(300);
     expect((await approval(card.id)).status).toBe('PENDING');
     expect(await tasks()).toBe(before);
-    await P.platform.db.query("update neos.approvals set status = 'CLOSED', decision = 'withdraw' where id = $1", [card.id]);
+    // Close the card (v3 S2: through answer_proposal, as a person withdrawing it — there is no platform copy to close).
+    expect((await P.api('POST', `/api/desk/${card.id}/answer`, { decision: 'withdraw', fingerprint_seen: card.fingerprint })).status).toBe(200);
   });
 
   it('a negation ("don’t go ahead") is an ordinary request: nothing is approved', async () => {
@@ -193,7 +194,8 @@ describe('a bridge’s go-ahead is never a yes (NeuralChat-shaped: plain message
     await pause(300);
     expect((await approval(card.id)).status).toBe('PENDING');
     expect(await tasks()).toBe(before + 1);
-    await P.platform.db.query("update neos.approvals set status = 'CLOSED', decision = 'withdraw' where id = $1", [card.id]);
+    // Close the card (v3 S2: through answer_proposal, as a person withdrawing it — there is no platform copy to close).
+    expect((await P.api('POST', `/api/desk/${card.id}/answer`, { decision: 'withdraw', fingerprint_seen: card.fingerprint })).status).toBe(200);
   });
 });
 

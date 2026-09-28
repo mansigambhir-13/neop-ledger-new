@@ -8,7 +8,7 @@
 // package migrations) to its own cluster; every other app stays on NEOS_ADMIN_URL.
 import { readFileSync } from 'node:fs';
 import { adminUrlFromEnv, roleUrl } from '@neop/pgkit';
-import { backfillBoards, migratePlatform, Platform, generateSigningKeys } from '@neop/platform';
+import { backfillBoards, drainApprovals, migratePlatform, Platform, generateSigningKeys } from '@neop/platform';
 import { migrateApp, migratePackage } from '@neop/template';
 
 const admin = adminUrlFromEnv();
@@ -47,5 +47,10 @@ if (failedPackages) process.exitCode = 1;
 // in the same window (idempotent; scripts/v3/backfill-boards.ts runs it on its own).
 const filled = await backfillBoards(platform.db, { log: (m, e) => log(`[boards] ${m} ${e ? JSON.stringify(e) : ''}`) });
 log(`[boards] ${filled.length} install(s) checked, ${filled.filter((r) => r.install === 'written' || r.board === 'written' || r.grants > 0).length} written`);
+// v3 S2 (t011 + platform 020): the retired approvals worker's work in hand, answered through each app's
+// answer_proposal() (idempotent; scripts/v3/drain-approvals.ts runs it on its own).
+const drained = await drainApprovals(platform.db, { log: (m, e) => log(`[approvals] ${m} ${e ? JSON.stringify(e) : ''}`) });
+log(`[approvals] ${drained.length} in hand, ${drained.filter((r) => r.result === 'answered').length} handed over, ${drained.filter((r) => r.result === 'already').length} already held`);
+if (drained.some((r) => r.result === 'error' || r.result === 'no_schema')) process.exitCode = 1;
 await platform.stop();
 log('migrations complete');
