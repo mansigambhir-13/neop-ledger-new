@@ -36,7 +36,11 @@ export interface Manifest {
   version: string;
   contract_version: string;
   abilities: ManifestAbility[];
-  doors: { key: string; scopes: string[] }[];
+  /**
+   * Doors to systems outside. v3 §4: each is also a line `door:<key>` on the company's switchboard,
+   * on or off; `floor` is the app's floor for it (default 'on'); a company can only switch it off.
+   */
+  doors: { key: string; scopes: string[]; floor?: 'on' | 'off' }[];
   /**
    * Borrowed abilities (reads, called through the gateway) and a2a hand-offs
    * (`ability: "tasks.open"`: this app may hand whole tasks to that app).

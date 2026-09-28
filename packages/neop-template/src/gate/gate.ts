@@ -23,7 +23,7 @@ import type { PoolClient } from '@neop/pgkit';
 import type { JobRow } from '../data/book.ts';
 import { checkRules } from '../domain/rules.ts';
 import type { ExecCtx } from '../types.ts';
-import { BUILTIN_TOOLS } from './tools.ts';
+import { BUILTIN_TOOLS, offDoors } from './tools.ts';
 
 export type GateResult =
   | { status: 'done'; ability: string; output: unknown; untrusted: boolean }
@@ -89,6 +89,8 @@ export class Gate {
     const board = await this.core.board.get(claims.company_id);
     const setting = board.setting(ability);
     if (setting === 'off') return this.refuse(claims, key, 'switched_off', `${key} is switched off`);
+    const closed = offDoors(this.core.manifest, board, ability);
+    if (closed.length) return this.refuse(claims, key, 'door_off', `${key} needs the ${closed.join(', ')} door, which this company switched off`);
 
     // Split the card from the args of an ask-first write; the card is presentation, not content.
     let args: unknown = rawArgs ?? {};

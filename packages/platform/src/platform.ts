@@ -370,6 +370,8 @@ export class Platform {
     if (a.author_public_key !== undefined && !isEd25519Jwk(a.author_public_key)) throw new PlatformError(422, 'bad_author_key', 'the author key must be an Ed25519 public JWK ({kty:"OKP", crv:"Ed25519", x})');
     const bad = a.manifest.abilities.find((x) => x.kind === 'read' && x.floor === 'ask_first');
     if (bad) throw new PlatformError(422, 'read_cannot_ask_first', `${bad.key}: a read cannot be ask-first`);
+    const badDoor = (a.manifest.doors ?? []).find((d) => d.floor !== undefined && d.floor !== 'on' && d.floor !== 'off');
+    if (badDoor) throw new PlatformError(422, 'bad_door_floor', `${badDoor.key}: a door's floor is on or off`);
     const pd = personalDataProblems(a.manifest);
     if (pd.length) throw new PlatformError(422, 'bad_personal_data', pd.join('; '));
     const blocks = a.blocks ?? {};
@@ -518,6 +520,14 @@ export class Platform {
     const lines: { key: string; kind: string; floor: Setting }[] = [...manifest.abilities, ...(await this.packageAbilities(app, companyId))];
     const skills = await this.skillLines(app, companyId, manifest);
     for (const [k, v] of Object.entries(patch.settings ?? {})) {
+      if (k.startsWith('door:')) {
+        // v3 §4: a door is a line like any other — on or off; the app's floor holds (a company can only close it).
+        const door = k.slice(5);
+        if (!(await this.declaredDoors(app, companyId)).has(door)) throw new PlatformError(422, 'unknown_door', `${door} is not a door of ${app}`);
+        if (v !== 'on' && v !== 'off') throw new PlatformError(422, 'bad_setting', `${k}: a door line is on or off`);
+        if (strictest(doorFloor(manifest, door), v) !== v) throw new PlatformError(422, 'cannot_loosen', `${k}: the app's floor is off; a company can only tighten it`);
+        continue;
+      }
       if (k.startsWith('skill:')) {
         if (!skills.some((x) => `skill:${x.key}` === k)) throw new PlatformError(422, 'unknown_skill', `${k.slice(6)} is not a skill of ${app}`);
         if (v !== 'on' && v !== 'off') throw new PlatformError(422, 'bad_setting', `${k}: a skill line is on or off`);
@@ -998,11 +1008,36 @@ export class Platform {
     return doors;
   }
 
+  /** v3 §4: the door lines of an app's board at a company — `door:<key>`, on or off (floor from the manifest, default on). */
+  async doorLines(app: string, companyId: string, settings?: Record<string, Setting>) {
+    const m = (await this.db.query<{ manifest: Manifest }>('select manifest from neos.apps where key = $1', [app])).rows[0]?.manifest;
+    const doors = await this.declaredDoors(app, companyId);
+    const s = settings ?? (await this.switchboard(companyId, app)).settings ?? {};
+    return [...doors].map((key) => {
+      const own = (m?.doors ?? []).find((d) => d.key === key);
+      const floor = doorFloor(m, key);
+      const company = (s[`door:${key}`] as Setting | undefined) ?? null;
+      return { key, line: `door:${key}`, floor, company, setting: strictest(floor, company ?? undefined), declared_by: own ? 'own' : 'package', scopes: own?.scopes ?? [] };
+    });
+  }
+
+  /** The door's setting in force for an app at a company (on/off). */
+  async doorSetting(app: string, companyId: string, door: string): Promise<Setting> {
+    const m = (await this.db.query<{ manifest: Manifest }>('select manifest from neos.apps where key = $1', [app])).rows[0]?.manifest;
+    const sb = await this.switchboard(companyId, app);
+    return strictest(doorFloor(m, door), sb.settings?.[`door:${door}`]);
+  }
+
   async lend(app: string, companyId: string, door: string): Promise<Record<string, unknown>> {
     await this.assertInstalled(app, companyId);
     if (!(await this.declaredDoors(app, companyId)).has(door)) {
       await this.gateway.audit({ company_id: companyId, actor: `app:${app}`, app_key: app, action: 'vault.lend', ability_key: door, outcome: 'refused_undeclared' });
       throw new PlatformError(403, 'undeclared_door', `${app} does not declare the ${door} door`);
+    }
+    // v3 §4: the company can switch a door off; then no key is lent for it, whatever asks.
+    if ((await this.doorSetting(app, companyId, door)) === 'off') {
+      await this.gateway.audit({ company_id: companyId, actor: `app:${app}`, app_key: app, action: 'vault.lend', ability_key: door, outcome: 'refused_door_off' });
+      throw new PlatformError(403, 'door_off', `the ${door} door is switched off for ${app} at this company`);
     }
     // The app's own credential for this door, else the company-wide one; never another app's (WP §12).
     const r = await this.db.query<{ secret: Record<string, unknown>; app_key: string }>(
@@ -1870,6 +1905,11 @@ export const MONTH_START_SQL = (tz: string) => `(date_trunc('month', now() at ti
 /** Where a card ends once its execution reports: DONE → EXECUTED; FAILED and UNKNOWN say so. */
 export function approvalStatusFor(outcome: unknown): 'EXECUTED' | 'FAILED' | 'UNKNOWN' {
   return outcome === 'FAILED' ? 'FAILED' : outcome === 'UNKNOWN' ? 'UNKNOWN' : 'EXECUTED';
+}
+
+/** v3 §4: a door's floor from the manifest (default on; only 'off' is stricter). */
+export function doorFloor(m: Pick<Manifest, 'doors'> | undefined | null, door: string): Setting {
+  return (m?.doors ?? []).find((d) => d.key === door)?.floor === 'off' ? 'off' : 'on';
 }
 
 export function hashSecret(s: string): string {

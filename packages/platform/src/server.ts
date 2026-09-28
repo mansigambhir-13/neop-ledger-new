@@ -134,7 +134,7 @@ export function platformApp(p: Platform): Hono {
       return s === 'on' && a.kind === 'write' && forced.has(a.key) ? 'ask_first' : s;
     };
     const pkg = await p.packageAbilities(key, u.company_id);
-    const doors = [...(await p.declaredDoors(key, u.company_id))];
+    const doors = await p.doorLines(key, u.company_id, sb.settings ?? {});
     const settingOf = (k: string) => {
       const own = m.abilities.find((a) => a.key === k);
       const pk = pkg.find((a) => a.key === k);
@@ -196,7 +196,8 @@ export function platformApp(p: Platform): Hono {
         })),
       ],
       skills,
-      doors: doors.map((d) => ({ key: d, declared_by: (m.doors ?? []).some((x) => x.key === d) ? 'own' : 'package', scopes: (m.doors ?? []).find((x) => x.key === d)?.scopes ?? [] })),
+      // v3 §4: doors are switchboard lines too (`door:<key>`, on/off), shown like the others.
+      doors,
     });
   });
 
