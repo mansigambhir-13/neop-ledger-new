@@ -2,7 +2,6 @@ import { Metrics, personalDataProblems, Tracer, type Manifest, type ManifestAbil
 import { createPool, forceClose, withCompany, type Pool, type PoolClient } from '@neop/pgkit';
 import { Validators } from './capabilities/schemas.ts';
 import { Book } from './data/book.ts';
-import { PlatformMirror } from './data/mirror.ts';
 import { createDoors, PgDoorJournal, type Doors } from './doors/index.ts';
 import { BorrowCache } from './gate/borrowed.ts';
 import { JobTokens } from './gate/jobtoken.ts';
@@ -27,8 +26,6 @@ export class Core {
   readonly book: Book;
   readonly platform: PlatformClient;
   readonly board: SwitchboardCache;
-  /** The book's read-only copies of the platform's switchboard, installs and grants (t009). */
-  readonly mirror: PlatformMirror;
   readonly jobTokens: JobTokens;
   readonly validators: Validators;
   readonly gatewayAuth: GatewayAuth;
@@ -37,7 +34,7 @@ export class Core {
   readonly tracer: Tracer;
   readonly metrics = new Metrics();
   /** Test/fault-injection hooks; empty in production. */
-  readonly hooks: { beforeExecuteEffect?: (proposalId: string) => Promise<void> } = {};
+  readonly hooks: { beforeExecuteEffect?: (proposalId: string) => Promise<void>; afterGrantMatched?: (proposalId: string) => Promise<void> } = {};
 
   constructor(app: AppDefinition, cfg: NeopConfig) {
     this.app = app;
@@ -52,9 +49,8 @@ export class Core {
     this.execLockPool = createPool(cfg.directDbUrl ?? cfg.runnerDbUrl, cfg.execLockPoolSize ?? 10);
     this.book = new Book(this.key);
     this.platform = new PlatformClient(cfg.platformUrl, this.key, cfg.serviceSecret);
-    this.board = new SwitchboardCache(this.platform, this.manifest);
-    this.mirror = new PlatformMirror(this.runnerPool, this.key, this.manifest);
-    this.board.observer = this.mirror;
+    // v3 §4: the board is read from this app's own schema (t010), never from the platform.
+    this.board = new SwitchboardCache(this.runnerPool, this.key, this.manifest);
     this.jobTokens = new JobTokens(cfg.jobTokenSecret, this.key);
     this.validators = new Validators(this.manifest);
     this.borrowed = new BorrowCache(this);

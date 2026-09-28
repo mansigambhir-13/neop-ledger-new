@@ -2,7 +2,12 @@
 // `door:<key>` on its switchboard, on or off (the app's floor from its manifest door entry, default on; a company
 // can only switch it off). Off means three things at once: the vault lends no key for it, every ability that
 // needs it is not shown to the assistant, and the gate refuses such an ability even when asked by name.
+import { mkdtemp } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { bootstrapFamily, migrate, templateFiles } from '@neop/pgkit';
+import { TEMPLATE_INFRA_TABLES, TEMPLATE_MIGRATIONS } from '@neop/template';
 import { bootPilot, finish, type Pilot } from './harness.ts';
 
 let P: Pilot;
@@ -90,6 +95,10 @@ describe('a door whose floor is off', () => {
     const m = (await P.platform.db.query("select manifest from neos.apps where key = 'ledger'")).rows[0].manifest;
     const base = { ...m, app: 'doorfloor', name: 'Door floor', abilities: [], uses: [], skills: [], packages: [], blocks: [], personal_data: undefined };
     await expect(P.platform.registerApp({ key: 'doorfloor', l3_url: 'http://x', manifest: { ...base, doors: [{ key: 'post', scopes: [], floor: 'ask_first' as any }] }, service_secret: 's' })).rejects.toMatchObject({ code: 'bad_door_floor' });
+    // Every NEOP has its own schema (v3 §11), where its switchboard lives (t010): the template's tables for this one.
+    const none = await mkdtemp(path.join(os.tmpdir(), 'neop-doorfloor-'));
+    await bootstrapFamily(P.adminUrl, 'doorfloor');
+    await migrate({ adminUrl: P.adminUrl, schema: 'doorfloor', sources: { dir: none, prepend: await templateFiles(TEMPLATE_MIGRATIONS) }, lintExempt: TEMPLATE_INFRA_TABLES });
     await P.platform.registerApp({ key: 'doorfloor', l3_url: 'http://x', manifest: { ...base, doors: [{ key: 'post', scopes: [], floor: 'off' }, { key: 'sms', scopes: [] }] }, service_secret: 's' });
     await P.platform.installApp(P.company.id, 'doorfloor');
     const r = await P.api('PUT', '/api/switchboards/doorfloor', { settings: { 'door:post': 'on' } });

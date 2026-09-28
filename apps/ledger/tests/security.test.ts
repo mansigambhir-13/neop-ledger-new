@@ -1,6 +1,8 @@
 // security.test · regression tests for every finding of the pre-ship review.
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { installAndMigrate, probeBundle, publishPackage, toolName } from '@neop/testkit';
+import { withCompany } from '@neop/pgkit';
+import { matchGrant } from '@neop/template';
 import { bootPilot, type Pilot } from './harness.ts';
 
 let P: Pilot;
@@ -68,11 +70,13 @@ describe('H1 · money abilities are always measured', () => {
   });
 
   it('a grant with amount limits never auto-approves an unmeasured call', async () => {
-    const tok = await P.platform.grantExecutionToken('ledger', { company_id: P.company.id, job_id: P.company.id, proposal_id: P.company.id, ability_key: 'ledger.journal.post', fingerprint: 'sha256:x' });
-    expect(tok).toBeNull(); // no grant yet
+    // v3 S1: the gate matches a standing yes in the app's own schema (<schema>.grants).
+    const match = (m: { amount_minor?: number; currency?: string }) =>
+      withCompany(P.backend.core.appPool, P.company.id, (c) => matchGrant(c, 'ledger', 'ledger.journal.post', m, 'Asia/Kolkata'));
+    expect(await match({})).toBeNull(); // no grant yet
     await P.api('POST', '/api/grants', { app_key: 'ledger', ability_key: 'ledger.journal.post', limits: { per_call_minor: 1_000_000, currency: 'INR' }, expires_at: new Date(Date.now() + 86_400_000).toISOString() });
-    const unmeasured = await P.platform.grantExecutionToken('ledger', { company_id: P.company.id, job_id: P.company.id, proposal_id: P.company.id, ability_key: 'ledger.journal.post', fingerprint: 'sha256:x' });
-    expect(unmeasured).toBeNull();
+    expect(await match({})).toBeNull(); // unmeasured: a person decides
+    expect(await match({ amount_minor: 500, currency: 'INR' })).not.toBeNull(); // measured and within the limit: covered
   });
 });
 
@@ -129,7 +133,8 @@ describe('H5 · package module state never crosses companies', () => {
 
 describe('H6 · documents carry the company’s own name', () => {
   it('the invoice email names the company it is from', async () => {
-    await P.platform.db.query("update neos.companies set name = 'Zenith Foods Pvt Ltd' where id = $1", [P.company.id]);
+    // Renamed on the platform and written through to the app's install row (what the gate reads, v3 S1).
+    await P.platform.updateCompany(P.company.id, { name: 'Zenith Foods Pvt Ltd' });
     P.backend.core.board.invalidate(P.company.id);
     const a = await oneCall('ledger.invoice.send', { document_number: 'INV-0004', card: CARD });
     const done = await approve(a.card);

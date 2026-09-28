@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import pg from 'pg';
-import { bootstrapFamily, migrate } from '@neop/pgkit';
+import { applyDeskGrants, bootstrapFamily, migrate } from '@neop/pgkit';
 
 export const PLATFORM_MIGRATIONS = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../migrations');
 
@@ -42,6 +42,27 @@ async function ensureDeskRole(adminUrl: string): Promise<void> {
           }
         }
       }
+      // v3 S1: the platform writes each app's switchboard, installs and grants as the desk. Its pool role holds
+      // the membership WITHOUT inheriting it: none of the desk's rights apply until a transaction runs
+      // `SET LOCAL ROLE neos_desk` (transaction-scoped, so safe through PgBouncer's transaction pooling).
+      const member = (
+        await c.query<{ inherit: boolean; set: boolean }>(
+          `select m.inherit_option as inherit, m.set_option as set from pg_auth_members m
+             join pg_roles r on r.oid = m.roleid and r.rolname = 'neos_desk'
+             join pg_roles u on u.oid = m.member and u.rolname = 'neos_app'`,
+        )
+      ).rows[0];
+      if (!member || member.inherit || !member.set) {
+        for (let i = 0; ; i++) {
+          try {
+            await c.query('grant neos_desk to neos_app with inherit false, set true');
+            break;
+          } catch (e) {
+            if (i >= 10 || !/concurrently updated|tuple concurrently/.test((e as Error).message)) throw e;
+            await new Promise((res) => setTimeout(res, 20 + Math.random() * 80));
+          }
+        }
+      }
     } finally {
       await c.query("select pg_advisory_unlock(hashtext('neos.roles'))");
     }
@@ -69,6 +90,10 @@ async function afterMigrate(adminUrl: string, log?: (m: string) => void): Promis
     if (await has('neos.grant_registry_read(text)')) {
       await c.query("select neos.grant_registry_read(key) from neos.apps where status <> 'platform' and key ~ '^[a-z][a-z0-9_]{0,40}$'");
     }
+    // v3 §11 / S1: the desk's grants on every registered app's schema (t010), for schemas migrated before
+    // neos_desk existed. Idempotent; a schema not at t010 (or not on this database) is left alone.
+    const apps = (await c.query<{ key: string }>("select key from neos.apps where status <> 'platform' and key ~ '^[a-z][a-z0-9_]{0,40}$'")).rows;
+    for (const a of apps) await applyDeskGrants(c, a.key).catch((e) => log?.(`[neos] desk grants on ${a.key} not applied: ${(e as Error).message}`));
   } finally {
     await c.end();
   }

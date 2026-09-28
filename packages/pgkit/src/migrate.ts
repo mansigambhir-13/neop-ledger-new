@@ -3,7 +3,7 @@ import { readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import pg from 'pg';
-import { assertIdent, familyRoles } from './roles.ts';
+import { applyDeskGrants, assertIdent, familyRoles } from './roles.ts';
 
 export interface MigrationSource {
   /** Directory of numbered files: 001_x.sql, 002_y.sql, 003_z.ts */
@@ -322,6 +322,9 @@ export async function migrate(opts: MigrateOptions): Promise<AppliedMigration[]>
       const ok = await client.query<{ ok: boolean }>("select case when exists (select 1 from pg_roles where rolname = $1) then has_schema_privilege($1, $2, 'usage') else false end as ok", [r, schema]);
       if (ok.rows[0]?.ok) await client.query(`grant select on ${schema}.schema_migrations to ${r}`);
     }
+    // v3 §11: the desk's grants on a NEOP schema (t010+), repeated idempotently — the platform may have
+    // made its role after this schema's migrations first ran.
+    await applyDeskGrants(client, schema);
   } finally {
     await client.query('select pg_advisory_unlock(hashtext($1))', [`migrate:${schema}`]).catch(() => {});
     await client.end();

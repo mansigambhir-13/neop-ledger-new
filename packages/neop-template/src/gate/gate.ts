@@ -10,8 +10,8 @@
 //   5. tool-call cap exceeded → refuse (job.finish still passes, so the person gets a
 //      report). Model spend is capped where it is metered: the LLM proxy (S9).
 //   6. read, or write set to on → execute, write operations and steps
-//   7. ask-first with a grant covering it → proposal APPROVED by the grant,
-//      execution token from the platform, same execute path
+//   7. ask-first with a grant covering it (<schema>.grants) → proposal APPROVED by the grant,
+//      carried out inline by the same approved path (no platform, no token)
 //   8. ask-first otherwise → proposal + wait, return the proposal id
 
 import { randomUUID } from 'node:crypto';
@@ -22,8 +22,9 @@ import type { Core } from '../core.ts';
 import type { PoolClient } from '@neop/pgkit';
 import type { JobRow } from '../data/book.ts';
 import { checkRules } from '../domain/rules.ts';
-import type { ExecCtx } from '../types.ts';
+import type { ExecCtx, Measure } from '../types.ts';
 import { BUILTIN_TOOLS, offDoors } from './tools.ts';
+import { matchGrant, recordGrantUse } from './grants.ts';
 
 export type GateResult =
   | { status: 'done'; ability: string; output: unknown; untrusted: boolean }
@@ -211,51 +212,45 @@ export class Gate {
     const proposalId = randomUUID();
     const fp = fingerprint({ key, version: ability.version, args, company_id: claims.company_id, job_id: claims.sub });
 
-    const grant = await this.core.platform
-      .grantExecutionToken({
+    // 7. A standing yes, matched here in the app's own schema (<schema>.grants, t010): the proposal is
+    // written APPROVED by the grant and its use recorded in one transaction; no platform, no token.
+    const grant = await this.core.company(claims.company_id, async (c) => {
+      const g = await matchGrant(c, this.core.key, key, m as Measure, tz);
+      if (!g) return null;
+      await this.core.book.insertProposal(c, {
+        id: proposalId,
         company_id: claims.company_id,
         job_id: claims.sub,
-        proposal_id: proposalId,
         ability_key: key,
         ability_version: ability.version,
+        args,
+        card,
         fingerprint: fp,
-        ...m,
-      })
-      .catch(() => null);
+        status: 'APPROVED',
+        approved_via: 'grant',
+        grant_id: g.grant_id,
+        decided_by: `grant:${g.grant_id}`,
+        manifest_version: this.core.manifest.version,
+        ttl_ms: this.core.cfg.timings.proposalTtlMs,
+      });
+      const mm = m as Measure;
+      await recordGrantUse(c, this.core.key, { company_id: claims.company_id, grant_id: g.grant_id, proposal_id: proposalId, job_id: claims.sub, ability_key: key, fingerprint: fp, amount_minor: mm.amount_minor, currency: mm.currency });
+      await this.core.book.proposalEvent(c, { company_id: claims.company_id, proposal_id: proposalId, event: 'approved_by_grant', actor: `grant:${g.grant_id}`, fingerprint_seen: fp });
+      await this.linkSuperseded(c, claims, key, proposalId);
+      await this.core.book.addStep(c, {
+        company_id: claims.company_id,
+        job_id: claims.sub,
+        kind: 'proposal',
+        summary: `${ability.title}: covered by a standing yes (grant ${g.grant_id.slice(0, 8)})`,
+        ability_key: key,
+        output_ref: { proposal_id: proposalId },
+      });
+      return g;
+    });
 
     if (grant) {
-      // The book's read-only mirror learns of the standing yes (t009 <schema>.grants; the platform holds it).
-      await this.core.mirror.grantSeen(claims.company_id, grant.grant_id, key).catch((e) => this.core.log('grant mirror failed', { e: String(e) }));
-      const exec = await this.core.gatewayAuth.verifyExecution(grant.token, { company_id: claims.company_id, proposal_id: proposalId, fingerprint: fp });
-      await this.core.company(claims.company_id, async (c) => {
-        await this.core.book.insertProposal(c, {
-          id: proposalId,
-          company_id: claims.company_id,
-          job_id: claims.sub,
-          ability_key: key,
-          ability_version: ability.version,
-          args,
-          card,
-          fingerprint: fp,
-          status: 'APPROVED',
-          approved_via: 'grant',
-          grant_id: grant.grant_id,
-          decided_by: `grant:${grant.grant_id}`,
-          manifest_version: this.core.manifest.version,
-          ttl_ms: this.core.cfg.timings.proposalTtlMs,
-        });
-        await this.core.book.proposalEvent(c, { company_id: claims.company_id, proposal_id: proposalId, event: 'approved_by_grant', actor: `grant:${grant.grant_id}`, fingerprint_seen: fp });
-        await this.linkSuperseded(c, claims, key, proposalId);
-        await this.core.book.addStep(c, {
-          company_id: claims.company_id,
-          job_id: claims.sub,
-          kind: 'proposal',
-          summary: `${ability.title}: covered by a standing yes (grant ${grant.grant_id.slice(0, 8)})`,
-          ability_key: key,
-          output_ref: { proposal_id: proposalId },
-        });
-      });
-      const proof = await executeProposal(this.core, claims.company_id, proposalId, { fingerprint: fp, sub: exec.sub, ability_version: exec.ability_version ?? null });
+      await this.core.hooks.afterGrantMatched?.(proposalId);
+      const proof = await executeProposal(this.core, claims.company_id, proposalId, { fingerprint: fp, sub: `grant:${grant.grant_id}`, ability_version: ability.version });
       return { status: 'done_by_grant', ability: key, proposal_id: proposalId, proof };
     }
 

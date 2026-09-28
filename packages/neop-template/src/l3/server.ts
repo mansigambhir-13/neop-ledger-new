@@ -282,6 +282,8 @@ export function l3App(core: Core): Hono {
     return c.json({ schedules: rows });
   });
 
+  // The platform's push when something it still holds changed (an ACL row, a registry install). A change to
+  // the board itself reaches the gate as NOTIFY 'board:<company>' from this app's own schema (t010).
   app.post('/l3/switchboard.changed', async (c) => {
     const claims = await authed(c, 'switchboard.changed');
     core.board.invalidate(claims.company_id!);
@@ -289,10 +291,6 @@ export function l3App(core: Core): Hono {
     core.borrowed.invalidate(claims.company_id!);
     // Installs and uninstalls change which package lines and skills exist: reload them now.
     core.packages.invalidate(claims.company_id!);
-    // Reload now, so the book's read-only mirror (<schema>.switchboard) shows the new board before the
-    // platform hears "ok" — not whenever the next job happens to load it. A failed reload is not this
-    // call's failure: the cache stays dropped and the next use fetches it.
-    await core.board.get(claims.company_id!).catch((e) => core.log('switchboard reload failed', { e: String(e) }));
     return c.json({ ok: true });
   });
 

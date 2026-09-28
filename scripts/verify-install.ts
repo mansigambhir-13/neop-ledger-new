@@ -7,9 +7,9 @@
 //   tsx scripts/verify-install.ts <app> <company id|slug>
 //
 //   NEOS_PLATFORM_URL                   the running platform (GET /live)
-//   NEOS_DB_URL[_FILE]                  a platform database link (read-only use): apps, installs, switchboards, vault
-//   NEOP_RUNNER_DB_URL[_FILE]           the app's runner link (it reads <app>.schema_migrations, like the boot check);
-//                                       defaults to NEOS_DB_URL
+//   NEOS_DB_URL[_FILE]                  a platform database link (read-only use): apps, installs, vault
+//   NEOP_RUNNER_DB_URL[_FILE]           the app's runner link (it reads <app>.schema_migrations, like the boot check, and
+//                                       <app>.switchboard, the board's truth since v3 S1); defaults to NEOS_DB_URL
 //   NEOP_LLM_UPSTREAM_KEY[_FILE]        the LLM proxy's provider key — present, never read (run where the proxy's env is)
 //   MATRIX_MODE=client + MATRIX_HOMESERVER_URL + MATRIX_CLIENT_ACCOUNTS[_FILE]   each account's token: whoami
 //   NEOS_ENV=production                 an app registered without a conformance attestation is a FAIL (else a WARN)
@@ -225,8 +225,31 @@ export async function verifyInstall(o: {
   await check('switchboard: every line within its floor', async () => {
     if (!companyId || !appRow) throw new Skip('no install to read');
     const m = (appRow as { manifest: Manifest }).manifest;
-    const [sb] = await q<{ version: number; settings: Record<string, string> }>('select version, settings from neos.switchboards where company_id = $1 and app_key = $2 order by version desc limit 1', [companyId, o.app]);
-    const settings = sb?.settings ?? {};
+    // v3 S1: the board is the app's own <schema>.switchboard (read, like the boot check, over the runner link).
+    must(runnerUrl, 'NEOP_RUNNER_DB_URL (or NEOS_DB_URL) is not set');
+    const rp = createPool(runnerUrl!, 1);
+    let sb: { version: number; settings: Record<string, string> };
+    try {
+      const c = await rp.connect();
+      try {
+        await c.query('begin transaction read only');
+        const lines = (await c.query<{ line: string; setting: string }>(`select line, setting from ${schema}.switchboard where company_id = $1 and line <> '*'`, [companyId])).rows;
+        const [v] = (
+          await c.query<{ v: number }>(
+            `select greatest(coalesce((select max(version) from ${schema}.switchboard where company_id = $1), 0),
+                             coalesce((select max(version) from ${schema}.switchboard_history where company_id = $1), 0))::int as v`,
+            [companyId],
+          )
+        ).rows;
+        sb = { version: v?.v ?? 0, settings: Object.fromEntries(lines.map((l) => [l.line, l.setting])) };
+      } finally {
+        await c.query('rollback').catch(() => {});
+        c.release(true);
+      }
+    } finally {
+      await rp.end().catch(() => {});
+    }
+    const settings = sb.settings;
     const floors = new Map(m.abilities.map((a) => [a.key, a.floor as string]));
     const problems: string[] = [];
     for (const [line, setting] of Object.entries(settings)) {

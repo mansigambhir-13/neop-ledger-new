@@ -5,7 +5,7 @@ import { DECISIONS, strictest, type Manifest, type Setting } from '@neop/contrac
 import { Hono, type Context } from 'hono';
 import { streamSSE } from 'hono/streaming';
 import { GatewayError } from './gateway.ts';
-import { MONTH_START_SQL, Platform, PlatformError } from './platform.ts';
+import { Platform, PlatformError } from './platform.ts';
 
 const DESK_HTML = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), 'desk.html'), 'utf8');
 
@@ -44,12 +44,7 @@ export function platformApp(p: Platform): Hono {
     await p.assertInstalled(key, c.req.query('company_id') ?? '');
     return c.json(await p.switchboard(c.req.query('company_id') ?? '', key));
   });
-  app.post('/internal/grants/execution-token', async (c) => {
-    const key = await service(c);
-    const b = await c.req.json();
-    const out = await p.grantExecutionToken(key, b);
-    return out ? c.json(out) : c.json({ error: { code: 'no_grant', message: 'no grant covers this' } }, 404);
-  });
+  // v3 S1: no /internal/grants/execution-token — an app matches its standing yeses in its own schema.
   app.post('/internal/borrow/describe', async (c) => {
     const key = await service(c);
     return c.json(await p.borrowDescribe(key, await c.req.json()));
@@ -402,9 +397,8 @@ export function platformApp(p: Platform): Hono {
     const cost = job
       ? await p.db.query(`select coalesce(sum(cost_micros), 0)::bigint as micros, count(*)::int as calls, coalesce(sum(input_tokens + output_tokens), 0)::bigint as tokens from neos.llm_usage where job_id = $1 and company_id = $2`, [job, u.company_id])
       : { rows: [{ micros: 0, calls: 0, tokens: 0 }] };
-    const grants = job
-      ? await p.db.query(`select at, ability_key, detail from neos.audit where action = 'grant.used' and company_id = $1 and detail->>'job_id' = $2 order by at`, [u.company_id, job])
-      : { rows: [] };
+    // v3 S1: a standing yes's uses are recorded in the app's own schema (<app>.grant_uses).
+    const grants = { rows: job && t.rows[0].app_key ? await p.grantUsesForJob(t.rows[0].app_key, u.company_id, job) : [] };
     const questions = await p.db.query(
       'select id, app_key, wait_id, text, why, fields, due_at, status, answers, answered_by, answered_via, answered_at, created_at from neos.questions where (task_id = $1 or root_task_id = $1) and company_id = $2 order by created_at',
       [t.rows[0].id, u.company_id],
@@ -579,18 +573,9 @@ export function platformApp(p: Platform): Hono {
   // them; everyone can see them and what they have been used for this month.
   app.get('/api/grants', async (c) => {
     const u = await user(c);
-    const r = await p.db.query(
-      `select g.id, g.app_key, g.ability_key, g.limits, g.status, g.expires_at, g.created_at, g.suspended_reason,
-              cu.name as created_by_name,
-              (select count(*)::int from neos.audit a where a.action = 'grant.used' and a.detail->>'grant_id' = g.id::text) as uses,
-              (select coalesce(sum((a.detail->>'amount_minor')::bigint), 0)::bigint from neos.audit a
-                where a.action = 'grant.used' and a.detail->>'grant_id' = g.id::text and a.at >= ${MONTH_START_SQL('co.time_zone')}) as used_this_month_minor,
-              (select max(a.at) from neos.audit a where a.action = 'grant.used' and a.detail->>'grant_id' = g.id::text) as last_used_at
-         from neos.grants g join neos.companies co on co.id = g.company_id left join neos.users cu on cu.id = g.created_by
-        where g.company_id = $1 order by (g.status = 'ACTIVE') desc, g.created_at desc`,
-      [u.company_id],
-    );
-    return c.json({ grants: r.rows.map((g) => ({ ...g, used_this_month_minor: Number(g.used_this_month_minor), expired: new Date(g.expires_at) <= new Date() })) });
+    // v3 S1: read from each app's own <app>.grants and <app>.grant_uses (this month in the company's time zone).
+    const rows = await p.listGrants(u.company_id);
+    return c.json({ grants: rows.map((g) => ({ ...g, expired: new Date(g.expires_at) <= new Date() })) });
   });
   app.post('/api/grants', async (c) => {
     const u = await user(c);
@@ -624,9 +609,9 @@ export function platformApp(p: Platform): Hono {
   app.delete('/api/grants/:id', async (c) => {
     const u = await user(c);
     if (u.role !== 'admin') throw new PlatformError(403, 'denied', 'admins only');
-    const r = await p.db.query(`update neos.grants set status = 'REVOKED' where id = $1 and company_id = $2 and status <> 'REVOKED' returning app_key, ability_key`, [c.req.param('id'), u.company_id]);
-    if (!r.rows[0]) throw new PlatformError(404, 'not_found', 'no such standing yes');
-    await p.gateway.audit({ company_id: u.company_id, actor: `user:${u.id}`, app_key: r.rows[0].app_key, action: 'grant.revoked', ability_key: r.rows[0].ability_key, outcome: c.req.param('id') });
+    const r = await p.revokeGrant(u.company_id, c.req.param('id'), u.id);
+    if (!r?.changed) throw new PlatformError(404, 'not_found', 'no such standing yes');
+    await p.gateway.audit({ company_id: u.company_id, actor: `user:${u.id}`, app_key: r.app_key, action: 'grant.revoked', ability_key: r.ability_key, outcome: c.req.param('id') });
     return c.json({ ok: true });
   });
 
@@ -690,13 +675,14 @@ export function platformApp(p: Platform): Hono {
   // Every switchboard version (WP §4: "change the list and the next call behaves differently").
   app.get('/api/switchboards/:app/history', async (c) => {
     const u = await user(c);
-    const r = await p.db.query(
-      `select s.version, s.updated_at, s.settings, s.rules, s.budget, s.approvals, uu.name as updated_by_name
-         from neos.switchboards s left join neos.users uu on uu.id::text = s.updated_by::text
-        where s.company_id = $1 and s.app_key = $2 order by s.version desc limit 50`,
-      [u.company_id, c.req.param('app')],
-    );
-    return c.json({ versions: r.rows });
+    // v3 S1: replayed from the app's own <app>.switchboard_history (one entry per saved version).
+    const app = c.req.param('app');
+    const versions = /^[a-z][a-z0-9_]{0,40}$/.test(app) ? await p.boards.history(app, u.company_id, 50) : [];
+    const ids = [...new Set(versions.map((v) => /^user:([0-9a-f-]{36})$/i.exec(v.updated_by ?? '')?.[1]).filter(Boolean))] as string[];
+    const names = ids.length ? new Map((await p.db.query<{ id: string; name: string }>('select id::text as id, name from neos.users where id = any($1::uuid[])', [ids])).rows.map((x) => [x.id, x.name])) : new Map<string, string>();
+    return c.json({
+      versions: versions.map(({ updated_by, ...v }) => ({ ...v, updated_by_name: names.get(/^user:([0-9a-f-]{36})$/i.exec(updated_by ?? '')?.[1] ?? '') ?? null })),
+    });
   });
 
   // What the assistant has cost: today (company time zone) and this month, against the caps.

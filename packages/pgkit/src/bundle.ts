@@ -6,7 +6,7 @@
 // It only renders text; nothing here connects to a database.
 
 import { readFile } from 'node:fs/promises';
-import { familyBootstrapSql, familyRoles, assertIdent } from './roles.ts';
+import { deskGrantsSql, familyBootstrapSql, familyRoles, assertIdent } from './roles.ts';
 import { checkMigrateLedger, render, shippedMigrationFiles, type MigrationSource } from './migrate.ts';
 import path from 'node:path';
 
@@ -66,6 +66,12 @@ export async function renderDbaBundle(opts: { schema: string; sources: Migration
   }
   out.push('-- ── 4 · the backend reads the ledger at boot ──────────────────────────');
   out.push(`grant select on ${schema}.schema_migrations to ${roles.app}, ${roles.runner};`);
+  out.push('');
+  out.push('-- ── 5 · the desk (v3 §11): DML on switchboard + installs, EXECUTE on the desk functions ──');
+  out.push('-- Only when the platform has made neos_desk (NOLOGIN); safe to re-run after it does.');
+  out.push(`set role ${roles.migrator};`);
+  out.push(deskGrantsSql(schema));
+  out.push('reset role;');
   out.push('');
   return { schema, sql: out.join('\n'), migrations };
 }

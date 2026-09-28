@@ -81,6 +81,8 @@ export async function importCompany(adminUrl: string, dump: CompanyDump): Promis
     await c.query('begin');
     // Row-level security is forced; restore under this company's own setting.
     await c.query("select set_config('neos.company_id', $1, true)", [dump.company_id]);
+    // An exact restore: the board triggers (t010) keep each row as it was dumped (version, history) and log nothing.
+    await c.query("select set_config('neos.restore', 'on', true)");
     const order = await tablesInOrder(c, dump.schema);
     for (const t of [...order].reverse()) await c.query(`delete from ${dump.schema}.${t} where company_id = $1`, [dump.company_id]);
     for (const t of order) {

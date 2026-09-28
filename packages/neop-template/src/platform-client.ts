@@ -1,29 +1,10 @@
 // Backend → platform internal calls. Authenticated with the app's service
 // secret. The assistant never reaches these; it has no route to the platform.
+// v3 S1: the switchboard, the installs and the grants are read from the app's own schema
+// (gate/switchboard.ts, gate/grants.ts) — never fetched from here.
 
 import type { ManifestAbility, Setting } from '@neop/contracts';
 import { DoorError } from './doors/errors.ts';
-
-export interface SwitchboardDoc {
-  version: number;
-  /** Company settings by ability key (can only tighten the floor). */
-  settings: Record<string, Setting>;
-  rules: unknown[];
-  budget: { per_job_usd?: number; per_day_usd?: number };
-  company: { id: string; name: string; time_zone: string };
-}
-
-export interface GrantTokenRequest {
-  company_id: string;
-  job_id: string;
-  proposal_id: string;
-  ability_key: string;
-  ability_version: string;
-  fingerprint: string;
-  amount_minor?: number;
-  currency?: string;
-  recipients?: string[];
-}
 
 export class PlatformClient {
   readonly base: string;
@@ -47,20 +28,6 @@ export class PlatformClient {
     });
     const text = await res.text();
     return { status: res.status, body: (text ? JSON.parse(text) : null) as T };
-  }
-
-  async switchboard(companyId: string): Promise<SwitchboardDoc> {
-    const r = await this.call<SwitchboardDoc>('GET', `/internal/switchboard?company_id=${encodeURIComponent(companyId)}`);
-    if (r.status !== 200) throw Object.assign(new Error(`switchboard fetch failed: ${r.status}`), { status: r.status });
-    return r.body;
-  }
-
-  /** Ask for an execution token under a standing grant. Null when no grant covers it. */
-  async grantExecutionToken(req: GrantTokenRequest): Promise<{ token: string; grant_id: string } | null> {
-    const r = await this.call<{ token: string; grant_id: string } | { error: string }>('POST', '/internal/grants/execution-token', req);
-    if (r.status === 200) return r.body as { token: string; grant_id: string };
-    if (r.status === 404 || r.status === 409) return null;
-    throw new Error(`grant token request failed: ${r.status}`);
   }
 
   async borrowDescribe(req: { company_id: string; app?: string; ability: string }): Promise<{ ability: ManifestAbility; owner_setting: Setting; acl: boolean; owner?: string }> {
