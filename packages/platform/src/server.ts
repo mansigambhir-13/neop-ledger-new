@@ -80,16 +80,8 @@ export function platformApp(p: Platform): Hono {
     if (!bytes) throw new PlatformError(404, 'not_found', 'no such artifact');
     return c.json({ hash: c.req.param('hash'), base64: bytes.toString('base64') });
   });
-  app.post('/internal/llm/session', async (c) => {
-    const key = await service(c);
-    const b = await c.req.json();
-    return c.json(await p.llmSession(key, b));
-  });
-  app.post('/internal/vault/lend', async (c) => {
-    const key = await service(c);
-    const b = await c.req.json();
-    return c.json({ secret: await p.lend(key, b.company_id, b.door), ttl_s: 60 });
-  });
+  // v3 (S8): /internal/vault/lend and /internal/llm/session are gone. A NEOP backend reads door credentials from the
+  // secret store per (app, company) per call, and its runner mints the assistant's LLM session token itself.
 
   // ── the NEOS app and desk, authenticated as a person ────────────────────
   const user = async (c: Context) => {
@@ -470,8 +462,9 @@ export function platformApp(p: Platform): Hono {
     return c.json({ version: await p.setSwitchboard(u.company_id, c.req.param('app'), u.id, b) });
   });
 
-  // A company admin configures a door's provider credentials (Resend, GSP …). Write-only:
-  // the platform never returns a secret; apps borrow it per call through the vault.
+  // A company admin configures a door's provider credentials (Resend, GSP …). Write-only: the platform never returns a
+  // secret. DEPRECATED (v3 S8, deleted in S9): no NEOP backend reads the vault any more — door credentials live in the
+  // secret store (scripts/deploy.sh door set; move existing ones with scripts/v3/export-door-secrets.ts).
   app.put('/api/vault/:door', async (c) => {
     const u = await user(c);
     if (u.role !== 'admin') throw new PlatformError(403, 'denied', 'admins only');
@@ -489,7 +482,13 @@ export function platformApp(p: Platform): Hono {
     }
     await p.setVaultSecret(u.company_id, door, b, forApp ?? '*');
     await p.gateway.audit({ company_id: u.company_id, actor: `user:${u.id}`, app_key: forApp, action: 'vault.set', ability_key: door, outcome: b.provider, detail: { slot: forApp ? 'app' : 'company' } });
-    return c.json({ ok: true, door, app: forApp ?? null, provider: b.provider });
+    return c.json({
+      ok: true,
+      door,
+      app: forApp ?? null,
+      provider: b.provider,
+      deprecated: 'the platform vault is no longer read by NEOP backends (v3); provision the secret store: scripts/deploy.sh door set <company> <door> [app]',
+    });
   });
   app.get('/api/vault', async (c) => {
     const u = await user(c);

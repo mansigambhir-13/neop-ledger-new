@@ -110,7 +110,8 @@ describe('keys per (company, app, door)', () => {
     const put = (url: string, body: unknown, t = token) => web.request(url, { method: 'PUT', headers: { authorization: `Bearer ${t}`, 'content-type': 'application/json' }, body: JSON.stringify(body) });
     const r = await put('/api/vault/email?app=wage', { provider: 'resend', v: 'wage-own' });
     expect(r.status).toBe(200);
-    expect(await r.json()).toEqual({ ok: true, door: 'email', app: 'wage', provider: 'resend' });
+    // Deprecated with v3 (S8): still stored, but the answer says no backend reads it any more.
+    expect(await r.json()).toEqual({ ok: true, door: 'email', app: 'wage', provider: 'resend', deprecated: expect.stringMatching(/secret store/) });
     expect((await p.lend('wage', co, 'email')).v).toBe('wage-own');
     expect((await put('/api/vault/social?app=ledger', { provider: 'x' })).status).toBe(422); // ledger declares no social door
     expect((await put('/api/vault/email?app=nosuch', { provider: 'x' })).status).toBe(403); // not installed

@@ -5,8 +5,15 @@
 //   tsx scripts/backup.ts restore-schema <run-dir>/<schema>.dump <schema>
 //   tsx scripts/backup.ts export <schema> <company_id> > dump.json
 //   tsx scripts/backup.ts import dump.json
-import { readFile } from 'node:fs/promises';
+//   tsx scripts/backup.ts restore-doors <run-dir>/doors.enc <target doors dir>
+// Door credentials (v3 §12): with NEOS_BACKUP_DOORS_DIR set, each nightly run also holds doors.enc — the whole
+// secret store sealed with NEOS_BACKUP_DOORS_KEY[_FILE] (AES-256-GCM). Without a key it is skipped, never copied
+// in clear. Keep the key apart from the backups (docs/RUNBOOK.md "Door secrets").
+import { existsSync, readFileSync } from 'node:fs';
+import { readFile, writeFile } from 'node:fs/promises';
+import path from 'node:path';
 import { adminUrlFromEnv, exportCompany, importCompany, nightlyBackup, restoreSchema } from '@neop/pgkit';
+import { restoreDoors, sealDoors } from './v3/door-secrets.ts';
 
 const [cmd, ...rest] = process.argv.slice(2);
 const opt = (name: string, fallback?: string): string | undefined => {
@@ -25,8 +32,30 @@ async function nightly() {
     schemas: opt('schemas')?.split(',').map((s) => s.trim()).filter(Boolean),
     log: (msg) => log(msg),
   });
-  log('backup complete', { stamp: m.stamp, schemas: m.schemas.map((s) => `${s.schema}:${s.bytes}`), companies: m.companies.length, removed: m.removed });
+  const dir = opt('dir', process.env.NEOS_BACKUP_DIR ?? '/backups')!;
+  const doors = await backupDoors(path.join(dir, m.stamp));
+  log('backup complete', { stamp: m.stamp, schemas: m.schemas.map((s) => `${s.schema}:${s.bytes}`), companies: m.companies.length, removed: m.removed, doors });
   return m;
+}
+
+function doorsKey(): Buffer | null {
+  const file = process.env.NEOS_BACKUP_DOORS_KEY_FILE;
+  const b64 = file ? (existsSync(file) ? readFileSync(file, 'utf8').trim() : '') : (process.env.NEOS_BACKUP_DOORS_KEY ?? '');
+  return b64 ? Buffer.from(b64, 'base64') : null;
+}
+
+/** The door secret store into this run, sealed. Returns how many credentials went in (never their contents). */
+async function backupDoors(runDir: string): Promise<number | string> {
+  const root = process.env.NEOS_BACKUP_DOORS_DIR;
+  if (!root) return 'not configured';
+  const key = doorsKey();
+  if (!key) {
+    log('door secrets NOT backed up: no NEOS_BACKUP_DOORS_KEY[_FILE] — they are never copied in clear');
+    return 'skipped: no key';
+  }
+  const { blob, files } = await sealDoors(root, key);
+  await writeFile(path.join(runDir, 'doors.enc'), blob, { mode: 0o600 });
+  return files;
 }
 
 /** Milliseconds from `now` until the next HH:MM (local time of the container, TZ env). */
@@ -57,7 +86,13 @@ else if (cmd === 'schedule') {
   log('schema restored', { schema: rest[1], from: rest[0] });
 } else if (cmd === 'export' && rest[0] && rest[1]) process.stdout.write(JSON.stringify(await exportCompany(adminUrlFromEnv(), rest[0], rest[1])));
 else if (cmd === 'import' && rest[0]) console.log(await importCompany(adminUrlFromEnv(), JSON.parse(await readFile(rest[0], 'utf8'))));
+else if (cmd === 'restore-doors' && rest[0] && rest[1]) {
+  const key = doorsKey();
+  if (!key) throw new Error('NEOS_BACKUP_DOORS_KEY[_FILE] is required to open a doors backup');
+  const files = await restoreDoors(await readFile(rest[0]), key, rest[1]);
+  log('door secrets restored', { to: rest[1], files: files.length });
+}
 else {
-  console.error('usage: backup.ts nightly|schedule [--dir d] [--keep n] [--companies] [--schemas a,b] [--at HH:MM] | restore-schema <file> <schema> | export <schema> <company_id> | import <file>');
+  console.error('usage: backup.ts nightly|schedule [--dir d] [--keep n] [--companies] [--schemas a,b] [--at HH:MM] | restore-schema <file> <schema> | export <schema> <company_id> | import <file> | restore-doors <doors.enc> <dir>');
   process.exit(2);
 }

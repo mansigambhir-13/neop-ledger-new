@@ -18,6 +18,8 @@ export { hasSelftest, PackageSelftestError, selftestPackage } from './packages/s
 export type { PackageBundle, PackageManifest } from './packages/types.ts';
 export { EmailDoor } from './doors/email.ts';
 export * as documents from './doors/documents/index.ts';
+export { DEFAULT_DOOR_SECRETS_DIR, doorSecretPaths, FileSecretStore, MemorySecretStore, type Secret, type SecretStore } from './doors/secrets.ts';
+export { generateLlmSigningKey, LlmSessions, runnerIssuer, type LlmConfig } from './runner/llm.ts';
 export { FileDoor, MemoryDoorJournal, PgDoorJournal, GSP_DEFAULT_PATHS, resetGspSessions, sameFigures, type DoorJournal, type GspCredential } from './doors/index.ts';
 export { neosV1App, neosV1Compile, neosV1Descriptor, strictSchema, capabilityId, NEOS_V1_CONTRACT, type NeosV1Config } from './l3/neos-v1.ts';
 export { SchemaMismatchError, type SchemaDrift } from '@neop/pgkit';

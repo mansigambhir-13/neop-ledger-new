@@ -35,7 +35,7 @@ Companies, users/auth, Conversations, NeuralChat (reads `neos_registry`), the de
 | S5 | NeuralChat posts typed tasks as its own Matrix identity; tasks/outbox delivery deleted | medium |
 | S6 | NEOP to NEOP on the bus room; callee asks answered by the caller | medium-high |
 | S7 | Packages at build time; publish writes `neos_registry` | medium |
-| S8 | Doors from the secret store; LLM tokens without the platform | low-medium |
+| S8 | Doors from the secret store; LLM tokens without the platform — **done** (IMPLEMENTATION-NOTES "v3 S8") | low-medium |
 | S9 | Delete the gateway, L3, platform-client, execution-token and legacy platform tables | low |
 
 Merge order: A-S1 → B-S1 → A-S2 → B-S3 → C-S4 → B-S5 → C-S6; D-S8 after A-S1; D-S7 after B-S3; S9 last.

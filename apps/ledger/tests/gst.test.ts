@@ -23,8 +23,8 @@ beforeAll(async () => {
   resetGspSessions();
   GSP = await fakeGstSuvidhaProvider({ gstin: GSTIN, username: 'acme.traders', signatory_pan: 'AAPFU0939F' });
   P = await bootPilot();
-  // An admin connects the GSP on the platform (write-only vault).
-  const r = await P.api('PUT', '/api/vault/gst_portal', {
+  // Ops connects the GSP in the secret store (v3 §12): the backend reads it per call, the assistant never.
+  await P.setDoorSecret('gst_portal', {
     provider: 'gsp',
     base_url: GSP.url,
     client_id: GSP.client_id,
@@ -35,7 +35,6 @@ beforeAll(async () => {
     assume_supply: 'intra_state',
     timeout_ms: 1500,
   });
-  expect(r.status).toBe(200);
   await publishPackage(P, path.resolve(LEDGER_ROOT, '../../registry/nep-gst'));
   await installAndMigrate(P, 'ledger', 'nep-gst');
 });
@@ -67,8 +66,8 @@ const done = (taskId: string) => P.waitFor(async () => (await P.task(taskId)).ta
 const read = async (key: string, args: unknown) => (await P.api('POST', `/api/apps/ledger/read/${key}`, args)).body.result;
 const rows = (period: string) =>
   withCompany(P.backend.core.appPool, P.company.id, async (c) => (await c.query("select * from ledger.nep_gst_returns where period = $1 and status <> 'superseded' order by created_at", [period])).rows);
-/** The person reads the SMS and enters it on the OTP door (write-only vault). The assistant never sees it. */
-const enterOtp = (fields: Record<string, string>) => P.api('PUT', '/api/vault/gst_portal_otp', { provider: 'person', ...fields });
+/** The person reads the SMS and it is entered on the OTP door (the secret store's gst_portal_otp slot). The assistant never sees it. */
+const enterOtp = (fields: Record<string, string>) => P.setDoorSecret('gst_portal_otp', { provider: 'person', ...fields });
 
 async function approve(taskId: string, before?: () => Promise<void>) {
   const card = await P.waitFor(async () => (await P.desk()).find((c) => c.task_id === taskId && c.status === 'PENDING'), 'filing card', 30_000);
@@ -135,7 +134,7 @@ describe('GSTR-3B from the books through a GSP', () => {
     expect(facts.find((f) => /output tax/.test(f.subject))!.source).toMatch(/ledger\.report\.vat_summary/);
 
     // The person reads the SMS and enters the OTP on the door; the assistant never sees it.
-    expect((await enterOtp({ auth_otp: GSP.lastOtp('auth')! })).status).toBe(200);
+    expect(await enterOtp({ auth_otp: GSP.lastOtp('auth')! })).toMatch(/gst_portal_otp\.json$/);
 
     // Job 2: save (logs in, RETSAVE, RETSTATUS), ask for the EVC OTP, propose the filing.
     const j2 = await job('Save and file the September GSTR-3B', [

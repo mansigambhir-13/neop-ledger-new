@@ -1,5 +1,5 @@
 // THE ASSISTANT WORKER POOL · the agent container. Holds a per-app LLM virtual
-// key and nothing else: no database, no vault, no route to the platform. It
+// session token and nothing else: no database, no door credential, no route to the platform. It
 // accepts sessions from its own runner and talks only to its own gate.
 
 import { serve, type ServerType } from '@hono/node-server';

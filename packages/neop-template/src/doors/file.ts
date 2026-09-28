@@ -8,7 +8,7 @@ import type { DoorJournal } from './journal.ts';
 /**
  * A generic door with the contract every door must meet (S1): an effect sent
  * with a door-level idempotency key, and a lookup by that key for read-back.
- * Providers, chosen by the credential the vault lends per call:
+ * Providers, chosen by the credential the secret store holds, read per call:
  *   { provider: 'gsp', base_url, client_id, client_secret, username, gstin, … }
  *       a GST Suvidha Provider speaking the GSTN taxpayer API (auth/OTP, save,
  *       status, submit, file with EVC, track) — see gsp.ts

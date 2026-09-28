@@ -196,7 +196,7 @@ export class PackageHost {
         case 'doors.lookup': {
           if (!pkg.bundle.manifest.doors.includes(params.door)) throw new Error(`door ${params.door} is not granted to ${pkg.key}`);
           if (!base.idempotency_key) throw new Error('doors are only open on the approved path');
-          const door = this.core.doors(base.company_id, [params.door])[params.door];
+          const door = this.core.doors(base.company_id, pkg.bundle.manifest.doors)[params.door];
           if (!door) throw new Error(`the host has no ${params.door} door`);
           return op === 'doors.send' ? door.send(params.record, base.idempotency_key) : door.lookup(base.idempotency_key, params.query ?? undefined);
         }

@@ -224,6 +224,57 @@ What WP v3 §6, §11 and §13 ask of the standard tables, the DBA path and the s
   `<app>_app` and `<app>_runner` when they exist; called by `registerApp` and after every platform migration.
   Tests: `apps/ledger/tests/desk-views.test.ts` (both apps' roles read it; `neos.*` is 42501; no usage on `neos`).
 
+## v3 S8 · doors from the secret store; LLM tokens without the platform (2026-09-28)
+- **Door credentials (v3 §12).** `packages/neop-template/src/doors/secrets.ts`: `SecretStore { get(company, door) }`;
+  `FileSecretStore` (root `NEOP_DOOR_SECRETS_DIR`, default `/run/secrets/doors`) reads
+  `<root>/<company>/<app>/<door>.json` (the app's own), else `<root>/<company>/<door>.json` (company-wide) — the same
+  (company, app|'*', door) binding as platform migration 015 — **on every call** (stat + read; no cache). Every path
+  segment is checked (`[A-Za-z0-9][A-Za-z0-9_.-]*`, no `..`), so another company's directory or another app's file is
+  never named. A world-writable file is refused; group/other-readable is warned once per file; invalid JSON is refused
+  without echoing it. `MemorySecretStore` for tests. Wired as `NeopConfig.secrets` (hook; default the file store).
+  `Core.doors()` gives each door a lend `(door) => Core.lendDoor(company, door, declared)`: declared by the app or the
+  asking package (the package host now passes the package's declared doors, so `gst_portal_otp` is covered) →
+  `undeclared_door`; switched off on the board (`offDoors`, the gate's own rule; the gate has already refused the
+  ability) → `door_off`, the store not read; no file → `no_secret` "not connected for this company". All are
+  `DoorError{definite:true, code}` — nothing sent, the proposal ends FAILED, never UNKNOWN. `DoorError` gained `code`.
+  `PlatformClient.lend()` is gone.
+- **LLM session tokens.** `packages/neop-template/src/runner/llm.ts`: `LlmSessions.mint()` signs the same claims the
+  proxy always metered (company, job, sid, `budget_micros`, `day_cap_micros`, tz) with the app's Ed25519 key, issuer
+  `neop-runner:<app>`, `sub app:<app>`, aud `llm-proxy`, TTL = session max + 60 s. Budget and time zone come from the
+  board the session runs on (`board.budget`, `board.company.time_zone`) — the runner's own switchboard, not a
+  platform call. `NeopConfig.llm = {proxyUrl, signingKey}`; unset → sessions get no token (as "no proxy" before).
+  The proxy (`llmProxyApp`) gains `runnerKeys: {app: [public JWK]}`: a `neop-runner:<app>` token verifies only against
+  that app's keys and must carry `sub = app:<app>`; private components are stripped if given. Platform-signed tokens
+  (JWKS) still verify — the platform's router model uses them. `PlatformClient.llmSession()` is gone.
+- **Platform routes.** `POST /internal/vault/lend` and `POST /internal/llm/session` are **removed** (nothing called
+  them after the switch; `security.test.ts` asserts 404). `Platform.lend()` / `Platform.llmSession()` stay as
+  `@deprecated` methods (tests of the vault's sealing use `lend`; S9 deletes both). `PUT /api/vault/<door>` still
+  stores (sealed) but answers with a `deprecated` note: no backend reads it; `GET /api/vault` unchanged.
+- **Deploy kit.** `gen-secrets` adds `<app>_llm_signing_key` (private JWK, backend only), `llm_runner_keys` (public
+  halves, proxy only; derived and rewritten when it does not match), `backup_doors_key`, and `doors/`. Compose: the
+  backend gets `NEOP_DOOR_SECRETS_DIR`, `NEOP_LLM_PROXY_URL`, `NEOP_LLM_SIGNING_KEY_FILE` and the `doors/` mount
+  read-only; the proxy gets `NEOP_LLM_RUNNER_KEYS_FILE`; `backup` mounts `doors/` read-only and writes `doors.enc`
+  (AES-256-GCM with `backup_doors_key`; skipped, never in clear, without it; `backup.ts restore-doors`). No agent,
+  web or platform service has the mount (`network.test.ts`). `deploy.sh door set|rm|ls` (JSON on stdin, jq-validated,
+  0600 via write-then-rename, owned by `NEOS_DOORS_UID`=1000); step 9 writes `EMAIL_DOOR_JSON` into
+  `doors/<co>/ledger/email.json` instead of `PUT /api/vault`. `verify-install`: "doors: a credential file for every
+  connected door (not read)" (WARN when missing or group/other-readable; off doors need none) and "deploy: the door
+  secret store reaches the backend only" (from `NEOS_COMPOSE_FILE`, which deploy renders with `docker compose
+  config`). `scripts/v3/export-door-secrets.ts` moves the vault into files (opens rows with `VaultCipher` + `vaultAad`,
+  0600, keeps existing unless `--overwrite`, prints names only, exit 1 if a row does not open).
+  `scripts/netcheck.sh` unchanged: the backend still reaches the platform (switchboard until S1, registry, a2a).
+- **Tests.** New `apps/ledger/tests/secret-store.test.ts` (rotation between two calls; own over company-wide;
+  another app's and another company's files never read, traversal names refused; missing → definite FAILED, nothing
+  sent; the agent's session body, the brain's view and the job token carry no secret; export and backup round trips).
+  Ported, same meaning: `providers`, `gst` (OTP slot is a store file), `registry`, `lifecycle`, `security` (B1 on the
+  backend's lend + routes gone), `doors-switch` (backend refuses an off door without reading the store),
+  `hardening` (vault sealing, deprecated), `llm-proxy` (runner-minted tokens; forged key, unknown app, crossed
+  `sub` refused), `network`, `verify-install`. The testkit pilot provisions a file store per boot
+  (`P.doorsDir`, `P.setDoorSecret`, `P.removeDoorSecret`) and, with `llmUpstream`, a signing key per app.
+- **Not changed:** the runner's spend meter still calls the proxy's `/v1/spend`; in compose the backend is not on the
+  `llm` network, so in production that read fails soft (null) exactly as before S8 — the proxy still enforces both
+  caps. Person-entered GST OTPs are written by ops into `gst_portal_otp` (a desk path for the person is later).
+
 ## Deliberately not built from WP v3
 - **Voice.** The NEOS app transcribes speech on the device/client before it calls `POST /api/ask`; the platform and every NEOP take text only. Nothing here receives audio, so there is no speech model, audio store or consent flow to build or secure on this side. An audio note a person wants kept is an attachment like any other file (kept by the document store).
 - **pgvector `similar_to`.** No Ledger ability needs similarity search: every Ledger read is exact (accounts, parties, documents by number, dates, amounts), and matching bank lines is rule- and amount-based. When an app does need it, it is the app's own concern inside its own schema, as §11 says: its migration adds `create extension if not exists vector` (the DBA enables the extension once per database), a `vector(n)` column on its own table with `company_id` and RLS like every other table, and an index (`hnsw`/`ivfflat`); a `similar_to` read is then ordinary SQL (`order by embedding <=> $1 limit k`) in that app's repository. Embeddings are computed in the backend through the LLM proxy, never by the assistant with a key. No separate vector store.
@@ -243,6 +294,6 @@ What WP v3 §6, §11 and §13 ask of the standard tables, the DBA path and the s
   - the filing sequence for the current GSTR-3B: we SAVE → SUBMIT → FILE; offsetting the liability (RETOFFSET) and paying tax (PMT-06 challan / cash ledger) are **not** implemented, so a return with net tax payable will be refused by the portal until the liability is offset;
   - the shape of RETSUM (we compare only the figures we sent) and RETTRACK (`EFiledlist`, `status: Filed`);
   - DSC signing (only EVC is implemented).
-- A desk card field for a person's write-only door input (OTP/EVC), instead of the vault slot.
+- A desk card field for a person's write-only door input (OTP/EVC), instead of the `gst_portal_otp` secret-store slot.
 - The registry improvement loop (plan: after the second app ships).
 - Wage (if chosen as the second real NEOP).

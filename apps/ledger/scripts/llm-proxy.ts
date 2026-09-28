@@ -1,5 +1,7 @@
-// LLM proxy container entry (R1): holds the provider key; verifies platform-signed
-// session tokens against the platform JWKS; meters and caps spend in Postgres.
+// LLM proxy container entry (R1): holds the provider key; meters and caps spend in Postgres.
+// Session tokens: minted by each app's runner (v3, S8) and checked against that app's public key
+// (NEOP_LLM_RUNNER_KEYS[_FILE]: {"ledger": [<public Ed25519 JWK>]}); the platform's own tokens (its
+// router model) still verify against the platform JWKS.
 import { serve } from '@hono/node-server';
 import { createPool } from '@neop/pgkit';
 import { llmProxyApp, pricesFromEnv } from '@neop/platform';
@@ -8,6 +10,7 @@ import { env } from './env.ts';
 const app = llmProxyApp({
   db: createPool(env('NEOS_DB_URL'), 10),
   jwks: `${env('NEOS_PLATFORM_URL')}/.well-known/jwks.json`,
+  runnerKeys: JSON.parse(env('NEOP_LLM_RUNNER_KEYS', '{}')),
   upstream: {
     baseUrl: env('NEOP_LLM_UPSTREAM_URL', 'https://api.anthropic.com'),
     apiKey: env('NEOP_LLM_UPSTREAM_KEY'),

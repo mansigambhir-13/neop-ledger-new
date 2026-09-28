@@ -1,6 +1,8 @@
 // THE LLM PROXY (R1). Anthropic Messages-compatible. Holds the provider key;
-// the agent holds only a platform-signed session token scoped to one job
-// session, one company and one app with a budget. Every call reserves its
+// the agent holds only a session token scoped to one job session, one company
+// and one app with a budget. v3 (S8): an app's runner mints that token itself
+// with a key only this proxy trusts for that app (`runnerKeys`, public halves);
+// platform-signed tokens (JWKS) are still accepted for the platform's own use. Every call reserves its
 // worst case against the job budget and the company-app daily cap before
 // going upstream, then settles the real usage. Over budget → 402, before any
 // upstream call. The proxy is the single meter (S9): the per-job budget is
@@ -9,7 +11,7 @@
 // (GET /v1/spend), never from the agent's own report.
 
 import { Hono } from 'hono';
-import { createLocalJWKSet, createRemoteJWKSet, jwtVerify, type JWTVerifyGetKey } from 'jose';
+import { createLocalJWKSet, createRemoteJWKSet, decodeJwt, jwtVerify, type JWTVerifyGetKey } from 'jose';
 import type { Pool } from '@neop/pgkit';
 import { Tracer } from '@neop/contracts';
 
@@ -22,8 +24,13 @@ export interface Price {
 
 export interface ProxyConfig {
   db: Pool;
-  /** Keys that sign session tokens: the gateway keyring in-process, or the platform's JWKS URL. */
-  jwks: (() => { keys: any[] }) | string;
+  /** Keys that sign session tokens: the gateway keyring in-process, or the platform's JWKS URL. Optional once only runners mint. */
+  jwks?: (() => { keys: any[] }) | string;
+  /**
+   * v3: each app's runner signs its own sessions. app key → public Ed25519 JWKs (or a getter, for rotation).
+   * A token issued `neop-runner:<app>` verifies only against that app's keys and must carry `sub` = `app:<app>`.
+   */
+  runnerKeys?: Record<string, any[]> | (() => Record<string, any[]>);
   upstream: {
     baseUrl: string;
     apiKey: string;
@@ -64,6 +71,7 @@ export function llmProxyApp(cfg: ProxyConfig): Hono {
   const remote = typeof cfg.jwks === 'string' ? createRemoteJWKSet(new URL(cfg.jwks), { cacheMaxAge: 60_000 }) : null;
   const keys = (): JWTVerifyGetKey => {
     if (remote) return remote;
+    if (!cfg.jwks) throw new Error('no platform JWKS configured');
     if (!keySet || Date.now() - keysAt > 30_000) {
       keySet = createLocalJWKSet((cfg.jwks as () => { keys: any[] })());
       keysAt = Date.now();
@@ -71,9 +79,32 @@ export function llmProxyApp(cfg: ProxyConfig): Hono {
     return keySet;
   };
 
+  const runnerSets = new Map<string, { at: number; set: JWTVerifyGetKey }>();
+  const runnerKeys = (app: string): JWTVerifyGetKey | null => {
+    const all = typeof cfg.runnerKeys === 'function' ? cfg.runnerKeys() : cfg.runnerKeys;
+    const list = all && Object.hasOwn(all, app) ? all[app] : null;
+    if (!list?.length) return null;
+    const hit = runnerSets.get(app);
+    if (hit && Date.now() - hit.at < 30_000) return hit.set;
+    // Public halves only: a private component here would mean the proxy could mint for the app.
+    const set = createLocalJWKSet({ keys: list.map(({ d: _d, ...pub }: any) => pub) });
+    runnerSets.set(app, { at: Date.now(), set });
+    return set;
+  };
+
   async function verify(token: string | undefined): Promise<SessionClaims | null> {
     if (!token) return null;
     try {
+      const iss = decodeJwt(token).iss ?? '';
+      if (iss.startsWith('neop-runner:')) {
+        // A runner-minted session: only that app's key, only that app's subject.
+        const app = iss.slice('neop-runner:'.length);
+        const set = runnerKeys(app);
+        if (!set) return null;
+        const { payload } = await jwtVerify(token, set, { issuer: iss, audience: 'llm-proxy', algorithms: ['EdDSA'], subject: `app:${app}` });
+        return payload as unknown as SessionClaims;
+      }
+      if (!cfg.jwks) return null;
       const { payload } = await jwtVerify(token, keys(), { issuer: 'neos-gateway', audience: 'llm-proxy', algorithms: ['EdDSA'] });
       return payload as unknown as SessionClaims;
     } catch {

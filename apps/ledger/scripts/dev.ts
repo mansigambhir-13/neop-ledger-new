@@ -9,7 +9,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { adminUrlFromEnv, roleUrl } from '@neop/pgkit';
 import { hashSecret, loadOrCreateSigningKeys, migratePlatform, startPlatform, VaultCipher } from '@neop/platform';
-import { buildPackage, migrateApp, migratePackage, startBackend } from '@neop/template';
+import { buildPackage, doorSecretPaths, FileSecretStore, generateLlmSigningKey, migrateApp, migratePackage, startBackend } from '@neop/template';
 import { modelFromEnv, proxyModel, startAgentWorker } from '@neop/template/agent';
 import { ledgerApp, LEDGER_ROOT, manifest, seedLedger } from '../src/index.ts';
 
@@ -46,12 +46,21 @@ const vaultKeys = await readFile(vaultFile, 'utf8').then(JSON.parse).catch(async
   await writeFile(vaultFile, JSON.stringify(k), { mode: 0o600 });
   return k;
 });
+// v3 (S8): the runner mints its assistants' LLM session tokens with this key; the proxy trusts its public half.
+const llmKeyFile = path.join(varDir, 'ledger-llm-signing-key.json');
+const llmKey = await readFile(llmKeyFile, 'utf8').then(JSON.parse).catch(async () => {
+  const k = await generateLlmSigningKey('llm-ledger');
+  await writeFile(llmKeyFile, JSON.stringify(k), { mode: 0o600 });
+  return k;
+});
+// Door credentials (v3 §12): the secret store, one file per (company, door), read by the backend per call.
+const doorsDir = path.join(varDir, 'doors');
 const plat = await startPlatform({
   dbUrl: roleUrl(adminUrl, 'neos_app'),
   keys,
   vaultKeys,
   registryKeys: await loadOrCreateSigningKeys(path.join(varDir, 'registry-key.json')),
-  llm: upstreamKey ? { upstream: { baseUrl: process.env.NEOP_LLM_UPSTREAM_URL ?? 'https://api.anthropic.com', apiKey: upstreamKey } } : undefined,
+  llm: upstreamKey ? { upstream: { baseUrl: process.env.NEOP_LLM_UPSTREAM_URL ?? 'https://api.anthropic.com', apiKey: upstreamKey }, runnerKeys: { ledger: [llmKey.publicJwk] } } : undefined,
   port: BASE,
   log,
 });
@@ -78,6 +87,8 @@ const backend = await startBackend(
     gateUrl: `http://127.0.0.1:${BASE + 2}`,
     poolSize: 5,
     runnerId: 'dev-runner',
+    secrets: new FileSecretStore({ root: doorsDir, app: 'ledger' }),
+    llm: upstreamKey ? { proxyUrl: `${plat.url}/llm`, signingKey: llmKey.privateJwk } : undefined,
     log,
   },
   { l3Port: BASE + 1, gatePort: BASE + 2 },
@@ -95,8 +106,14 @@ if (!(await p.db.query("select 1 from neos.users where token_hash = $1", [hashSe
   await p.createUser(co.id, { name: 'Ops (operator)', email: 'ops@neos.example', role: 'operator', token: 'dev_operator' });
 }
 await p.installApp(co.id, 'ledger');
-await p.setVaultSecret(co.id, 'email', { provider: 'dev-mailbox', dir: path.join(varDir, 'mailbox') });
-await p.setVaultSecret(co.id, 'gst_portal', { provider: 'dev-file', dir: path.join(varDir, 'gst-portal') });
+for (const [door, secret] of [
+  ['email', { provider: 'dev-mailbox', dir: path.join(varDir, 'mailbox') }],
+  ['gst_portal', { provider: 'dev-file', dir: path.join(varDir, 'gst-portal') }],
+] as const) {
+  const f = doorSecretPaths(doorsDir, co.id, 'ledger', door).company;
+  await mkdir(path.dirname(f), { recursive: true, mode: 0o700 });
+  if (!(await readFile(f, 'utf8').catch(() => null))) await writeFile(f, JSON.stringify(secret), { mode: 0o600 });
+}
 const seeded = await seedLedger(backend.core.appPool, co.id);
 
 // Optional: the GST package, end to end (operator review -> admin install -> migration runner).
@@ -116,7 +133,7 @@ if ((process.env.NEOP_DEV_PACKAGES ?? '').split(',').includes('nep-gst')) {
     await p.applyPackageMigration(pk, () => migratePackage(adminUrl, pk.host_app, pk.bundle));
   }
   // GSTR-3B needs a GSP credential (provider 'gsp'); the dev-file door above cannot prepare or file one.
-  log('nep-gst installed for Acme Traders (connect a GSP: PUT /api/vault/gst_portal, see docs/RUNBOOK.md)');
+  log(`nep-gst installed for Acme Traders (connect a GSP: write ${path.join(doorsDir, co.id, 'gst_portal.json')}, see docs/RUNBOOK.md)`);
 }
 
 console.log(`

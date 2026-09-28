@@ -89,6 +89,8 @@ describe('live validation against the pilot', () => {
       only: ['reads', 'blocks', 'governance', 'writes', 'questions', 'documents'],
       budgetUsd: 1,
       emailTo: 'lv-check@acme.example',
+      // v3 (S8): the pilot's email door is in its secret store, which a remote check cannot list: named here.
+      doors: ['email'],
       gst: false,
       jobTimeoutMs: 30_000,
       pollMs: 100,

@@ -1,12 +1,12 @@
 // verify-install.test · scripts/verify-install.ts, the read-only post-install check (ported from 930eb38), run
 // against the real pilot: a complete install passes; each broken part is a named FAIL with a plain reason, and any
 // FAIL makes the whole check fail. It never writes and never prints a secret.
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { verifyInstall, type CheckResult } from '../../../scripts/verify-install.ts';
-import { ledgerApp } from '../src/index.ts';
+import { ledgerApp, LEDGER_ROOT } from '../src/index.ts';
 import { bootPilot, fakeClientHomeserver, type Pilot } from './harness.ts';
 
 let P: Pilot;
@@ -22,7 +22,14 @@ async function run(env: Record<string, string> = {}, fetchImpl?: any) {
     app: 'ledger',
     company: P.company.id,
     def: await ledgerApp(),
-    env: { NEOS_PLATFORM_URL: P.platformUrl, NEOS_DB_URL: P.adminUrl, NEOP_LLM_UPSTREAM_KEY: 'sk-never-printed', ...env },
+    env: {
+      NEOS_PLATFORM_URL: P.platformUrl,
+      NEOS_DB_URL: P.adminUrl,
+      NEOP_LLM_UPSTREAM_KEY: 'sk-never-printed',
+      NEOP_DOOR_SECRETS_DIR: P.doorsDir,
+      NEOS_COMPOSE_FILE: path.join(LEDGER_ROOT, '../../deploy/compose.pilot.yml'),
+      ...env,
+    },
     fetchImpl,
     out: (l) => lines.push(l),
   });
@@ -31,7 +38,7 @@ async function run(env: Record<string, string> = {}, fetchImpl?: any) {
 
 describe('verify-install (read-only, against a running deployment)', () => {
   it('a complete install passes every check it can make; the table never shows a secret', async () => {
-    await P.api('PUT', '/api/vault/email', { secret: { from: 'books@acme.example' } }).catch(() => null);
+    await P.setDoorSecret('email', { provider: 'resend', api_key: 'sk-door-never-printed', from: 'books@acme.example' });
     const r = await run();
     for (const name of [
       'build: ledger is an app of this build',
@@ -44,11 +51,14 @@ describe('verify-install (read-only, against a running deployment)', () => {
       'switchboard: every line within its floor',
       'llm proxy: provider key present (not read)',
       'backend: /l3/ready, reached as the platform reaches it',
+      'doors: a credential file for every connected door (not read)',
+      'deploy: the door secret store reaches the backend only (no agent, no web mount)',
     ]) expect(r.by[name]?.status, `${name}: ${r.by[name]?.detail}`).toBe('PASS');
     expect(['PASS', 'WARN']).toContain(r.by['platform: ledger is registered, active and attested']!.status);
     expect(r.by['matrix: client tokens valid (whoami)']!.status).toBe('SKIP');
     expect(r.text).toMatch(/^STATUS\s+CHECK\s+DETAIL/);
     expect(r.text).not.toContain('sk-never-printed');
+    expect(r.text).not.toContain('sk-door-never-printed');
     expect(r.text).not.toContain(P.adminUrl);
   });
 
@@ -70,6 +80,38 @@ describe('verify-install (read-only, against a running deployment)', () => {
     } finally {
       await P.platform.db.query('delete from neos.switchboards where company_id = $1 and app_key = $2 and version = $3', [P.company.id, 'ledger', v]);
     }
+  });
+
+  it('doors (v3 §12): a missing or open credential file is a warning, a door switched off needs none, an agent that mounts the store fails', async () => {
+    const name = 'doors: a credential file for every connected door (not read)';
+    await P.removeDoorSecret('email');
+    expect((await run()).by[name]).toMatchObject({ status: 'WARN', detail: expect.stringMatching(/no credential yet for email/) });
+    await P.api('PUT', '/api/switchboards/ledger', { settings: { 'door:email': 'off' } });
+    expect((await run()).by[name]).toMatchObject({ status: 'PASS', detail: expect.stringMatching(/switched off: email/) });
+    await P.api('PUT', '/api/switchboards/ledger', { settings: { 'door:email': 'on' } });
+    const f = await P.setDoorSecret('email', { provider: 'dev-mailbox', dir: P.mailDir }, { app: 'ledger' });
+    await chmod(f, 0o644);
+    expect((await run()).by[name]).toMatchObject({ status: 'WARN', detail: expect.stringMatching(/readable by group or others/) });
+    await chmod(f, 0o600);
+    expect((await run()).by[name]).toMatchObject({ status: 'PASS', detail: 'email (own)' });
+    expect((await run({ NEOP_DOOR_SECRETS_DIR: '/nonexistent/doors' })).by[name]!.status).toBe('FAIL');
+
+    const dep = 'deploy: the door secret store reaches the backend only (no agent, no web mount)';
+    const dir = await mkdtemp(path.join(os.tmpdir(), 'neos-compose-'));
+    try {
+      const good = await readFile(path.join(LEDGER_ROOT, '../../deploy/compose.pilot.yml'), 'utf8');
+      const leaky = good.replace('command: ["tsx", "apps/ledger/scripts/agent.ts"]', 'command: ["tsx", "apps/ledger/scripts/agent.ts"]\n    volumes: ["./secrets/doors:/run/secrets/doors:ro"]');
+      expect(leaky).not.toBe(good);
+      await writeFile(path.join(dir, 'leaky.yml'), leaky);
+      const r = await run({ NEOS_COMPOSE_FILE: path.join(dir, 'leaky.yml') });
+      expect(r.by[dep]).toMatchObject({ status: 'FAIL', detail: expect.stringMatching(/ledger-agent can see the door secret store/) });
+      expect(r.ok).toBe(false);
+      expect((await run({ NEOS_COMPOSE_FILE: '' })).by[dep]!.status).toBe('SKIP');
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+    await P.removeDoorSecret('email', { app: 'ledger' });
+    await P.setDoorSecret('email', { provider: 'dev-mailbox', dir: P.mailDir });
   });
 
   it('MATRIX_MODE=client: each account’s token is checked with whoami — its own account passes, another’s fails', async () => {

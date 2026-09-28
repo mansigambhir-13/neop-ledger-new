@@ -1,6 +1,6 @@
 // Agent container entry: the assistant worker pool. Keyless (R1): each session
-// arrives with a platform-signed, budgeted token for the LLM proxy. No database,
-// no vault, no route to the platform, no provider key.
+// arrives with a budgeted token for the LLM proxy, minted by its own runner. No
+// database, no door credential (no secret-store mount), no route to the platform, no provider key.
 import { closeServer } from '@neop/pgkit';
 import { proxyModel, startAgentWorker } from '@neop/template/agent';
 import { bindAddress, env, log, onShutdown, requireEnv } from './env.ts';

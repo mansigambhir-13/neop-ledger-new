@@ -111,7 +111,7 @@ describe('packages', () => {
 
   it('the assistant uses the package behind the host gate: prepare reads the books in the sandbox; filing cannot be proposed before a save', async () => {
     // A GSP credential (profile only: this test never reaches the GSP). The full GSP flow is gst.test.
-    await P.platform.setVaultSecret(P.company.id, 'gst_portal', {
+    await P.setDoorSecret('gst_portal', {
       provider: 'gsp', base_url: 'http://127.0.0.1:9', client_id: 'c', client_secret: 's', username: 'acme', gstin: '27AAPFU0939F1ZV', assume_supply: 'intra_state',
     });
     let tools: string[] = [];

@@ -938,6 +938,7 @@ export class Platform {
   /**
    * A token scoped to one assistant session. The budget comes from the
    * company's switchboard, never from the app or the agent.
+   * @deprecated v3 (S8): the runner mints session tokens itself (template runner/llm.ts); no route serves this. S9 deletes it.
    */
   async llmSession(app: string, req: { company_id: string; job_id: string; sid: string; ttl_seconds: number }) {
     if (!this.llmProxyUrl) throw new PlatformError(404, 'no_llm_proxy', 'this platform runs no LLM proxy');
@@ -1082,6 +1083,7 @@ export class Platform {
     return strictest(doorFloor(m, door), sb.settings?.[`door:${door}`]);
   }
 
+  /** @deprecated v3 (S8): NEOP backends read the secret store (template doors/secrets.ts); no route serves this. S9 deletes it. */
   async lend(app: string, companyId: string, door: string): Promise<Record<string, unknown>> {
     await this.assertInstalled(app, companyId);
     if (!(await this.declaredDoors(app, companyId)).has(door)) {

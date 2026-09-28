@@ -33,7 +33,7 @@ export async function startPlatform(
     chat?: { matrix: MatrixConfig } | { transport: RoomTransport; serverName: string } | { client: ChatClientsConfig };
     bridgeSendEveryMs?: number;
     /** Run the LLM proxy in this process, mounted at /llm. */
-    llm?: { upstream: ProxyConfig['upstream']; prices?: Record<string, Price> };
+    llm?: { upstream: ProxyConfig['upstream']; prices?: Record<string, Price>; runnerKeys?: ProxyConfig['runnerKeys'] };
   },
 ): Promise<{ platform: Platform; bridge: ChatBridge | null; chatClients: ChatClient[]; port: number; url: string; stop: () => Promise<void> }> {
   const platform = new Platform(opts);
@@ -84,7 +84,7 @@ export async function startPlatform(
   // The Matrix client road (MATRIX_MODE=client) and its allowlist admin API (bridge/routes.ts).
   app.route('/', chatClientRoutes(platform, () => chatClients, { linkUsers: !bridge }));
   if (opts.llm) {
-    app.route('/llm', llmProxyApp({ db: platform.db, jwks: () => platform.gateway.jwks(), upstream: opts.llm.upstream, prices: opts.llm.prices ?? pricesFromEnv(), log: opts.log ? (m, e) => opts.log!(m, { e: String(e) }) : undefined }));
+    app.route('/llm', llmProxyApp({ db: platform.db, jwks: () => platform.gateway.jwks(), runnerKeys: opts.llm.runnerKeys, upstream: opts.llm.upstream, prices: opts.llm.prices ?? pricesFromEnv(), log: opts.log ? (m, e) => opts.log!(m, { e: String(e) }) : undefined }));
   }
   const { server, port } = await new Promise<{ server: ServerType; port: number }>((resolve) => {
     const server = serve({ fetch: app.fetch, port: opts.port ?? 0, hostname: host }, (info) => resolve({ server, port: info.port }));

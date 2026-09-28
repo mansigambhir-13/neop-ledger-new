@@ -35,8 +35,11 @@ if [ -z "${CHAOS_TOKEN:-}" ]; then
   dc "${OPS[@]}" install "$CO" ledger >/dev/null
   dc exec -T ledger-backend tsx apps/ledger/scripts/seed.ts "$CO" --demo-data >/dev/null
   RESEND=$(dc exec -T fakes node -e "fetch('http://127.0.0.1:4900/_resend_token').then(r=>r.text()).then(t=>process.stdout.write(t))")
-  curl -fsS -X PUT "$CHAOS_PLATFORM_URL/api/vault/email" -H "authorization: Bearer $CHAOS_TOKEN" -H 'content-type: application/json' \
-    -d "{\"provider\":\"resend\",\"api_key\":\"$RESEND\",\"from\":\"Chaos Books <books@chaos.example>\",\"base_url\":\"http://fakes:4900\"}" >/dev/null
+  # v3 §12: the email door's credential goes into the secret store the backend reads per call (stdin, never argv).
+  printf '{"provider":"resend","api_key":"%s","from":"Chaos Books <books@chaos.example>","base_url":"http://fakes:4900"}' "$RESEND" \
+    | NEOS_SECRETS_DIR="$(cd "$SECRETS" && pwd)" bash scripts/deploy.sh door set "$CO" email ledger >/dev/null 2>&1
+  # CI only (as for the other throwaway secrets): the backend runs as another uid than the runner.
+  [ -n "${CI:-}" ] && chmod -R a+rX "$SECRETS/doors"
   echo "bootstrapped company $CO" >&2
 fi
 

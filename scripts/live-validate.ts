@@ -46,6 +46,8 @@ export interface Options {
   budgetUsd: number;
   /** Recipient for every external-effect write (never a real customer). Without it those writes are SKIPPED. */
   emailTo?: string;
+  /** Doors connected at this company (v3: the secret store is not visible from here). */
+  doors?: string[];
   /** Run GST portal writes of an installed nep-gst package (only against a sandbox portal). */
   gst: boolean;
   jobTimeoutMs: number;
@@ -527,8 +529,10 @@ export class LiveValidator {
       income: accounts.some((a) => a.code === '4000' && a.type === 'income') ? '4000' : pick((a) => a.type === 'income', '4000'),
       budget: accounts.some((a) => a.code === '6400') ? '6400' : pick((a) => a.type === 'expense', '6400'),
     };
+    // v3 (S8): door credentials live in the backend's secret store, which this remote check cannot see: the operator
+    // names the connected doors (--doors / NEOS_VALIDATE_DOORS). The deprecated vault listing still counts.
     const vault = await this.api('GET', '/api/vault');
-    this.s.vaultDoors = new Set((vault.body?.doors ?? []).map((x: any) => x.door));
+    this.s.vaultDoors = new Set([...(vault.body?.doors ?? []).map((x: any) => x.door), ...(this.o.doors ?? [])]);
     const mem = this.o.memberToken ? await this.api('GET', '/api/me', undefined, this.o.memberToken) : null;
     this.s.memberOk = mem?.status === 200 && mem.body.role === 'member';
     if (this.o.memberToken && !this.s.memberOk) this.notes.push(`The member token did not sign in as a member (${mem?.status} ${mem?.body?.role ?? ''}); member checks are skipped.`);
@@ -691,7 +695,7 @@ export class LiveValidator {
     if (opts.external) {
       const door = opts.external;
       if (!this.doors.has(door) || !this.s.vaultDoors.has(door)) {
-        this.add(section, label, 'SKIPPED', `the ${door} door is not connected (no ${door} provider in the vault)`);
+        this.add(section, label, 'SKIPPED', `the ${door} door is not connected (not named in --doors / NEOS_VALIDATE_DOORS)`);
         return { ok: false, approval: null, run: null };
       }
       if (door === 'email' && !this.o.emailTo) {
@@ -1427,6 +1431,7 @@ export function parseArgs(argv: string[], env: NodeJS.ProcessEnv): Options {
     budgetUsd: Number(flag('budget-usd') ?? 12),
     emailTo: flag('email-to') ?? env.NEOS_VALIDATE_EMAIL_TO,
     gst: argv.includes('--gst'),
+    doors: (flag('doors') ?? env.NEOS_VALIDATE_DOORS ?? '').split(',').map((s) => s.trim()).filter(Boolean),
     jobTimeoutMs: Number(flag('job-timeout-s') ?? 360) * 1000,
     pollMs: Number(flag('poll-ms') ?? 2000),
     scheduleLeadMin: Number(flag('schedule-lead-min') ?? 2),
