@@ -172,6 +172,8 @@ function attachmentFactOf(u: DocumentUpload): { subject: string; value: Record<s
         bytes: d.bytes,
         ...(d.pages !== undefined ? { pages: d.pages } : {}),
         chars: d.chars,
+        // Read as written: amounts here are in the document's own unit (rupees), not the tools' minor units.
+        units: 'amounts as written in the document (main currency unit, e.g. rupees) — multiply by 100 for minor-unit tool inputs',
         text: d.text.slice(0, ATTACHMENT_TEXT),
         text_truncated: d.chars > ATTACHMENT_TEXT || d.truncated,
       },
