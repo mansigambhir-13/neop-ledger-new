@@ -23,7 +23,7 @@
 // Every event is recorded once by event_id (presence/events.ts claimInbound): Matrix redelivers, and a redelivery
 // neither opens a second job nor sends a second reply.
 
-import { answersFromText, type Question, type TaskResult } from '@neop/contracts';
+import { answersFromText, readTaskFields, type Question, type TaskResult } from '@neop/contracts';
 import { ExecError } from '../capabilities/execute.ts';
 import { openJob } from '../capabilities/platform/tasks.open.ts';
 import { answerWait } from '../capabilities/platform/waits.answer.ts';
@@ -31,6 +31,8 @@ import type { Core } from '../core.ts';
 import { bridgeCardText, clip, FIXED_FAILURE, roomText, waitingCardText } from '../presence/cards.ts';
 import { isTypedEventType, keyTxnId, maySend, replyTxnId, shortType, taskIdForEvent, threadRelation, threadRootOf, typedContent, validateTypedBody, type TypedBodies, type TypedEventType } from '../presence/events.ts';
 import type { Identity, Person, Who } from '../presence/identity.ts';
+import { fetchTaskFiles } from '../presence/files.ts';
+import type { DocumentUpload } from '../doors/documents/index.ts';
 import type { Bus } from './bus.ts';
 import { DECLINE, isConsent, parseDecision, PLAIN_DECLINE, plainAnswers, POSTPONE } from '../presence/lexicon.ts';
 
@@ -302,23 +304,37 @@ export class Inbound {
   }
 
   /**
-   * Open a job for this person from this event (idempotent on the event: its task id is derived from it). `as`: a
-   * task from another app on the bus (v3 §9, S6) — the asking app is the requester, the person is on_behalf_of.
+   * Open a job for this person from this event (idempotent on the event: its task id is derived from it).
+   * `t.requester`/`t.source`: a task from another app on the bus (v3 §9, S6) — the asking app is the requester, the
+   * person is on_behalf_of. `t.task_id`/`trace`/`attachments`/`parent_job_id` (v3 S5, a typed task): the sender's task id
+   * when it may be the job's, its trace, the files it referenced, the job it follows up.
    */
-  async open(road: Road, eventId: string, room: string, personId: string, text: string, outcome: string, as?: { requester: string; source: 'a2a' }): Promise<string | null> {
+  async open(
+    road: Road,
+    eventId: string,
+    room: string,
+    personId: string,
+    text: string,
+    outcome: string,
+    t: { requester?: string; source?: 'a2a'; task_id?: string; trace?: string | null; attachments?: DocumentUpload[]; parent_job_id?: string | null } = {},
+  ): Promise<string | null> {
     const inst = await this.identity.install(road.companyId);
     if (!inst || inst.status !== 'active') {
       await this.replyNow(road, eventId, room, outcome.startsWith('typed:') ? 'typed:not_installed' : 'not_installed', 'This app is not installed for your company. Nothing was done.');
       return null;
     }
+    const span = t.trace ? this.core.tracer.start('presence.task', t.trace, { 'neop.app': this.core.key, 'neop.event': eventId }) : null;
     const { job_id } = await openJob(this.core, road.companyId, {
-      task_id: taskIdForEvent(eventId),
+      task_id: t.task_id ?? taskIdForEvent(eventId),
       ask: text,
-      requester: as?.requester ?? `user:${personId}`,
-      source: as?.source ?? (road.kind === 'appservice' ? 'room' : 'task'),
-      ...(as ? { on_behalf_of: `user:${personId}` } : {}),
+      requester: t.requester ?? `user:${personId}`,
+      source: t.source ?? (road.kind === 'appservice' ? 'room' : 'task'),
+      ...(t.requester ? { on_behalf_of: `user:${personId}` } : {}),
       origin: eventId,
-    });
+      ...(span ? { trace: span.header() } : {}),
+      ...(t.attachments?.length ? { attachments: t.attachments } : {}),
+      ...(t.parent_job_id ? { parent_job_id: t.parent_job_id } : {}),
+    }).finally(() => span?.end());
     await this.setIn(eventId, null, { person_id: `user:${personId}` });
     if (road.kind === 'client') await this.owe(eventId, outcome, job_id);
     else await this.setIn(eventId, outcome, { job_id });
@@ -686,9 +702,30 @@ export class Inbound {
       await this.typedSay(road, ev, 'typed:no_person', `Nothing was done: ${b.on_behalf_of} is not a person linked to this company on NEOS.`);
       return 'typed:no_person';
     }
-    const fields = b.fields && Object.keys(b.fields).length ? `\n\nFields given:\n${Object.entries(b.fields).map(([k, x]) => `${k}: ${String(x)}`).join('\n')}` : '';
+    // v3 S5: files by reference and the job a follow-up continues ride in `fields` (contracts readTaskFields); the rest
+    // of `fields` is the sender's data, shown to the job as given.
+    const f = readTaskFields(b.fields);
+    if (f.errors.length) return this.drop(ev, who, 'invalid', { error: f.errors[0] });
+    const fields = Object.keys(f.rest).length ? `\n\nFields given:\n${Object.entries(f.rest).map(([k, x]) => `${k}: ${String(x)}`).join('\n')}` : '';
     await this.setIn(ev.event_id, null, { typed_task_id: b.task_id, detail: { class: who.cls, task_id: b.task_id } });
-    const job = await this.open(road, ev.event_id, ev.room_id, person, `${b.text}${fields}`, 'typed:task_opened');
+    let attachments: DocumentUpload[] = [];
+    if (f.files.length) {
+      try {
+        attachments = await fetchTaskFiles(this.core, f.files);
+      } catch (e) {
+        await this.setIn(ev.event_id, null, { detail: { class: who.cls, task_id: b.task_id, error: String((e as Error).message).slice(0, 300) } });
+        await this.typedSay(road, ev, 'typed:file_refused', `Nothing was done: ${(e as Error).message}.`);
+        return 'typed:file_refused';
+      }
+    }
+    // The sender's own task id is the job's when it is a uuid no other sender's job holds (a resend of the same task,
+    // even as a new event, then finds the same job); anything else gets the id derived from the event.
+    let taskId: string | undefined;
+    if (UUID.test(b.task_id)) {
+      const held = (await this.db.query<{ sender: string | null }>(`select e.sender from ${this.s}.jobs j left join ${this.s}.inbound_events e on e.event_id = j.origin where j.company_id = $1 and j.task_id = $2`, [road.companyId, b.task_id])).rows[0];
+      if (!held || held.sender === ev.sender) taskId = b.task_id;
+    }
+    const job = await this.open(road, ev.event_id, ev.room_id, person, `${b.text}${fields}`, 'typed:task_opened', { task_id: taskId, trace: b.trace ?? null, attachments, parent_job_id: f.parent_job_id });
     return job ? 'typed:task_opened' : 'typed:not_installed';
   }
 

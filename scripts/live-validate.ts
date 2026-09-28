@@ -5,7 +5,7 @@
 //   NEOS_PLATFORM_URL=http://127.0.0.1:4500 NEOS_TOKEN_FILE=<admin token> [NEOS_MEMBER_TOKEN_FILE=<member token>] \
 //     pnpm exec tsx scripts/live-validate.ts [--app ledger] [--only reads,writes,governance,questions,documents,schedules,blocks] \
 //       [--out docs/LIVE-VALIDATION.md] [--budget-usd 12] [--email-to you@company.example] [--gst]
-//       [--job-timeout-s 360] [--poll-ms 2000] [--schedule-lead-min 2]
+//       [--job-timeout-s 360] [--poll-ms 2000] [--schedule-lead-min 2] [--expect-road matrix|gateway]
 //
 // Sections (each yields PASS / FAIL / SKIPPED rows with evidence): reads, writes, governance, questions,
 // documents, schedules, blocks. Output: a markdown report and a JSON copy (same path, .json). Exit 1 on any FAIL.
@@ -59,6 +59,12 @@ export interface Options {
   tag?: string;
   /** Override "now" (tests). */
   now?: () => Date;
+  /**
+   * v3 S5 (--expect-road matrix|gateway): the road every task must have taken — 'matrix' when the app runs with NEOP
+   * presence and NeuralChat posts typed tasks as its own identity; 'gateway' for a presence-off install. A task that
+   * went the other way fails its check (its status reads WRONG_ROAD).
+   */
+  expectRoad?: 'matrix' | 'gateway';
   log?: (line: string) => void;
 }
 
@@ -655,6 +661,11 @@ export class LiveValidator {
       await sleep(this.o.pollMs);
     }
     await this.refreshUsage();
+    const road = run.detail?.task?.road ?? 'gateway';
+    if (this.o.expectRoad && road !== this.o.expectRoad) {
+      run.error = `the task took the ${road} road, not ${this.o.expectRoad}`;
+      run.status = 'WRONG_ROAD';
+    }
     return run;
   }
 
@@ -755,7 +766,12 @@ export class LiveValidator {
       else ev.push(`EXECUTED, proof DONE${approval.proof?.external_ref ? ` (${String(approval.proof.external_ref).slice(0, 40)})` : ''}`);
     } else if (run.cardsSeen.length) problems.push('a card was raised for a write that is on');
     if (run.status !== 'COMPLETED') problems.push(`task ${run.status}`);
-    const ops = run.job_id ? await this.operations(key, run.job_id) : [];
+    let ops = run.job_id ? await this.operations(key, run.job_id) : [];
+    // The audit trail is fed by the app's outbox, which may trail a result that came back through Matrix (v3 S5): wait a moment.
+    for (let i = 0; run.job_id && ops.length === 0 && i < 20; i++) {
+      await sleep(250);
+      ops = await this.operations(key, run.job_id);
+    }
     if (ops.length !== 1) problems.push(`${ops.length} recorded operations for ${key} in this job (want exactly 1)`);
     else ev.push(`1 operation (${ops[0].outcome})`);
     if (!problems.length) {
@@ -1186,7 +1202,10 @@ export class LiveValidator {
       });
       const summary = String(run.detail?.task?.result?.summary ?? '');
       const q = questionSeen ? (await this.api('GET', `/api/tasks/${run.task_id}`)).body?.questions?.find((x: any) => x.id === questionSeen.id) : null;
-      const ok = !!questionSeen && run.status === 'COMPLETED' && q?.status === 'ANSWERED' && summary.includes(String(value)) && q?.answered_via === via;
+      // v3 S5: on the Matrix road a conversation answer reaches the app as NeuralChat's typed answer, recorded as relayed
+      // by it ('bridge', untrusted data) — the person's words, carried by NeuralChat; the desk still answers as the person.
+      const viaOk = q?.answered_via === via || (via === 'conversation' && this.o.expectRoad === 'matrix' && q?.answered_via === 'bridge' && /^bridge:@neuralchat_/.test(String(q?.answered_by ?? '')));
+      const ok = !!questionSeen && run.status === 'COMPLETED' && q?.status === 'ANSWERED' && summary.includes(String(value)) && viaOk;
       this.add(Q, `question answered via ${via}`, ok ? 'PASS' : 'FAIL', `${questionSeen ? `asked "${String(questionSeen.text).slice(0, 80)}" fields ${JSON.stringify((questionSeen.fields ?? []).map((f: any) => f.key))}` : 'no question was asked'} · ${answered} · question ${q?.status ?? '?'} via ${q?.answered_via ?? '?'} · ${this.jobEvidence(run)}`, run.cost);
     }
   }
@@ -1436,6 +1455,7 @@ export function parseArgs(argv: string[], env: NodeJS.ProcessEnv): Options {
     pollMs: Number(flag('poll-ms') ?? 2000),
     scheduleLeadMin: Number(flag('schedule-lead-min') ?? 2),
     repoRoot: REPO_ROOT,
+    ...(flag('expect-road') ? { expectRoad: flag('expect-road') === 'matrix' ? ('matrix' as const) : ('gateway' as const) } : {}),
   };
 }
 

@@ -16,6 +16,7 @@ import { createPool, tx, type Pool, type PoolClient } from '@neop/pgkit';
 import { Gateway, GatewayError, retryableStatus } from './gateway.ts';
 import { AppBoards, backfillBoards, lineMetaFrom, readBoard, writeBoard, EMPTY_BOARD } from './boards.ts';
 import type { SigningKeys } from './keys.ts';
+import type { NeuralChatMatrix } from './neuralchat-matrix.ts';
 
 export interface PlatformOptions {
   dbUrl: string;
@@ -29,7 +30,7 @@ export interface PlatformOptions {
   /** Long-lived registry co-signing keys (separate from the gateway's short-lived tokens). */
   registryKeys?: KeyRing;
   log?: (msg: string, extra?: Record<string, unknown>) => void;
-  timings?: { approvalsMs?: number; outboxMs?: number; tasksMs?: number; keysMs?: number; a2aResultGiveUpMs?: number; taskDeliveryWindowMs?: number };
+  timings?: { approvalsMs?: number; outboxMs?: number; tasksMs?: number; keysMs?: number; a2aResultGiveUpMs?: number; taskDeliveryWindowMs?: number; neuralchatMs?: number };
   /** How long the gateway waits for an app's answer (default 30 s). */
   gatewayTimeoutMs?: number;
   /** Model NeuralChat routes asks with, through the LLM proxy (default NEOS_ROUTER_MODEL; none = keyword fallback). */
@@ -74,13 +75,19 @@ export class Platform {
   private timers: NodeJS.Timeout[] = [];
   /** NeuralChat's routing model (null: keyword fallback, recorded as such). */
   routerModel: string | null;
+  /** v3 S5: NeuralChat's Matrix tool (its own identity per company); null: every task takes the gateway road. */
+  neuralchat: NeuralChatMatrix | null = null;
+  /** v3 S5: signs the short-lived links a task's files are fetched by (derived from the vault keys, so it survives a restart). */
+  readonly fileLinkKey: Buffer;
 
   constructor(opts: PlatformOptions) {
     this.opts = opts;
     this.db = createPool(opts.dbUrl, opts.dbPoolSize ?? 20);
     this.gateway = new Gateway(this.db, opts.keys, { timeoutMs: opts.gatewayTimeoutMs });
     this.routerModel = opts.routerModel !== undefined ? opts.routerModel : (process.env.NEOS_ROUTER_MODEL ?? null);
-    this.vault = new VaultCipher(opts.vaultKeys ?? VaultCipher.generate());
+    const vaultKeys = opts.vaultKeys ?? VaultCipher.generate();
+    this.vault = new VaultCipher(vaultKeys);
+    this.fileLinkKey = createHash('sha256').update('neos:neuralchat-file-link:').update(JSON.stringify(vaultKeys)).digest();
     this.boards = new AppBoards(this.db, (m, e) => this.log(m, e));
     if (opts.registryKeys) this.registry = new Registry(this, opts.registryKeys);
   }
@@ -154,6 +161,9 @@ export class Platform {
     const users = (
       await this.db.query<{ id: string; name: string; role: string; matrix_user_id: string }>('select id, name, role, matrix_user_id from neos.users where company_id = $1 and matrix_user_id is not null', [companyId])
     ).rows;
+    // v3 S5: NeuralChat's own Matrix name here is an agent sender of every app, and a person with no Matrix id of their own
+    // is known to the app by the name NeuralChat gives them in its tasks (never a sender: NeuralChat's exclusive namespace).
+    const nc = this.neuralchat ? await this.neuralchat.directoryFor(companyId) : { agent: null, people: [] };
     for (const a of apps) {
       const allow = (await this.db.query<{ matrix_id: string; kind: string; acts_for: string | null }>('select matrix_id, kind, acts_for from neos.chat_allowlist where company_id = $1 and app_key = $2', [companyId, a])).rows;
       const persons = new Set(allow.filter((x) => x.kind === 'person').map((x) => x.matrix_id));
@@ -164,8 +174,11 @@ export class Platform {
         : [];
       await this.boards.writeChat(a, companyId, {
         acted_for: actedFor.map((u) => ({ user_id: u.id, name: u.name, role: u.role })),
-        people: users.map((u) => ({ matrix_id: u.matrix_user_id, user_id: u.id, name: u.name, role: u.role, chat_person: persons.has(u.matrix_user_id) })),
-        agent_senders: bridges.map((b) => b.matrix_id).sort(),
+        people: [
+          ...users.map((u) => ({ matrix_id: u.matrix_user_id, user_id: u.id, name: u.name, role: u.role, chat_person: persons.has(u.matrix_user_id) })),
+          ...nc.people.map((u) => ({ ...u, chat_person: false })),
+        ],
+        agent_senders: [...new Set([...bridges.map((b) => b.matrix_id), ...(nc.agent ? [nc.agent] : [])])].sort(),
         agent_acts_for: Object.fromEntries(bridges.filter((b) => b.acts_for).map((b) => [b.matrix_id, b.acts_for!])),
         ...(slug ? { company_slug: slug } : {}),
       });
@@ -1124,6 +1137,16 @@ export class Platform {
     const row = r.rows[0]!;
     const id: string = row.id;
     if (t.room_event_id) await this.db.query('update neos.room_events set task_id = $2 where event_id = $1', [t.room_event_id, id]);
+    // v3 S5: a person's ask to an app that runs with presence goes ONLY through Matrix — NeuralChat posts a typed task as
+    // its own identity; the gateway road below is for presence-off installs (S9 removes it).
+    if (this.neuralchat && t.requester.startsWith('user:') && (t.origin ?? 'app') === 'app' && (await this.neuralchat.routeFor(t.company_id, t.app_key))) {
+      await this.db.query("update neos.tasks set road = 'matrix', next_attempt_at = now() where id = $1", [id]);
+      await t.beforeDeliver?.(id);
+      await this.neuralchat.deliver(id).catch((e) => this.neuralchat!.failedSend(id, 0, e));
+      await this.neuralchat.waitAck(id);
+      const cur = (await this.db.query('select status, job_id from neos.tasks where id = $1', [id])).rows[0];
+      return { task_id: id, status: cur.status, job_id: cur.job_id, ack: cur.job_id ? `On it — job ${String(cur.job_id).slice(0, 8)}.` : null };
+    }
     await t.beforeDeliver?.(id);
     const out = await this.deliverTask(row, t.room_event_id ?? undefined).catch(() => null);
     if (out) return { task_id: id, status: out.status, job_id: out.job_id, ack: out.ack };
@@ -1134,7 +1157,7 @@ export class Platform {
   /** Hand a task to its app (tasks.open, or inbox.deliver for a room message). Takes the row or its id. */
   private async deliverTask(taskOrId: string | any, roomEventId?: string): Promise<{ ack: string; status: string; job_id: string } | null> {
     const t = typeof taskOrId === 'string' ? (await this.db.query('select * from neos.tasks where id = $1', [taskOrId])).rows[0] : taskOrId;
-    if (!t || t.status !== 'OPEN') return null;
+    if (!t || t.status !== 'OPEN' || t.road === 'matrix') return null; // v3 S5: a Matrix task is NeuralChat's (neuralchat-matrix.ts)
     try {
       const fromRoom = t.origin === 'room';
       const ev = fromRoom ? (roomEventId ? { event_id: roomEventId } : (await this.db.query<{ event_id: string }>('select event_id from neos.room_events where task_id = $1 limit 1', [t.id])).rows[0]) : null;
@@ -1186,7 +1209,8 @@ export class Platform {
   }
 
   async tasksTick(): Promise<void> {
-    const due = await this.db.query<{ id: string }>(`select id from neos.tasks where status = 'OPEN' and next_attempt_at <= now() order by created_at limit 20`);
+    // The gateway road only (presence-off installs; S9 removes it). A Matrix task is resent by NeuralChat's own tick.
+    const due = await this.db.query<{ id: string }>(`select id from neos.tasks where status = 'OPEN' and road = 'gateway' and next_attempt_at <= now() order by created_at limit 20`);
     for (const t of due.rows) await this.deliverTask(t.id).catch(() => {});
   }
 
@@ -1480,6 +1504,22 @@ export class Platform {
       await this.say(conversationId, user.company_id, 'neuralchat', msg, 'notice', q.root_task_id);
       return { ...base, status: 'NEEDS_INPUT', answered: false, message: msg };
     }
+    // v3 S5: a question the app asked in NeuralChat's Matrix thread is answered there — a typed answer, relayed for the
+    // person (the app's book records it as relayed data). Never an approve: a person says yes on the desk.
+    const matrixTask = q.root_task_id ? (await this.db.query<{ id: string }>("select id from neos.tasks where id = $1 and road = 'matrix' and matrix_event_id is not null", [q.root_task_id])).rows[0] : undefined;
+    if (matrixTask && this.neuralchat) {
+      const checked = checkAnswers({ text: q.text, why: q.why, fields: q.fields }, answers);
+      if ('error' in checked) {
+        await this.say(conversationId, user.company_id, 'neuralchat', `That answer was not recorded: ${checked.error}.`, 'notice', q.root_task_id);
+        throw new PlatformError(400, 'bad_answer', checked.error);
+      }
+      await this.neuralchat.sendAnswer(matrixTask.id, q.wait_id, checked.answers);
+      const name = (await this.db.query<{ name: string }>('select name from neos.users where id = $1', [user.id])).rows[0]?.name ?? 'a person';
+      await this.say(conversationId, user.company_id, 'neuralchat', `Answered by ${name}: ${Object.entries(checked.answers).map(([k, v]) => `${k}: ${String(v)}`).join('; ').slice(0, 1000)}`, 'notice', q.root_task_id);
+      await this.db.query(`update neos.tasks set status = 'ACKNOWLEDGED', updated_at = now() where id = $1 and status = 'NEEDS_INPUT'`, [matrixTask.id]);
+      await this.gateway.audit({ company_id: user.company_id, actor: `user:${user.id}`, app_key: q.app_key, action: 'question.answered', outcome: 'conversation:matrix', detail: { question_id: q.id, wait_id: q.wait_id, job_id: q.job_id } });
+      return { ...base, status: 'ANSWERED', answered: true };
+    }
     try {
       await this.answerQuestion(q.id, { company_id: user.company_id, user_id: user.id }, answers, 'conversation');
     } catch (e) {
@@ -1680,8 +1720,12 @@ export class Platform {
   private async consume(c: PoolClient, app: string, e: OutboxEvent<any>): Promise<void> {
     const p = e.payload;
     const appName = (await c.query<{ name: string }>("select manifest->>'name' as name from neos.apps where key = $1", [app])).rows[0]?.name ?? app;
+    // v3 S5: a task NeuralChat posted in Matrix is driven by the app's typed events in its thread (neuralchat-matrix.ts),
+    // not by this consumer: its status, job, result and conversation lines are never written here.
+    const viaMatrix = async (x: { task_id?: string | null; job_id?: string | null }) => (await this.taskFor(c, app, x, e.company_id))?.road === 'matrix';
     switch (e.event_type) {
       case 'job.acknowledged': {
+        if (await viaMatrix(p)) break;
         await c.query(
           `update neos.tasks set job_id = $2, status = case when status = 'OPEN' then 'ACKNOWLEDGED' else status end, updated_at = now()
             where id = $1 and app_key = $3 and company_id = $4`,
@@ -1697,6 +1741,7 @@ export class Platform {
         // v3 S2: the card is the app's proposal row (neos.v_desk_cards); the platform keeps no copy. Its id is the proposal id.
         const pc = p as ProposalCreatedPayload;
         const task = await this.taskFor(c, app, pc, e.company_id);
+        if (task?.road === 'matrix') break;
         if (task) await c.query(`update neos.tasks set status = 'WAITING', updated_at = now() where id = $1 and status in ('OPEN','ACKNOWLEDGED')`, [task.id]);
         await this.say(task?.conversation_id ?? null, e.company_id, `app:${app}`, `Waiting for a yes on your desk: ${pc.card.what}`, 'waiting', task?.id ?? null, c);
         await this.mirror(c, await this.roomFor(c, e.company_id, app, task), {
@@ -1728,7 +1773,7 @@ export class Platform {
         ]);
         const task = await this.taskFor(c, app, p, e.company_id);
         // The job is working again until it reports.
-        if (task) await c.query(`update neos.tasks set status = 'ACKNOWLEDGED', updated_at = now() where id = $1 and status = 'WAITING'`, [task.id]);
+        if (task && task.road !== 'matrix') await c.query(`update neos.tasks set status = 'ACKNOWLEDGED', updated_at = now() where id = $1 and status = 'WAITING'`, [task.id]);
         await this.mirror(c, await this.roomFor(c, e.company_id, app, task), {
           dedupe_key: `executed:${p.proposal_id}:${p.reconciled ? 'r' : 'x'}`,
           kind: 'notice',
@@ -1768,6 +1813,7 @@ export class Platform {
       }
       case 'card.raised': {
         const task = await this.taskFor(c, app, p, e.company_id);
+        if (task?.road === 'matrix') break;
         const text = `${p.kind === 'question' ? 'Question' : 'Heads-up'}: ${p.text}`;
         await c.query('insert into neos.conversation_messages (company_id, conversation_id, task_id, author, body, kind) values ($1,$2,$3,$4,$5,$6)', [
           e.company_id,
@@ -1794,6 +1840,7 @@ export class Platform {
           [e.company_id, app, task?.id ?? null, root?.id ?? task?.id ?? null, qp.job_id, qp.wait_id, qp.text, qp.why, JSON.stringify(qp.fields), qp.due_at, askedOf],
         );
         if (!ins.rows[0]) break;
+        if (task?.road === 'matrix' || (root && root.id !== task?.id && (await c.query("select 1 from neos.tasks where id = $1 and road = 'matrix'", [root.id])).rowCount)) break; // NeuralChat reads the typed ask
         if (task) await c.query(`update neos.tasks set status = 'NEEDS_INPUT', updated_at = now() where id = $1 and status in ('OPEN', 'ACKNOWLEDGED', 'WAITING')`, [task.id]);
         const body = roomText.question(appName, qp);
         await this.say(root?.conversation_id ?? task?.conversation_id ?? null, e.company_id, `app:${app}`, body, 'card', root?.id ?? task?.id ?? null, c);
@@ -1807,7 +1854,7 @@ export class Platform {
             where app_key = $1 and wait_id = $2 and status in ('OPEN', 'STALE') returning task_id`,
           [app, p.wait_id, JSON.stringify(p.answers ?? {}), p.answered_by, p.via ?? null],
         );
-        for (const r of u.rows) if (r.task_id) await c.query(`update neos.tasks set status = 'ACKNOWLEDGED', updated_at = now() where id = $1 and status = 'NEEDS_INPUT'`, [r.task_id]);
+        for (const r of u.rows) if (r.task_id) await c.query(`update neos.tasks set status = 'ACKNOWLEDGED', updated_at = now() where id = $1 and status = 'NEEDS_INPUT' and road = 'gateway'`, [r.task_id]);
         break;
       }
       case 'question.expired': {
@@ -1816,8 +1863,9 @@ export class Platform {
           [app, p.wait_id],
         );
         for (const r of u.rows) {
-          if (r.task_id) await c.query(`update neos.tasks set status = 'ACKNOWLEDGED', updated_at = now() where id = $1 and status = 'NEEDS_INPUT'`, [r.task_id]);
-          const root = r.root_task_id ? (await c.query<{ conversation_id: string | null }>('select conversation_id from neos.tasks where id = $1', [r.root_task_id])).rows[0] : null;
+          if (r.task_id) await c.query(`update neos.tasks set status = 'ACKNOWLEDGED', updated_at = now() where id = $1 and status = 'NEEDS_INPUT' and road = 'gateway'`, [r.task_id]);
+          const root = r.root_task_id ? (await c.query<{ conversation_id: string | null; road: string }>('select conversation_id, road from neos.tasks where id = $1', [r.root_task_id])).rows[0] : null;
+          if (root?.road === 'matrix') continue; // the app's thread says what happens next
           await this.say(root?.conversation_id ?? null, e.company_id, `app:${app}`, `Nobody answered in time: "${r.text.slice(0, 300)}". ${appName} will report without it.`, 'notice', r.root_task_id, c);
         }
         break;
@@ -1832,6 +1880,7 @@ export class Platform {
       case 'task.failed': {
         const result = p.result as TaskResult;
         const task = await this.taskFor(c, app, p, e.company_id);
+        if (task?.road === 'matrix') break; // NeuralChat reads the typed done in the thread
         if (task) {
           const status = result.outcome === 'cancelled' ? 'CANCELLED' : e.event_type === 'task.completed' ? 'COMPLETED' : 'FAILED';
           await c.query(`update neos.tasks set status = $2, result = $3, updated_at = now() where id = $1`, [task.id, status, JSON.stringify(result)]);
@@ -1996,6 +2045,7 @@ export class Platform {
     };
     loop(() => this.outboxTick(), t.outboxMs);
     loop(() => this.tasksTick(), t.tasksMs);
+    if (this.neuralchat) loop(() => this.neuralchat!.tick(), t.neuralchatMs ?? 1_000);
     loop(() => this.a2aResultsTick(), t.approvalsMs);
     loop(() => this.notificationsTick(), t.approvalsMs);
     loop(() => this.keysTick(), t.keysMs ?? 1_000);
@@ -2006,6 +2056,7 @@ export class Platform {
   async stop(): Promise<void> {
     for (const t of this.timers) clearInterval(t);
     this.timers = [];
+    await this.neuralchat?.stop().catch(() => {});
     await this.db.end().catch(() => {});
   }
 }

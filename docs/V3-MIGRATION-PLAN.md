@@ -32,7 +32,7 @@ Companies, users/auth, Conversations, NeuralChat (reads `neos_registry`), the de
 | S2 ✅ | The runner carries out the yes (LISTEN + poll, SKIP LOCKED, fingerprint check); approvals worker and execution tokens deleted | high — money path — **done 2026-09-28** (below) |
 | S3 ✅ | Desk on the database; `answer_wait()`; DeskHarness in testkit | medium — **done 2026-09-28** (below) |
 | S4 ✅ | Presence in the NEOP (appservice + client road, flag `NEOP_PRESENCE`); NeuralChat #143 plain text keeps working (task/answer, never approve) | high — **done 2026-09-28** (below) |
-| S5 | NeuralChat posts typed tasks as its own Matrix identity; tasks/outbox delivery deleted | medium |
+| S5 ✅ | NeuralChat posts typed tasks as its own Matrix identity; tasks/outbox delivery not used for presence apps | medium — **done 2026-09-28** (below) |
 | S6 ✅ | NEOP to NEOP on the bus room; callee asks answered by the caller | medium-high — **done 2026-09-28** (below) |
 | S7 ✅ | Packages at build time; publish writes `neos_registry` | medium — **done 2026-09-28** (below) |
 | S8 | Doors from the secret store; LLM tokens without the platform — **done** (IMPLEMENTATION-NOTES "v3 S8") | low-medium |
@@ -172,6 +172,24 @@ What changed (details: `docs/IMPLEMENTATION-NOTES.md` › "v3 S7"; operator step
 - **Deferred:** registerApp does not yet check that a manifest's pins exist in this platform's registry (pilots and
   tests run on their own registries); the desk's "add from registry" screen (it now means: ask for the next build).
 
+## S5 — done (2026-09-28)
+What changed (details: `docs/IMPLEMENTATION-NOTES.md` › "v3 S5"; operations: `docs/RUNBOOK.md` › *Chat: NeuralChat speaks Matrix*):
+- **Flag.** `NEOS_NEURALCHAT_MATRIX=off|appservice|client` on the platform (default off). On, NeuralChat has its own
+  Matrix name per company (`@neuralchat_<slug>` on the platform's registration, or a configured client account) and a
+  person's ask reaches an app that runs with presence ONLY as a typed `neos.neop.task` in the app's room/DM, thread-rooted
+  (`neuralchat-matrix.ts`). It reads note/ask/propose/done into Conversations and `neos.tasks`, answers the app's asks
+  with a typed `answer` (the person's reply in Conversations), and never sends `approve`.
+- **023**: `neos.tasks.road` + `matrix_*`, `neuralchat_events` (event-id dedupe), `neuralchat_rooms`,
+  `neuralchat_accounts`, conversation kind `step`.
+- **Not used for a Matrix task:** `deliverTask`, `tasksTick`, the outbox consumer's task-status/conversation role, L3
+  `tasks.open`/`inbox.deliver` (kept for presence-off installs — S9). Retry = Matrix redelivery + a resend with the same
+  txnId; the app dedupes on event id and task id.
+- **Files by reference** (sha256 + a signed platform link in `fields`; no bytes in events); **trace** in the body.
+- **App side** (small, `runner/inbound.ts` `onTask`/`open` + `presence/files.ts`): reserved fields, files fetched and
+  checked, the sender's uuid task id kept as the job's, the trace continued.
+- **Deploy order:** migrate (023) → new backends (they understand the reserved fields and `trace`) → the platform with
+  `NEOS_NEURALCHAT_MATRIX` on. An old backend would drop a task carrying `trace` as invalid.
+
 ## Deploy kit after the move
 DBA bundle per NEOP (schema, roles, grants, functions, triggers, view registration) → one DB link per NEOP role
 (direct URL for LISTEN/advisory locks); one `appservice.yaml` per NEOP (`@neop_ledger_.*`) plus `@neuralchat_.*`;
@@ -188,4 +206,5 @@ role isolation, desk grants, triggers, appservice, rooms, secrets.
    approvers are recorded as `mx:@…` and mapped to the person.
 6. The desk writes grants, schedules and question answers only through SECURITY DEFINER functions.
 7. Attachments: object-storage refs in the event body.
-8. NeuralChat keeps `@reasoning_agent` over the client road until it moves to `@neuralchat_<co>`.
+8. NeuralChat keeps `@reasoning_agent` over the client road until it moves to `@neuralchat_<co>` — the platform's own
+   NeuralChat did in S5 (`NEOS_NEURALCHAT_MATRIX`); the external #143 (`scripts/neuralchat-sim.ts`) is unchanged.

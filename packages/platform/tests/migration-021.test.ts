@@ -59,14 +59,15 @@ describe('021 on a populated platform database', () => {
     const snap = async () =>
       (
         await c.query(
-          `select (select md5(string_agg(q::text, ',' order by id)) from neos.questions q) q, (select md5(string_agg(t::text, ',' order by id)) from neos.tasks t) t,
+          `select (select md5(string_agg(q::text, ',' order by id)) from neos.questions q) q, (select md5(string_agg(t::text, ',' order by id)) from (select id, company_id, app_key, requester, ask, status, job_id, result, created_at, updated_at from neos.tasks) t) t, -- 022 (S5) adds columns after
+                 
                   (select md5(string_agg(e::text, ',' order by event_id)) from neos.chat_client_events e) e, (select count(*)::int from neos.questions) n`,
         )
       ).rows[0];
     const before = await snap();
 
     const applied = await migratePlatform(db.adminUrl);
-    expect(applied.map((m) => m.name)).toEqual(['021_open_questions.sql', '022_registry_pins.sql']); // 022 (S7) follows; its own proof is in registry-v3.test.ts
+    expect(applied.map((m) => m.name)).toEqual(['021_open_questions.sql', '022_registry_pins.sql', '023_neuralchat_matrix.sql']); // 022 (S7), 023 (S5) follows; its own proof is in registry-v3.test.ts (023: migration-023.test.ts)
     expect(await snap()).toEqual(before); // every question, task and shown-in-DM row as it was
     expect(before.n).toBe(12);
 

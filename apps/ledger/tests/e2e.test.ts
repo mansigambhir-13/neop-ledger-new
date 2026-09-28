@@ -2,15 +2,20 @@ import { readdir } from 'node:fs/promises';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { bootPilot, call, finish, proposalIdFrom, type Pilot } from './harness.ts';
 
-let P: Pilot;
-beforeAll(async () => {
-  P = await bootPilot();
-});
-afterAll(async () => {
-  await P?.close();
-});
+// v3 S5: the same end to end twice — the platform road (presence off: tasks.open through the gateway) and with the app on
+// Matrix itself and NeuralChat posting typed tasks as its own identity (presence + neuralchat, appservice road).
+describe.each([
+  { road: 'platform', boot: {} },
+  { road: 'NeuralChat in Matrix', boot: { presence: 'appservice' as const, neuralchat: true } },
+])('pilot end to end ($road)', ({ boot }) => {
+  let P: Pilot;
+  beforeAll(async () => {
+    P = await bootPilot(boot);
+  }, 180_000);
+  afterAll(async () => {
+    await P?.close();
+  }, 120_000);
 
-describe('pilot end to end', () => {
   it('a report request returns a sourced report', async () => {
     P.setBrain((v) => {
       if (v.calls === 0) return call('book.note', { text: 'Understood: P&L for August 2026.' });
@@ -21,7 +26,7 @@ describe('pilot end to end', () => {
     });
     const t0 = Date.now();
     const { task_id, job_id } = await P.ask('Show me the P&L for August 2026');
-    expect(Date.now() - t0).toBeLessThan(3000);
+    expect(Date.now() - t0).toBeLessThan('neuralchat' in boot ? 20_000 : 3000); // through Matrix the ask waits a moment for the app's "on it"
     expect(job_id).toMatch(/[0-9a-f-]{36}/);
     const t = await P.waitFor(async () => {
       const t = await P.task(task_id);

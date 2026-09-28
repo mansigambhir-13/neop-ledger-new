@@ -825,6 +825,72 @@ where the pre-v3 runtime installer ran them"). No template migration.
   `migration-020`, and `dba-bundle` (section 6). testkit: `installAndRebuild`, `removeAndRebuild`, `hostCopy`,
   `pilotRegistry`, `Pilot.rebuild` (migrate the new build's file, restart on it, re-register).
 
+## v3 S5 · NeuralChat speaks Matrix (2026-09-28)
+`docs/V3-MIGRATION-PLAN.md` stage S5; WP v3 §1 steps 3–8, §7, §8, §12. Platform migration **023** (proof:
+`packages/platform/tests/migration-023.test.ts`); no template migration (t012's tables were enough).
+- **The Matrix tool** (`packages/platform/src/neuralchat-matrix.ts`, `NeuralChatMatrix`; `startPlatform({neuralchat})`,
+  env `NEOS_NEURALCHAT_MATRIX=off|appservice|client`, `neuralChatConfigFromEnv`). NeuralChat's own name per company:
+  appservice `@neuralchat_<slug>:<server>` (the platform's registration; `@neuralchat_.*` was already reserved), client
+  one configured account per company (`MATRIX_NEURALCHAT_ACCOUNTS[_FILE]`, whoami-checked, /sync cursor in
+  `neos.neuralchat_accounts`). **Which road** (`routeFor`): Matrix when the app's install row (its own schema, read as
+  the desk) names its Matrix user — i.e. the app runs with presence — and NeuralChat has a name at the company
+  (appservice: and the app has a bound room); otherwise the gateway road, unchanged (presence-off installs; flagged S9).
+  Only a person's own ask from Conversations (`requester user:`, origin app) takes it; room bridges and a2a tasks are
+  S4/S6's.
+- **Out.** `openTask` marks the task `road = 'matrix'` and `deliver()` posts a typed `neos.neop.task` as NeuralChat, in
+  the app's first room (appservice: registered and joined once per process) or its 1:1 room with the app's account
+  (client: `createRoom` + invite on first use, `neos.neuralchat_rooms`), the thread rooted there. Body: `task_id` = the
+  neos task id, `company` = slug, `on_behalf_of` = the person's Matrix id, or for a person with none a name in
+  NeuralChat's namespace (`personName`: `@neuralchat_<slug>_person_<user id hex>`) that `syncChat` writes into the app's
+  `people` (`chat_person` false — never a sender), `text`, `fields` (files, follow-up job), `trace`. txnId
+  `nc-task-<task>`: a resend after a failure is the same event. The ask waits up to `ackWaitMs` (3 s) for the app's
+  "on it" so its answer carries the job id as before; `P.ask` (testkit) waits for the job id if it came later.
+  **Retry** (`tick`, `neuralchatMs`): a send the homeserver refused is resent (same txn) with backoff; a posted event is
+  Matrix's to redeliver; a task unacknowledged past the delivery window is FAILED ("the app never acknowledged the task
+  in Matrix"). `deliverTask` / `tasksTick` skip Matrix tasks (gateway road only).
+- **In.** Every typed event in one of NeuralChat's task threads (appservice: `neuralChatRoutes`' transactions endpoint,
+  or the bridge's, which now offers typed events to NeuralChat first; client: its /sync) is claimed once in
+  `neos.neuralchat_events` (event id), accepted only from the app's own Matrix name, validated, and read: `note` ack →
+  `job_id`, ACKNOWLEDGED, "On it — …" in the conversation, the bytes dropped; other notes → a `step` line ("· …"; 023
+  adds the kind) and the status re-derived from the desk views (a pending card → WAITING, an open question →
+  NEEDS_INPUT, else ACKNOWLEDGED); a `stale-` note → a notice; `ask` → the question in the conversation + NEEDS_INPUT;
+  `propose` → "Waiting for a yes on your desk: <what>" + WAITING; `done` → result, COMPLETED/FAILED/CANCELLED, the result
+  line, open question projections STALE. Each read is a span (`neuralchat.read <type>`) in the task's trace.
+- **The outbox consumer** no longer drives a Matrix task: `job.acknowledged`, `proposal.created/executed`,
+  `question.asked/answered/expired` (status, conversation lines), `card.raised`, `task.completed/failed` skip it (the
+  `neos.questions` projection, audit, a2a and dead-letter roles stay). Chosen per task (`road`), not per app, so a
+  gateway task opened before presence was switched on still gets its status.
+- **Answers, never approvals.** A person's reply in the conversation to an open question of a Matrix task
+  (`answerFromConversation`) is checked (`checkAnswers`) and sent as a typed `neos.neop.answer` in the thread
+  (`sendAnswer`, txn `nc-answer-<wait>-<digest>`); the app records it through `answer_wait()` as relayed by
+  NeuralChat (`bridge:@neuralchat_…`, untrusted data — S3's rule for relays). The desk still answers on the row
+  directly (`POST /api/questions/:id/answer`, DeskHarness). NeuralChat has no approve path at all: cards are answered on
+  the desk (`answer_proposal`) or by a person as themselves in their room.
+- **The app side** (template, small): `runner/inbound.ts` `onTask` — reserved `fields` (contracts `readTaskFields`:
+  `neos_file_<n>`, `neos_parent_job`) are taken out of "Fields given"; files are fetched by reference
+  (`presence/files.ts`: the link is a platform PATH resolved against the backend's own `platformUrl`, size and sha256
+  checked, else `typed:file_refused` and no job); the sender's task id is the job's `task_id` when it is a uuid no other
+  sender's job holds (so a resend as a new event finds the same job, and the desk's cards/questions carry the neos task
+  id); `trace` → a `presence.task` span and the job's trace. `open()` gained an options argument. S6 also edits this
+  file (NEOP-sender handling): the change here is confined to `onTask` and `open`.
+- **Contracts.** `trace` (W3C traceparent) is an optional body field of task, ask, answer, propose, done, note (not
+  approve); `TaskFileRef`, `taskFileField`, `readTaskFields`, `TASK_PARENT_FIELD`.
+- **Tests.** New `apps/ledger/tests/neuralchat-matrix.test.ts` (both roads: one typed task by NeuralChat's own name in the
+  app's room/DM, no tasks.open, job opened once under redelivery / same-txn resend / a second event; note/ask/propose/done
+  in the conversation and `neos.tasks`; the person's conversation answer → typed answer → `answer_wait()`; approval only
+  through DeskHarness, no approve event on the road; files by reference, no bytes in events, 410 after; trace
+  continuity), `presence-redelivery.test.ts` (app down → Matrix redelivers → once; homeserver down → same-txn resend;
+  window → FAILED), `packages/platform/tests/migration-023.test.ts`. Ported with a Matrix variant next to the platform
+  one: `flow` (gated ask, cancel), `e2e`, `attachments`, `observability` (one trace: neos.ask → neuralchat.task +
+  presence.task → … → door, no tasks.open span), `live-validate` (`--expect-road matrix|gateway`, a Matrix run of writes,
+  questions, documents). `task-delivery.test` stays for presence off. testkit: `bootPilot({presence, neuralchat:true})`,
+  the fake homeserver routes every event between registrations (per-target queue, retried like Matrix),
+  `fakeMatrix` (several client accounts on one homeserver). `scripts/neuralchat-sim.ts` unchanged (#143, plain text).
+- **Not done here / for S9.** The gateway road (`tasks.open`, `inbox.deliver`, `tasksTick`, the consumer's task role) stays
+  for presence-off installs. `cancelTask` still calls L3 `tasks.cancel` (there is no typed cancel event; the job's
+  `task_id` is the neos task id, so it finds it) — S9. a2a tasks and questions asked by a callee are S6's. The app's
+  typed replies do not carry `trace` yet (the platform reads them under the task's stored trace).
+
 ## Deliberately not built from WP v3
 - **Voice.** The NEOS app transcribes speech on the device/client before it calls `POST /api/ask`; the platform and every NEOP take text only. Nothing here receives audio, so there is no speech model, audio store or consent flow to build or secure on this side. An audio note a person wants kept is an attachment like any other file (kept by the document store).
 - **pgvector `similar_to`.** No Ledger ability needs similarity search: every Ledger read is exact (accounts, parties, documents by number, dates, amounts), and matching bank lines is rule- and amount-based. When an app does need it, it is the app's own concern inside its own schema, as §11 says: its migration adds `create extension if not exists vector` (the DBA enables the extension once per database), a `vector(n)` column on its own table with `company_id` and RLS like every other table, and an index (`hnsw`/`ivfflat`); a `similar_to` read is then ordinary SQL (`order by embedding <=> $1 limit k`) in that app's repository. Embeddings are computed in the backend through the LLM proxy, never by the assistant with a key. No separate vector store.

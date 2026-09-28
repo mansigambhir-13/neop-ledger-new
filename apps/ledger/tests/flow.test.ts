@@ -47,7 +47,12 @@ describe('platform user flow', () => {
     // mirror marks the task WAITING; the task must still reach WAITING.
     await P.waitFor(async () => (await P.task(r.body.task_id)).task.status === 'WAITING', 'task waiting');
     await P.api('POST', `/api/desk/${card.id}/answer`, { decision: 'yes', fingerprint_seen: card.fingerprint });
-    await P.waitFor(async () => (await P.task(r.body.task_id)).task.status === 'COMPLETED', 'completed');
+    await P.waitFor(async () => (await P.task(r.body.task_id)).task.status === 'COMPLETED', 'completed').catch(async (e) => {
+      const job = await P.jobRow(r.body.job_id);
+      const pr = (await P.backend.core.runnerPool.query('select status from ledger.proposals where id = $1', [card.proposal_id])).rows[0];
+      const dl = (await P.platform.db.query('select event_type, error from neos.outbox_dead_letters')).rows;
+      throw new Error(`${e.message}: task ${(await P.task(r.body.task_id)).task.status}, job ${job.status}, proposal ${pr?.status}, dead ${JSON.stringify(dl)}`);
+    });
     const conv = await P.api('GET', `/api/conversations/${r.body.conversation_id}`);
     expect(conv.body.messages.map((m: any) => m.kind)).toEqual(['message', 'handoff', 'ack', 'waiting', 'result']);
     expect(conv.body.messages.at(-1).body).toBe('Close pack sent to cfo@acme.example.');
@@ -109,5 +114,46 @@ describe('platform user flow', () => {
     const parked = await P.platform.db.query('select event_type, error from neos.outbox_dead_letters');
     expect(parked.rows).toHaveLength(1);
     expect(parked.rows[0].event_type).toBe('job.acknowledged');
+  });
+});
+
+// v3 S5 · the same user flow when the app runs with NEOP presence and NeuralChat speaks Matrix: (4) the task is posted as
+// a typed neos.neop.task by NeuralChat's own identity (no tasks.open), (6) the app's "on it" comes back in the thread,
+// (8) the conversation gets what the thread says — the steps (· …) in between — and a person approves on the desk.
+describe('platform user flow — NeuralChat speaks Matrix', () => {
+  let Q: Pilot;
+  beforeAll(async () => {
+    Q = await bootPilot({ presence: 'appservice', neuralchat: true });
+  }, 180_000);
+  afterAll(async () => Q?.close(), 120_000);
+
+  it('(1)→(9) a gated ask: the conversation shows what was said and everything that came back from the thread', async () => {
+    Q.setBrain((v) => (v.job.includes('WOKEN') ? finish('Close pack sent to cfo@acme.example.', 'done', { changed: ['one email sent'] }) : v.calls === 0 ? email() : { text: 'waiting' }));
+    const r = await Q.api('POST', '/api/ask', { text: 'Send the August close pack to our CFO' });
+    expect(r.body.handed_to).toBe('ledger'); // picked by NeuralChat, not named by the person
+    expect(['OPEN', 'ACKNOWLEDGED']).toContain(r.body.status);
+    const card = await Q.waitFor(async () => (await Q.desk()).find((c) => c.task_id === r.body.task_id && c.status === 'PENDING'), 'card', 30_000);
+    await Q.waitFor(async () => (await Q.task(r.body.task_id)).task.status === 'WAITING', 'task waiting');
+    await Q.api('POST', `/api/desk/${card.id}/answer`, { decision: 'yes', fingerprint_seen: card.fingerprint });
+    await Q.waitFor(async () => (await Q.task(r.body.task_id)).task.status === 'COMPLETED', 'completed', 30_000);
+    const conv = await Q.api('GET', `/api/conversations/${r.body.conversation_id}`);
+    expect(conv.body.messages.map((m: any) => m.kind).filter((k: string) => k !== 'step')).toEqual(['message', 'handoff', 'ack', 'waiting', 'result']);
+    expect(conv.body.messages.at(-1).body).toBe('Close pack sent to cfo@acme.example.');
+    const ev = await Q.backend.core.runnerPool.query('select event from ledger.proposal_events where proposal_id = $1 order by id', [card.proposal_id]);
+    expect(ev.rows.map((e: any) => e.event)).toEqual(['proposed', 'answered:yes', 'executing', 'executed:DONE', 'resumed', 'reported']);
+    const t = (await Q.platform.db.query('select road, matrix_event_id from neos.tasks where id = $1', [r.body.task_id])).rows[0];
+    expect(t.road).toBe('matrix');
+    expect(Q.hs!.typed.find((e) => e.event_id === t.matrix_event_id)).toMatchObject({ type: 'neos.neop.task', user: Q.neuralchatUser });
+  });
+
+  it('cancelling a job with a card nobody answered withdraws it and closes the card; the thread’s done ends the task', async () => {
+    Q.setBrain((v) => (v.calls === 0 ? email() : { text: 'waiting' }));
+    const r = await Q.api('POST', '/api/ask', { text: 'Send the August close pack to our CFO' });
+    const card = await Q.waitFor(async () => (await Q.desk()).find((c) => c.task_id === r.body.task_id && c.status === 'PENDING'), 'card', 30_000);
+    await Q.api('POST', `/api/tasks/${r.body.task_id}/cancel`, {});
+    await Q.waitFor(async () => (await Q.desk()).find((c) => c.id === card.id && c.status === 'CLOSED'), 'card closed');
+    expect((await Q.backend.core.runnerPool.query('select status from ledger.proposals where id = $1', [card.proposal_id])).rows[0].status).toBe('WITHDRAWN');
+    await Q.waitFor(async () => (await Q.api('GET', `/api/conversations/${r.body.conversation_id}`)).body.messages.some((m: any) => m.kind === 'result'), 'result');
+    expect((await Q.task(r.body.task_id)).task.status).toBe('CANCELLED');
   });
 });

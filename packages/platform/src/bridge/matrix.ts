@@ -10,6 +10,7 @@ import { timingSafeEqual } from 'node:crypto';
 import { Hono } from 'hono';
 import { isTypedEventType } from '@neop/contracts';
 import type { ChatBridge, RoomTransport } from './bridge.ts';
+import type { NeuralChatMatrix } from '../neuralchat-matrix.ts';
 
 export interface MatrixConfig {
   homeserverUrl: string;
@@ -95,7 +96,7 @@ export class MatrixTransport implements RoomTransport {
   }
 }
 
-export function matrixAppservice(bridge: ChatBridge, cfg: MatrixConfig): Hono {
+export function matrixAppservice(bridge: ChatBridge, cfg: MatrixConfig, o: { neuralchat?: () => NeuralChatMatrix | null } = {}): Hono {
   const app = new Hono();
   const authed = (c: { req: { header: (n: string) => string | undefined; query: (n: string) => string | undefined } }) => {
     const h = c.req.header('authorization');
@@ -107,6 +108,9 @@ export function matrixAppservice(bridge: ChatBridge, cfg: MatrixConfig): Hono {
     const body = (await c.req.json().catch(() => ({}))) as { events?: any[] };
     for (const ev of body.events ?? []) {
       if (isTypedEventType(ev?.type) && typeof ev.event_id === 'string' && typeof ev.room_id === 'string' && typeof ev.sender === 'string') {
+        // v3 S5: the same registration serves NeuralChat's own name; an event in one of its task threads is its to read.
+        const nc = o.neuralchat?.();
+        if (nc && (await nc.onEvent({ event_id: ev.event_id, room_id: ev.room_id, sender: ev.sender, type: ev.type, content: ev.content ?? {} }))) continue;
         await bridge.onTyped({ event_id: ev.event_id, room_id: ev.room_id, sender: ev.sender, type: ev.type, content: ev.content ?? {} });
         continue;
       }
@@ -123,7 +127,7 @@ export function matrixAppservice(bridge: ChatBridge, cfg: MatrixConfig): Hono {
   });
 
   // The homeserver asks whether users/rooms in our namespace exist.
-  app.get('/_matrix/app/v1/users/:userId', (c) => (authed(c) ? (bridge.isOurs(c.req.param('userId')) ? c.json({}) : c.json({ errcode: 'M_NOT_FOUND' }, 404)) : c.json({ errcode: 'M_FORBIDDEN' }, 403)));
+  app.get('/_matrix/app/v1/users/:userId', (c) => (authed(c) ? (bridge.isOurs(c.req.param('userId')) || o.neuralchat?.()?.isOurs(c.req.param('userId')) ? c.json({}) : c.json({ errcode: 'M_NOT_FOUND' }, 404)) : c.json({ errcode: 'M_FORBIDDEN' }, 403)));
   app.get('/_matrix/app/v1/rooms/:alias', (c) => (authed(c) ? c.json({ errcode: 'M_NOT_FOUND' }, 404) : c.json({ errcode: 'M_FORBIDDEN' }, 403)));
   return app;
 }
