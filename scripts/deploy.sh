@@ -19,6 +19,12 @@ need() { for v in "$@"; do [ -n "${!v:-}" ] || die "$v is not set in $ENV_FILE";
 need NEOS_PROJECT NEOS_SECRETS_DIR COMPANY_NAME COMPANY_TZ ADMIN_NAME ADMIN_EMAIL LLM_KEY_FILE MATRIX_HOMESERVER_URL MATRIX_SERVER_NAME LEDGER_MXID LEDGER_MATRIX_TOKEN_FILE BRIDGE_MXID
 [ -s "$LLM_KEY_FILE" ] || die "LLM_KEY_FILE ($LLM_KEY_FILE) is empty or missing"
 [ -s "$LEDGER_MATRIX_TOKEN_FILE" ] || die "LEDGER_MATRIX_TOKEN_FILE ($LEDGER_MATRIX_TOKEN_FILE) is empty or missing"
+# v3 §5/§8/§16: only a person says yes — on the desk, or with their own answer in their own DM/room. Nothing
+# approves on a person's behalf: the old BRIDGE_MAY_APPROVE switch is gone and the platform refuses it.
+case "${BRIDGE_MAY_APPROVE:-}" in
+  ""|false) ;;
+  *) die "BRIDGE_MAY_APPROVE is no longer supported: a bridge (NeuralChat) can never approve — only a person, on the desk or in their own DM (v3 §5/§8/§16). Remove BRIDGE_MAY_APPROVE from $ENV_FILE (docs/GO-LIVE.md §3)";;
+esac
 ATTEST="$ROOT/deploy/attestations/ledger.json"
 [ -s "$ATTEST" ] || die "no conformance attestation for this release ($ATTEST): run tsx scripts/conformance.ts ledger --out $ATTEST on the build machine"
 command -v docker >/dev/null || die "docker is required"
@@ -103,7 +109,7 @@ dc up -d platform >/dev/null 2>&1 || die "platform with the Matrix overlay did n
 for i in $(seq 1 60); do curl -fsS "http://127.0.0.1:$PORT/live" >/dev/null 2>&1 && break; sleep 2; done
 ME=$(api GET /api/me | jq -r .id)
 [ -n "${ADMIN_MXID:-}" ] && api PUT "/api/users/$ME/chat" "{\"matrix_user_id\":\"$ADMIN_MXID\"}" >/dev/null && api PUT /api/chat/allowlist "{\"app\":\"ledger\",\"matrix_id\":\"$ADMIN_MXID\",\"kind\":\"person\"}" >/dev/null
-api PUT /api/chat/allowlist "{\"app\":\"ledger\",\"matrix_id\":\"$BRIDGE_MXID\",\"kind\":\"bridge\",\"acts_for\":\"$ME\",\"may_approve\":${BRIDGE_MAY_APPROVE:-false}}" | jq -c '{matrix_id,kind,may_approve}'
+api PUT /api/chat/allowlist "{\"app\":\"ledger\",\"matrix_id\":\"$BRIDGE_MXID\",\"kind\":\"bridge\",\"acts_for\":\"$ME\"}" | jq -c '{matrix_id,kind,acts_for}'
 api GET /api/chat/client | jq -c '.accounts[]|{account,running,stopped}'
 
 say "9/11 email door (optional)"

@@ -5,6 +5,10 @@ export interface PackageManifest {
   version: string;
   name: string;
   description: string;
+  /** From nep.json (v3 §10). */
+  author?: { name?: string; email?: string; public_key?: unknown } | string;
+  /** nep.json may carry the author's signature over the content hash; the registry takes it out of the signed bytes. */
+  signature?: string;
   abilities: ManifestAbility[];
   doors: string[];
   tables: string[];
@@ -17,6 +21,10 @@ export interface PackageManifest {
 export interface PackageBundle {
   manifest: PackageManifest;
   handlers: string;
+  /** v3 §10: metrics.json, carried in the signed bytes. */
+  metrics?: Record<string, unknown>;
+  /** v3 §10: references/<path> → text, carried in the signed bytes. */
+  references?: Record<string, string>;
 }
 
 export interface RegistryEntryRow {

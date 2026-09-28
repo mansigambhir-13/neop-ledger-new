@@ -25,6 +25,8 @@ export interface PackageManifest {
   version: string;
   name: string;
   description: string;
+  /** From nep.json (v3 §10): who wrote it; `public_key` (Ed25519 JWK) checks the signature. */
+  author?: { name?: string; email?: string; public_key?: unknown } | string;
   abilities: ManifestAbility[];
   doors: string[];
   tables: string[];
@@ -32,10 +34,45 @@ export interface PackageManifest {
   migrations: Record<string, string>;
 }
 
-/** The artifact is exactly these bytes: a JSON bundle {manifest, handlers}. */
+/** The artifact is exactly these bytes: a JSON bundle {manifest, handlers, metrics?, references?}. */
 export interface PackageBundle {
   manifest: PackageManifest;
   handlers: string;
+  /** v3 §10: the package's metrics.json (what it measures), carried in the signed bytes. */
+  metrics?: Record<string, unknown>;
+  /** v3 §10: references/<path> → text, carried in the signed bytes (each file's hash is shown to the reviewer). */
+  references?: Record<string, string>;
+}
+
+/**
+ * Packages published before v3 named their tables nep_<name>_* (one underscore). They keep that prefix so nothing
+ * breaks; every new package names them nep_<name>__* (two), so a table can never be mistaken for another package's.
+ */
+export const LEGACY_TABLE_PREFIX_PACKAGES: ReadonlySet<string> = new Set(['nep-gst']);
+
+/** v3 §10: `nep.json` {name, version, author, signature?, …} is an alias of the package manifest. */
+export function normalizePackageManifest(raw: unknown): PackageManifest & { signature?: string } {
+  const m = (raw ?? {}) as Record<string, any>;
+  if (!m.key && typeof m.name === 'string') {
+    const key = m.name.startsWith('nep-') ? m.name : `nep-${m.name}`;
+    return { ...m, key, name: typeof m.title === 'string' ? m.title : key } as any;
+  }
+  return m as any;
+}
+
+const REF_PATH = /^(?!.*\.\.)(?!\/)[A-Za-z0-9._\-/]{1,200}$/;
+
+/** What a bundle's optional parts must look like (null when well formed). */
+export function bundleExtrasProblem(b: Pick<PackageBundle, 'metrics' | 'references'>): string | null {
+  if (b.metrics !== undefined && (b.metrics === null || typeof b.metrics !== 'object' || Array.isArray(b.metrics))) return 'metrics must be the object from metrics.json';
+  if (b.references !== undefined) {
+    if (b.references === null || typeof b.references !== 'object' || Array.isArray(b.references)) return 'references must map a path under references/ to its text';
+    for (const [k, v] of Object.entries(b.references)) {
+      if (!REF_PATH.test(k)) return `references: ${k} is not a plain relative path`;
+      if (typeof v !== 'string') return `references: ${k} must be text`;
+    }
+  }
+  return null;
 }
 
 export const sha256Bytes = sha256Tagged;
@@ -95,14 +132,30 @@ export class Registry {
     let artifactHash: string | null = null;
     let offers: unknown = [];
     let requires = e.requires ?? [];
+    let bundle = e.bundle;
+    let author = e.author;
     if (e.kind === 'package') {
-      if (!e.bundle) throw new PlatformError(400, 'bad_request', 'a package needs its bundle');
-      const bytes = Buffer.from(JSON.stringify(e.bundle));
+      if (!bundle) throw new PlatformError(400, 'bad_request', 'a package needs its bundle');
+      // nep.json's signature is the author's, over the content hash; it cannot be inside the bytes it signs.
+      const { signature, ...m } = normalizePackageManifest(bundle.manifest);
+      if (signature !== undefined && !author) {
+        const pk = m.author && typeof m.author === 'object' ? m.author.public_key : undefined;
+        author = { sig: signature, public_key: pk };
+      }
+      bundle = { ...bundle, manifest: m };
+      const extras = bundleExtrasProblem(bundle);
+      if (extras) throw new PlatformError(422, 'bad_manifest', extras);
+      const bytes = Buffer.from(JSON.stringify(bundle));
       artifactHash = sha256Bytes(bytes);
-      const m = e.bundle.manifest;
       if (m.key !== e.key || m.version !== e.version) throw new PlatformError(422, 'bad_manifest', 'bundle manifest key/version must match');
       const prefix = e.key.replace(/^nep-/, '');
-      for (const t of m.tables) if (!t.startsWith(`nep_${prefix}_`)) throw new PlatformError(422, 'bad_manifest', `package tables must be named nep_${prefix}_*`);
+      const tp = `nep_${prefix.replace(/[^a-z0-9]/g, '_')}`;
+      const legacy =
+        LEGACY_TABLE_PREFIX_PACKAGES.has(e.key) || ((await this.p.db.query("select 1 from neos.registry_entries where key = $1 and kind = 'package' limit 1", [e.key])).rowCount ?? 0) > 0;
+      for (const t of m.tables ?? []) {
+        const ok = /^[a-z_][a-z0-9_]*$/.test(t) && (t.startsWith(`${tp}__`) || (legacy && t.startsWith(`${tp}_`)));
+        if (!ok) throw new PlatformError(422, 'bad_manifest', `package tables must be named ${tp}__*${legacy ? ` (or ${tp}_* as published before)` : ''}: ${t}`);
+      }
       for (const a of m.abilities) {
         if (!a.key.startsWith(`${prefix}.`)) throw new PlatformError(422, 'bad_manifest', `package abilities must be named ${prefix}.*`);
         if (a.kind === 'read' && a.floor === 'ask_first') throw new PlatformError(422, 'read_cannot_ask_first', a.key);
@@ -121,12 +174,12 @@ export class Registry {
     if (e.kind === 'skill') {
       authorKey = (await this.p.db.query<{ author_key: unknown }>('select author_key from neos.apps where key = $1', [e.owner_app])).rows[0]?.author_key ?? null;
       if (!authorKey) throw new PlatformError(403, 'no_author_key', `${e.owner_app} registered no author key; it cannot publish to the registry`);
-    } else if (e.author?.public_key !== undefined) {
-      authorKey = e.author.public_key;
+    } else if (author?.public_key !== undefined) {
+      authorKey = author.public_key;
     } else if (process.env.NEOS_ENV === 'production') {
       throw new PlatformError(403, 'unsigned', 'a package must carry its author key and signature');
     }
-    if (authorKey && !verifyAuthorSig(authorKey, ch, e.author?.sig)) {
+    if (authorKey && !verifyAuthorSig(authorKey, ch, author?.sig)) {
       await this.p.gateway.audit({ company_id: null, actor: publishedBy, action: 'registry.publish_refused', outcome: 'bad_author_sig', detail: { key: e.key, version: e.version, content_hash: ch } });
       throw new PlatformError(403, 'bad_author_sig', `the author signature does not verify over ${ch}`);
     }
@@ -136,7 +189,7 @@ export class Registry {
       await c.query(
         `insert into neos.registry_entries (key, version, kind, owner_app, published_by, requires, offers, body, artifact_hash, content_hash, author_key, author_sig)
          values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
-        [e.key, e.version, e.kind, e.owner_app ?? null, publishedBy, JSON.stringify(requires), JSON.stringify(offers), body, artifactHash, ch, authorKey ? JSON.stringify(authorKey) : null, authorKey ? e.author!.sig : null],
+        [e.key, e.version, e.kind, e.owner_app ?? null, publishedBy, JSON.stringify(requires), JSON.stringify(offers), body, artifactHash, ch, authorKey ? JSON.stringify(authorKey) : null, authorKey ? author!.sig : null],
       );
       const prev = (
         await c.query<{ body: string | null; artifact_hash: string | null; requires: string[] }>(
@@ -144,10 +197,22 @@ export class Registry {
           [e.key],
         )
       ).rows[0];
-      const shown = e.kind === 'skill' ? body! : JSON.stringify({ ...e.bundle!.manifest, handlers_sha256: sha256Bytes(e.bundle!.handlers) }, null, 2);
+      const shown =
+        e.kind === 'skill'
+          ? body!
+          : JSON.stringify(
+              {
+                ...bundle!.manifest,
+                handlers_sha256: sha256Bytes(bundle!.handlers),
+                ...(bundle!.metrics ? { metrics_sha256: sha256Bytes(JSON.stringify(bundle!.metrics)) } : {}),
+                ...(bundle!.references ? { references_sha256: Object.fromEntries(Object.entries(bundle!.references).map(([k, v]) => [k, sha256Bytes(v)])) } : {}),
+              },
+              null,
+              2,
+            );
       const before = prev ? (prev.body ?? `(package ${prev.artifact_hash})`) : '';
       const signed = authorKey ? `author signature: verified (key ${String((authorKey as { x: string }).x).slice(0, 12)}…)` : 'author signature: NONE (unsigned; dev only)';
-      const diff = [signed, `requires: ${JSON.stringify(requires)}${prev ? ` (was ${JSON.stringify(prev.requires)})` : ''}`, lineDiff(before, shown), e.kind === 'package' ? `\nhandlers:\n${e.bundle!.handlers}` : ''].join('\n');
+      const diff = [signed, `requires: ${JSON.stringify(requires)}${prev ? ` (was ${JSON.stringify(prev.requires)})` : ''}`, lineDiff(before, shown), e.kind === 'package' ? `\nhandlers:\n${bundle!.handlers}` : ''].join('\n');
       const r = await c.query<{ id: string }>('insert into neos.registry_reviews (key, version, diff, fingerprint) values ($1,$2,$3,$4) returning id', [e.key, e.version, diff, ch]);
       return { review_id: r.rows[0]!.id, content_hash: ch, artifact_hash: artifactHash };
     });

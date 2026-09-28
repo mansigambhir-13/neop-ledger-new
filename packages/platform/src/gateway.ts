@@ -23,6 +23,11 @@ export interface GatewayCall {
   exec?: { proposal_id: string; fingerprint: string; ability_version?: string };
   /** W3C traceparent of the caller's span; the call continues that trace. */
   trace?: string | null;
+  /**
+   * v3 §10 borrowed write: the ACL row that authorises this app caller is the one a person granted for this
+   * ability (the step handed over as a task), not one for the endpoint itself. Set only by the platform.
+   */
+  acl_key?: string;
 }
 
 export interface GatewayResponse<T = any> {
@@ -131,7 +136,7 @@ export class Gateway {
         `with a as (
            select a.key, a.l3_url, a.status,
                   ($2::uuid is null or exists (select 1 from neos.installs i where i.company_id = $2 and i.app_key = a.key and i.status = 'active')) as installed,
-                  ($3::text is null or ($2::uuid is not null and exists (select 1 from neos.acl x where x.caller_app = $3 and x.target_app = a.key and x.ability_key = $4 and x.company_id = $2))) as acl_ok,
+                  ($3::text is null or ($2::uuid is not null and exists (select 1 from neos.acl x where x.caller_app = $3 and x.target_app = a.key and x.ability_key = coalesce($11, $4) and x.company_id = $2))) as acl_ok,
                   (select max(version) from neos.switchboards s where s.company_id = $2 and s.app_key = a.key) as sb_version,
                   case when $10 then coalesce(
                     (select x->>'version' from jsonb_array_elements(a.manifest->'abilities') x where x->>'key' = $4 limit 1),
@@ -146,7 +151,7 @@ export class Gateway {
             where $9 and a.status = 'active' and a.installed and a.acl_ok
            on conflict do nothing returning request_id)
          select a.l3_url, a.status, a.installed, a.acl_ok, a.sb_version, a.ability_version, (select request_id::text from ins) as inserted from a`,
-        [req.app, req.company_id, callerApp, req.endpoint, req.caller, req.idem_key ?? null, requestHash, requestId, ledgered, isAbility],
+        [req.app, req.company_id, callerApp, req.endpoint, req.caller, req.idem_key ?? null, requestHash, requestId, ledgered, isAbility, req.acl_key ?? null],
       )
     ).rows[0];
     if (!pre || pre.status !== 'active') throw new GatewayError(404, 'app_unavailable', `app ${req.app} is not registered or not active`);

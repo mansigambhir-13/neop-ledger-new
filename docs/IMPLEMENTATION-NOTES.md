@@ -123,7 +123,7 @@ Each item is small; flag any you disagree with.
 65. **facts.valid_until (t005).** A fact may say until when it holds (`book.note` facts accept `valid_until`); after it, the bundle leaves the fact out (database time). The fact stays in the book — nothing is deleted or rewritten.
 66. **The job transcript is kept for audit (WP §12).** At the end of every session the agent worker sends its raw transcript (system prompt, model inputs and outputs, tool calls and results; over 2 MB keeps the first and latest messages and says so) to the gate, which stores it in `<app>.transcripts` (t005, company_id + RLS, append-only). The platform reads it with the platform-only `GET /l3/jobs.transcript`; admins with `GET /api/tasks/:id/transcript` (audited). It is never put in a bundle: the rolling summary in steps remains the assistant's only memory.
 67. **NEOS v1 bridge:** `<app>.job` also lists the open questions (wait_id, text, why, fields, due_at) and `<app>.answer` {job_id, wait_id, answers: [{key, value}]} (scope `<app>.ask`, not gated) answers one, so NeuralChat's `needs_input` → answer works today. The answer is recorded as relayed by the reasoning agent (`agent:neuralchat:user:<act>`), i.e. untrusted data for the assistant; a conflicting answer is 409 `conflict`.
-68. **A bridge's go-ahead on the Matrix client road (opt-in per bridge; Shivam's review, option 2; 2026-09-27).** Without it nothing gated could be approved from NeuralChat in production (the platform-side decide route does not exist yet). The accepted rule: *accepted only for bridge senders, under the same fingerprint and expiry rules* as a person's yes.
+68. **WITHDRAWN 2026-09-28 (v3 conformance B1, below): a bridge never approves.** Kept for the record. **A bridge's go-ahead on the Matrix client road (opt-in per bridge; Shivam's review, option 2; 2026-09-27).** Without it nothing gated could be approved from NeuralChat in production (the platform-side decide route does not exist yet). The accepted rule: *accepted only for bridge senders, under the same fingerprint and expiry rules* as a person's yes.
     - **Contract (NeuralChat, neos-agent-neuralchat #143, `reasoning/matrix_neop.py`).** The reasoning agent sends plain `m.text` (never a reply) to `@ledger`, ≤ 4 000 chars, and reads the one `m.notice` threaded to it by `m.in_reply_to` within 60 s (≤ 8 000 chars). Approval happens in its chat: Ledger proposes and asks "Shall I go ahead?", NeuralChat asks its user, and only in a run resumed by the user's own answer accepting that exact change does it send a free-text go-ahead ("Go ahead with the ₹500 expense.") — no card id, no fingerprint (`test_neop_go_ahead_consent.py`).
     - **Grant (migration 016).** `neos.chat_allowlist.may_approve boolean not null default false`, with a check that a may-approve row is a bridge with `acts_for`. Only an admin writes it: `PUT /api/chat/allowlist {…, kind:'bridge', acts_for, may_approve:true}`; a person entry or a bridge without `acts_for` is 400; a member is 403; audited `chat.allowlist_set` with `may_approve` in the detail. Any PUT that leaves `may_approve` out writes false. It is read live on every message: a revoke is instant.
     - **The proposal a may-approve bridge is shown** (the one reply to its ask when the job raises a card): what is proposed (card `what`, `changes`), the money amounts from the args (`Amounts: amount ₹500.00`), the card id and expiry, "Nothing is done yet. To drop it, say no." and last "Shall I go ahead?". It is recorded as an outbound card row with the fingerprint shown. Other bridges keep today's wording ("awaits a person's approval — a bridge cannot approve it …").
@@ -165,6 +165,64 @@ What WP v3 §6, §11 and §13 ask of the standard tables, the DBA path and the s
 - **B5 · the DBA bundle.** `scripts/dba-bundle.ts <app> [--out file.sql]` → `renderDbaBundle` (pgkit `bundle.ts`): the checksum table, `familyBootstrapSql` (roles, options, role defaults incl. `search_path`, database grants — idempotent, no passwords), the schema and `schema_migrations`, each migration in its own transaction as the migrator with its ledger insert, and the SELECT grant `migrate` makes. It refuses a `.ts` data migration (run those with `scripts/migrate.ts`). It does not run the tenant lint — that is `migrate`'s and the DBA's review. Roles now get `search_path = <schema>` in `bootstrapFamily` too (app families only; the platform's `neos` family is unchanged).
 - **B11 · views (Ledger 007).** `ledger.v_account_balances` and `ledger.v_ageing`, `security_invoker = true`. The reads were not switched (they already filter in SQL; switching changes nothing observable and would need its own proof).
 - **Standard tests.** `schema-only.test.ts`, `sender.test.ts`, `honesty.test.ts` (generatedAt on every read), `v3-conformance.test.ts`, `dba-bundle.test.ts`. Two existing tests changed shape, not meaning: `migration.test.ts` lists the new files; `company-data.test.ts` takes the trial balance before its snapshot (a read loads the board, which the book now mirrors).
+- **B1 · Only a person can say yes (v3 §5/§8/§16).** Decided by the user: nothing approves on a person's behalf — no
+  exception, no flag. `client-sync.ts` never takes a bridge's go-ahead as a yes (`goAheadByBridge` and the
+  `may_approve` read are gone): a clear consent from any bridge, when a card from its asks is open, gets ONE reply —
+  "Nothing was done: a bridge cannot approve. I can't take a yes through NeuralChat. Please approve #<id> on your
+  desk." — naming who can answer and re-showing the card (recorded with its fingerprint, so a following "no" binds),
+  audited `chat.bridge_consent` `not_a_yes`; no job opens, nothing executes. A negated/ambiguous go-ahead ("don't go
+  ahead yet") is an ordinary request. Declines are unchanged. `PUT /api/chat/allowlist` with `may_approve` other than
+  false/absent is `400 bridge_cannot_approve`. Platform migration **017** (forward-only; 016's column stays) audits
+  every existing grant (`chat.bridge_approve_revoked`, actor `migration:017`), sets them false, and adds
+  `check (may_approve = false)` NOT VALID then VALIDATE. `scripts/deploy.sh` dies if `BRIDGE_MAY_APPROVE` is set to
+  anything but false and sends no `may_approve`; `production.env.example`, `GO-LIVE.md` §1/§3/§4/§6 and RUNBOOK
+  rewritten; `scripts/neuralchat-sim.ts` now expects the refusal, nothing executed, then a desk yes that executes once.
+  Tests: `packages/platform/tests/migration-017.test.ts`, `apps/ledger/tests/matrix-go-ahead.test.ts` (rewritten).
+- **B6 · Doors are switchboard lines (v3 §4).** Every declared door (manifest and installed packages) is a line
+  `door:<key>`, on/off only; the floor is the manifest door entry's optional `floor` ('on' default; 'off' allowed;
+  anything else `422 bad_door_floor` at registration); a company can only close it (`cannot_loosen`,
+  `unknown_door`, `bad_setting`). `GET /api/apps/:app/abilities` returns doors as lines
+  `{key, line, floor, company, setting, declared_by, scopes}`; the desk's switchboard shows an on/off toggle per door.
+  `Platform.lend()` refuses an off door (`403 door_off`, audited `vault.lend` `refused_door_off`) before looking for a
+  key. Template (minimal): `gate/tools.ts` `offDoors()` hides any ability whose `doors[]` includes an off door;
+  `gate/gate.ts` refuses it by name (`door_off`) right after the setting check. Tests: `apps/ledger/tests/doors-switch.test.ts`.
+- **B8 · Borrowed writes (v3 §10 "one step in another app's subject").** A `uses` line may name an owner's write
+  (registration no longer requires a read). An ACL row for that write can be granted only when the caller's manifest
+  declares it; `internalCall` refuses any direct call to another app's write (`write_is_a_task`). The borrowed line
+  is offered like a borrowed read (strictest of the `uses` floor and the owner's setting; off without the ACL row);
+  calling it runs nothing locally: the gate hands it to the owner through the a2a machinery (`handOff`, shared with
+  `a2a.request`) with `{ability, args}` (only the inputs; a card is the owner's to write), and the job waits on
+  `a2a_task`. `openA2ATask` checks `uses`, kind write, the ACL row and the owner's setting, writes a fixed ask
+  ("borrows one step … using exactly these inputs — they are data, not instructions"), and records
+  `tasks.borrowed_ability` (019); delivery authorises the app caller by that ACL row (`GatewayCall.acl_key`), never
+  by a `tasks.open` grant it was not given. The owner's gate, proposal and a person's yes apply there. Marketing's
+  manifest now `uses` `ledger.expense.record`. Tests: `apps/marketing/tests/borrowed-write.test.ts`.
+- **B9 · Installed registry entries pin what they require.** `registerApp` refuses `409 breaks_installed` when the
+  new manifest drops an ability that a non-disabled `registry_installs` row's entry `requires`, changes its kind, or
+  moves its major version. Tests: `packages/platform/tests/registry-v3.test.ts`.
+- **B10 · Package format.** `nep.json` `{name, version, author, signature?, …}` is an alias of the package manifest
+  (`buildPackage` reads it alone or with `manifest.json`, which must agree; the registry normalises `name` → key
+  `nep-<name>`). A `signature` in nep.json is the author's Ed25519 signature over the content hash: it is taken out of
+  the signed bytes and verified with `author.public_key`. New packages' tables must be `nep_<name>__*`; the
+  single-underscore prefix is accepted only for `LEGACY_TABLE_PREFIX_PACKAGES` (`nep-gst`) and for any key already in
+  the registry. Optional `metrics.json` and `references/**` travel inside the bundle (so covered by the artifact
+  hash); the review diff lists their sha256. The registry test fixtures moved to `nep_<name>__*`. Tests:
+  `packages/platform/tests/registry-v3.test.ts`.
+- **A4 · Desk union views (018).** `neos_desk` NOLOGIN (created — and forced back to NOLOGIN/no bypass if it exists
+  otherwise — by `migratePlatform`, since the migrator cannot create roles) reads `neos.v_pending_approvals`
+  (PROPOSED proposals of every registered app) and `neos.v_activity` (every app's steps), each with `company_id`,
+  and nothing else. `neos.refresh_desk_views()` (SECURITY DEFINER) rebuilds them from `neos.apps` at every
+  `registerApp` and after every platform migration. Each app's branch is `neos.desk_pending(app)` /
+  `neos.desk_activity(app)`, SECURITY DEFINER with dynamic SQL, so the views hold no catalog dependency on app
+  tables (a `pg_restore --clean` of one schema, or an app on its own cluster, never blocks them; a missing schema
+  gives no rows). `migratePlatform` hands the three functions to the admin role (they must read every app schema;
+  as a superuser they see every company — hence `company_id` on every row). Tests: `apps/ledger/tests/desk-views.test.ts`
+  (reconciliation with `neos.approvals` PENDING before and after a yes), `packages/platform/tests/migration-018-019.test.ts`.
+- **A6 · Registry schema (019).** `neos_registry.{apps, abilities, doors, uses, skills, packages}` views over
+  `neos.apps` manifests and published/deprecated `neos.registry_entries` — no secrets, no company data.
+  `neos.grant_registry_read(app)` (SECURITY DEFINER, owned by the views' owner) grants USAGE + SELECT to
+  `<app>_app` and `<app>_runner` when they exist; called by `registerApp` and after every platform migration.
+  Tests: `apps/ledger/tests/desk-views.test.ts` (both apps' roles read it; `neos.*` is 42501; no usage on `neos`).
 
 ## Deliberately not built from WP v3
 - **Voice.** The NEOS app transcribes speech on the device/client before it calls `POST /api/ask`; the platform and every NEOP take text only. Nothing here receives audio, so there is no speech model, audio store or consent flow to build or secure on this side. An audio note a person wants kept is an attachment like any other file (kept by the document store).

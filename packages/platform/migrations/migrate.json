@@ -160,6 +160,29 @@
       ],
       "baseline": false,
       "proven_on_populated_data": "2026-09-27 \u00b7 apps/ledger/tests/matrix-go-ahead.test.ts \u203a 016 applies forward on a populated platform database (allowlist rows kept, may_approve false)"
+    },
+    {
+      "file": "017_bridge_never_approves.sql",
+      "tables": [
+        "audit",
+        "chat_allowlist"
+      ],
+      "baseline": false,
+      "proven_on_populated_data": "2026-09-28 \u00b7 packages/platform/tests/migration-017.test.ts \u203a 017 applies forward on a populated platform database (allowlist rows kept, every may_approve grant revoked and audited, the check validated)"
+    },
+    {
+      "file": "018_desk_union_views.sql",
+      "tables": [],
+      "baseline": false,
+      "proven_on_populated_data": "2026-09-28 \u00b7 packages/platform/tests/migration-018-019.test.ts \u203a 018 and 019 apply forward on a populated platform database (every row kept; views, functions and the new column in place)"
+    },
+    {
+      "file": "019_registry_schema.sql",
+      "tables": [
+        "tasks"
+      ],
+      "baseline": false,
+      "proven_on_populated_data": "2026-09-28 \u00b7 packages/platform/tests/migration-018-019.test.ts \u203a 018 and 019 apply forward on a populated platform database (every row kept; views, functions and the new column in place)"
     }
   ]
 }

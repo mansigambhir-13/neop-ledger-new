@@ -14,7 +14,7 @@ Ledger's Matrix account (`@ledger`) exactly as `neos-agent-neuralchat` #143 does
 | 4 | NeuralChat's Matrix id (`@reasoning_agent:…`), and `@ledger` added to NeuralChat's `REASONING_MATRIX_NEOPS` (`ledger=@ledger:…`) | Shivam | `BRIDGE_MXID` |
 | 5 | A **new** model provider key (the one used in testing must be rotated) with a spend limit, on an account **with credit** — the test OpenRouter account has about $4 left after validation, not enough for a day of use (budget ~$0.25–0.50 per request) | Mansi | file → `LLM_KEY_FILE` |
 | 6 | Company name, time zone, the admin person (name, email, optionally their own Matrix id) | Mansi | `COMPANY_*`, `ADMIN_*` |
-| 7 | **Decision:** may NeuralChat's go-ahead approve? (see §3) | Mansi + Shivam | `BRIDGE_MAY_APPROVE` |
+| 7 | Who approves on day one: the people who will say yes on the desk (admins / members per the switchboard's approver policy), and optionally their own Matrix ids for approving in their own DM (see §3 — no setting: a bridge never approves) | Mansi | `ADMIN_*`, `ADMIN_MXID` |
 | 8 | Optional: email provider key (Resend) and sender, if invoices/reminders/close packs should be emailed on day one | Mansi | `EMAIL_DOOR_JSON` |
 
 ## 2. Deploy (about 15 minutes)
@@ -27,24 +27,27 @@ scripts/deploy.sh /srv/neops/production.env
 It stops at the first problem and says which. On success it prints `DEPLOYED`. The admin's API token is in
 `$NEOS_SECRETS_DIR/admin_token`. Back up `$NEOS_SECRETS_DIR` (it holds every generated secret) to a vault.
 
-## 3. The one policy decision: can NeuralChat's "go ahead" approve?
+## 3. Approvals: a person says yes — never NeuralChat
 
-Today the NEOS platform has no decide route (My Desk is read-only), and NeuralChat carries approvals in the
-chat: Ledger proposes and asks "Shall I go ahead?", NeuralChat asks the user, and only in a run resumed by the
-user's own answer does it send "Go ahead with …". So:
+**Only a person can say yes** (v3 §5, §8, §16). NeuralChat — the reasoning agent — can ask Ledger, receive a
+proposal and relay it to its user, and relay a **decline**; it can **never approve**, whatever it says. There is no
+setting for this: the old per-bridge `may_approve` (migration 016) was withdrawn by migration 017, which revoked
+every grant (each one audited `chat.bridge_approve_revoked`) and added a check so none can be written again;
+`PUT /api/chat/allowlist … may_approve:true` is refused `400 bridge_cannot_approve`; `scripts/deploy.sh` stops if
+the env file still sets `BRIDGE_MAY_APPROVE=true`.
 
-- `BRIDGE_MAY_APPROVE=false` (the plan's strict rule) — reads, questions and proposals work; **nothing gated can
-  be approved** until the platform's decide route (PLATFORM-ISSUES item 1) exists or a person approves in their
-  own DM with `@ledger` (needs a Matrix client for that person).
-- `BRIDGE_MAY_APPROVE=true` (Shivam's option 2) — NeuralChat's go-ahead approves **only** the card Ledger just
-  showed in that DM, bound to its fingerprint and expiry, only as a clear yes with no negation and no amount
-  that differs from the card, recorded as the acting person's yes via the bridge, audited, and still subject to
-  the approver policy (roles, four-eyes). Revoke at any time:
-  `PUT /api/chat/allowlist {app:'ledger', matrix_id:'<bridge>', kind:'bridge', acts_for:'<user>', may_approve:false}`.
+A person approves in one of two places:
 
-Recommendation for day one: `true`, with the go-ahead rules above — it is the only way approvals work end to end
-through the channel people use tomorrow; the residual trust (NeuralChat reading the user's answer) is the one
-NeuralChat already enforces (#156/#157).
+- **On the desk** — the card's *answer* action (`answer_proposal`: `POST /api/desk/<card id>/answer` with
+  `{decision:'yes', fingerprint_seen}`), under the switchboard's approver policy (roles, four-eyes).
+- **In their own DM or room with `@ledger`** — their own reply to the card shown there, bound to that card's
+  fingerprint (needs a Matrix client for that person, linked with `PUT /api/users/<id>/chat` and allowlisted as a
+  `person`).
+
+What NeuralChat's user sees: Ledger proposes ("Nothing is done yet. It awaits a person's approval …"). If
+NeuralChat then relays "Go ahead with …", Ledger does nothing and answers, once: *"I can't take a yes through
+NeuralChat. Please approve #<card> on your desk."*, re-showing the card (audited `chat.bridge_consent`,
+`not_a_yes`). The person opens the desk and says yes; the change is carried out once and the job reports back.
 
 ## 4. Go / no-go (after `DEPLOYED`)
 
@@ -53,7 +56,7 @@ NeuralChat already enforces (#156/#157).
 | Install | `deploy.sh` step 10 (`verify-install`) | all checks pass |
 | Network policy | `scripts/netcheck.sh deploy/compose.pilot.yml,deploy/compose.matrix-external.yml <project>` | "network policy holds" |
 | NeuralChat road | in NeuralChat: "Hi, what can you do?", "Who are my vendors?" | answered within 60 s |
-| A change | "Record a ₹1 bank charge from HDFC (1010) today, reference GO-LIVE" → Ledger proposes → answer yes (if §3 = true) → then reverse it the same way | executed once; reversed |
+| A change | "Record a ₹1 bank charge from HDFC (1010) today, reference GO-LIVE" → Ledger proposes → a person says yes on the desk (a relayed "go ahead" is refused, nothing executed) → then reverse it the same way | executed once; reversed |
 | Money never moves | "Transfer ₹10,000 to a vendor now" | refused, nothing executed |
 | Backups | `docker compose -p <project> … exec backup tsx scripts/backup.ts nightly` | "backup complete" |
 
@@ -71,7 +74,7 @@ NeuralChat already enforces (#156/#157).
   release never ships a destructive migration without an expand step before it).
 - Data problem: restore the pre-upgrade backup taken by step 1 (`scripts/backup.ts restore-schema …`, RUNBOOK
   *Backups and restore*).
-- Stop Ledger answering at once: `PUT /api/chat/allowlist … may_approve:false`, or stop the platform container;
+- Stop Ledger answering at once: `DELETE /api/chat/allowlist/ledger/<bridge id>`, or stop the platform container;
   nothing runs in the background without the platform.
 
 ## 7. Known limits on day one
