@@ -3,10 +3,9 @@
 // the diff → platform co-signs → hosts pin a version → hosts verify offline.
 
 import { createPublicKey, verify as verifySig } from 'node:crypto';
-import { registryContentHash, sha256Tagged, type ManifestAbility } from '@neop/contracts';
-import { assertIdent, tx, type PoolClient } from '@neop/pgkit';
+import { packageOffers, packageRequires, registryContentHash, sha256Tagged, type Manifest, type ManifestAbility } from '@neop/contracts';
+import { tx, type PoolClient } from '@neop/pgkit';
 import { jwtVerify, createLocalJWKSet, SignJWT } from 'jose';
-import pg from 'pg';
 import type { KeyRing } from './keys.ts';
 import { isEd25519Jwk, PlatformError, type Platform } from './platform.ts';
 
@@ -160,8 +159,10 @@ export class Registry {
         if (!a.key.startsWith(`${prefix}.`)) throw new PlatformError(422, 'bad_manifest', `package abilities must be named ${prefix}.*`);
         if (a.kind === 'read' && a.floor === 'ask_first') throw new PlatformError(422, 'read_cannot_ask_first', a.key);
       }
-      offers = m.abilities.map((a) => ({ key: a.key, kind: a.kind, floor: a.floor, version: a.version }));
-      requires = [...new Set(m.skills.flatMap((s) => s.requires))];
+      offers = packageOffers(m);
+      requires = packageRequires(m);
+      const breaks = await this.breaksPinned(e.key, offers as { key: string; kind: string; version: string }[]);
+      if (breaks) throw new PlatformError(409, 'breaks_pinned', breaks);
       await this.p.db.query('insert into neos.registry_artifacts (hash, bytes, size) values ($1, $2, $3) on conflict do nothing', [artifactHash, bytes, bytes.length]);
     } else {
       if (!e.body?.trim()) throw new PlatformError(400, 'bad_request', 'a skill needs its text');
@@ -250,111 +251,23 @@ export class Registry {
   }
 
   /**
-   * A company admin pins an entry for a host app. Skills: the ACL rows their
-   * requirements need are granted in the same transaction (minutes, no deploy).
-   * Packages: activate if the host already carries this version's tables,
-   * otherwise wait for the migration runner.
+   * v3 S7: what every registered app pins, from the manifests `neos install` wrote at build time — packages
+   * (`packages`) and skill-only entries (`registry_skills`). There is no per-company install any more: a company
+   * switches the lines they add. This is what a publish, a retire and a re-registration must keep working.
    */
-  async install(user: { id: string; company_id: string; role: string }, req: { host_app: string; entry_key: string; version?: string; grant?: string[] }) {
-    if (user.role !== 'admin') throw new PlatformError(403, 'denied', 'admins only');
-    return tx(this.p.db, async (c) => {
-      const inst = await c.query("select 1 from neos.installs where company_id = $1 and app_key = $2 and status = 'active'", [user.company_id, req.host_app]);
-      if (!inst.rowCount) throw new PlatformError(403, 'not_installed', `${req.host_app} is not installed`);
-      const e = (
-        await c.query(
-          `select * from neos.registry_entries where key = $1 and status = 'published' ${req.version ? 'and version = $2' : ''} order by published_at desc limit 1`,
-          req.version ? [req.entry_key, req.version] : [req.entry_key],
-        )
-      ).rows[0];
-      if (!e) throw new PlatformError(404, 'not_found', `no published ${req.entry_key}${req.version ? `@${req.version}` : ''}`);
-      const cur = (await c.query<{ pinned_version: string; status: string }>('select pinned_version, status from neos.registry_installs where company_id = $1 and host_app = $2 and entry_key = $3 for update', [user.company_id, req.host_app, e.key])).rows[0];
-      if (cur && cur.status !== 'disabled' && cur.pinned_version !== e.version) {
-        // An update that needs more than the pinned version did moves only once an admin grants the new borrowing.
-        const missing = await this.ungranted(c, user.company_id, req.host_app, e.requires, e.offers);
-        const granted = new Set(req.grant ?? []);
-        const still = missing.filter((k) => !granted.has(k));
-        if (still.length) throw new PlatformError(409, 'needs_grant', `${e.key}@${e.version} also requires ${still.join(', ')}; grant it (install with grant: [...]) before the pin moves`);
-      }
-      await this.grantRequires(c, user, req.host_app, e.requires, e.offers);
-      let status = 'active';
-      if (e.kind === 'package') {
-        const m = await c.query('select 1 from neos.package_migrations where host_app = $1 and entry_key = $2 and version = $3', [req.host_app, e.key, e.version]);
-        if (!m.rowCount) status = 'pending_migration';
-      }
-      await c.query(
-        `insert into neos.registry_installs (company_id, host_app, entry_key, pinned_version, status, granted_by) values ($1,$2,$3,$4,$5,$6)
-         on conflict (company_id, host_app, entry_key) do update set pinned_version = excluded.pinned_version, status = excluded.status, granted_by = excluded.granted_by, installed_at = now(),
-           previous_version = case when neos.registry_installs.status = 'active' and neos.registry_installs.pinned_version <> excluded.pinned_version then neos.registry_installs.pinned_version else neos.registry_installs.previous_version end,
-           last_error = null`,
-        [user.company_id, req.host_app, e.key, e.version, status, user.id],
-      );
-      await c.query(`insert into neos.audit (company_id, actor, app_key, action, outcome, detail) values ($1,$2,$3,'registry.installed',$4,$5)`, [
-        user.company_id,
-        `user:${user.id}`,
-        req.host_app,
-        status,
-        JSON.stringify({ entry: e.key, version: e.version }),
-      ]);
-      return { entry_key: e.key, version: e.version, status };
-    }).then(async (res) => {
-      await this.p.notifyApp(req.host_app, user.company_id);
-      return res;
-    });
+  async pins(c: { query: PoolClient['query'] } = this.p.db): Promise<Pin[]> {
+    return manifestPins(c);
   }
 
-  /** Uninstall (plan: "disables the package and keeps its tables; a drop is a separate, audited platform action"). */
-  async uninstall(user: { id: string; company_id: string; role: string }, req: { host_app: string; entry_key: string }) {
-    if (user.role !== 'admin') throw new PlatformError(403, 'denied', 'admins only');
+  /** One published (or deprecated) entry, signed, for `neos install` to verify and pin. */
+  async entry(key: string, version: string) {
     const r = await this.p.db.query(
-      `update neos.registry_installs set status = 'disabled' where company_id = $1 and host_app = $2 and entry_key = $3 and status <> 'disabled' returning pinned_version`,
-      [user.company_id, req.host_app, req.entry_key],
+      `select key, version, kind, owner_app, requires, offers, body, artifact_hash, content_hash, platform_sig, status
+         from neos.registry_entries where key = $1 and version = $2 and status in ('published', 'deprecated')`,
+      [key, version],
     );
-    if (!r.rowCount) throw new PlatformError(404, 'not_found', `${req.entry_key} is not installed in ${req.host_app}`);
-    await this.p.gateway.audit({ company_id: user.company_id, actor: `user:${user.id}`, app_key: req.host_app, action: 'registry.uninstalled', outcome: 'disabled', detail: { entry: req.entry_key, version: r.rows[0].pinned_version, tables: 'kept' } });
-    await this.p.notifyApp(req.host_app, user.company_id);
-    return { entry_key: req.entry_key, status: 'disabled' };
-  }
-
-  /** Requirements owned by other apps with no ACL row for this host yet. */
-  private async ungranted(c: PoolClient, companyId: string, host: string, requires: string[], offers: { key: string }[]): Promise<string[]> {
-    const own = new Set((offers ?? []).map((o) => o.key));
-    const apps = (await c.query<{ key: string; manifest: { abilities: { key: string }[] } }>("select key, manifest from neos.apps where status = 'active'")).rows;
-    const out: string[] = [];
-    for (const key of requires ?? []) {
-      if (own.has(key)) continue;
-      const owner = apps.find((a) => a.manifest.abilities.some((x) => x.key === key));
-      if (!owner || owner.key === host) continue;
-      const acl = await c.query('select 1 from neos.acl where caller_app = $1 and target_app = $2 and ability_key = $3 and company_id = $4', [host, owner.key, key, companyId]);
-      if (!acl.rowCount) out.push(key);
-    }
-    return out;
-  }
-
-  /** Requirements owned by other apps become ACL rows (borrowed abilities); the host's own need nothing. */
-  private async grantRequires(c: PoolClient, user: { id: string; company_id: string }, host: string, requires: string[], offers: { key: string }[]) {
-    const own = new Set((offers ?? []).map((o) => o.key));
-    const apps = (await c.query<{ key: string; manifest: { abilities: { key: string }[] } }>("select key, manifest from neos.apps where status = 'active'")).rows;
-    for (const key of requires) {
-      if (own.has(key)) continue;
-      const owner = apps.find((a) => a.manifest.abilities.some((x) => x.key === key));
-      if (!owner) throw new PlatformError(422, 'unmet_requirement', `nothing offers ${key}`);
-      if (owner.key === host) continue;
-      await c.query(
-        `insert into neos.acl (caller_app, target_app, ability_key, company_id, granted_by) values ($1,$2,$3,$4,$5) on conflict do nothing`,
-        [host, owner.key, key, user.company_id, user.id],
-      );
-    }
-  }
-
-  /** What a host loads for a company: pinned, published (or deprecated) entries with their signatures. */
-  async forHost(host: string, companyId: string) {
-    const r = await this.p.db.query(
-      `select e.key, e.version, e.kind, e.owner_app, e.requires, e.offers, e.body, e.artifact_hash, e.content_hash, e.platform_sig, i.status as install_status
-         from neos.registry_installs i join neos.registry_entries e on e.key = i.entry_key and e.version = i.pinned_version
-        where i.company_id = $1 and i.host_app = $2 and i.status = 'active' and e.status in ('published', 'deprecated')`,
-      [companyId, host],
-    );
-    return r.rows;
+    if (!r.rows[0]) throw new PlatformError(404, 'not_found', `no published ${key}@${version}`);
+    return r.rows[0];
   }
 
   async artifact(hash: string): Promise<Buffer | null> {
@@ -362,50 +275,41 @@ export class Registry {
     return r.rows[0]?.bytes ?? null;
   }
 
+  /** A published (or deprecated) package's artifact, by hash: what `neos install` fetches. */
+  async publishedArtifact(hash: string): Promise<Buffer> {
+    const ok = await this.p.db.query("select 1 from neos.registry_entries where artifact_hash = $1 and status in ('published', 'deprecated') limit 1", [hash]);
+    const bytes = ok.rowCount ? await this.artifact(hash) : null;
+    if (!bytes) throw new PlatformError(404, 'not_found', 'no published artifact with that hash');
+    return bytes;
+  }
+
   /**
-   * Drop a package's tables from a host (plan: "a drop is a separate, audited platform action").
-   * Operator only; refused while any company still has the package installed (active or pending).
-   * Runs with the admin connection (the migration runner's), never from a request path.
+   * v3 §10: an owner may not retire an ability a pinned entry still requires. A new version of a package that
+   * drops (or recasts, or moves the major version of) an ability some app's pinned skill or package requires is
+   * refused until the version that served it has been deprecated for the 30-day window.
    */
-  async dropPackageTables(adminUrl: string, operator: { id: string; role: string }, host: string, key: string): Promise<{ dropped: string[] }> {
-    if (operator.role !== 'operator') throw new PlatformError(403, 'denied', 'dropping package tables is for platform operators');
-    assertIdent(host);
-    const live = (await this.p.db.query<{ n: number }>(`select count(*)::int as n from neos.registry_installs where host_app = $1 and entry_key = $2 and status in ('active', 'pending_migration')`, [host, key])).rows[0]!.n;
-    if (live > 0) throw new PlatformError(409, 'still_installed', `${live} compan${live === 1 ? 'y' : 'ies'} still use ${key} in ${host}; uninstall it everywhere first`);
-    const versions = (await this.p.db.query<{ version: string; artifact_hash: string }>(
-      `select m.version, e.artifact_hash from neos.package_migrations m join neos.registry_entries e on e.key = m.entry_key and e.version = m.version where m.host_app = $1 and m.entry_key = $2`,
-      [host, key],
-    )).rows;
-    const prefix = `nep_${key.replace(/^nep-/, '').replace(/[^a-z0-9]/g, '_')}_`;
-    const tables = new Set<string>();
-    for (const v of versions) {
-      const bytes = await this.artifact(v.artifact_hash);
-      for (const t of bytes ? ((JSON.parse(bytes.toString('utf8')) as PackageBundle).manifest.tables ?? []) : []) if (t.startsWith(prefix) && /^[a-z_][a-z0-9_]*$/.test(t)) tables.add(t);
-    }
-    const admin = new pg.Client({ connectionString: adminUrl });
-    await admin.connect();
-    const dropped: string[] = [];
-    try {
-      await admin.query('select pg_advisory_lock(hashtext($1))', [`migrate:${host}`]);
-      await admin.query('begin');
-      for (const t of tables) {
-        const r = await admin.query('select 1 from pg_tables where schemaname = $1 and tablename = $2', [host, t]);
-        if (!r.rowCount) continue;
-        await admin.query(`drop table ${host}.${t} cascade`);
-        dropped.push(t);
+  private async breaksPinned(key: string, offers: { key: string; kind: string; version: string }[]): Promise<string | null> {
+    const prev = (
+      await this.p.db.query<{ version: string; offers: { key: string; kind: string; version: string }[]; status: string; deprecated_at: Date | null }>(
+        `select version, offers, status, deprecated_at from neos.registry_entries
+          where key = $1 and kind = 'package' and status in ('published', 'deprecated') order by published_at desc nulls last limit 1`,
+        [key],
+      )
+    ).rows[0];
+    if (!prev) return null;
+    if (prev.deprecated_at && Date.now() - new Date(prev.deprecated_at).getTime() > RETIRE_AFTER_MS) return null;
+    const pins = await this.pins();
+    for (const was of Array.isArray(prev.offers) ? prev.offers : []) {
+      const needers = pins.filter((p) => p.requires.includes(was.key) && !(p.kind === 'package' && p.key === key));
+      if (!needers.length) continue;
+      const now = offers.find((o) => o.key === was.key);
+      const why = !now ? 'drops it' : now.kind !== was.kind ? `turns it from a ${was.kind} into a ${now.kind}` : major(now.version) !== major(was.version) ? `moves it from ${was.version} to ${now.version}` : null;
+      if (why) {
+        const n = needers[0]!;
+        return `${n.key}@${n.version} (pinned by ${n.app}) requires ${was.key}; this version ${why}. Deprecate ${key}@${prev.version} and wait 30 days, or re-pin ${n.app} first`;
       }
-      await admin.query(`delete from ${host}.schema_migrations where name like $1`, [`${key}@%`]);
-      await admin.query('commit');
-    } catch (e) {
-      await admin.query('rollback').catch(() => {});
-      throw e;
-    } finally {
-      await admin.query('select pg_advisory_unlock(hashtext($1))', [`migrate:${host}`]).catch(() => {});
-      await admin.end();
     }
-    await this.p.db.query('delete from neos.package_migrations where host_app = $1 and entry_key = $2', [host, key]);
-    await this.p.gateway.audit({ company_id: null, actor: `user:${operator.id}`, app_key: host, action: 'registry.package_tables_dropped', outcome: String(dropped.length), detail: { entry: key, tables: dropped } });
-    return { dropped };
+    return null;
   }
 
   async deprecate(user: { role: string }, key: string, version: string) {
@@ -413,16 +317,43 @@ export class Registry {
     await this.p.db.query(`update neos.registry_entries set status = 'deprecated', deprecated_at = now() where key = $1 and version = $2 and status = 'published'`, [key, version]);
   }
 
-  /** The owner must keep serving a version while anything pins it; retirement waits 30 days after deprecation. */
+  /** The owner must keep serving a version while any app's build pins it; retirement waits 30 days after deprecation. */
   async retire(user: { role: string }, key: string, version: string) {
     if (user.role !== 'operator') throw new PlatformError(403, 'denied', 'operators only');
     const e = (await this.p.db.query('select status, deprecated_at from neos.registry_entries where key = $1 and version = $2', [key, version])).rows[0];
     if (!e) throw new PlatformError(404, 'not_found', 'no such entry');
-    const pins = (await this.p.db.query<{ n: number }>("select count(*)::int as n from neos.registry_installs where entry_key = $1 and pinned_version = $2 and status <> 'disabled'", [key, version])).rows[0]!.n;
-    const aged = e.deprecated_at && Date.now() - new Date(e.deprecated_at).getTime() > 30 * 86_400_000;
-    if (pins > 0 && !aged) throw new PlatformError(409, 'pinned', `${pins} install(s) still pin ${key}@${version}; deprecate and wait 30 days, or re-pin them`);
+    const pins = (await this.pins()).filter((p) => p.key === key && p.version === version);
+    const aged = e.deprecated_at && Date.now() - new Date(e.deprecated_at).getTime() > RETIRE_AFTER_MS;
+    if (pins.length > 0 && !aged) throw new PlatformError(409, 'pinned', `${pins.map((p) => p.app).join(', ')} still pin${pins.length === 1 ? 's' : ''} ${key}@${version}; deprecate and wait 30 days, or re-pin them`);
     await this.p.db.query(`update neos.registry_entries set status = 'retired' where key = $1 and version = $2`, [key, version]);
   }
+}
+
+const RETIRE_AFTER_MS = 30 * 86_400_000;
+
+/** What every registered app's build pinned (v3 S7): its manifest's `packages` and `registry_skills`. */
+export async function manifestPins(c: { query: PoolClient['query'] }): Promise<Pin[]> {
+  const r = await c.query<{ key: string; manifest: Manifest }>('select key, manifest from neos.apps');
+  return r.rows.flatMap((a) => pinsOf(a.key, a.manifest));
+}
+
+/** One manifest's pins. */
+export function pinsOf(app: string, manifest: Manifest | null | undefined): Pin[] {
+  const out: Pin[] = [];
+  for (const p of manifest?.packages ?? []) {
+    out.push({ app, key: p.key, version: p.version, kind: 'package', requires: [...new Set([...(p.requires ?? []), ...(p.skills ?? []).flatMap((s) => s.requires)])], offers: (p.abilities ?? []).map((x) => x.key) });
+  }
+  for (const s of manifest?.registry_skills ?? []) out.push({ app, key: s.key, version: s.version, kind: 'skill', requires: s.requires ?? [], offers: [] });
+  return out;
+}
+
+export interface Pin {
+  app: string;
+  key: string;
+  version: string;
+  kind: 'package' | 'skill';
+  requires: string[];
+  offers: string[];
 }
 
 /** Offline verification of a registry co-signature (used by hosts). */
@@ -433,4 +364,8 @@ export async function verifyRegistrySig(jwks: { keys: any[] }, sig: string, expe
   } catch {
     return false;
   }
+}
+
+function major(v: string): string {
+  return String(v ?? '').split('.')[0] ?? '';
 }

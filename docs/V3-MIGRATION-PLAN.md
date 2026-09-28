@@ -34,7 +34,7 @@ Companies, users/auth, Conversations, NeuralChat (reads `neos_registry`), the de
 | S4 ✅ | Presence in the NEOP (appservice + client road, flag `NEOP_PRESENCE`); NeuralChat #143 plain text keeps working (task/answer, never approve) | high — **done 2026-09-28** (below) |
 | S5 | NeuralChat posts typed tasks as its own Matrix identity; tasks/outbox delivery deleted | medium |
 | S6 ✅ | NEOP to NEOP on the bus room; callee asks answered by the caller | medium-high — **done 2026-09-28** (below) |
-| S7 | Packages at build time; publish writes `neos_registry` | medium |
+| S7 ✅ | Packages at build time; publish writes `neos_registry` | medium — **done 2026-09-28** (below) |
 | S8 | Doors from the secret store; LLM tokens without the platform — **done** (IMPLEMENTATION-NOTES "v3 S8") | low-medium |
 | S9 | Delete the gateway, L3, platform-client, execution-token and legacy platform tables | low |
 
@@ -146,6 +146,31 @@ What changed (details: `docs/IMPLEMENTATION-NOTES.md` › "v3 S6"; operations: `
   `setSwitchboard` accepts borrowed lines. **`scripts/rooms-setup.ts`** (idempotent) makes the rooms.
 - **Deferred.** The bus on the client road; NeuralChat in the bus room (S5); a borrowed *skill* requirement
   (`registry entries requires[]`) is not borrowable on the bus yet (S7's registry); deleting the platform road (S9).
+## S7 — done (2026-09-28)
+What changed (details: `docs/IMPLEMENTATION-NOTES.md` › "v3 S7"; operator steps: RUNBOOK › *Installing a package*):
+- **`neos install`** (`scripts/neos-install.ts`, `packages/neop-template/src/packages/install.ts`): entry + artifact
+  by hash from the registry, hash and co-signature verified (optionally against a pinned JWKS), unpacked read-only
+  into `apps/<app>/src/packages/nep-<name>/`, pinned in `apps/<app>/packages.lock.json`, migrations appended to the
+  app's own numbered set (+ `migrate.json`, `--proven`), lines written into the manifest's `packages`, the package's
+  self-test run inside the host (whole migration set in a scratch database); any refusal leaves the app untouched.
+  `--remove` keeps migrations and tables. A skill-only entry is pinned (lock + manifest `registry_skills`).
+- **PackageHost** loads what the lock names at boot and re-verifies every file and the signature at each spawn and
+  before each call (a hand-edited package is skipped; the job's book says why). Pinned skills are read from
+  `neos_registry.skills` at spawn with the app's own role and must still have the pinned content hash; they load when
+  the `skill:` line and every requirement are on. The runner stamps package lines' floors at boot (`syncFloors`).
+- **Removed:** the platform's run-time registry fetch (`/internal/registry/entries`, `/internal/registry/artifacts`,
+  `PlatformClient.registryEntries/registryArtifact`), run-time installs (`POST/DELETE /api/registry/installs` → 410),
+  package migrations at run time (`pendingPackageMigrations`, `applyPackageMigration`, `migratePackage`,
+  `package_migrations`), `dropPackageTables`. `neos.registry_installs` / `neos.package_migrations` are frozen.
+- **Platform:** what is pinned comes from registered manifests (`Registry.pins`, `neos_registry.pins`, platform
+  **022**); package lines, doors and skill lines for the board, the gateway's ability version and the B9 check
+  read the manifest. **Publish** refuses (`409 breaks_pinned`) a package version that drops, recasts or major-bumps
+  an ability a pinned entry still requires, until the old version has been deprecated 30 days; retire counts pins.
+  `scripts/neos-publish.ts` publishes a package (operator, optional author signature) or a skill (via registry.ts).
+- **nep-gst** is installed into Ledger through the script (`apps/ledger/src/packages/nep-gst`, lock, migrations
+  **008–009**, proven on a populated book and on a book the pre-v3 installer had already migrated).
+- **Deferred:** registerApp does not yet check that a manifest's pins exist in this platform's registry (pilots and
+  tests run on their own registries); the desk's "add from registry" screen (it now means: ask for the next build).
 
 ## Deploy kit after the move
 DBA bundle per NEOP (schema, roles, grants, functions, triggers, view registration) → one DB link per NEOP role

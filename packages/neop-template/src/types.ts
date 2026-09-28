@@ -99,6 +99,11 @@ export interface AppDefinition {
   skills: SkillFile[];
   /** Screens as data (blocks/*.json), registered with the platform; never JavaScript. */
   blocks?: Record<string, unknown>;
+  /**
+   * Packages and registry skills installed at build time (v3 §10, `neos install`): `root` is the app's folder, holding
+   * packages.lock.json and src/packages/nep-<name>/. Absent: the app has none.
+   */
+  packages?: { root: string };
 }
 
 export interface Timings {
@@ -149,8 +154,11 @@ export interface NeopConfig {
   runnerPoolSize?: number;
   /** Concurrent executions per backend (each holds one session for its advisory lock). */
   execLockPoolSize?: number;
-  /** Where verified package artifacts are unpacked (read-only). */
-  packageCacheDir?: string;
+  /**
+   * The registry keys installed packages and pinned skills must be signed under (a JWKS). Unset: the key each lock
+   * entry recorded at install is used alone. Production pins the registry's JWKS (NEOP_REGISTRY_JWKS_FILE).
+   */
+  registryJwks?: { keys: Record<string, unknown>[] };
   /** How long a fetched gateway JWKS is trusted (default 60 s): bounds exposure after a key is retired. */
   jwksCacheMs?: number;
   /** Acked outbox events older than this are pruned (default 7 days). */

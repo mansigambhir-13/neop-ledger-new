@@ -503,13 +503,8 @@ export async function backfillBoards(db: Pool, opts: { app?: string; company?: s
           [co.company_id, a.key],
         )
       ).rows;
-      const pkgs = (
-        await db.query<{ offers: any }>(
-          `select e.offers from neos.registry_installs i join neos.registry_entries e on e.key = i.entry_key and e.version = i.pinned_version
-            where i.company_id = $1 and i.host_app = $2 and i.status <> 'disabled' and e.kind = 'package'`,
-          [co.company_id, a.key],
-        )
-      ).rows.flatMap((r) => (Array.isArray(r.offers) ? r.offers : []).map((o: any) => ({ key: String(o.key), kind: String(o.kind), floor: o.floor as Setting })));
+      // v3 S7: installed packages' lines are in the app's manifest (`packages`, written by `neos install`).
+      const pkgs = (a.manifest?.packages ?? []).flatMap((p) => (p.abilities ?? []).map((o) => ({ key: String(o.key), kind: String(o.kind), floor: o.floor as Setting })));
       const meta = lineMetaFrom(a.manifest, pkgs);
       const rep = await boards.asDesk(a.key, co.company_id, async (c, s): Promise<BackfillReport | null> => {
         if (!s) return null;

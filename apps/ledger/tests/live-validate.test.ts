@@ -81,6 +81,9 @@ describe('live validation against the pilot', () => {
     filesDir = await mkdtemp(path.join(os.tmpdir(), 'neop-lv-files-'));
     P = await bootPilot({ backendConfig: () => ({ documents: { backend: 'local', dir: filesDir } }) });
     P.setBrain(scriptedBrain);
+    // v3 S7: nep-gst is built into Ledger, so the validator exercises its writes. Preparing a return reads the books and
+    // the GSTIN profile only (no GSP call): a profile-only credential, as ops would connect it. Portal writes stay off (gst: false).
+    await P.setDoorSecret('gst_portal', { provider: 'gsp', base_url: 'http://127.0.0.1:9', client_id: 'c', client_secret: 's', username: 'acme', gstin: '27AAPFU0939F1ZV', assume_supply: 'intra_state' });
     const v = new LiveValidator({
       baseUrl: P.platformUrl,
       adminToken: P.admin.token,
@@ -106,7 +109,12 @@ describe('live validation against the pilot', () => {
 
   it('every check passes; nothing is skipped', () => {
     const bad = report.rows.filter((r) => r.result !== 'PASS');
-    expect(bad.map((r) => `${r.result} ${r.section} · ${r.item}: ${r.evidence}`)).toEqual([]);
+    // v3 S7: the only rows that are not PASS are nep-gst's three GST-portal effects, which the validator never runs
+    // without --gst (a real sandbox portal and a person entering the OTP) — exactly these, with exactly that reason.
+    const portal = 'a GST portal effect (save / OTP / file) — run with --gst only against a sandbox portal';
+    expect(bad.map((r) => `${r.result} ${r.section} · ${r.item}: ${r.evidence}`).sort()).toEqual(
+      ['gst.gstr3b.file', 'gst.gstr3b.save', 'gst.otp.request'].map((k) => `SKIPPED writes · ${k}: ${portal}`),
+    );
   });
 
   it('exercises every read and every write of the manifest, and every block with reads', () => {
@@ -125,6 +133,6 @@ describe('live validation against the pilot', () => {
   it('renders a markdown report with a summary table', () => {
     const md = renderMarkdown(report);
     expect(md).toContain('**All checks pass**');
-    expect(md).toMatch(/\| writes \| \d+ \| 0 \| 0 \|/);
+    expect(md).toMatch(/\| writes \| \d+ \| 0 \| 3 \|/); // v3 S7: nep-gst's three portal effects, skipped without --gst
   });
 });

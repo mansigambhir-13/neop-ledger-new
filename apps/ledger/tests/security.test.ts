@@ -54,7 +54,9 @@ describe('B1 · door credentials and internal endpoints are scoped to installs a
     expect((await internal('POST', '/internal/vault/lend', { company_id: P.company.id, door: 'email' })).status).toBe(404);
     expect((await internal('POST', '/internal/llm/session', { company_id: P.company.id, job_id: 'x', sid: 'x', ttl_seconds: 60 })).status).toBe(404);
     expect((await internal('GET', `/internal/switchboard?company_id=${other.id}`)).status).toBe(403);
-    expect((await internal('GET', `/internal/registry/entries?company_id=${other.id}`)).status).toBe(403);
+    // v3 (S7): no registry fetch at run time either — packages are in the build, pinned skills are read from the registry schema.
+    expect((await internal('GET', `/internal/registry/entries?company_id=${other.id}`)).status).toBe(404);
+    expect((await internal('GET', '/internal/registry/artifacts/sha256:00')).status).toBe(404);
   });
 });
 
@@ -126,9 +128,8 @@ describe('H5 · package module state never crosses companies', () => {
     await installAndMigrate(P, 'ledger', 'nep-probe');
     const B = await P.platform.createCompany('Second Co');
     const bu = await P.platform.createUser(B.id, { name: 'B', email: 'b@second.example', role: 'admin' });
+    // v3 S7: the package is in Ledger's build, so every company that installs Ledger has its lines (at their floors).
     await P.platform.installApp(B.id, 'ledger');
-    await P.api('POST', '/api/registry/installs', { host_app: 'ledger', entry_key: 'nep-probe' }, bu.token);
-    P.backend.core.packages.invalidate();
     const a1 = (await P.api('POST', '/api/apps/ledger/read/probe.counter', {})).body.result.n;
     const a2 = (await P.api('POST', '/api/apps/ledger/read/probe.counter', {})).body.result.n;
     const b1 = (await P.api('POST', '/api/apps/ledger/read/probe.counter', {}, bu.token)).body.result.n;

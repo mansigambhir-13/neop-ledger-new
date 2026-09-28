@@ -72,14 +72,14 @@ Each item is small; flag any you disagree with.
 
 34. **The console is designed from the plan, not from the old app** (`docs/CONSOLE-DESIGN.md`). Work (Today, Jobs, Approvals) and Govern (Switchboard, Standing yeses, Doors, Packages, Apps, Audit) come first; Books is the subject. Every figure carries its source line. It is a BFF + static UI in its own container that reaches only the platform's person-facing API.
 35. **Company rules are validated where they are saved.** One shared check (`@neop/contracts` `rulesProblem`) runs in the platform when an admin saves the switchboard and in the gate when it loads it; a malformed rule used to be stored and then fail every job.
-36. **Package abilities are switchboard lines.** An installed package's abilities (from the registry entry's `offers`) can be tightened per company like the host's own, never below the package's floor.
+36. **Package abilities are switchboard lines.** An installed package's abilities (from the registry entry's `offers`) can be tightened per company like the host's own, never below the package's floor. *(v3 S7: the lines come from the host manifest's `packages`, written by `neos install` at build time.)*
 37. **Governance surfaces:** list/create/withdraw standing yeses (admin-only withdraw, audited; money needs a cap; expiry ≤ 1 year), who may ask Ledger (ACL list), the audit trail (paged, filtered, named), the registry catalogue (offers, requires, signature, pins), switchboard history, assistant spend against caps, and a job's full record (approvals with who and fingerprint seen, proof, cost, standing-yes uses). A reconciled UNKNOWN now updates the desk's proof.
 38. **LLM proxy speaks to OpenRouter too:** `NEOP_LLM_UPSTREAM_AUTH=bearer` and `NEOP_LLM_UPSTREAM_MODEL_PREFIX=anthropic/`; pricing and caps stay on the agent-facing model id.
 
 39. **Screens are blocks; the desk is the platform's.** Blocks are validated at registration (reads only, effects only as asks, no markup) and drawn by one renderer in the platform-owned desk, which is multi-app. Ledger ships no UI code. (`contracts/src/blocks.ts`, `platform/src/web/`.)
 40. **Bookkeeping logic stays in the app.** The home figures and the close checklist are Ledger reads (`ledger.home.summary`, `ledger.close.checklist`), not screen code.
 41. **Skills are switchboard lines** (`skill:<key>`, on/off), dropped at spawn when off or when a tool they need is off.
-42. **Uninstall disables a package and keeps its tables**; the platform tells the app at once (`switchboard.changed` also drops the package cache).
+42. **Uninstall disables a package and keeps its tables**; the platform tells the app at once (`switchboard.changed` also drops the package cache). *(Superseded by v3 S7: there is no run-time install or uninstall; `neos install --remove` takes a package out of the build and keeps its tables.)*
 43. **PgBouncer in transaction mode** for query pools; LISTEN and the execution lock use a direct connection (`NEOP_DIRECT_DB_URL`); statement/lock/idle timeouts are role defaults set by the migrator.
 44. **Listeners bind per network.** L3 only on the l3 network (`ledger-l3`), the gate only on the agent network (`ledger-gate`), the agent only on its backend's network (`ledger-agent-rpc`). Register apps by the l3 alias. A runtime probe checks every row.
 45. **Rooms can be re-bound** without losing history (old room retired, migration 010); admins bind rooms and link chat identities over the API; the bot registers in the appservice namespace and joins before it speaks.
@@ -199,7 +199,7 @@ What WP v3 §6, §11 and §13 ask of the standard tables, the DBA path and the s
   manifest now `uses` `ledger.expense.record`. Tests: `apps/marketing/tests/borrowed-write.test.ts`.
 - **B9 · Installed registry entries pin what they require.** `registerApp` refuses `409 breaks_installed` when the
   new manifest drops an ability that a non-disabled `registry_installs` row's entry `requires`, changes its kind, or
-  moves its major version. Tests: `packages/platform/tests/registry-v3.test.ts`.
+  moves its major version. Tests: `packages/platform/tests/registry-v3.test.ts`. *(v3 S7: the pins are read from the registered manifests — `packages` and `registry_skills` — not `registry_installs`; see "v3 S7".)*
 - **B10 · Package format.** `nep.json` `{name, version, author, signature?, …}` is an alias of the package manifest
   (`buildPackage` reads it alone or with `manifest.json`, which must agree; the registry normalises `name` → key
   `nep-<name>`). A `signature` in nep.json is the author's Ed25519 signature over the content hash: it is taken out of
@@ -737,6 +737,93 @@ applies forward on a populated book").
 - **Not done here.** The bus on the client road; NeuralChat (the reasoning agent) posting tasks in the bus room (S5);
   borrowing what an installed registry entry `requires` without a `uses` line (the platform-mode ACL path; S7's
   registry); deleting the platform's a2a road and `neos.acl` (S9).
+## v3 S7 · packages at build time; the registry schema (2026-09-28)
+`docs/V3-MIGRATION-PLAN.md` stage S7; WP v3 §10 ("a package installs into a host at build time, its migrations ride
+with the host's"; "code is loaded by hash, never run from a row"; "B cannot retire an ability a pinned skill still
+requires") and §13 (`src/packages/`: "nobody by hand — the installer unpacks a signed artifact here; a hand-edited
+package fails verification at spawn"). Platform migration **022** (proof: `packages/platform/tests/registry-v3.test.ts`
+› "022 applies forward on a populated platform database"); Ledger migrations **008–009** (nep-gst; proof:
+`apps/ledger/tests/install.test.ts` › "nep-gst's host migrations apply forward on a populated book, and are skipped
+where the pre-v3 runtime installer ran them"). No template migration.
+- **`neos install <app> <key>@<version>`** (`scripts/neos-install.ts` → `installEntry` in
+  `packages/neop-template/src/packages/install.ts`). Fetches the signed entry (`GET /api/registry/entry?key&version`)
+  and a package's artifact by hash (`GET /api/registry/artifact?hash`, published/deprecated only) — an operator's
+  bearer or an app's service secret; checks the entry's content hash, the registry's EdDSA co-signature (under the
+  key the JWKS names by `kid`; `--trust <jwks>` additionally pins the registry's keys), `sha256(bytes) =
+  artifact_hash`, and that the bundle's offers/requires hash to the signed content hash. Refusals are
+  `InstallError`s: `hash_mismatch`, `bad_signature`, `not_published`, `bad_package` (a table not `nep_<name>_*`, a
+  `create table` of an undeclared table, an ability that collides with the host's or another package's),
+  `migration_changed`, `tests_failed`. **A refusal leaves the app folder byte for byte as it was** (every touched
+  file is staged and put back).
+- **What an install writes.** `src/packages/nep-<name>/` (0444): `bundle.json` — the artifact itself, byte for byte,
+  the only thing the sandbox loads — and, for people, `nep.json`, `handlers.js`, `skills/*.md`, `migrations/*.sql`,
+  `metrics.json`, `references/**`. `packages.lock.json`: per package the version, artifact and content hashes, the
+  registry's signature with the public key it verified under (`kid`), every unpacked file's sha256, the package role,
+  its tables and the host files its migrations became; per pinned skill its version, content hash, requires and
+  signature. `migrations/NNN_nep_<name>__<file>.sql`, numbered after the app's last file, in the package's order,
+  with a `migrate.json` row each (`baseline: false`, `--proven` → `proven_on_populated_data`). Each wraps the
+  package's SQL in a `DO` block that skips it where the pre-v3 runtime installer already ran it (a
+  `schema_migrations` row `nep-x@<v>/<file>`) and then makes the host role read-only on the package's tables. The
+  manifest's `packages` gets `{key, version, artifact_hash, content_hash, requires, abilities (full declarations),
+  doors, skills}` — the platform's source for the package's lines. A later version keeps the host files already
+  shipped (a changed one is refused) and appends new ones; a reinstall after `--remove` finds its files in the set
+  and reuses them.
+- **Tests inside the host.** Before the install stands, the app's whole migration set (template, app, the new files)
+  runs in a scratch database on `NEOS_ADMIN_URL`'s cluster (`migrateApp`, which also makes the package role), then the
+  package's `selftest` runs in the sandbox as that role (`selftestPackage`, unchanged). The pilot's real tables never
+  see the self-test's rows.
+- **Roles.** The migrator cannot create roles, so `migrateApp` (after the migrations) runs `applyPackageGrants` for
+  each locked package: `<host>_nep_<name>` LOGIN, no bypass, `search_path = <host>`, `SELECT/INSERT/UPDATE` on its
+  own tables only, sequences; the app role `SELECT` only. `scripts/dba-bundle.ts` adds the same as section 6
+  (`packageBootstrapSql`; the DBA sets the password or `NEOS_PKG_PW_KEY_<HOST>` derives it as before).
+- **`--remove`** deletes the unpacked folder, the lock entry and the manifest entry; the host migration files and
+  `migrate.json` rows stay (they ran; forward only) and so do the tables. Dropping them is a contract migration in
+  the app's own set (the expand/contract lint refuses a bare `drop table`).
+- **PackageHost** (`packages/neop-template/src/packages/host.ts`) reads the lock once at boot (`AppDefinition.packages
+  = { root }`; Ledger sets `LEDGER_ROOT`). `forCompany` verifies every locked package at each spawn
+  (`verifyInstalledPackage`: every listed file's hash, `bundle.json` = the artifact hash, the recomputed content
+  hash, the signature against the recorded key and, when `NEOP_REGISTRY_JWKS[_FILE]` / `cfg.registryJwks` is set,
+  that the key is trusted) and again before every sandbox call. A failure stops that package's sandboxes, skips it,
+  and the job's book gets a note `Not loaded: <key>@<v> — <reason>` (once per job). The sandbox, the narrow ctx and
+  per-company sandboxes are unchanged. `cfg.packageCacheDir` and the runtime cache are gone.
+- **Skill-only entries.** Pinned in the lock and the manifest's `registry_skills`; at spawn the host reads the row from
+  `neos_registry.skills` with the app's own role (SELECT since A6; 022 adds `body`, `offers`, `platform_sig` to the
+  view), recomputes the content hash, requires it to equal the row's and the pin's, and verifies the co-signature.
+  A changed row is not loaded (with a note). The skill then loads only when its `skill:` line is on and every
+  requirement is on (the existing `buildBundle` filter); borrowed requirements come from the pins
+  (`PackageHost.requires()`), offered when a person granted the ACL row (`/api/acl`; until S6).
+- **Platform.** `Registry.pins()` / `manifestPins` / `pinsOf` read what each registered app's build pinned;
+  `neos_registry.pins` (022) exposes the same. `packageAbilities`, `declaredDoors`, `skillLines`, the backfill's line
+  metadata and the gateway's ability version read the host manifest instead of `registry_installs`. B9 uses the pins
+  (the re-registering app's own pins from its new manifest, so a build that removes a package may drop what only it
+  needed). **Publish (S7):** `Registry.submit` refuses `409 breaks_pinned` when a package version drops, recasts or
+  moves the major of an ability its previous published version offered and some pinned entry requires, unless that
+  previous version was deprecated more than 30 days ago; `retire` counts pins from manifests. Removed:
+  `install`/`uninstall`/`forHost`/`dropPackageTables`, `pendingPackageMigrations`/`markPackageMigrated`/
+  `failPackageInstall`/`applyPackageMigration`, `/internal/registry/entries`, `/internal/registry/artifacts/:hash`,
+  `ops.ts drop-package-tables`; `POST/DELETE /api/registry/installs` answer `410 install_at_build`. The catalog's
+  `installs` are the pins of the company's installed apps. `neos.registry_installs` and `neos.package_migrations`
+  stay, unread and unwritten, until S9.
+- **Scripts.** `scripts/neos-publish.ts` (replaces `publish-package.ts`): a package as an operator (optional
+  `NEOS_AUTHOR_KEY_FILE` signs the content hash) or a skill folder via `registry.ts publish`. `scripts/migrate.ts`
+  has no package step. `apps/ledger/scripts/dev.ts` no longer publishes/installs nep-gst (it is in the build).
+- **nep-gst** was installed with the script against a throwaway registry (the committed lock therefore records that
+  registry's key; production re-runs `neos install … --trust <production JWKS>` before the first deploy, or sets no
+  `NEOP_REGISTRY_JWKS` and relies on the recorded key). Ledger now ships nep-gst for every company, at its floors
+  (`gst.gstr3b.file` ask-first).
+- **Tests.** New `apps/ledger/tests/install.test.ts` (hash mismatch; three bad signatures; a failing self-test; the
+  build untouched on each refusal; migrations appended in order with their proof and in the DBA bundle; roles; a
+  hand-edited file at spawn and per call; remove; a skill-only entry against its lines and a changed row; the
+  nep-gst proof on a populated and on a pre-v3-installed book). Ported, same meaning: `registry.test` (install at
+  build; self-test fail → build untouched; a failed update leaves the old pin; table drop via a contract migration;
+  a borrowed skill pinned at build + admin grant; an added requirement greys the skill until granted), `gst.test`
+  (no run-time install; asserts the lock), `gst-package.test` (+ the built copy is the source), `registry-v3.test`
+  (B9 from manifests; publish `breaks_pinned`; retire from pins; 022 proof), `governance.test` (catalog shows the
+  build's pin; close lines per company; remove/reinstall without re-running migrations), `security.test` (H5 with
+  the package in the build; the removed internal registry endpoints are 404), `hardening.test` (service secret
+  proven on the build's registry lookup), migration lists in `migration`, `v3-conformance`, `migration-018-019`,
+  `migration-020`, and `dba-bundle` (section 6). testkit: `installAndRebuild`, `removeAndRebuild`, `hostCopy`,
+  `pilotRegistry`, `Pilot.rebuild` (migrate the new build's file, restart on it, re-register).
 
 ## Deliberately not built from WP v3
 - **Voice.** The NEOS app transcribes speech on the device/client before it calls `POST /api/ask`; the platform and every NEOP take text only. Nothing here receives audio, so there is no speech model, audio store or consent flow to build or secure on this side. An audio note a person wants kept is an attachment like any other file (kept by the document store).

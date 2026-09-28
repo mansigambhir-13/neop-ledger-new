@@ -34,7 +34,12 @@ async function toolsNow(): Promise<string[]> {
 describe('door lines on the board', () => {
   it('every declared door is a line door:<key>, floor from the manifest (default on), shown like the others', async () => {
     const b = await board();
-    expect(b.doors).toEqual([{ key: 'email', line: 'door:email', floor: 'on', company: null, setting: 'on', declared_by: 'own', scopes: ['send'] }]);
+    expect(b.doors).toEqual([
+      { key: 'email', line: 'door:email', floor: 'on', company: null, setting: 'on', declared_by: 'own', scopes: ['send'] },
+      // v3 S7: nep-gst is installed into Ledger's build; the doors its handlers may open are lines too (B6).
+      { key: 'gst_portal', line: 'door:gst_portal', floor: 'on', company: null, setting: 'on', declared_by: 'package', scopes: [] },
+      { key: 'gst_portal_otp', line: 'door:gst_portal_otp', floor: 'on', company: null, setting: 'on', declared_by: 'package', scopes: [] },
+    ]);
   });
 
   it('on/off only; unknown doors refused; members cannot change it', async () => {

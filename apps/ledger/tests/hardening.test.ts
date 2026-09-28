@@ -69,8 +69,12 @@ describe('rotation', () => {
     expect(r.rows[0].service_secret_hash).toMatch(/^[0-9a-f]{64}$/);
     await P.platform.rotateServiceSecret('ledger', 'n'.repeat(48));
     // The backend still holds the old secret: it keeps working inside the window.
-    // (v3 S1: the board is no longer fetched from the platform; any service call proves the old secret.)
-    expect(Array.isArray(await P.backend.core.platform.registryEntries(P.company.id))).toBe(true);
+    // (v3 S1/S7: neither the board nor the registry is fetched at run time; any service call proves the old secret —
+    // here the registry lookup a build makes, which answers 404 for an unknown version only once the secret passed.)
+    const asService = (secret: string) =>
+      fetch(`${P.platformUrl}/api/registry/entry?key=nep-none&version=9.9.9`, { headers: { authorization: `Service ledger:${secret}` } }).then((r) => r.status);
+    expect(await asService(P.backend.core.cfg.serviceSecret)).toBe(404);
+    expect(await asService('z'.repeat(48))).toBe(401);
     expect(await P.platform.authService(`Service ledger:${'n'.repeat(48)}`)).toBe('ledger');
     expect(await P.platform.authService(`Service ledger:${'z'.repeat(48)}`)).toBeNull();
   });

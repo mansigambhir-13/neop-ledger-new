@@ -83,12 +83,12 @@ hijacked assistant on purpose.
 
 ```sh
 export NEOP_LLM_UPSTREAM_KEY=sk-ant-...     # the agent stays keyless: the platform LLM proxy holds this
-export NEOP_DEV_PACKAGES=nep-gst            # optional: install the GST package for the demo company
+# the GST package (nep-gst) is built into Ledger: apps/ledger/src/packages, packages.lock.json
 pnpm dev                                    # platform :4700, Ledger L3 :4701, gate :4702, agents :4703
 ```
 
 Ops: `pnpm migrate` (the only process with the admin connection), `pnpm backup export ledger <company_id>`,
-`pnpm publish-package registry/nep-gst`. Metrics at `/metrics` (platform) and `/l3/metrics` (app);
+`pnpm neos-publish registry/nep-gst`, `pnpm neos-install ledger nep-gst@2.0.0` (docs/RUNBOOK.md). Metrics at `/metrics` (platform) and `/l3/metrics` (app);
 traces go to `OTEL_EXPORTER_OTLP_ENDPOINT`; dashboard and alerts in `deploy/observability/`.
 
 Open `http://127.0.0.1:4700/`, paste `dev_admin`, and ask *"What was our net

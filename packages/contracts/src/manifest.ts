@@ -47,7 +47,14 @@ export interface Manifest {
    */
   uses: { app: string; ability: string; range: string; floor?: Setting }[];
   skills: { key: string; path: string; requires: string[] }[];
-  packages: { key: string; version: string }[];
+  /**
+   * Packages installed at build time (v3 §10, `neos install`): written by the installer from the signed artifact,
+   * so the platform sees the lines they add without reading the artifact. The files live in src/packages/nep-<name>/
+   * and packages.lock.json pins their hashes; the backend verifies them at spawn.
+   */
+  packages: ManifestPackagePin[];
+  /** Skill-only registry entries this app pins (v3 §10): text in `neos_registry.skills`, loaded at spawn when on. */
+  registry_skills?: ManifestSkillPin[];
   blocks: string[];
   /**
    * WP §11 "personal-data columns are tagged in the manifest so deletion can find them".
@@ -56,6 +63,28 @@ export interface Manifest {
    * row is about. The DBA's export (subject access) and erase read only these columns.
    */
   personal_data?: PersonalDataTag[];
+}
+
+export interface ManifestPackagePin {
+  key: string;
+  version: string;
+  artifact_hash?: string;
+  content_hash?: string;
+  /** What its skills need (host reads, borrowed abilities, its own abilities). */
+  requires?: string[];
+  /** The package's abilities as switchboard lines of the host (floor = the package's gated flag). */
+  abilities?: ManifestAbility[];
+  /** Doors the package's handlers may open (lines `door:<key>` on the host's board). */
+  doors?: string[];
+  skills?: { key: string; requires: string[] }[];
+}
+
+export interface ManifestSkillPin {
+  key: string;
+  version: string;
+  owner_app: string | null;
+  content_hash: string;
+  requires: string[];
 }
 
 export interface PersonalDataTag {

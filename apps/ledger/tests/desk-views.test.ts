@@ -116,7 +116,11 @@ describe('A6 · the registry schema', () => {
   });
 
   it('no secret or company data is in the registry views', async () => {
-    const cols = (await c.query("select table_name, column_name from information_schema.columns where table_schema = 'neos_registry'")).rows.map((r) => r.column_name);
-    for (const bad of ['service_secret_hash', 'company_id', 'l3_url', 'secret', 'body', 'author_key']) expect(cols).not.toContain(bad);
+    const rows = (await c.query("select table_name, column_name from information_schema.columns where table_schema = 'neos_registry'")).rows;
+    const cols = rows.map((r) => r.column_name);
+    for (const bad of ['service_secret_hash', 'company_id', 'l3_url', 'secret', 'author_key']) expect(cols).not.toContain(bad);
+    // v3 S7 (§10 "skill-only entries live entirely in rows"): a published skill's text is registry content every NEOP
+    // reads at spawn — the only `body` there is; no task, message or other body reaches the registry schema.
+    expect(rows.filter((r) => r.column_name === 'body').map((r) => r.table_name)).toEqual(['skills']);
   });
 });

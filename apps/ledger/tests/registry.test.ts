@@ -1,7 +1,7 @@
-// registry.test · Phase 5 exit: an admin adds a borrowed skill in under two
-// minutes with no deploy; a package cannot reach the network; plus the
+// registry.test · Phase 5 exit, as v3 S7 shapes it: a borrowed skill is pinned into the borrower's build and
+// loads once an admin grants what it needs (well under two minutes); a package cannot reach the network; plus the
 // publishing, pinning and verification rules (S6, S7, R5, R6): author signatures,
-// four-eyes review, install-time self-tests, the audited table drop, the host
+// four-eyes review, install-time self-tests (in the host, at build), tables kept on removal, the host
 // role's read-only view of package tables, and the deprecate → 30-day retire path.
 process.env.NEOP_SANDBOX_TIMEOUT_MS = '2500';
 import { execFile } from 'node:child_process';
@@ -12,7 +12,7 @@ import path from 'node:path';
 import { promisify } from 'node:util';
 import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { installAndMigrate, probeBundle, publishPackage, runPackageMigrations, toolName } from '@neop/testkit';
+import { installAndMigrate, installAndRebuild, probeBundle, publishPackage, removeAndRebuild, toolName } from '@neop/testkit';
 import { marketingApp, seedMarketing } from '@neop/marketing';
 import { roleUrl } from '@neop/pgkit';
 import { contentHash } from '@neop/platform';
@@ -65,7 +65,7 @@ export const abilities = {
 }
 
 describe('packages', () => {
-  it('publish → a second operator reviews the diff (handlers included) → co-signed → installed → migrated; the submitter cannot co-sign', async () => {
+  it('publish → a second operator reviews the diff (handlers included) → co-signed → installed at build → migrated; the submitter cannot co-sign', async () => {
     const sub = await P.api('POST', '/api/registry/packages', { bundle: await buildPackage(GST_DIR) }, P.operator.token);
     expect(sub.status).toBe(200);
     const r = await review('nep-gst', (await buildPackage(GST_DIR)).manifest.version);
@@ -78,12 +78,19 @@ describe('packages', () => {
     expect(own.body.error.code).toBe('four_eyes');
     expect((await P.api('POST', `/api/registry/reviews/${r.id}/answer`, { decision: 'yes', fingerprint_seen: 'sha256:0' }, P.operator2.token)).status).toBe(409);
     expect((await P.api('POST', `/api/registry/reviews/${r.id}/answer`, { decision: 'yes', fingerprint_seen: r.fingerprint }, P.operator2.token)).status).toBe(200);
+    // v3 S7: there is no run-time install; a package goes into an app's build (`neos install`) and ships with it.
     const inst = await P.api('POST', '/api/registry/installs', { host_app: 'ledger', entry_key: 'nep-gst' });
-    expect(inst.body.status).toBe('pending_migration');
-    await installAndMigrate(P, 'ledger', 'nep-gst');
+    expect(inst.status).toBe(410);
+    expect(inst.body.error.code).toBe('install_at_build');
+    const built = await installAndMigrate(P, 'ledger', 'nep-gst');
+    expect(built).toMatchObject({ key: 'nep-gst', version: '2.0.0', selftest: 'passed' });
     const role = await P.platform.db.query("select rolname from pg_roles where rolname = 'ledger_nep_gst'");
     expect(role.rowCount).toBe(1);
-    expect((await P.platform.db.query("select status from neos.registry_installs where entry_key = 'nep-gst'")).rows[0].status).toBe('active');
+    // The build now pins this registry's co-signature (the key it verified under at install).
+    const pin = P.backend.core.packages.lock.packages.find((x) => x.key === 'nep-gst')!;
+    const kid = JSON.parse(Buffer.from(pin.signature.platform_sig.split('.')[0]!, 'base64url').toString()).kid;
+    expect((await P.api('GET', '/.well-known/registry-jwks.json')).body.keys.map((k: any) => k.kid)).toContain(kid);
+    expect((await P.platform.db.query("select version from neos_registry.pins where app = 'ledger' and key = 'nep-gst'")).rows).toEqual([{ version: '2.0.0' }]);
   });
 
   it('a package may carry its author’s signature; a signature that does not verify is refused before review', async () => {
@@ -190,7 +197,8 @@ describe('packages', () => {
   });
 
   it('a hand-edited package fails verification at spawn and is not offered', async () => {
-    const dir = path.join(P.backend.core.cfg.packageCacheDir!, 'nep-probe@1.0.0');
+    // v3 S7: the package is in the build, unpacked read-only under src/packages/ and pinned by hash.
+    const dir = path.join(P.defs.ledger!.packages!.root, 'src/packages/nep-probe');
     const file = path.join(dir, 'bundle.json');
     await chmod(file, 0o644);
     const raw = await readFile(file, 'utf8');
@@ -198,61 +206,65 @@ describe('packages', () => {
     const r = await P.api('POST', '/api/apps/ledger/read/probe.try', {});
     expect(r.status).not.toBe(200);
     await writeFile(file, raw); // restore for later tests
+    await chmod(file, 0o444);
+    expect((await P.api('POST', '/api/apps/ledger/read/probe.try', {})).status).toBe(200);
   });
 
   it('install runs the package’s self-test in the sandbox after its migrations; what it wrote is rolled back', async () => {
     await publishPackage(P, stockBundle('1.0.0'));
-    await installAndMigrate(P, 'ledger', 'nep-stock');
-    const inst = (await P.platform.db.query("select status from neos.registry_installs where entry_key = 'nep-stock'")).rows[0];
-    expect(inst.status).toBe('active');
-    const a = (await P.platform.db.query("select detail from neos.audit where action = 'registry.package_migrated' and detail->>'entry' = 'nep-stock'")).rows[0];
-    expect(a.detail.selftest).toBe('passed');
+    const built = await installAndMigrate(P, 'ledger', 'nep-stock');
+    expect(built.selftest).toBe('passed');
+    expect(P.backend.core.packages.lock.packages.find((x) => x.key === 'nep-stock')?.version).toBe('1.0.0');
     const admin = new pg.Client({ connectionString: P.adminUrl });
     await admin.connect();
     const left = await admin.query('select count(*)::int as n from ledger.nep_stock__items').finally(() => admin.end());
-    expect(left.rows[0].n).toBe(0); // the self-test's row never persisted
+    expect(left.rows[0].n).toBe(0); // the self-test's row never persisted (it ran in a scratch copy of the host)
     const r = await P.api('POST', '/api/apps/ledger/read/stock.count', {});
     expect(r.body.result.n).toBe(0);
   });
 
-  it('a first install whose self-test fails is not installed and its tables are rolled back', async () => {
+  it('a first install whose self-test fails is not installed and its tables are never made', async () => {
     await publishPackage(P, stockBundle('1.0.0', { key: 'nep-broken', selftestOk: false }));
-    expect((await P.api('POST', '/api/registry/installs', { host_app: 'ledger', entry_key: 'nep-broken' })).body.status).toBe('pending_migration');
-    await expect(runPackageMigrations(P.adminUrl, P.platform)).rejects.toThrow(/nep-broken@1.0.0 self-test failed: ok=false/);
-    const inst = (await P.platform.db.query("select status, last_error from neos.registry_installs where entry_key = 'nep-broken'")).rows[0];
-    expect(inst.status).toBe('failed');
-    expect(inst.last_error).toMatch(/write and read back/);
+    expect((await P.api('POST', '/api/registry/installs', { host_app: 'ledger', entry_key: 'nep-broken' })).status).toBe(410);
+    const failed = await installAndMigrate(P, 'ledger', 'nep-broken').catch((e) => e);
+    expect(failed.code).toBe('tests_failed');
+    expect(failed.message).toMatch(/nep-broken@1.0.0 self-test failed: ok=false/);
+    expect(failed.message).toMatch(/write and read back/);
     expect((await P.platform.db.query("select 1 from pg_tables where schemaname = 'ledger' and tablename = 'nep_broken__items'")).rowCount).toBe(0);
-    expect((await P.platform.db.query("select 1 from neos.package_migrations where entry_key = 'nep-broken'")).rowCount).toBe(0);
-    const audit = (await P.platform.db.query("select outcome from neos.audit where action = 'registry.install_failed' and detail->>'entry' = 'nep-broken'")).rows;
-    expect(audit).toEqual([{ outcome: 'failed' }]);
+    // The build the host runs is unchanged: nothing pinned, no lines, no migration file.
+    expect(P.backend.core.packages.lock.packages.map((x) => x.key)).not.toContain('nep-broken');
+    expect((P.defs.ledger!.manifest.packages ?? []).map((x) => x.key)).not.toContain('nep-broken');
+    expect((await readdir(P.defs.ledger!.migrationsDir)).some((f) => f.includes('nep_broken'))).toBe(false);
   });
 
-  it('an update whose self-test fails goes back to the pinned version it replaced, without the new table', async () => {
+  it('an update whose self-test fails leaves the pinned version it would have replaced, without the new table', async () => {
     await publishPackage(P, stockBundle('1.1.0', { selftestOk: false, extraTable: true }));
-    const up = await P.api('POST', '/api/registry/installs', { host_app: 'ledger', entry_key: 'nep-stock', version: '1.1.0' });
-    expect(up.body).toMatchObject({ version: '1.1.0', status: 'pending_migration' });
-    await expect(runPackageMigrations(P.adminUrl, P.platform)).rejects.toThrow(/self-test failed/);
-    const inst = (await P.platform.db.query("select status, pinned_version from neos.registry_installs where entry_key = 'nep-stock'")).rows[0];
-    expect(inst).toEqual({ status: 'active', pinned_version: '1.0.0' });
+    await expect(installAndRebuild(P, 'ledger', 'nep-stock@1.1.0')).rejects.toThrow(/self-test failed/);
+    expect(P.backend.core.packages.lock.packages.find((x) => x.key === 'nep-stock')?.version).toBe('1.0.0');
     expect((await P.platform.db.query("select 1 from pg_tables where schemaname = 'ledger' and tablename = 'nep_stock__moves'")).rowCount).toBe(0);
-    expect((await P.platform.db.query("select outcome from neos.audit where action = 'registry.install_failed' and detail->>'entry' = 'nep-stock'")).rows).toEqual([{ outcome: 'rolled_back' }]);
     expect((await P.api('POST', '/api/apps/ledger/read/stock.count', {})).status).toBe(200);
   });
 
-  it('dropping a package’s tables is a separate, audited, operator-only action, refused while installed', async () => {
-    const reg = P.platform.registry;
-    await expect(reg.dropPackageTables(P.adminUrl, { id: P.admin.id, role: 'admin' }, 'ledger', 'nep-stock')).rejects.toMatchObject({ code: 'denied' });
-    await expect(reg.dropPackageTables(P.adminUrl, { id: P.operator.id, role: 'operator' }, 'ledger', 'nep-stock')).rejects.toMatchObject({ code: 'still_installed' });
-    expect((await P.api('DELETE', '/api/registry/installs', { host_app: 'ledger', entry_key: 'nep-stock' })).body.status).toBe('disabled');
-    // Uninstall keeps the tables.
+  it('removing a package keeps its tables; dropping them is a contract migration in the host’s own set, refused without one', async () => {
+    // v3 S7: no platform action drops a host's tables. `neos install --remove` takes the package out of the build…
+    const removed = await removeAndRebuild(P, 'ledger', 'nep-stock');
+    expect(removed.kept_migrations).toEqual([expect.stringMatching(/^\d{3}_nep_stock__001_items\.sql$/)]);
     expect((await P.platform.db.query("select 1 from pg_tables where schemaname = 'ledger' and tablename = 'nep_stock__items'")).rowCount).toBe(1);
-    const out = await reg.dropPackageTables(P.adminUrl, { id: P.operator.id, role: 'operator' }, 'ledger', 'nep-stock');
-    expect(out.dropped).toEqual(['nep_stock__items']);
+    expect((await P.api('POST', '/api/apps/ledger/read/stock.count', {})).status).not.toBe(200);
+    // …and the app team drops the table in its own next migration, which the expand/contract rule holds to a contract step.
+    const def = P.defs.ledger!;
+    const dir = def.migrationsDir;
+    const files = (await readdir(dir)).filter((f) => /^\d{3}_/.test(f)).sort();
+    const next = String(Number(files.at(-1)!.slice(0, 3)) + 1).padStart(3, '0');
+    const led = JSON.parse(await readFile(path.join(dir, 'migrate.json'), 'utf8'));
+    const drop = `${next}_drop_stock.sql`;
+    led.migrations.push({ file: drop, tables: ['nep_stock__items'], baseline: false });
+    await writeFile(path.join(dir, 'migrate.json'), JSON.stringify(led, null, 2));
+    await writeFile(path.join(dir, drop), 'drop table {{schema}}.nep_stock__items;\n');
+    await expect(P.rebuild('ledger', def)).rejects.toThrow(/destructive \(DROP TABLE\)/);
+    await writeFile(path.join(dir, drop), `-- contract: nep-stock was removed from the build; expanded by ${removed.kept_migrations[0]}\ndrop table {{schema}}.nep_stock__items;\n`);
+    await P.rebuild('ledger', def);
     expect((await P.platform.db.query("select 1 from pg_tables where schemaname = 'ledger' and tablename = 'nep_stock__items'")).rowCount).toBe(0);
-    expect((await P.platform.db.query("select 1 from neos.package_migrations where entry_key = 'nep-stock'")).rowCount).toBe(0);
-    const a = (await P.platform.db.query("select actor, detail from neos.audit where action = 'registry.package_tables_dropped'")).rows[0];
-    expect(a).toMatchObject({ actor: `user:${P.operator.id}`, detail: { entry: 'nep-stock', tables: ['nep_stock__items'] } });
   });
 
   it('versions are immutable; a pinned version is retired only 30 days after deprecation', async () => {
@@ -302,7 +314,7 @@ describe('borrowed skills', () => {
     expect(unsigned.code).toBe('no_author_key');
   });
 
-  it('an admin adds a borrowed skill with no deploy and no manifest `uses` line: publish → review → install → first use, in well under two minutes, no cache cleared by hand', async () => {
+  it('a borrowed skill with no manifest `uses` line: publish → review → pinned at build → an admin grants the read → first use, in well under two minutes, no cache cleared by hand', async () => {
     const reads = new Set(P.backends.marketing!.core.manifest.uses.map((u) => u.ability));
     expect(reads.has('ledger.accounts.list')).toBe(false); // Marketing never declared this: the admin's grant is the authority
     // Warm Marketing's caches first, so the test proves they follow the install on their own.
@@ -327,13 +339,25 @@ describe('borrowed skills', () => {
     const r = await review('ledger/accounts-check', '1.0.0');
     expect(r.diff).toContain('author signature: verified');
     expect((await P.api('POST', `/api/registry/reviews/${r.id}/answer`, { decision: 'yes', fingerprint_seen: r.fingerprint }, P.operator.token)).status).toBe(200);
-    const inst = await P.api('POST', '/api/registry/installs', { host_app: 'marketing', entry_key: 'ledger/accounts-check' });
-    expect(inst.body.status).toBe('active');
+    // v3 S7: no run-time install. The pin is in Marketing's build (`neos install marketing ledger/accounts-check@1.0.0`)…
+    expect((await P.api('POST', '/api/registry/installs', { host_app: 'marketing', entry_key: 'ledger/accounts-check' })).status).toBe(410);
+    const pinned = await installAndRebuild(P, 'marketing', 'ledger/accounts-check@1.0.0');
+    expect(pinned).toMatchObject({ kind: 'skill', version: '1.0.0' });
+    // …and until a person grants the borrowed read, the skill greys out: pinned is not switched on.
+    expect(await boardSkill()).toMatchObject({ loads: false, missing: ['ledger.accounts.list'] });
+    const before = await P.ask('Plan the Diwali spend by account', undefined, 'marketing');
+    await P.waitFor(async () => (await P.task(before.task_id)).task.status === 'COMPLETED', 'before the grant', 60_000);
+    expect(system).not.toContain('Accounts check');
+    expect(tools).not.toContain(toolName('ledger.accounts.list'));
+    // A member cannot grant it; the admin can — and the next job has it, with no cache cleared by hand.
+    const grant = { caller_app: 'marketing', target_app: 'ledger', ability_key: 'ledger.accounts.list' };
+    expect((await P.api('POST', '/api/acl', grant, P.member.token)).status).toBe(403);
+    expect((await P.api('POST', '/api/acl', grant)).status).toBe(200);
     const task = await P.ask('Plan the Diwali spend by account', undefined, 'marketing');
-    await P.waitFor(async () => (await P.task(task.task_id)).task.status === 'COMPLETED', 'first use');
+    await P.waitFor(async () => (await P.task(task.task_id)).task.status === 'COMPLETED', 'first use', 60_000);
     expect(Date.now() - started).toBeLessThan(120_000);
     expect(system).toContain('Accounts check');
-    expect(system).toContain('From ledger (reviewed by NEOS)');
+    expect(system).toContain('From ledger v1.0.0 (reviewed by NEOS)');
     expect(tools).toContain(toolName('ledger.accounts.list'));
     expect(answer).toContain('trust="untrusted"'); // the borrowed read really went to Ledger
     const acl = await P.platform.db.query("select 1 from neos.acl where caller_app = 'marketing' and target_app = 'ledger' and ability_key = 'ledger.accounts.list'");
@@ -360,25 +384,36 @@ describe('borrowed skills', () => {
     }
   });
 
-  it('a skill update that adds a requirement cannot move the pin until an admin grants it', async () => {
+  it('a skill update that adds a requirement does not load after the pin moves until an admin grants it', async () => {
     await registry(['publish', await skillDir('1.1.0', ['ledger.accounts.list', 'ledger.parties.list'])]);
     const r = await review('ledger/accounts-check', '1.1.0');
     expect(r.diff).toContain('(was ["ledger.accounts.list"])');
     await P.api('POST', `/api/registry/reviews/${r.id}/answer`, { decision: 'yes', fingerprint_seen: r.fingerprint }, P.operator.token);
-    const pin = async () => (await P.platform.db.query("select pinned_version, previous_version from neos.registry_installs where host_app = 'marketing' and entry_key = 'ledger/accounts-check'")).rows[0];
+    const pin = async () => (await P.platform.db.query("select version from neos_registry.pins where app = 'marketing' and key = 'ledger/accounts-check'")).rows.map((x) => x.version);
     const aclParties = async () => (await P.platform.db.query("select 1 from neos.acl where caller_app = 'marketing' and ability_key = 'ledger.parties.list'")).rowCount;
-    const up = await P.api('POST', '/api/registry/installs', { host_app: 'marketing', entry_key: 'ledger/accounts-check', version: '1.1.0' });
-    expect(up.status).toBe(409);
-    expect(up.body.error.code).toBe('needs_grant');
-    expect(up.body.error.message).toContain('ledger.parties.list');
-    expect((await pin()).pinned_version).toBe('1.0.0');
+    expect(await pin()).toEqual(['1.0.0']); // published is not pinned: Marketing's build still runs 1.0.0
+    // v3 S7: the pin moves with Marketing's next build; the new requirement is a line nobody has switched on yet.
+    await installAndRebuild(P, 'marketing', 'ledger/accounts-check@1.1.0');
+    expect(await pin()).toEqual(['1.1.0']);
     expect(await aclParties()).toBe(0);
-    expect((await P.platform.registry.forHost('marketing', P.company.id)).find((e: any) => e.key === 'ledger/accounts-check').version).toBe('1.0.0');
-    expect((await P.api('POST', '/api/registry/installs', { host_app: 'marketing', entry_key: 'ledger/accounts-check', version: '1.1.0', grant: ['ledger.parties.list'] }, P.member.token)).status).toBe(403);
-    const ok = await P.api('POST', '/api/registry/installs', { host_app: 'marketing', entry_key: 'ledger/accounts-check', version: '1.1.0', grant: ['ledger.parties.list'] });
-    expect(ok.body).toMatchObject({ version: '1.1.0', status: 'active' });
-    expect(await pin()).toEqual({ pinned_version: '1.1.0', previous_version: '1.0.0' });
+    expect(await boardSkill()).toMatchObject({ loads: false, missing: ['ledger.parties.list'] });
+    let system = '';
+    P.setBrain((v) => {
+      system = v.system;
+      return finish('ok');
+    });
+    const spawn = async () => {
+      const task = await P.ask('Plan the Diwali spend by account', undefined, 'marketing');
+      await P.waitFor(async () => (await P.task(task.task_id)).task.status === 'COMPLETED', 'done');
+      return system;
+    };
+    expect(await spawn()).not.toContain('Accounts check');
+    const grant = { caller_app: 'marketing', target_app: 'ledger', ability_key: 'ledger.parties.list' };
+    expect((await P.api('POST', '/api/acl', grant, P.member.token)).status).toBe(403);
+    expect((await P.api('POST', '/api/acl', grant)).status).toBe(200);
     expect(await aclParties()).toBe(1);
+    expect(await boardSkill()).toMatchObject({ loads: true, missing: [] });
+    expect(await spawn()).toContain('From ledger v1.1.0 (reviewed by NEOS)');
   });
 
   it('a skill changed behind the registry’s back is dropped by the host', async () => {

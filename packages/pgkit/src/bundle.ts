@@ -16,7 +16,7 @@ export interface DbaBundle {
   migrations: { name: string; checksum: string }[];
 }
 
-export async function renderDbaBundle(opts: { schema: string; sources: MigrationSource; title?: string }): Promise<DbaBundle> {
+export async function renderDbaBundle(opts: { schema: string; sources: MigrationSource; title?: string; extra?: { title: string; sql: string }[] }): Promise<DbaBundle> {
   const { schema } = opts;
   assertIdent(schema);
   const roles = familyRoles(schema);
@@ -73,5 +73,10 @@ export async function renderDbaBundle(opts: { schema: string; sources: Migration
   out.push(deskGrantsSql(schema));
   out.push('reset role;');
   out.push('');
+  (opts.extra ?? []).forEach((x, i) => {
+    out.push(`-- ── ${6 + i} · ${x.title} ──`);
+    out.push(x.sql);
+    out.push('');
+  });
   return { schema, sql: out.join('\n'), migrations };
 }

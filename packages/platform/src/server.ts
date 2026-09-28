@@ -65,17 +65,8 @@ export function platformApp(p: Platform): Hono {
     const b = await c.req.json();
     return c.json(await p.registry.submit(`app:${key}`, { kind: 'skill', key: b.key, version: b.version, owner_app: key, body: b.body, requires: b.requires ?? [], author: { sig: b.author_sig } }));
   });
-  app.get('/internal/registry/entries', async (c) => {
-    const key = await service(c);
-    await p.assertInstalled(key, c.req.query('company_id') ?? '');
-    return c.json({ entries: await p.registry.forHost(key, c.req.query('company_id') ?? '') });
-  });
-  app.get('/internal/registry/artifacts/:hash', async (c) => {
-    await service(c);
-    const bytes = await p.registry.artifact(c.req.param('hash'));
-    if (!bytes) throw new PlatformError(404, 'not_found', 'no such artifact');
-    return c.json({ hash: c.req.param('hash'), base64: bytes.toString('base64') });
-  });
+  // v3 S7: no run-time registry fetch. A backend's packages are in its build; pinned skills are read from
+  // neos_registry.skills with the app's own role. `neos install` fetches below (/api/registry/entry, /artifact).
   // v3 (S8): /internal/vault/lend and /internal/llm/session are gone. A NEOP backend reads door credentials from the
   // secret store per (app, company) per call, and its runner mints the assistant's LLM session token itself.
 
@@ -171,16 +162,16 @@ export function platformApp(p: Platform): Hono {
         })),
         ...pkg.map((a) => ({
           key: a.key,
-          title: a.key,
-          description: `From the ${a.package} package (v${a.package_version})${a.install_status === 'pending_migration' ? ' — waiting for its migration to run' : ''}.`,
+          title: a.title,
+          description: `${a.description ? `${a.description} ` : ''}(From the ${a.package} package, v${a.package_version}.)`,
           kind: a.kind,
           floor: a.floor,
           company: sb.settings?.[a.key] ?? null,
           setting: inForce(a),
           forced_by_rule: forced.has(a.key),
           from: a.package,
-          effects: {},
-          doors: [],
+          effects: a.effects ?? {},
+          doors: a.doors ?? [],
         })),
       ],
       skills,
@@ -544,14 +535,32 @@ export function platformApp(p: Platform): Hono {
     const u = await user(c);
     return c.json(await p.registry.review(u, c.req.param('id'), await c.req.json()));
   });
-  app.delete('/api/registry/installs', async (c) => {
+  // v3 S7: packages and skills are installed at build time (`neos install <app> <key>@<version>`, then the app's
+  // next build and migration file); a company switches the lines they add on its switchboard. There is no
+  // run-time install any more.
+  const installAtBuild = async (c: Context) => {
+    await user(c);
+    throw new PlatformError(410, 'install_at_build', 'packages and registry skills are installed into an app at build time (neos install); switch their lines on the switchboard');
+  };
+  app.post('/api/registry/installs', installAtBuild);
+  app.delete('/api/registry/installs', installAtBuild);
+  // What `neos install` fetches: one signed entry, and a published package's artifact by hash. A build is run by
+  // ops (an operator's token) or by an app's own build (its service secret); nothing here is secret or per-company.
+  const builder = async (c: Context) => {
+    const h = c.req.header('authorization') ?? '';
+    if (h.startsWith('Service ')) return service(c);
     const u = await user(c);
-    const b = await c.req.json().catch(() => ({}));
-    return c.json(await p.registry.uninstall(u, { host_app: String(b.host_app ?? ''), entry_key: String(b.entry_key ?? '') }));
+    if (u.role !== 'operator') throw new PlatformError(403, 'denied', 'installing into a build is for operators and app builds');
+    return `user:${u.id}`;
+  };
+  app.get('/api/registry/entry', async (c) => {
+    await builder(c);
+    return c.json({ entry: await p.registry.entry(c.req.query('key') ?? '', c.req.query('version') ?? '') });
   });
-  app.post('/api/registry/installs', async (c) => {
-    const u = await user(c);
-    return c.json(await p.registry.install(u, await c.req.json()));
+  app.get('/api/registry/artifact', async (c) => {
+    await builder(c);
+    const hash = c.req.query('hash') ?? '';
+    return c.json({ hash, base64: (await p.registry.publishedArtifact(hash)).toString('base64') });
   });
   app.post('/api/registry/deprecate', async (c) => {
     const u = await user(c);
@@ -654,7 +663,9 @@ export function platformApp(p: Platform): Hono {
       `select key, version, kind, owner_app, offers, requires, status, platform_sig is not null as signed, content_hash, published_at, deprecated_at
          from neos.registry_entries where status in ('published', 'deprecated') order by key, published_at desc nulls last`,
     );
-    const installs = await p.db.query('select host_app, entry_key, pinned_version, status, installed_at from neos.registry_installs where company_id = $1', [u.company_id]);
+    // v3 S7: pinned = installed into an app's build (its manifest); the same for every company that has the app.
+    const apps = new Set((await p.db.query<{ app_key: string }>("select app_key from neos.installs where company_id = $1 and status = 'active'", [u.company_id])).rows.map((r) => r.app_key));
+    const installs = { rows: (await p.registry.pins()).filter((x) => apps.has(x.app)).map((x) => ({ host_app: x.app, entry_key: x.key, pinned_version: x.version, status: 'active' })) };
     const byKey = new Map<string, any>();
     for (const e of entries.rows) {
       const cur = byKey.get(e.key);

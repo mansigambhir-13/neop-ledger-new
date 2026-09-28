@@ -18,6 +18,8 @@ export async function ledgerApp(): Promise<AppDefinition> {
   return {
     manifest,
     migrationsDir: path.join(LEDGER_ROOT, 'migrations'),
+    // v3 S7: what `neos install` put into this build (packages.lock.json, src/packages/).
+    packages: { root: LEDGER_ROOT },
     prompt,
     skills,
     blocks: await loadBlocks(LEDGER_ROOT, manifest.blocks ?? []),

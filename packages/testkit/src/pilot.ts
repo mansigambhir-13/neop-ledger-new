@@ -304,6 +304,13 @@ export interface Pilot {
   jobRow(jobId: string, app?: string): Promise<any>;
   /** Stop an app backend (runner, L3, gate) and start a fresh one: a forced restart. */
   restartBackend(app?: string): Promise<NeopBackend>;
+  /**
+   * v3 S7: deploy a new build of an app — the DBA applies its migration file (migrateApp), the backend restarts on
+   * the new definition, and the app re-registers its manifest (which now carries the lines of what it installed).
+   */
+  rebuild(app: string, def: AppDefinition): Promise<NeopBackend>;
+  /** The definition each app is running now (changes with rebuild). */
+  defs: Record<string, AppDefinition>;
   adminUrl: string;
   close(): Promise<void>;
 }
@@ -422,7 +429,6 @@ export async function bootPilot(opts: BootOptions): Promise<Pilot> {
       agentUrl: `http://127.0.0.1:${workers[key].port}`,
       poolSize: opts.poolSize ?? 5,
       runnerId: `runner-${key}`,
-      packageCacheDir: await mkdtemp(path.join(os.tmpdir(), `neop-pkg-${key}-`)),
       jwksCacheMs: 1_000,
       secrets: new FileSecretStore({ root: doorsDir, app: key }),
       llm: llmKeys[key] ? { proxyUrl: `${plat.url}/llm`, signingKey: llmKeys[key].privateJwk } : undefined,
@@ -526,6 +532,22 @@ export async function bootPilot(opts: BootOptions): Promise<Pilot> {
       if (app === first) pilot.backend = b;
       if (app === first && b.ports.appservice) presenceUrl = `http://127.0.0.1:${b.ports.appservice}`;
       await plat.platform.db.query('update neos.apps set l3_url = $2 where key = $1', [app, `http://127.0.0.1:${b.ports.l3}`]);
+      return b;
+    },
+    defs: Object.fromEntries(opts.apps.map((a) => [a.def.manifest.app, a.def])),
+    async rebuild(app, def) {
+      const entry = opts.apps.find((a) => a.def.manifest.app === app);
+      if (!entry) throw new Error(`no app ${app} in this pilot`);
+      // The DBA applies the new build's migration file first (a refused file leaves the running build as it was).
+      await migrateApp(db.adminUrl, def);
+      await backends[app]!.stop().catch(() => {});
+      entry.def = def;
+      pilot.defs[app] = def;
+      const b = await startBackend(def, configs[app]!, {});
+      backends[app] = b;
+      if (app === first) pilot.backend = b;
+      if (app === first && b.ports.appservice) presenceUrl = `http://127.0.0.1:${b.ports.appservice}`;
+      await plat.platform.registerApp({ key: app, l3_url: `http://127.0.0.1:${b.ports.l3}`, manifest: def.manifest, service_secret: configs[app]!.serviceSecret, blocks: def.blocks });
       return b;
     },
     async close() {

@@ -4,7 +4,7 @@
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { LEDGER_ROOT } from '../src/index.ts';
-import { bootPilot, installAndMigrate, publishPackage, toolName, type Pilot } from './harness.ts';
+import { bootPilot, installAndRebuild, publishPackage, removeAndRebuild, toolName, type Pilot } from './harness.ts';
 
 let P: Pilot;
 beforeAll(async () => {
@@ -80,10 +80,10 @@ describe('company rules and the switchboard', () => {
 
   it("an installed package's abilities become lines the company can tighten", async () => {
     await publishPackage(P, path.resolve(LEDGER_ROOT, '../../registry/nep-gst'));
+    // v3 S7: nep-gst is installed into Ledger's build (`neos install`), so the catalog shows Ledger pinning it from the start.
     const cat = (await member('GET', '/api/registry/catalog')).body.entries.find((e: any) => e.key === 'nep-gst');
-    expect(cat).toMatchObject({ kind: 'package', signed: true, installs: [] });
+    expect(cat).toMatchObject({ kind: 'package', signed: true, installs: [{ host_app: 'ledger', entry_key: 'nep-gst', pinned_version: '2.0.0', status: 'active' }] });
     expect(cat.offers.map((o: any) => o.key)).toContain('gst.gstr3b.file');
-    await installAndMigrate(P, 'ledger', 'nep-gst');
     const b = (await admin('GET', '/api/apps/ledger/abilities')).body;
     const file = b.abilities.find((a: any) => a.key === 'gst.gstr3b.file');
     expect(file).toMatchObject({ from: 'nep-gst', floor: 'ask_first', setting: 'ask_first' });
@@ -138,25 +138,33 @@ describe('skill lines on the switchboard (WP §10)', () => {
 });
 
 describe('package uninstall', () => {
-  it('disables the package, keeps its tables, and takes its lines off the board at once', async () => {
-    expect((await member('DELETE', '/api/registry/installs', { host_app: 'ledger', entry_key: 'nep-gst' })).status).toBe(403);
-    const r = await admin('DELETE', '/api/registry/installs', { host_app: 'ledger', entry_key: 'nep-gst' });
-    expect(r.body).toMatchObject({ status: 'disabled' });
+  it('a company closes a package line by line; removing it from the build keeps its tables and takes its lines off the board at once', async () => {
+    // v3 S7: there is no run-time uninstall (410 for everyone); a company switches the package's lines…
+    expect((await member('DELETE', '/api/registry/installs', { host_app: 'ledger', entry_key: 'nep-gst' })).status).toBe(410);
+    expect((await member('PUT', '/api/switchboards/ledger', { settings: { 'gst.returns.list': 'off' } })).status).toBe(403);
+    expect((await admin('PUT', '/api/switchboards/ledger', { settings: { 'gst.returns.list': 'off', 'door:gst_portal': 'off' } })).status).toBe(200);
+    expect((await P.api('POST', '/api/apps/ledger/read/gst.returns.list', {})).status).not.toBe(200);
+    await admin('PUT', '/api/switchboards/ledger', { settings: { 'gst.returns.list': 'on', 'door:gst_portal': 'on' } });
+    // …and the build takes the package out (`neos install ledger --remove nep-gst`, then the next deploy).
+    const removed = await removeAndRebuild(P, 'ledger', 'nep-gst');
+    expect(removed.kept_migrations).toEqual(['008_nep_gst__001_returns.sql', '009_nep_gst__002_gstr3b.sql']);
     const b = (await admin('GET', '/api/apps/ledger/abilities')).body;
     expect(b.abilities.some((a: any) => a.from === 'nep-gst')).toBe(false);
     expect(b.doors.map((d: any) => d.key)).not.toContain('gst_portal');
     // Its tables are kept.
     const t = await P.backend.core.runnerPool.query("select count(*)::int as n from pg_tables where schemaname = 'ledger' and tablename like 'nep_gst_%'");
     expect(t.rows[0].n).toBeGreaterThan(0);
-    // The app stops offering it straight away (no 30 s cache).
+    // The app stops offering it straight away.
     expect((await P.backend.core.packages.forCompany(P.company.id)).abilities.some((a) => a.meta.key.startsWith('gst.'))).toBe(false);
-    expect((await admin('GET', '/api/audit?action=registry.uninstalled')).body.rows).toHaveLength(1);
-    expect((await admin('DELETE', '/api/registry/installs', { host_app: 'ledger', entry_key: 'nep-gst' })).status).toBe(404);
+    expect((await P.platform.db.query("select 1 from neos_registry.pins where app = 'ledger' and key = 'nep-gst'")).rowCount).toBe(0);
+    await expect(removeAndRebuild(P, 'ledger', 'nep-gst')).rejects.toMatchObject({ code: 'not_installed' });
   });
 
   it('re-installing brings it back without re-running its migrations', async () => {
-    const r = await admin('POST', '/api/registry/installs', { host_app: 'ledger', entry_key: 'nep-gst' });
-    expect(r.body.status).toBe('active');
+    const before = (await P.backend.core.runnerPool.query("select name from ledger.schema_migrations where name like '%nep_gst%' order by name")).rows;
+    const r = await installAndRebuild(P, 'ledger', 'nep-gst@2.0.0');
+    expect(r.migrations).toEqual([]); // the files it shipped with are still in Ledger's set, and they ran
+    expect((await P.backend.core.runnerPool.query("select name from ledger.schema_migrations where name like '%nep_gst%' order by name")).rows).toEqual(before);
     expect((await admin('GET', '/api/apps/ledger/abilities')).body.abilities.some((a: any) => a.key === 'gst.gstr3b.file')).toBe(true);
   });
 });

@@ -71,7 +71,7 @@ export class Core {
     this.jobTokens = new JobTokens(cfg.jobTokenSecret, this.key);
     this.validators = new Validators(this.manifest);
     this.borrowed = new BorrowCache(this);
-    this.packages = new PackageHost(this, cfg.packageCacheDir);
+    this.packages = new PackageHost(this);
     this.tracer = new Tracer(`neop-${this.key}`);
     this.secrets = cfg.secrets ?? new FileSecretStore({ app: this.key, warn: (m, e) => this.log(m, e) });
     this.llm = cfg.llm ? new LlmSessions(this.key, cfg.llm) : null;

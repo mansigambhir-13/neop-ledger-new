@@ -8,7 +8,7 @@ import { promisify } from 'node:util';
 import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createTestDatabase, renderDbaBundle, shippedMigrations } from '@neop/pgkit';
-import { appMigrationSources, migrateApp } from '@neop/template';
+import { appMigrationSources, LOCK_FILE, migrateApp, packageBootstrapSql, readLock } from '@neop/template';
 import { ledgerApp, LEDGER_ROOT } from '../src/index.ts';
 
 const REPO = path.resolve(LEDGER_ROOT, '../..');
@@ -51,12 +51,18 @@ describe('the DBA bundle', () => {
     expect(stdout).toContain('create role ledger_runner login bypassrls');
     expect(stdout).toContain("alter role ledger_app set search_path = 'ledger'");
     expect(stdout).toContain('create function ledger.answer_proposal(');
+    // v3 S7: the packages installed into Ledger's build — their files are in the set above, their roles here.
+    expect(stdout).toContain('installed by `neos install` from nep-gst@2.0.0');
+    expect(stdout).toContain('create role ledger_nep_gst login nobypassrls');
+    expect(stdout).toContain('grant select, insert, update on ledger.nep_gst_returns to ledger_nep_gst;');
   });
 
   it('applied to an empty database it yields the same schema_migrations, tables and columns as migrate', async () => {
     const app = await ledgerApp();
     await migrateApp(viaMigrate.adminUrl, app); // (also makes sure the cluster-wide roles exist)
-    const bundle = await renderDbaBundle({ schema: 'ledger', sources: await appMigrationSources(app) });
+    // v3 S7: with the installed packages' roles and grants, as scripts/dba-bundle.ts renders it.
+    const extra = [{ title: 'installed packages', sql: packageBootstrapSql('ledger', await readLock(path.join(LEDGER_ROOT, LOCK_FILE))) }];
+    const bundle = await renderDbaBundle({ schema: 'ledger', sources: await appMigrationSources(app), extra });
     const c = new pg.Client({ connectionString: viaBundle.adminUrl });
     await c.connect();
     try {

@@ -109,7 +109,6 @@ it('the backend container entry logs the drift and exits 78 (EX_CONFIG)', async 
           NEOP_GATE_URL: 'http://127.0.0.1:9',
           L3_PORT: '0',
           GATE_PORT: '0',
-          NEOP_PACKAGE_CACHE_DIR: path.join(os.tmpdir(), 'neop-boot-test-packages'),
         },
       },
       (err, _out, stderr) => resolve({ code: err ? ((err as { code?: number }).code ?? null) : 0, stderr }),

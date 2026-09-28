@@ -1,32 +1,35 @@
-// The package host (Phase 5). For each company it loads what the company pinned
-// in the registry — borrowed skills and packages — verifies the platform's
-// co-signature offline, unpacks package artifacts by hash into a read-only
-// cache, re-verifies them before any sandbox starts, and serves the sandbox's
-// narrow ctx (its own tables, the book, granted doors) over RPC.
+// The package host (v3 §10, S7). What runs is what the build installed: packages.lock.json names each package
+// (unpacked by `neos install` into src/packages/nep-<name>/, read-only) and each pinned skill-only registry entry.
+// Before a package is offered — at every spawn and again before every call — its files are re-verified against the
+// lock and the registry's co-signature; a hand-edited package is skipped, with the reason in the job's book. A
+// pinned skill's text is read from neos_registry.skills at spawn (the app role's SELECT) and must still be the
+// exact version and content the lock pinned. Nothing is fetched from the platform at run time, and no code is
+// ever run from a row: a package's handlers run in the sandbox, from the verified bundle on disk, with a narrow
+// ctx (its own tables, the book, its granted doors, the host reads it requires).
 
-import { chmod, mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { canonicalize, registryContentHash, sha256, sha256Tagged, type ManifestAbility } from '@neop/contracts';
+import { canonicalize, sha256, type ManifestAbility } from '@neop/contracts';
 import { createPool, roleUrl, withCompany, type Pool } from '@neop/pgkit';
 import { Ajv, type ValidateFunction } from 'ajv';
 import addFormatsModule from 'ajv-formats';
-import { createLocalJWKSet, jwtVerify } from 'jose';
 import type { Core } from '../core.ts';
 import { DoorError } from '../doors/errors.ts';
 import type { ExecCtx, ReadAbility, ReadCtx, WriteAbility } from '../types.ts';
+import { LOCK_FILE, readLockSync, skillContentHash, verifyInstalledPackage, verifyLockSignature, type LockedPackage, type LockedSkill, type PackagesLock } from './lock.ts';
 import { packageRole } from './migrate.ts';
 import { Sandbox, SandboxError } from './sandbox.ts';
-import type { PackageBundle, RegistryEntryRow } from './types.ts';
+import type { PackageBundle } from './types.ts';
 
 const addFormats = addFormatsModule as unknown as (a: Ajv) => Ajv;
 const IDENT = /^[a-z_][a-z0-9_]*$/;
+/** How long a pinned skill's registry row is trusted before it is read again (a board NOTIFY drops it sooner). */
+const SKILL_TTL_MS = 5_000;
 
 export interface LoadedPackage {
   key: string;
   version: string;
   bundle: PackageBundle;
-  dir: string;
-  artifactHash: string;
+  entry: LockedPackage;
   handlers: Record<string, ReadAbility | WriteAbility>;
 }
 
@@ -38,89 +41,88 @@ export interface ResolvedAbility {
   fromPackage: string | null;
 }
 
+export interface InstalledForCompany {
+  abilities: ResolvedAbility[];
+  skills: { key: string; requires: string[]; body: string; from: string }[];
+  /** What the lock names but is not offered, and why (a failed verification, a changed registry row). */
+  skipped: { key: string; version: string; reason: string }[];
+}
+
 export class PackageHost {
   readonly core: Core;
-  private readonly cacheDir: string;
-  private entries = new Map<string, { at: number; list: RegistryEntryRow[] }>();
-  private loaded = new Map<string, LoadedPackage>(); // key@version
+  /** The app's folder (packages.lock.json and src/packages/), or null when it installs nothing. */
+  readonly root: string | null;
+  readonly lock: PackagesLock;
+  private loaded = new Map<string, LoadedPackage>(); // key@version (verified bundle, parsed once)
   private sandboxes = new Map<string, Sandbox>();
   private pools = new Map<string, Pool>();
-  private jwks: { keys: any[] } | null = null;
+  private skillRows: { at: number; rows: Map<string, any> } | null = null;
   private ajv = new Ajv({ allErrors: true, strict: false });
   private compiled = new Map<string, { input: ValidateFunction; output: ValidateFunction }>();
 
-  constructor(core: Core, cacheDir?: string) {
+  constructor(core: Core) {
     this.core = core;
-    this.cacheDir = cacheDir ?? path.join(process.cwd(), 'var', 'packages', core.key);
+    this.root = core.app.packages?.root ?? null;
+    // Loaded at boot: the lock is part of the build (a new pin is a new build).
+    this.lock = this.root ? readLockSync(path.join(this.root, LOCK_FILE)) : { lock_version: 1, packages: [], skills: [] };
     addFormats(this.ajv);
   }
 
-  invalidate(companyId?: string): void {
-    if (companyId) this.entries.delete(companyId);
-    else this.entries.clear();
+  /** Drop what was read from the registry (a board change may turn a skill on or off; the lock never changes at run time). */
+  invalidate(_companyId?: string): void {
+    this.skillRows = null;
   }
 
-  private async registryJwks(): Promise<{ keys: any[] }> {
-    if (!this.jwks) {
-      const res = await fetch(`${this.core.cfg.platformUrl.replace(/\/$/, '')}/.well-known/registry-jwks.json`, { signal: AbortSignal.timeout(10_000) });
-      this.jwks = (await res.json()) as { keys: any[] };
-      setTimeout(() => (this.jwks = null), 60_000).unref?.();
-    }
-    return this.jwks;
+  /** What the pinned entries require from outside the packages themselves (the host's reads, borrowed abilities). */
+  requires(): string[] {
+    const pins = this.core.manifest.packages ?? [];
+    const own = new Set(pins.flatMap((p) => (p.abilities ?? []).map((a) => a.key)));
+    const all = [...this.lock.skills.flatMap((s) => s.requires), ...pins.flatMap((p) => p.requires ?? [])];
+    return [...new Set(all)].filter((k) => !own.has(k));
   }
 
-  /** Verified entries this company pinned for this app. An unverifiable entry is dropped, never loaded. */
-  async entriesFor(companyId: string): Promise<RegistryEntryRow[]> {
-    const hit = this.entries.get(companyId);
-    if (hit && Date.now() - hit.at < 30_000) return hit.list;
-    const r = await this.core.platform.registryEntries(companyId);
-    const jwks = await this.registryJwks();
-    const ok: RegistryEntryRow[] = [];
-    for (const e of r) {
-      const expect = registryContentHash({ key: e.key, version: e.version, kind: e.kind, body: e.body, requires: e.requires, offers: e.offers, artifact_hash: e.artifact_hash });
-      if (expect !== e.content_hash) {
-        this.core.log('registry entry content does not match its hash; ignored', { key: e.key });
-        continue;
-      }
-      try {
-        const { payload } = await jwtVerify(e.platform_sig, createLocalJWKSet(jwks), { issuer: 'neos-registry', algorithms: ['EdDSA'] });
-        if (payload.key !== e.key || payload.version !== e.version || payload.content_hash !== e.content_hash) throw new Error('signature is for something else');
-        ok.push(e);
-      } catch (err) {
-        this.core.log('registry signature invalid; ignored', { key: e.key, err: String(err) });
-      }
-    }
-    this.entries.set(companyId, { at: Date.now(), list: ok });
-    return ok;
-  }
-
-  /** Unpack by hash (once), and verify the bytes on disk every time before use. */
-  async load(e: RegistryEntryRow): Promise<LoadedPackage> {
-    const id = `${e.key}@${e.version}`;
-    const dir = path.join(this.cacheDir, id);
-    const file = path.join(dir, 'bundle.json');
-    let bytes = await readFile(file).catch(() => null);
-    if (!bytes) {
-      const b64 = await this.core.platform.registryArtifact(e.artifact_hash!);
-      bytes = Buffer.from(b64, 'base64');
-      if (sha256Tagged(bytes) !== e.artifact_hash) throw new Error(`artifact for ${id} does not match its hash`);
-      await mkdir(dir, { recursive: true });
-      await writeFile(file, bytes, { mode: 0o444 });
-      await chmod(file, 0o444).catch(() => {});
-    }
-    // Verified at spawn: a hand-edited package does not run.
-    if (sha256Tagged(bytes) !== e.artifact_hash) {
+  /** Verify a locked package on disk (every time) and return it parsed; a failure stops its sandboxes. */
+  async load(entry: LockedPackage): Promise<LoadedPackage> {
+    const id = `${entry.key}@${entry.version}`;
+    const v = this.root ? await verifyInstalledPackage(this.root, entry, this.core.cfg.registryJwks ?? null) : { ok: false as const, reason: 'no packages folder' };
+    if (!v.ok) {
       this.loaded.delete(id);
       for (const [k, sb] of this.sandboxes) if (k.startsWith(`${id}:`)) (sb.stop(), this.sandboxes.delete(k));
-      throw new Error(`package ${id} failed verification: its files no longer match the signed artifact`);
+      throw new Error(`package ${id} failed verification: ${v.reason}`);
     }
     const cached = this.loaded.get(id);
     if (cached) return cached;
-    const bundle = JSON.parse(bytes.toString('utf8')) as PackageBundle;
-    const pkg: LoadedPackage = { key: e.key, version: e.version, bundle, dir, artifactHash: e.artifact_hash!, handlers: {} };
-    for (const a of bundle.manifest.abilities) pkg.handlers[a.key] = this.adapter(pkg, a);
+    const pkg: LoadedPackage = { key: entry.key, version: entry.version, bundle: v.bundle, entry, handlers: {} };
+    for (const a of v.bundle.manifest.abilities) pkg.handlers[a.key] = this.adapter(pkg, a);
     this.loaded.set(id, pkg);
     return pkg;
+  }
+
+  /** The pinned skills' rows from neos_registry.skills (read-only to this app's role), cached briefly. */
+  private async registrySkills(): Promise<Map<string, any>> {
+    if (!this.lock.skills.length) return new Map();
+    if (this.skillRows && Date.now() - this.skillRows.at < SKILL_TTL_MS) return this.skillRows.rows;
+    const r = await this.core.appPool.query(
+      `select key, version, owner_app, requires, offers, body, content_hash, platform_sig, status
+         from neos_registry.skills where key = any($1::text[])`,
+      [this.lock.skills.map((s) => s.key)],
+    );
+    const rows = new Map<string, any>();
+    for (const row of r.rows) rows.set(`${row.key}@${row.version}`, row);
+    this.skillRows = { at: Date.now(), rows };
+    return rows;
+  }
+
+  /** A pinned skill as the registry holds it now, or why it does not load. */
+  private async pinnedSkill(pin: LockedSkill, rows: Map<string, any>): Promise<{ body: string } | { reason: string }> {
+    const row = rows.get(`${pin.key}@${pin.version}`);
+    if (!row) return { reason: `${pin.key}@${pin.version} is not published in the registry` };
+    const requires = Array.isArray(row.requires) ? row.requires : [];
+    const ch = skillContentHash({ key: row.key, version: row.version, body: row.body, requires, offers: row.offers ?? [] });
+    if (ch !== row.content_hash || ch !== pin.content_hash) return { reason: `${pin.key}@${pin.version} in the registry is not the text that was pinned (its content hash differs)` };
+    const bad = await verifyLockSignature({ ...pin.signature, platform_sig: row.platform_sig }, { key: pin.key, version: pin.version, content_hash: pin.content_hash }, this.core.cfg.registryJwks ?? null);
+    if (bad) return { reason: `${pin.key}@${pin.version}: ${bad}` };
+    return { body: String(row.body) };
   }
 
   /** One sandbox per company and package version: no module state is ever shared across tenants (H5). */
@@ -248,7 +250,7 @@ export class PackageHost {
 
   private adapter(pkg: LoadedPackage, a: ManifestAbility): ReadAbility | WriteAbility {
     const call = async (method: 'run' | 'execute' | 'readBack' | 'normalize' | 'validate', args: unknown, base: { company_id: string; job_id: string | null; idempotency_key?: string }) => {
-      await this.load({ key: pkg.key, version: pkg.version, artifact_hash: pkg.artifactHash } as RegistryEntryRow); // re-verify on disk
+      await this.load(pkg.entry); // re-verify on disk before every call: a file edited since spawn does not run
       try {
         return await this.sandbox(pkg, base.company_id).call(a.key, method, args, base, this.ctxHandler(pkg, base));
       } catch (e) {
@@ -270,27 +272,47 @@ export class PackageHost {
     };
   }
 
-  /** Package abilities and borrowed/package skills for one company. */
-  async forCompany(companyId: string): Promise<{ abilities: ResolvedAbility[]; skills: { key: string; requires: string[]; body: string; from: string }[] }> {
-    const entries = await this.entriesFor(companyId);
+  /**
+   * What this app's build installed, verified now: each locked package's abilities and skills (skipped, with the
+   * reason, when its files or signature do not verify) and each pinned registry skill whose row is still the exact
+   * pinned text. Whether a line or skill is on for the company is the board's (the gate and the spawn decide).
+   */
+  async forCompany(_companyId: string): Promise<InstalledForCompany> {
     const abilities: ResolvedAbility[] = [];
-    const skills: { key: string; requires: string[]; body: string; from: string }[] = [];
-    for (const e of entries) {
-      if (e.kind === 'skill') {
-        skills.push({ key: e.key, requires: e.requires, body: e.body!, from: `${e.owner_app ?? 'registry'} (reviewed by NEOS)` });
-        continue;
-      }
+    const skills: InstalledForCompany['skills'] = [];
+    const skipped: InstalledForCompany['skipped'] = [];
+    for (const e of this.lock.packages) {
       let pkg: LoadedPackage;
       try {
         pkg = await this.load(e);
       } catch (err) {
-        this.core.log('package not loaded', { key: e.key, err: String(err) });
+        const reason = (err as Error).message;
+        this.core.log('package not loaded', { key: e.key, version: e.version, reason });
+        skipped.push({ key: e.key, version: e.version, reason });
         continue;
       }
       for (const a of pkg.bundle.manifest.abilities) abilities.push(this.resolved(pkg, a));
       for (const s of pkg.bundle.manifest.skills) skills.push({ key: `${pkg.key}/${s.key}`, requires: s.requires, body: s.body, from: `${pkg.key}@${pkg.version}` });
     }
-    return { abilities, skills };
+    if (this.lock.skills.length) {
+      let rows: Map<string, any>;
+      try {
+        rows = await this.registrySkills();
+      } catch (err) {
+        rows = new Map();
+        this.core.log('registry skills unreadable; pinned skills skipped', { err: String(err) });
+      }
+      for (const pin of this.lock.skills) {
+        const got = await this.pinnedSkill(pin, rows);
+        if ('reason' in got) {
+          this.core.log('pinned skill not loaded', { key: pin.key, version: pin.version, reason: got.reason });
+          skipped.push({ key: pin.key, version: pin.version, reason: got.reason });
+          continue;
+        }
+        skills.push({ key: pin.key, requires: pin.requires, body: got.body, from: `${pin.owner_app ?? 'registry'} v${pin.version} (reviewed by NEOS)` });
+      }
+    }
+    return { abilities, skills, skipped };
   }
 
   private resolved(pkg: LoadedPackage, a: ManifestAbility): ResolvedAbility {

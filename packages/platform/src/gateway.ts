@@ -138,10 +138,10 @@ export class Gateway {
                   null::int as sb_version, -- v3 S1: the board's version lives in the app's schema; NOTIFY replaces this hint
                   case when $10 then coalesce(
                     (select x->>'version' from jsonb_array_elements(a.manifest->'abilities') x where x->>'key' = $4 limit 1),
-                    (select o->>'version' from neos.registry_installs ri
-                       join neos.registry_entries e on e.key = ri.entry_key and e.version = ri.pinned_version
-                       cross join lateral jsonb_array_elements(e.offers) o
-                      where ri.company_id = $2 and ri.host_app = a.key and ri.status = 'active' and o->>'key' = $4 limit 1)) end as ability_version
+                    -- v3 S7: an installed package's abilities are in the host's manifest (packages, written at build).
+                    (select x->>'version' from jsonb_array_elements(coalesce(a.manifest->'packages', '[]'::jsonb)) pk
+                       cross join lateral jsonb_array_elements(coalesce(pk->'abilities', '[]'::jsonb)) x
+                      where x->>'key' = $4 limit 1)) end as ability_version
              from neos.apps a where a.key = $1),
          ins as (
            insert into neos.gateway_ledger (caller, target_app, idem_key, endpoint, request_hash, request_id)

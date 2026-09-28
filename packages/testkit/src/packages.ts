@@ -1,18 +1,12 @@
-// Registry helpers for tests: publish → review → install → migrate, as an
-// operator, a company admin and the migration runner would.
-import type { Platform } from '@neop/platform';
-import { buildPackage, migratePackage, type PackageBundle } from '@neop/template';
+// Registry helpers for tests (v3 S7): publish → a second operator's review → `neos install` into a copy of the
+// host app's folder (the build) → the host is rebuilt (its migration file applied, the backend restarted on the new
+// definition, its manifest re-registered). Nothing is installed at run time.
+import { cp, mkdtemp, readFile } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import type { Manifest } from '@neop/contracts';
+import { buildPackage, httpRegistrySource, installEntry, LOCK_FILE, removeEntry, type AppDefinition, type InstallOptions, type InstallResult, type PackageBundle, type RegistrySource, type RemoveResult } from '@neop/template';
 import type { Pilot } from './pilot.ts';
-
-/** The ops migration runner: apply pending package migrations, then activate the installs. */
-export async function runPackageMigrations(adminUrl: string, platform: Platform): Promise<string[]> {
-  const applied: string[] = [];
-  for (const p of await platform.pendingPackageMigrations()) {
-    // Migrations, then the package's self-test; a failure settles the install (failed / rolled back) and throws.
-    applied.push(...(await platform.applyPackageMigration(p, () => migratePackage(adminUrl, p.host_app, p.bundle))));
-  }
-  return applied;
-}
 
 export async function publishPackage(P: Pilot, dirOrBundle: string | PackageBundle): Promise<{ key: string; version: string }> {
   const bundle = typeof dirOrBundle === 'string' ? await buildPackage(dirOrBundle) : dirOrBundle;
@@ -24,11 +18,70 @@ export async function publishPackage(P: Pilot, dirOrBundle: string | PackageBund
   return { key: bundle.manifest.key, version: bundle.manifest.version };
 }
 
-export async function installAndMigrate(P: Pilot, host: string, entry: string): Promise<void> {
-  const r = await P.api('POST', '/api/registry/installs', { host_app: host, entry_key: entry });
-  if (r.status !== 200) throw new Error(`install: ${JSON.stringify(r.body)}`);
-  await runPackageMigrations(P.adminUrl, P.platform);
-  for (const b of Object.values(P.backends)) b.core.packages.invalidate();
+/** The registry as `neos install` reaches it from a pilot: the platform's HTTP surface, as an operator. */
+export function pilotRegistry(P: Pilot): RegistrySource {
+  return httpRegistrySource({ platformUrl: P.platformUrl, bearer: P.operator.token });
+}
+
+/** A writable copy of an app's folder — the build `neos install` changes (the repo's own folder is never touched). */
+export async function hostCopy(def: AppDefinition): Promise<string> {
+  const from = def.packages?.root ?? path.dirname(def.migrationsDir);
+  const to = await mkdtemp(path.join(os.tmpdir(), `neop-host-${def.manifest.app}-`));
+  await cp(path.join(from, 'migrations'), path.join(to, 'migrations'), { recursive: true });
+  await cp(path.join(from, 'src', 'packages'), path.join(to, 'src', 'packages'), { recursive: true }).catch(() => {});
+  await cp(path.join(from, LOCK_FILE), path.join(to, LOCK_FILE)).catch(() => {});
+  // The manifest the app runs now (a test may have rebuilt it already), in the layout the installer edits.
+  await cp(path.join(from, 'manifest.json'), path.join(to, 'manifest.json')).catch(async () => {
+    const { writeFile } = await import('node:fs/promises');
+    await writeFile(path.join(to, 'manifest.json'), `${JSON.stringify(def.manifest, null, 2)}\n`);
+  });
+  return to;
+}
+
+/** The app definition of a build folder: the same code, with that folder's manifest, migrations and packages. */
+export async function defFromBuild(def: AppDefinition, root: string): Promise<AppDefinition> {
+  const manifest = JSON.parse(await readFile(path.join(root, 'manifest.json'), 'utf8')) as Manifest;
+  return { ...def, manifest, migrationsDir: path.join(root, 'migrations'), packages: { root } };
+}
+
+/**
+ * `neos install <app> <spec>` against a pilot, then deploy that build. Each call starts from the build the app runs
+ * now (its current folder), so installs stack. Throws what the installer throws; a refused install changes nothing.
+ */
+export async function installAndRebuild(P: Pilot, app: string, spec: string, o: Partial<Pick<InstallOptions, 'tests' | 'proven' | 'source' | 'trusted'>> = {}): Promise<InstallResult & { root: string }> {
+  const def = P.defs[app]!;
+  const root = await hostCopy(def);
+  const r = await installEntry({ root, spec, source: o.source ?? pilotRegistry(P), tests: o.tests, proven: o.proven, trusted: o.trusted });
+  await P.rebuild(app, await defFromBuild(def, root));
+  return { ...r, root };
+}
+
+/** `neos install --remove`, then deploy that build. */
+export async function removeAndRebuild(P: Pilot, app: string, key: string): Promise<RemoveResult & { root: string }> {
+  const def = P.defs[app]!;
+  const root = await hostCopy(def);
+  const r = await removeEntry({ root, key });
+  await P.rebuild(app, await defFromBuild(def, root));
+  return { ...r, root };
+}
+
+/** Publish (if not yet) and install at build: the whole path a package takes into a host. */
+export async function installAndMigrate(P: Pilot, host: string, entry: string | PackageBundle, version?: string): Promise<InstallResult & { root: string }> {
+  let key: string;
+  let v: string;
+  if (typeof entry === 'string' && !version) {
+    const e = (await P.platform.db.query<{ version: string }>("select version from neos.registry_entries where key = $1 and status = 'published' order by published_at desc limit 1", [entry])).rows[0];
+    if (!e) throw new Error(`${entry} is not published`);
+    key = entry;
+    v = e.version;
+  } else if (typeof entry === 'string') {
+    key = entry;
+    v = version!;
+  } else {
+    key = entry.manifest.key;
+    v = entry.manifest.version;
+  }
+  return installAndRebuild(P, host, `${key}@${v}`);
 }
 
 /** A hostile package for sandbox tests: it tries every way out and reports what happened. */

@@ -66,7 +66,7 @@ describe('021 on a populated platform database', () => {
     const before = await snap();
 
     const applied = await migratePlatform(db.adminUrl);
-    expect(applied.map((m) => m.name)).toEqual(['021_open_questions.sql']);
+    expect(applied.map((m) => m.name)).toEqual(['021_open_questions.sql', '022_registry_pins.sql']); // 022 (S7) follows; its own proof is in registry-v3.test.ts
     expect(await snap()).toEqual(before); // every question, task and shown-in-DM row as it was
     expect(before.n).toBe(12);
 

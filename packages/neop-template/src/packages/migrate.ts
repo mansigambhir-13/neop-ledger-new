@@ -1,83 +1,100 @@
-// Package migrations: run by the platform's migration runner (admin), never at
-// request time. Tables land in the host's schema, named nep_<name>_*, owned by
-// the host migrator; the package's own role gets DML on exactly those tables;
-// the host app role may only read them. The tenant lint applies (B1).
+// Package roles and grants (v3 §10, S7). A package's migrations are files in the host's own numbered set
+// (written by `neos install`) and run with the host's migrations — never at request time. What the migrator
+// role cannot do is make roles: this runs with the admin connection after the host's migrations (migrateApp),
+// and the DBA bundle carries the same statements (packageGrantsSql). Idempotent.
+//
+//   <host>_nep_<name>   LOGIN, no bypass: SELECT/INSERT/UPDATE on exactly its manifest's tables, nothing else
+//   <host>_app          SELECT only on those tables (the host reads them; only the package writes them)
 
-import { createHash } from 'node:crypto';
 import pg from 'pg';
-import { assertIdent, familyRoles, rolePassword, render, tenantLint } from '@neop/pgkit';
-import { selftestPackage } from './selftest.ts';
-import type { PackageBundle } from './types.ts';
+import { assertIdent, familyRoles, rolePassword } from '@neop/pgkit';
+import { packageSlug, type PackagesLock } from './lock.ts';
+
+const IDENT = /^[a-z_][a-z0-9_]*$/;
 
 export function packageRole(host: string, packageKey: string): string {
-  const name = packageKey.replace(/^nep-/, '').replace(/[^a-z0-9]/g, '_');
-  const role = `${host}_nep_${name}`;
+  const role = `${host}_nep_${packageSlug(packageKey)}`;
   assertIdent(role);
   return role;
 }
 
-export async function migratePackage(adminUrl: string, host: string, bundle: PackageBundle): Promise<string[]> {
-  const m = bundle.manifest;
-  const prefix = `nep_${m.key.replace(/^nep-/, '').replace(/[^a-z0-9]/g, '_')}_`;
-  const roles = familyRoles(host);
-  const role = packageRole(host, m.key);
+/** The grants for one package, as SQL a DBA can read (no passwords; the role is created by the migrator run or the DBA). */
+export function packageGrantsSql(host: string, p: { key: string; tables: string[] }): string {
+  assertIdent(host);
+  const role = packageRole(host, p.key);
+  const app = familyRoles(host).app;
+  const lines = [`grant usage on schema ${host} to ${role};`];
+  for (const t of p.tables) {
+    if (!IDENT.test(t)) throw new Error(`bad table name ${t}`);
+    lines.push(
+      `do $g$ begin if to_regclass('${host}.${t}') is not null then`,
+      `  grant select, insert, update on ${host}.${t} to ${role};`,
+      `  revoke insert, update, delete, truncate on ${host}.${t} from ${app};`,
+      `  grant select on ${host}.${t} to ${app};`,
+      `end if; end $g$;`,
+    );
+  }
+  lines.push(`grant usage, select on all sequences in schema ${host} to ${role};`);
+  return lines.join('\n');
+}
+
+/**
+ * The DBA bundle's section for installed packages: each package's role (LOGIN, no bypass; the DBA sets its password,
+ * or NEOS_PKG_PW_KEY_<HOST> derives it as the migrator does) and its grants. Idempotent; run after the migrations.
+ */
+export function packageBootstrapSql(host: string, lock: PackagesLock): string {
+  const out: string[] = [];
+  for (const p of lock.packages) {
+    const role = packageRole(host, p.key);
+    out.push(`-- ${p.key}@${p.version} (artifact ${p.artifact_hash})`);
+    out.push(`do $r$ begin if not exists (select 1 from pg_roles where rolname = '${role}') then create role ${role} login nobypassrls nosuperuser nocreaterole; end if; end $r$;`);
+    out.push(`alter role ${role} set search_path = ${host};`);
+    out.push(`do $c$ begin execute format('grant connect on database %I to ${role}', current_database()); end $c$;`);
+    out.push(packageGrantsSql(host, p));
+  }
+  return out.length ? out.join('\n') : '-- (no packages installed)';
+}
+
+/** Create each locked package's role (cluster-wide) and give it exactly its tables. Returns the roles. */
+export async function applyPackageGrants(adminUrl: string, host: string, lock: PackagesLock): Promise<string[]> {
+  if (!lock.packages.length) return [];
   const client = new pg.Client({ connectionString: adminUrl });
   await client.connect();
-  const applied: string[] = [];
-  const createdAll: string[] = [];
+  const roles: string[] = [];
   try {
-    await client.query('select pg_advisory_lock(hashtext($1))', [`migrate:${host}`]);
-    const exists = await client.query('select 1 from pg_roles where rolname = $1', [role]);
-    const pw = rolePassword(role).replace(/'/g, "''");
-    if (!exists.rowCount) await client.query(`create role ${role} login password '${pw}' nobypassrls nosuperuser nocreaterole`).catch(() => {});
-    else await client.query(`alter role ${role} login password '${pw}'`);
-    await client.query(`grant connect on database "${(await client.query('select current_database() as d')).rows[0].d}" to ${role}`);
-    const done = new Set((await client.query<{ name: string }>(`select name from ${host}.schema_migrations`)).rows.map((r) => r.name));
-    for (const file of Object.keys(m.migrations).sort()) {
-      const name = `${m.key}@${m.version}/${file}`;
-      const legacy = [...done].find((d) => d.startsWith(`${m.key}@`) && d.endsWith(`/${file}`));
-      if (done.has(name) || legacy) continue;
-      const sql = m.migrations[file]!;
-      await client.query('begin');
-      try {
-        const before = new Set((await client.query<{ t: string }>(`select tablename as t from pg_tables where schemaname = $1`, [host])).rows.map((r) => r.t));
-        await client.query(`set local role ${roles.migrator}`);
-        await client.query(`set local search_path to ${host}`);
-        await client.query(render(sql, host));
-        const after = (await client.query<{ t: string }>(`select tablename as t from pg_tables where schemaname = $1`, [host])).rows.map((r) => r.t);
-        const created = after.filter((t) => !before.has(t));
-        createdAll.push(...created);
-        const stray = created.filter((t) => !t.startsWith(prefix));
-        if (stray.length) throw new Error(`a package may only create ${prefix}* tables (created ${stray.join(', ')})`);
-        await tenantLint(client, host, ['schema_migrations', 'seen_tokens', 'outbox_acked']);
-        await client.query(`grant usage on schema ${host} to ${role}`);
-        for (const t of after.filter((x) => x.startsWith(prefix))) {
-          await client.query(`grant select, insert, update on ${host}.${t} to ${role}`);
-          await client.query(`revoke insert, update, delete on ${host}.${t} from ${roles.app}`);
-          await client.query(`grant select on ${host}.${t} to ${roles.app}`);
-        }
-        await client.query(`grant usage, select on all sequences in schema ${host} to ${role}`);
-        await client.query(`insert into ${host}.schema_migrations (name, checksum) values ($1, $2)`, [name, createHash('sha256').update(sql).digest('hex')]);
-        await client.query('commit');
-        applied.push(name);
-      } catch (e) {
-        await client.query('rollback');
-        throw new Error(`package migration ${name} failed: ${(e as Error).message}`, { cause: e });
+    await client.query("select pg_advisory_lock(hashtext('neos.roles'))");
+    const db = (await client.query<{ d: string }>('select current_database() as d')).rows[0]!.d;
+    for (const p of lock.packages) {
+      const role = packageRole(host, p.key);
+      const pw = rolePassword(role).replace(/'/g, "''");
+      const exists = await client.query<{ c: string[] | null }>('select rolconfig as c from pg_roles where rolname = $1', [role]);
+      if (!exists.rowCount) {
+        await client.query(`create role ${role} login password '${pw}' nobypassrls nosuperuser nocreaterole`).catch((e) => {
+          // Roles are cluster-wide: another database's migrator may have made it a moment ago.
+          if (!['42710', '23505'].includes((e as { code?: string }).code ?? '')) throw e;
+        });
       }
-    }
-    // Install runs the package's own self-test on what was just migrated; a failure undoes this run.
-    try {
-      await selftestPackage(adminUrl, host, bundle);
-    } catch (e) {
-      await client.query('begin');
-      for (const t of createdAll) await client.query(`drop table if exists ${host}.${t} cascade`);
-      if (applied.length) await client.query(`delete from ${host}.schema_migrations where name = any($1)`, [applied]);
-      await client.query('commit');
-      throw e;
+      await retryConcurrent(() => client.query(`alter role ${role} login password '${pw}' nobypassrls nosuperuser nocreaterole`));
+      if (!(exists.rows[0]?.c ?? []).includes(`search_path=${host}`)) await retryConcurrent(() => client.query(`alter role ${role} set search_path = ${host}`));
+      await client.query(`grant connect on database "${db}" to ${role}`);
+      await client.query(packageGrantsSql(host, p));
+      roles.push(role);
     }
   } finally {
-    await client.query('select pg_advisory_unlock(hashtext($1))', [`migrate:${host}`]).catch(() => {});
+    await client.query("select pg_advisory_unlock(hashtext('neos.roles'))").catch(() => {});
     await client.end();
   }
-  return applied;
+  return roles;
+}
+
+/** Role rows are cluster-wide: parallel migrations of other databases can race an ALTER ROLE ("tuple concurrently updated"). */
+async function retryConcurrent<T>(fn: () => Promise<T>): Promise<T> {
+  for (let i = 0; ; i++) {
+    try {
+      return await fn();
+    } catch (e) {
+      if (i >= 10 || !/concurrently updated/.test((e as Error).message)) throw e;
+      await new Promise((r) => setTimeout(r, 20 + Math.random() * 80));
+    }
+  }
 }

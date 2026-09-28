@@ -18,7 +18,7 @@ This whole sequence has been run end to end in Docker Compose. Every image sets 
    docker compose -f deploy/compose.pilot.yml run --rm migrate
    ```
    - This is the only process with the admin connection.
-   - It runs platform, template (`t###`) and Ledger (`###`) migrations, plus any package migrations that installs are waiting on.
+   - It runs platform, template (`t###`) and Ledger (`###`) migrations — Ledger's set carries the migrations of the packages installed into its build (v3 S7, see *Installing a package*) — and gives each installed package its role.
    - It is safe to re-run.
    - `NEOS_APPS` picks the apps (default `ledger`).
    - At the end it hands over what the retired approvals worker had in hand (v3 S2, see *Approvals*): every
@@ -103,7 +103,7 @@ a changed file is used on the next call, no restart). Ops provisions them; the a
   ```
   (`NEOS_SECRETS_DIR` from the environment, or `NEOS_ENV_FILE=<deploy env file>`.) Rotation is write-then-rename,
   so a call in flight sees the old credential or the new one, never half of one.
-- **GST (nep-gst 2.x):** install the package, enable API access for the taxpayer's username on the GST portal, then
+- **GST (nep-gst 2.x):** nep-gst is built into Ledger (see *Installing a package*); enable API access for the taxpayer's username on the GST portal, then
   set `gst_portal` as above. Paths default to the GSTN taxpayer API layout; override them (and add GSP-specific
   headers) to match your GSP. `assume_supply` is used only when the chart keeps a single output and a single input
   GST account; name the tax accounts per head (IGST / CGST / SGST / cess) and the split is read from the books.
@@ -374,6 +374,50 @@ For Ledger this is packaged as `deploy/compose.dedicated-ledger.yml`. It adds a 
   ```
   The runner refuses destructive DDL without such a marker naming an earlier migration.
 - **Every new business table** needs `company_id uuid not null`, `enable` + `force row level security`, and a policy `using (company_id = nullif(current_setting('neos.company_id', true), '')::uuid)` (same for `with check`). A policy keyed on anything else, or `using (true)`, fails the tenant lint.
+
+## Installing a package (v3 S7: at build time)
+A package (`nep-<name>`: know-how, handlers, migrations) or a skill-only entry goes into an app's **build**; a
+company then switches the lines it adds on its switchboard. Nothing is installed, fetched or migrated at run time,
+and `POST/DELETE /api/registry/installs` answers `410 install_at_build`.
+1. **Publish** (once per version): `NEOS_OPERATOR_TOKEN=… pnpm neos-publish registry/nep-<name>` (a skill folder with
+   `SKILL.md` is published by its owning app: `scripts/registry.ts publish`, `NEOP_APP_KEY`/`NEOP_SERVICE_SECRET`/
+   `NEOP_AUTHOR_KEY_FILE`). A second operator reviews the diff on `/api/registry/reviews` and co-signs it. A package
+   version that drops, recasts or major-bumps an ability some app's pinned skill or package still requires is
+   refused (`409 breaks_pinned`) until the version that served it has been deprecated for 30 days.
+2. **Install into the app** (a developer's machine or CI, with a Postgres for the scratch test database):
+   ```
+   NEOS_PLATFORM_URL=https://neos… NEOS_OPERATOR_TOKEN=… NEOS_ADMIN_URL=postgres://…/scratch-cluster \
+     pnpm neos-install ledger nep-gst@2.0.0 --trust registry-jwks.json --proven "2026-09-28 · <where you proved it>"
+   ```
+   It fetches the entry and the artifact **by hash**, checks the hash and the registry's co-signature (with
+   `--trust`, that the key is one of the registry's — save `/.well-known/registry-jwks.json` from the production
+   platform), unpacks read-only into `apps/ledger/src/packages/nep-gst/`, pins it in `apps/ledger/packages.lock.json`
+   (version, artifact hash, content hash, the registry's signature and public key, every file's sha256), appends its
+   migrations to `apps/ledger/migrations/` as `NNN_nep_<name>__<file>.sql` (+ `migrate.json` rows; `--proven` fills
+   `proven_on_populated_data`, which production requires), writes its lines into `manifest.json` `packages`, and runs
+   its self-test **inside the host**: Ledger's whole migration set in a scratch database, then the package's
+   `selftest` as its own role. Any refusal (`hash_mismatch`, `bad_signature`, `tests_failed`, `migration_changed`)
+   leaves the app folder exactly as it was. A skill (`<owner>/<name>@x.y.z`) is only pinned (lock + manifest
+   `registry_skills`); its text stays in `neos_registry.skills`.
+3. **Commit, build, migrate, deploy.** `scripts/dba-bundle.ts ledger` now carries the package's migration files and
+   a section creating its role (`ledger_nep_<name>`, `SELECT/INSERT/UPDATE` on its own tables only; Ledger's own role
+   reads them). `pnpm migrate` does the same. Set `NEOP_REGISTRY_JWKS[_FILE]` on the backend to the same JWKS: a
+   package or pinned skill signed under another key is not loaded. Deploy, then re-register the app (its manifest
+   carries the new lines).
+4. **Per company:** the package's abilities are lines on the switchboard at the package's floors, its doors are
+   `door:` lines, a pinned skill is a `skill:` line and loads only when it and everything it requires are on
+   (a borrowed requirement also needs the owner's grant: `/api/acl`).
+- **Verified at spawn.** Before a package is offered — each job, and again before each call — every file is checked
+  against the lock and the signature. A hand-edited file means the package is not offered and its calls are refused;
+  the job's book says `Not loaded: nep-x@1.0.0 — …`. A pinned skill whose registry row no longer has the pinned
+  content hash is not loaded either. Fix: re-run `neos install` (never edit `src/packages/`).
+- **Upgrade:** `neos install ledger nep-gst@2.1.0`. Migrations that already shipped are kept (a version that changes
+  one is refused: fix forward with a new file); new ones are appended.
+- **Remove:** `pnpm neos-install ledger --remove nep-gst` takes out the files, the pin and the lines. Its migrations
+  stay in the set (forward only) and its tables are kept; dropping them is a contract migration in the app's own
+  set (`-- contract: …; expanded by 008_nep_gst__001_returns.sql`).
+- **Books installed before v3** (the runtime installer, `schema_migrations` rows `nep-gst@<v>/<file>`): the new
+  host files skip the package SQL there and only tighten the grants. Proof: `apps/ledger/tests/install.test.ts`.
 
 ## Chaos, live (Phase 6 bar)
 Against a throwaway project, never a customer's:

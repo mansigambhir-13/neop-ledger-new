@@ -73,7 +73,7 @@ describe('020 on a populated platform database', () => {
     const before = await approvals();
 
     const applied = await migratePlatform(db.adminUrl);
-    expect(applied.map((m) => m.name)).toEqual(['020_approvals_frozen.sql', '021_open_questions.sql']); // 021 (S3) follows; its own proof is migration-021.test.ts
+    expect(applied.map((m) => m.name)).toEqual(['020_approvals_frozen.sql', '021_open_questions.sql', '022_registry_pins.sql']); // 021 (S3), 022 (S7) follow; their own proofs are migration-021.test.ts, registry-v3.test.ts
     expect(await approvals()).toEqual(before); // every approval row as it was
 
     // Card ids are proposal ids now, everywhere a card was shown; a typed card's sent-key follows.
