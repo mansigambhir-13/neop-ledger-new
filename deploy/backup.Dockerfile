@@ -15,7 +15,8 @@ COPY package.json pnpm-workspace.yaml pnpm-lock.yaml tsconfig.json ./
 COPY packages ./packages
 COPY apps ./apps
 COPY scripts ./scripts
-RUN pnpm install --frozen-lockfile && mkdir -p /backups && chown node:node /backups
+# A slow link to the registry must not fail the build (pnpm's default fetch timeout is 60 s).
+RUN pnpm install --frozen-lockfile --fetch-timeout=600000 --fetch-retries=5 --network-concurrency=4 && mkdir -p /backups && chown node:node /backups
 ENV NEOS_ENV=production NODE_ENV=production PATH=/srv/node_modules/.bin:$PATH
 USER node
 CMD ["tsx", "scripts/backup.ts", "schedule"]
