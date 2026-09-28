@@ -501,7 +501,7 @@ describe('t011 on a populated book', () => {
       const before = await snap();
 
       const applied = await run(TEMPLATE_MIGRATIONS);
-      expect(applied.map((m) => m.name)).toEqual(['t011_approved_path.sql']);
+      expect(applied.map((m) => m.name)).toEqual(['t011_approved_path.sql', 't012_presence.sql']); // t012 (S4) follows; its own proof is in presence-dedupe.test.ts
       expect(await snap()).toEqual(before);
 
       const admin = new pg.Client({ connectionString: db.adminUrl });

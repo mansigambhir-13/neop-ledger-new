@@ -31,6 +31,12 @@ run ledger-agent required open:ledger-gate:4102 open:ledger-backend:4102 closed:
 run web optional open:platform:4000 closed:postgres:5432 closed:pgbouncer:6432 closed:ledger-backend:4101 closed:ledger-agent:4103 || fail=1
 # The app backend: its database (pooled and direct), the platform, its agent; providers only via the egress proxy.
 run ledger-backend required open:pgbouncer:6432 open:postgres:5432 open:platform:4000 open:ledger-agent:4103 open:egress-proxy:3128 closed:1.1.1.1:443 "proxy-open:$ALLOWED" "proxy-refused:$DENIED" || fail=1
+# v3 S4 · NEOP presence (compose.chat.yml, NEOP_PRESENCE=appservice|client): the backend may reach the homeserver on
+# the chat network (and the homeserver its appservice listener, 4104). Checked when a local synapse runs; an external
+# homeserver is reached through egress-proxy like any allowed host (deploy.sh adds it to NEOS_EGRESS_EXTRA).
+if [[ "$running" == *" synapse "* ]]; then
+  run ledger-backend required open:synapse:8008 || fail=1
+fi
 # The LLM proxy: the platform's JWKS and the provider (via the egress proxy only); never an app backend.
 run llm-proxy required open:platform:4000 open:egress-proxy:3128 closed:ledger-backend:4101 closed:ledger-agent:4103 closed:1.1.1.1:443 "proxy-open:$ALLOWED" "proxy-refused:$DENIED" || fail=1
 # The platform: app L3s and the database; never the agents or the egress proxy.

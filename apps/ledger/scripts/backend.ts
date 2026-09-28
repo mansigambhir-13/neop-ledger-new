@@ -1,5 +1,5 @@
 // Ledger backend container entry: L3 + gate + runner. Holds DB roles; no model.
-import { SchemaMismatchError, startBackend } from '@neop/template';
+import { presenceConfigFromEnv, SchemaMismatchError, startBackend } from '@neop/template';
 import { ledgerApp } from '../src/index.ts';
 import { bindAddress, env, loadFileEnv, log, onShutdown, requireEnv } from './env.ts';
 
@@ -11,6 +11,10 @@ const llm = process.env.NEOP_LLM_PROXY_URL
   ? { proxyUrl: env('NEOP_LLM_PROXY_URL'), signingKey: JSON.parse(env('NEOP_LLM_SIGNING_KEY')) }
   : undefined;
 if (!llm) log('warn', 'NEOP_LLM_PROXY_URL is not set: assistant sessions get no model token');
+// v3 S4: NEOP_PRESENCE=off|appservice|client (default off — the platform's bridge speaks for Ledger). When on, this
+// backend is on Matrix itself: the appservice listener (APPSERVICE_PORT, 4104) or the /sync road for @ledger.
+const presence = presenceConfigFromEnv(process.env);
+if (presence.mode !== 'off') log('info', 'NEOP presence on', { mode: presence.mode, homeserver: presence.homeserverUrl });
 const app = await ledgerApp();
 // WP §11 step 8: a schema out of step with this build's migrations is a configuration error (EX_CONFIG).
 const b = await startBackend(
@@ -29,6 +33,7 @@ const b = await startBackend(
     runnerId: env('RUNNER_ID', `runner-${process.pid}`),
     packageCacheDir: env('NEOP_PACKAGE_CACHE_DIR', '/var/lib/neop/packages'),
     llm,
+    presence,
     // Today's NEOS platform gateway (docs/pilot-ledger-integration.md): on only with its public key and a customer map.
     neosV1: process.env.NEOS_V1_PUBLIC_KEY || process.env.NEOS_V1_PUBLIC_KEY_FILE
       ? { publicKeyPem: env('NEOS_V1_PUBLIC_KEY'), customers: JSON.parse(env('NEOS_V1_CUSTOMERS')) as Record<string, string> }
@@ -43,7 +48,7 @@ const b = await startBackend(
   }
   throw e;
 });
-log('info', 'ledger backend up', { l3: b.ports.l3, gate: b.ports.gate, version: app.manifest.version });
+log('info', 'ledger backend up', { l3: b.ports.l3, gate: b.ports.gate, appservice: b.ports.appservice ?? null, version: app.manifest.version });
 
 // Metrics for the scraper on the telemetry network only (METRICS_HOST, e.g. the `ledger-metrics`
 // alias). L3 itself stays reachable only from the gateway's network; this listener answers one

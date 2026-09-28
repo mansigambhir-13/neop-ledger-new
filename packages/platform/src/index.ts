@@ -80,6 +80,7 @@ export async function startPlatform(
       if (!same.rowCount) return c.json({ error: { code: 'not_found', message: 'no such person in your company' } }, 404);
       await chatBridge.linkUser(c.req.param('id'), b.matrix_user_id);
       await platform.gateway.audit({ company_id: a.u!.company_id, actor: `user:${a.u!.id}`, action: 'chat.user_linked', outcome: b.matrix_user_id });
+      await platform.syncChat(a.u!.company_id);
       return c.json({ ok: true });
     });
   }

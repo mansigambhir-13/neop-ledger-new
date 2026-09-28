@@ -118,6 +118,20 @@
       ],
       "baseline": false,
       "proven_on_populated_data": "2026-09-28 \u00b7 apps/ledger/tests/approved-path.test.ts \u203a t011 applies forward on a populated book"
+    },
+    {
+      "file": "t012_presence.sql",
+      "tables": [
+        "inbound_events",
+        "installs",
+        "outbound_events",
+        "people",
+        "presence_accounts",
+        "presence_dms",
+        "presence_mirror"
+      ],
+      "baseline": false,
+      "proven_on_populated_data": "2026-09-28 \u00b7 apps/ledger/tests/presence-dedupe.test.ts \u203a t012 applies forward on a populated book"
     }
   ]
 }

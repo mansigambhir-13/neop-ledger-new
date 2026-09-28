@@ -76,6 +76,17 @@ case "${BRIDGE_MAY_APPROVE:-}" in
   ""|false) ;;
   *) die "BRIDGE_MAY_APPROVE is no longer supported: a bridge (NeuralChat) can never approve — only a person, on the desk or in their own DM (v3 §5/§8/§16). Remove BRIDGE_MAY_APPROVE from $ENV_FILE (docs/GO-LIVE.md §3)";;
 esac
+# v3 S4 · who speaks for Ledger in Matrix: the platform's bridge (off, the default today) or the ledger backend
+# itself (client: its own /sync road, deploy/compose.presence-client.yml). docs/RUNBOOK.md "Chat: NEOP presence".
+PRESENCE=${NEOP_PRESENCE:-off}
+case "$PRESENCE" in
+  off) CHAT_OVERLAY=deploy/compose.matrix-external.yml ;;
+  client) CHAT_OVERLAY=deploy/compose.presence-client.yml
+    # The backend reaches the homeserver through egress-proxy (443 only): allow its host.
+    HS_HOST=$(printf '%s' "$MATRIX_HOMESERVER_URL" | sed -E 's#^[a-z]+://##; s#[:/].*$##')
+    export NEOS_EGRESS_EXTRA="${NEOS_EGRESS_EXTRA:+$NEOS_EGRESS_EXTRA,}$HS_HOST" ;;
+  *) die "NEOP_PRESENCE must be off or client for scripts/deploy.sh (the appservice road is set up with scripts/matrix-setup.sh + deploy/compose.chat.yml)";;
+esac
 ATTEST="$ROOT/deploy/attestations/ledger.json"
 [ -s "$ATTEST" ] || die "no conformance attestation for this release ($ATTEST): run tsx scripts/conformance.ts ledger --out $ATTEST on the build machine"
 command -v docker >/dev/null || die "docker is required"
@@ -87,7 +98,7 @@ BASE=(-f deploy/compose.pilot.yml)
 for extra in ${NEOS_COMPOSE_EXTRA:-}; do BASE+=(-f "$extra"); done
 FILES=("${BASE[@]}")
 # The Matrix client road needs the company; it is added once the company exists (steps 8+).
-[ -s "$STATE" ] && [ -n "$(jq -r '.company_id // empty' "$STATE")" ] && FILES=("${BASE[@]}" -f deploy/compose.matrix-external.yml)
+[ -s "$STATE" ] && [ -n "$(jq -r '.company_id // empty' "$STATE")" ] && FILES=("${BASE[@]}" -f "$CHAT_OVERLAY")
 PROFILES=()
 [ "${OBSERVABILITY:-0}" = 1 ] && PROFILES+=(--profile observability)
 dc() { docker compose -p "$NEOS_PROJECT" "${FILES[@]}" ${PROFILES[@]+"${PROFILES[@]}"} "$@"; }
@@ -155,15 +166,21 @@ fi
 auth_header
 echo "company $CO · admin token in $NEOS_SECRETS_DIR/admin_token"
 
-say "8/11 Matrix client road for this company"
+say "8/11 Matrix client road for this company (NEOP_PRESENCE=$PRESENCE)"
 export NEOS_CHAT_COMPANY="$CO"
-FILES=("${BASE[@]}" -f deploy/compose.matrix-external.yml)
+FILES=("${BASE[@]}" -f "$CHAT_OVERLAY")
 dc up -d platform >/dev/null 2>&1 || die "platform with the Matrix overlay did not start"
 for i in $(seq 1 60); do curl -fsS "http://127.0.0.1:$PORT/live" >/dev/null 2>&1 && break; sleep 2; done
 ME=$(api GET /api/me | jq -r .id)
 [ -n "${ADMIN_MXID:-}" ] && api PUT "/api/users/$ME/chat" "{\"matrix_user_id\":\"$ADMIN_MXID\"}" >/dev/null && api PUT /api/chat/allowlist "{\"app\":\"ledger\",\"matrix_id\":\"$ADMIN_MXID\",\"kind\":\"person\"}" >/dev/null
 api PUT /api/chat/allowlist "{\"app\":\"ledger\",\"matrix_id\":\"$BRIDGE_MXID\",\"kind\":\"bridge\",\"acts_for\":\"$ME\"}" | jq -c '{matrix_id,kind,acts_for}'
-api GET /api/chat/client | jq -c '.accounts[]|{account,running,stopped}'
+if [ "$PRESENCE" = client ]; then
+  # Ledger's own account at this company, in ledger.installs (the backend binds its token to it), then the backend.
+  api PUT /api/chat/presence "{\"app\":\"ledger\",\"matrix_user\":\"$LEDGER_MXID\"}" | jq -c '{app,matrix_user}'
+  dc up -d egress-proxy ledger-backend >/dev/null 2>&1 || die "ledger backend with NEOP presence did not start"
+else
+  api GET /api/chat/client | jq -c '.accounts[]|{account,running,stopped}'
+fi
 
 say "9/11 email door (optional) → the secret store, for Ledger at this company"
 if [ -n "${EMAIL_DOOR_JSON:-}" ]; then

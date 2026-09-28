@@ -148,7 +148,9 @@ export class ChatBridge {
   }
 
   async linkUser(userId: string, chatId: string): Promise<void> {
-    await this.platform.db.query('update neos.users set matrix_user_id = $2 where id = $1', [userId, chatId]);
+    const r = await this.platform.db.query<{ company_id: string }>('update neos.users set matrix_user_id = $2 where id = $1 returning company_id', [userId, chatId]);
+    // v3 S4: written through to every installed app's own schema (a NEOP's presence reads only that).
+    if (r.rows[0]) await this.platform.syncChat(r.rows[0].company_id);
   }
 
   private async notice(roomId: string, key: string, body: string): Promise<void> {

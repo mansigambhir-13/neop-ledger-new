@@ -134,6 +134,45 @@ export class Platform {
     await this.writeInstall(companyId, app, 'active', by ? `user:${by}` : null);
     // Anything the platform held for this company before S1 (a board, grants) comes along once.
     await backfillBoards(this.db, { app, company: companyId, log: (m, e) => this.log(m, e) });
+    // v3 S4: who may talk to the app in Matrix here, written into its own schema (its presence reads only that).
+    await this.syncChat(companyId, app).catch((e) => this.log('chat directory not written through', { app, e: String(e) }));
+  }
+
+  /**
+   * v3 S4 · the chat directory, written THROUGH to each installed app's own schema (template t012) as the desk:
+   * every person of the company linked to a Matrix id (user id, name, role; on the app's allowlist as a person
+   * or not), and the allowlisted non-people with the person each relays for. The NEOP's own presence
+   * (src/presence) decides who is writing from these rows alone — it never reads schema neos. Called whenever
+   * a link, the allowlist or an install changes; idempotent.
+   */
+  async syncChat(companyId: string, app?: string): Promise<void> {
+    const apps = (
+      await this.db.query<{ app_key: string }>("select app_key from neos.installs where company_id = $1 and ($2::text is null or app_key = $2) and status = 'active'", [companyId, app ?? null])
+    ).rows.map((r) => r.app_key);
+    if (!apps.length) return;
+    const slug = (await this.db.query<{ slug: string }>('select slug from neos.companies where id = $1', [companyId])).rows[0]?.slug;
+    const users = (
+      await this.db.query<{ id: string; name: string; role: string; matrix_user_id: string }>('select id, name, role, matrix_user_id from neos.users where company_id = $1 and matrix_user_id is not null', [companyId])
+    ).rows;
+    for (const a of apps) {
+      const allow = (await this.db.query<{ matrix_id: string; kind: string; acts_for: string | null }>('select matrix_id, kind, acts_for from neos.chat_allowlist where company_id = $1 and app_key = $2', [companyId, a])).rows;
+      const persons = new Set(allow.filter((x) => x.kind === 'person').map((x) => x.matrix_id));
+      const bridges = allow.filter((x) => x.kind === 'bridge');
+      await this.boards.writeChat(a, companyId, {
+        people: users.map((u) => ({ matrix_id: u.matrix_user_id, user_id: u.id, name: u.name, role: u.role, chat_person: persons.has(u.matrix_user_id) })),
+        agent_senders: bridges.map((b) => b.matrix_id).sort(),
+        agent_acts_for: Object.fromEntries(bridges.filter((b) => b.acts_for).map((b) => [b.matrix_id, b.acts_for!])),
+        ...(slug ? { company_slug: slug } : {}),
+      });
+    }
+  }
+
+  /** v3 S4: the app's own Matrix name at this company and its rooms (NEOP presence), written into its schema. */
+  async setChatIdentity(companyId: string, app: string, identity: { matrix_user?: string | null; room_ids?: string[] }, by: string): Promise<void> {
+    await this.assertInstalled(app, companyId);
+    const wrote = await this.boards.writeChat(app, companyId, { identity }, by);
+    if (!wrote) throw new PlatformError(409, 'no_app_schema', `${app} has no schema at t012 or later on this database: its Matrix identity cannot be written`);
+    await this.syncChat(companyId, app);
   }
 
   private async writeInstall(companyId: string, app: string, status: 'active' | 'removed', by: string | null): Promise<void> {

@@ -10,6 +10,13 @@
 //   NEOS_PLATFORM_URL=http://127.0.0.1:4500 NEOS_TOKEN_FILE=<admin token> \
 //   MATRIX_HOMESERVER=http://127.0.0.1:8108 BRIDGE_TOKEN_FILE=<@reasoning_agent token> LEDGER_MXID=@ledger:acme.example \
 //     tsx scripts/neuralchat-sim.ts [--out report.md]
+//
+// v3 S4 · the same run against an install where Ledger speaks for itself (NEOP_PRESENCE=client, the ledger BACKEND
+// holds @ledger's token and runs its /sync road — deploy/compose.presence-client.yml): nothing changes here. Point
+// LEDGER_MXID at the account named in ledger.installs.matrix_user (GET /api/chat/presence?app=ledger) and
+// BRIDGE_TOKEN_FILE at NeuralChat's token as before; the platform must hold no Matrix account for Ledger (its
+// MATRIX_CLIENT_ACCOUNTS entry dropped), or two processes would answer. Every check still reads the platform's
+// desk (Ledger's own proposal rows, neos.v_desk_cards) and audit (Ledger's outbox): the same with either voice.
 import { readFileSync, writeFileSync } from 'node:fs';
 
 const PLATFORM = (process.env.NEOS_PLATFORM_URL ?? 'http://127.0.0.1:4500').replace(/\/$/, '');

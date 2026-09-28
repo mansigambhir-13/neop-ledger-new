@@ -10,6 +10,7 @@ import { l3App } from './l3/server.ts';
 import { documentsL3 } from './l3/documents.ts';
 import { registerDocumentLinkKey } from './doors/documents/files.ts';
 import { Runner } from './runner/runner.ts';
+import { Presence } from './presence/index.ts';
 import { DEFAULT_TIMINGS, type AppDefinition, type NeopConfig } from './types.ts';
 
 export const TEMPLATE_MIGRATIONS = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../migrations');
@@ -41,8 +42,10 @@ export interface NeopBackend {
   core: Core;
   gate: Gate;
   runner: Runner;
-  /** Bound ports once listening. */
-  ports: { l3: number; gate: number };
+  /** The NEOP on Matrix itself (NEOP_PRESENCE=appservice|client; v3 S4); null when off. */
+  presence: Presence | null;
+  /** Bound ports once listening (appservice: the /_matrix/app/v1 listener, when that road is on). */
+  ports: { l3: number; gate: number; appservice?: number };
   stop(): Promise<void>;
 }
 
@@ -82,12 +85,20 @@ export async function startBackend(
   );
   if (!full.gateUrl) (full as { gateUrl?: string }).gateUrl = `http://${host}:${g.port}`;
   if (opts.runner !== false) await runner.start();
+  // v3 S4: the NEOP's own presence in Matrix — the ear (runner/inbound.ts) and the mouth (runner/mirror.ts).
+  let presence: Presence | null = null;
+  if (full.presence && full.presence.mode !== 'off' && opts.runner !== false) {
+    presence = new Presence(core, full.presence);
+    await presence.start({ host });
+  }
   return {
     core,
     gate,
     runner,
-    ports: { l3: l3.port, gate: g.port },
+    presence,
+    ports: { l3: l3.port, gate: g.port, ...(presence?.port ? { appservice: presence.port } : {}) },
     async stop() {
+      await presence?.stop();
       await runner.stop();
       await Promise.all([closeServer(l3.server as any), closeServer(g.server as any)]);
       await core.close();

@@ -31,7 +31,7 @@ Companies, users/auth, Conversations, NeuralChat (reads `neos_registry`), the de
 | S1 ✅ | Switchboard/installs/grants become truth in the app schema (t010, backfill script); gate reads the DB | medium — **done 2026-09-28** (below) |
 | S2 ✅ | The runner carries out the yes (LISTEN + poll, SKIP LOCKED, fingerprint check); approvals worker and execution tokens deleted | high — money path — **done 2026-09-28** (below) |
 | S3 | Desk on the database; `answer_wait()`; DeskHarness in testkit | medium |
-| S4 | Presence in the NEOP (appservice + client road, flag `NEOP_PRESENCE`); NeuralChat #143 plain text keeps working (task/answer, never approve) | high |
+| S4 ✅ | Presence in the NEOP (appservice + client road, flag `NEOP_PRESENCE`); NeuralChat #143 plain text keeps working (task/answer, never approve) | high — **done 2026-09-28** (below) |
 | S5 | NeuralChat posts typed tasks as its own Matrix identity; tasks/outbox delivery deleted | medium |
 | S6 | NEOP to NEOP on the bus room; callee asks answered by the caller | medium-high |
 | S7 | Packages at build time; publish writes `neos_registry` | medium |
@@ -66,7 +66,7 @@ What changed (details: `docs/IMPLEMENTATION-NOTES.md` › "v3 S1"):
   that company (fail closed) until the backfill ran.
 - Deferred: approver policy still checked by the platform (S2/S3 moves it into `answer_proposal`); person-approved
   execution still uses the execution token (S2); `room_ids`/`agent_senders`/`matrix_user` filled by S4. (Both S2 items
-  done — see S2 below.)
+  done — see S2 below; the S4 items too — see S4 below.)
 
 ## S2 — done (2026-09-28)
 What changed (details: `docs/IMPLEMENTATION-NOTES.md` › "v3 S2"; operations: `docs/RUNBOOK.md` › *Approvals*):
@@ -83,6 +83,26 @@ What changed (details: `docs/IMPLEMENTATION-NOTES.md` › "v3 S2"; operations: `
   claims. **020**: `neos.approvals` frozen (read-only legacy copy), card ids are proposal ids (room/DM rows rewritten),
   `neos.v_desk_cards` feeds the desk list. **Drain**: `scripts/v3/drain-approvals.ts` (also end of `scripts/migrate.ts`).
 - **Deploy order:** migrate (020, t011, drain) → new backends.
+
+## S4 — done (2026-09-28)
+What changed (details: `docs/IMPLEMENTATION-NOTES.md` › "v3 S4"):
+- **Flag.** `NEOP_PRESENCE=off|appservice|client` on the backend, default **off** (the platform bridge, unchanged).
+  On, the backend is the app's voice: `src/presence/` (identity, events, appservice, client, cards, lexicon) with the
+  ear `runner/inbound.ts` and the mouth `runner/mirror.ts`. The platform bridge is not used for the app (the platform
+  keeps no Matrix account/namespace for it — RUNBOOK "Chat: NEOP presence").
+- **Truth in the app schema (t012).** `people`, `inbound_events` (event_id dedupe + the one reply), `outbound_events`
+  (what was said where; key = txn id), `presence_accounts` (/sync cursor), `presence_dms`, `presence_mirror` (outbox
+  cursor); `installs.agent_acts_for`, `company_slug`. The platform fills `people`, `agent_senders`, `agent_acts_for`,
+  `company_slug` through `neos_desk` (`Platform.syncChat`) and the name/rooms through `PUT /api/chat/presence`.
+- **Semantics.** Typed task → a job in the app's schema (origin = event id); answer → the wait (waits.answer's write);
+  approve → people only → `answer_proposal()` with `user:<person>` and the person's roles (the policy is checked in the
+  database since S2). Plain text: NeuralChat #143's
+  rules byte for byte (latestSaid, '?', key:value for bridges, PLAIN_DECLINE, POSTPONE, a bridge's go-ahead refused
+  with the card re-shown). Exactly one reply per plain message; a typed thread gets note/ask/propose/done.
+- **Deploy.** `deploy/appservice.ledger.yaml`, `compose.presence-client.yml`, `compose.chat.yml` backend presence,
+  `matrix-setup.sh` (NEOP_PRESENCE=appservice), `deploy.sh` honours NEOP_PRESENCE (default off), env example, netcheck.
+- **Deferred.** `answer_wait()` is S3's; NeuralChat as its own identity S5; the bus room S6. A yes received in Matrix
+  is carried out by the runner's approved path (S2), like a desk yes.
 
 ## Deploy kit after the move
 DBA bundle per NEOP (schema, roles, grants, functions, triggers, view registration) → one DB link per NEOP role

@@ -13,7 +13,7 @@ import { serve } from '@hono/node-server';
 import { Hono } from 'hono';
 import { closeServer, createTestDatabase, roleUrl } from '@neop/pgkit';
 import { generateSigningKeys, migratePlatform, startPlatform, type ChatBridge } from '@neop/platform';
-import { doorSecretPaths, FileSecretStore, generateLlmSigningKey, migrateApp, startBackend, toolName, type AppDefinition, type NeopBackend } from '@neop/template';
+import { doorSecretPaths, FileSecretStore, generateLlmSigningKey, migrateApp, startBackend, toolName, type AppDefinition, type NeopBackend, type Presence } from '@neop/template';
 import { proxyModel, startAgentWorker } from '@neop/template/agent';
 
 export interface BrainView {
@@ -73,7 +73,8 @@ export function goodRoomState(): Map<string, any> {
 
 export const MATRIX = { serverName: 'acme.example', hsToken: 'hs_token_' + 'x'.repeat(24), asToken: 'as_token_' + 'y'.repeat(24) };
 
-async function fakeHomeserver(platformUrl: () => string): Promise<FakeHomeserver> {
+/** A fake homeserver that pushes to `target()` — the platform's appservice, or (v3 S4) a NEOP backend's own. */
+export async function fakeHomeserver(platformUrl: () => string): Promise<FakeHomeserver> {
   const sent: FakeHomeserver['sent'] = [];
   const users = new Set<string>();
   const joined: FakeHomeserver['joined'] = [];
@@ -197,6 +198,10 @@ export interface AppUnderTest {
 export interface Pilot {
   hs: FakeHomeserver | null;
   bridge: ChatBridge | null;
+  /** v3 S4: the first app's own presence (null unless booted with `presence`). */
+  presence: Presence | null;
+  /** v3 S4, presence 'appservice': the first app's Matrix name at the pilot's company. */
+  neopUser: string | null;
   platformUrl: string;
   platform: Awaited<ReturnType<typeof startPlatform>>['platform'];
   /** The first app's backend (most tests drive one app). */
@@ -246,6 +251,12 @@ export interface BootOptions {
   poolSize?: number;
   /** Platform DB pool; small by default because many pilots share one Postgres in the test run. */
   platformDbPool?: number;
+  /**
+   * v3 S4 · the first app speaks in Matrix itself (NEOP_PRESENCE): 'appservice' — a fake homeserver pushes to the
+   * backend's own /_matrix/app/v1 (the platform runs no bridge) and the app's name at the company is set;
+   * 'client' — the backend's presence runs with no account yet (tests add one with a fake client homeserver).
+   */
+  presence?: 'appservice' | 'client';
 }
 
 export async function bootPilot(opts: BootOptions): Promise<Pilot> {
@@ -261,9 +272,10 @@ export async function bootPilot(opts: BootOptions): Promise<Pilot> {
   const llmKeys: Record<string, Awaited<ReturnType<typeof generateLlmSigningKey>>> = {};
   if (opts.llmUpstream) for (const a of opts.apps) llmKeys[a.def.manifest.app] = await generateLlmSigningKey(`llm-${a.def.manifest.app}`);
   let platUrl = '';
-  const hs = opts.chat ? await fakeHomeserver(() => platUrl) : null;
+  let presenceUrl = '';
+  const hs = opts.presence === 'appservice' ? await fakeHomeserver(() => presenceUrl) : opts.chat ? await fakeHomeserver(() => platUrl) : null;
   const plat = await startPlatform({
-    chat: hs ? { matrix: { homeserverUrl: hs.url, serverName: MATRIX.serverName, hsToken: MATRIX.hsToken, asToken: MATRIX.asToken } } : undefined,
+    chat: hs && opts.presence !== 'appservice' ? { matrix: { homeserverUrl: hs.url, serverName: MATRIX.serverName, hsToken: MATRIX.hsToken, asToken: MATRIX.asToken } } : undefined,
     bridgeSendEveryMs: 100,
     llm: opts.llmUpstream ? { upstream: { baseUrl: opts.llmUpstream.url, apiKey: opts.llmUpstream.apiKey, auth: opts.llmUpstream.auth, modelPrefix: opts.llmUpstream.modelPrefix }, prices: { 'claude-sonnet-5': { input: 3, output: 15 } }, runnerKeys: Object.fromEntries(Object.entries(llmKeys).map(([k, v]) => [k, [v.publicJwk]])) } : undefined,
     dbUrl: roleUrl(db.adminUrl, 'neos_app'),
@@ -338,6 +350,14 @@ export async function bootPilot(opts: BootOptions): Promise<Pilot> {
       secrets: new FileSecretStore({ root: doorsDir, app: key }),
       llm: llmKeys[key] ? { proxyUrl: `${plat.url}/llm`, signingKey: llmKeys[key].privateJwk } : undefined,
       timings: { ...FAST, ...(opts.timings ?? {}) },
+      ...(opts.presence && a === opts.apps[0]
+        ? {
+            presence:
+              opts.presence === 'appservice'
+                ? { mode: 'appservice' as const, homeserverUrl: hs!.url, appservice: { hsToken: MATRIX.hsToken, asToken: MATRIX.asToken, port: 0, host: '127.0.0.1' }, mirrorEveryMs: 100 }
+                : { mode: 'client' as const, homeserverUrl: 'http://hs.test', client: { accounts: [], syncTimeoutMs: 100, replyEveryMs: 50 }, mirrorEveryMs: 100 },
+          }
+        : {}),
       ...(opts.backendConfig?.(key, company) ?? {}),
     };
     backends[key] = await startBackend(a.def, configs[key]!, {});
@@ -346,6 +366,14 @@ export async function bootPilot(opts: BootOptions): Promise<Pilot> {
     if (opts.seed !== false && a.seed) await a.seed(backends[key].core.appPool, company.id);
   }
   const first = opts.apps[0]!.def.manifest.app;
+  // v3 S4: the app's own name at the company, written into its schema (as an admin would, PUT /api/chat/presence).
+  let neopUser: string | null = null;
+  if (opts.presence === 'appservice') {
+    presenceUrl = `http://127.0.0.1:${backends[first]!.ports.appservice}`;
+    const slug = (await plat.platform.db.query<{ slug: string }>('select slug from neos.companies where id = $1', [company.id])).rows[0]!.slug;
+    neopUser = `@neop_${first}_${slug}:${MATRIX.serverName}`;
+    await plat.platform.setChatIdentity(company.id, first, { matrix_user: neopUser }, `user:${admin.id}`);
+  }
 
   const api = async (method: string, p: string, body?: unknown, token = admin.token) => {
     const res = await fetch(plat.url + p, {
@@ -373,6 +401,10 @@ export async function bootPilot(opts: BootOptions): Promise<Pilot> {
   const pilot: Pilot = {
     hs,
     bridge: plat.bridge,
+    get presence() {
+      return backends[first]!.presence;
+    },
+    neopUser,
     platformUrl: plat.url,
     platform: plat.platform,
     backend: backends[first]!,
@@ -408,6 +440,7 @@ export async function bootPilot(opts: BootOptions): Promise<Pilot> {
       const b = await startBackend(def, configs[app]!, {});
       backends[app] = b;
       if (app === first) pilot.backend = b;
+      if (app === first && b.ports.appservice) presenceUrl = `http://127.0.0.1:${b.ports.appservice}`;
       await plat.platform.db.query('update neos.apps set l3_url = $2 where key = $1', [app, `http://127.0.0.1:${b.ports.l3}`]);
       return b;
     },

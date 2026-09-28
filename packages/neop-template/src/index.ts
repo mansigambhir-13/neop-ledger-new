@@ -28,3 +28,31 @@ export { ExecError, executeProposal, type ExecBy } from './capabilities/execute.
 export { FileDoor, MemoryDoorJournal, PgDoorJournal, GSP_DEFAULT_PATHS, resetGspSessions, sameFigures, type DoorJournal, type GspCredential } from './doors/index.ts';
 export { neosV1App, neosV1Compile, neosV1Descriptor, strictSchema, capabilityId, NEOS_V1_CONTRACT, type NeosV1Config } from './l3/neos-v1.ts';
 export { SchemaMismatchError, type SchemaDrift } from '@neop/pgkit';
+export {
+  Presence,
+  presenceConfigFromEnv,
+  PresenceClient,
+  AppserviceTransport,
+  appserviceRoutes,
+  Identity as PresenceIdentity,
+  Inbound,
+  Mirror,
+  FIXED_FAILURE as PRESENCE_FIXED_FAILURE,
+  DEFAULT_REPLY_DEADLINE_MS as PRESENCE_REPLY_DEADLINE_MS,
+  roomText,
+  replyTxnId as presenceReplyTxnId,
+  keyTxnId,
+  taskIdForEvent,
+  neopUser,
+  classOfNonPerson,
+  goAheadOf,
+  numbersIn,
+  numbersNotOn,
+  cardTextOf,
+  plainAnswers as presencePlainAnswers,
+  parseDecision as presenceParseDecision,
+  type PresenceConfig,
+  type PresenceMode,
+  type Road,
+  type ClientStatus as PresenceClientStatus,
+} from './presence/index.ts';

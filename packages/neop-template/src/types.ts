@@ -161,6 +161,8 @@ export interface NeopConfig {
   secrets?: import('./doors/secrets.ts').SecretStore;
   /** The LLM proxy and this app's session-signing key (v3: the runner mints session tokens). Unset: sessions get no token. */
   llm?: import('./runner/llm.ts').LlmConfig;
+  /** The NEOP on Matrix itself (v3 S4): NEOP_PRESENCE=off|appservice|client (presenceConfigFromEnv); off unless set. */
+  presence?: import('./presence/index.ts').PresenceConfig;
   /** The bridge to today's NEOS platform gateway (`/capabilities/<id>`); off unless set. */
   neosV1?: import('./l3/neos-v1.ts').NeosV1Config;
   timings: Timings;

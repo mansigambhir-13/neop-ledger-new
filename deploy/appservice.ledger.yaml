@@ -1,0 +1,19 @@
+# v3 S4 · Ledger's OWN appservice registration (NEOP_PRESENCE=appservice): the NEOP backend is on Matrix itself.
+# Register once with the homeserver (Synapse: app_service_config_files). The ledger backend serves /_matrix/app/v1/*
+# on APPSERVICE_PORT (4104, the chat network only) and speaks as one name per company, @neop_ledger_<company>:server
+# (PUT /api/chat/presence writes it into ledger.installs.matrix_user). The tokens are Ledger's own — never the
+# platform's, never another NEOP's: secrets/matrix_ledger_hs_token and secrets/matrix_ledger_as_token.
+# While Ledger speaks for itself, the platform's registration (deploy/appservice.yaml) must not also claim
+# @neop_ledger_.* — narrow its user regex to the other apps (docs/RUNBOOK.md "Chat: NEOP presence").
+id: neop-ledger
+url: http://ledger-backend:4104
+as_token: "<from secrets/matrix_ledger_as_token>"
+hs_token: "<from secrets/matrix_ledger_hs_token>"
+sender_localpart: neop_ledger
+rate_limited: false
+namespaces:
+  users:
+    - exclusive: true
+      regex: "@neop_ledger_.*"
+  rooms: []
+  aliases: []
