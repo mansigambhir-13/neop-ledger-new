@@ -330,7 +330,7 @@ describe('t013 on a populated book', () => {
         ).rows[0];
       const before = await snap();
       const applied = await run(TEMPLATE_MIGRATIONS);
-      expect(applied.map((m) => m.name)).toEqual(['t013_answer_wait.sql']);
+      expect(applied.map((m) => m.name)).toEqual(['t013_answer_wait.sql', 't015_bus_room.sql']); // t015 (S6) follows; its own proof is in bus-room.test.ts
       expect(await snap()).toEqual(before); // expand-only: every row as it was
       // The desk's grant is there (t013 grants it when the role exists; applyDeskGrants re-grants idempotently).
       const a = new pg.Client({ connectionString: db.adminUrl });
