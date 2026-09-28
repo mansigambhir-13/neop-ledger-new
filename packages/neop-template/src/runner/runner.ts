@@ -179,6 +179,8 @@ export class Runner {
         return;
       }
       const board = await this.core.board.get(job.company_id);
+      // The board this session runs on, kept with the job (t007): what was on, at which version.
+      await this.core.runnerPool.query(`update ${this.s}.jobs set switchboard_version = $2, switchboard_snapshot = $3 where id = $1`, [job.id, board.version, JSON.stringify(board.snapshot())]);
       // The agent's only model credential: a platform-signed, budgeted session token (R1).
       const llm = await this.core.platform.llmSession({
         company_id: job.company_id,
@@ -375,7 +377,7 @@ export class Runner {
           order by next_run_at for update skip locked limit 50`,
       );
       for (const s of due.rows) {
-        const { job, created } = await this.core.book.openJobAtomic(client, { company_id: s.company_id, source: 'timer', requester: s.requester, task_id: s.task_id, ask: s.ask });
+        const { job, created } = await this.core.book.openJobAtomic(client, { company_id: s.company_id, source: 'timer', requester: s.requester, task_id: s.task_id, ask: s.ask, origin: 'timer' });
         if (created) {
           await client.query(`update ${this.s}.jobs set run_by = $2 where id = $1`, [job.id, s.run_by]);
           n++;

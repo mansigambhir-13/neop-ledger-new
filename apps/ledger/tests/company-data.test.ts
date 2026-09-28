@@ -100,9 +100,10 @@ describe('export and erase one data subject', () => {
   }, 90_000);
 
   it('erase: dry run by default; then the tagged columns go (pseudonym / null) — nothing else in either company moves', async () => {
+    // (The trial balance first: a read loads the switchboard, which the book mirrors — t009 — and that is not the erase.)
+    const tbA = await tb(P.admin.token);
     const beforeA = await snapshot(P.company.id);
     const beforeB = await snapshot(B.id);
-    const tbA = await tb(P.admin.token);
     const dry = await tsx('scripts/erase.ts', ['erase', P.company.id, 'ledger', party.id]);
     expect(dry.code, dry.err).toBe(0);
     expect(JSON.parse(dry.out)).toMatchObject({ dry_run: true, tables: { parties: { rows: 1, columns: { name: 'pseudonym', email: 'null', gstin: 'null' } } } });

@@ -73,6 +73,20 @@ approval (platform):  PENDING → RECORDED → RESOLVED → EXECUTED | CLOSED | 
   *(S3 · ADR 0008 · proposal.test, governance.test.)*
 - **The starter prompt no longer tells the assistant to carry out a yes.** Woken with an answer, it
   verifies the proof against what it proposed and reports. *(B5 · `SYSTEM.template.md`.)*
+- **One row, one function (§6).** Every answer enters a proposal through `<schema>.answer_proposal()`
+  (SECURITY DEFINER, owned by the migrator, EXECUTE for the app's app/runner roles only, never PUBLIC or
+  a desk role): fingerprint, expiry, the legal transition, the event trail, the step, the outbox event
+  and — for anything but a yes — the wait made ready and NOTIFY. `proposals.resolve` (L3) calls it; its
+  HTTP contract is unchanged. *(A3 · t009 · v3-conformance.test "A3", proposal.test.)*
+- **States move only along their lifecycle, in the database (§11 value classes).** Triggers on
+  `jobs.status`, `proposals.status` and `waits.status` refuse any other UPDATE (23514). The allowed sets
+  are the code's: the proposal machine above; jobs RECEIVED → RUNNING | CANCELLED | EXPIRED,
+  RUNNING → WAITING | DONE | FAILED | CANCELLED, WAITING → RUNNING | CANCELLED; waits pending → ready |
+  consumed, ready → consumed. *(B4 · t008 · v3-conformance.test "B4".)*
+- **The notification is a hint, from the database (§6).** AFTER triggers NOTIFY the runner's channel
+  (`neop_<schema>`) when a wait turns ready or a job arrives, whoever made the change; the app code still
+  notifies and the poll stays the truth. *(A8 · t009 · v3-conformance.test "A8": a plain SQL UPDATE wakes
+  the job with the poll 60 s away.)*
 
 ## 7–9. Gateway, other apps
 
@@ -102,6 +116,29 @@ rows an admin grants on the Apps page; another app can never approve anything.
 - **Query pools go through PgBouncer (transaction mode)**; the runner's LISTEN and the execution lock
   use one direct session connection; statement/lock/idle timeouts are role defaults so they hold
   either way. *(S8 · network.test; verified live.)*
+- **The nine standard tables' key columns (§11), filled by the code that does the work** (t007):
+  `jobs.origin` (room event id · `timer` · the task id), `switchboard_version` + `switchboard_snapshot`
+  (the board the latest session was spawned on), `heartbeat_at` (gate heartbeat);
+  `proposals.manifest_version`, `answered_at`, `executed_at`, `verified_at` (read-back found it);
+  `operations.request_checksum` / `result_checksum` (sha256 of RFC 8785 JCS) and `reason`; a
+  `dependency` wait kind. Rows from before stay NULL (unknown). *(B3 · v3-conformance.test "B3".)*
+- **`switchboard`, `installs`, `grants` are read-only mirrors in the app's schema** (t009), written by the
+  runner role whenever the backend (re)loads the board from the platform (and on `switchboard.changed`,
+  before it answers) or a grant lookup returns a standing yes; the app role may only read them. **The
+  platform stays the source of truth** (a deliberate difference from v3's "the desk writes it": the desk
+  is the platform, and the gate never decides from the mirror). `installs.matrix_user` and
+  `grants.limits`/`expires_at` stay NULL: the backend is not told them. *(A7/A9 · v3-conformance.test.)*
+- **search_path = the app's schema** for its app and runner roles (pgkit bootstrap, role default).
+  *(schema-only.test.)*
+- **The DBA path is one file.** `tsx scripts/dba-bundle.ts <app> [--out f.sql]` renders the roles and
+  grants bootstrap makes, the schema, and every shipped migration with `{{schema}}` substituted and its
+  sha256, each in its own transaction as the migrator, recording `schema_migrations` exactly as
+  `migrate` does. It prints; it never connects. *(B5 · dba-bundle.test: every checksum present; applied
+  to an empty database it yields the same ledger, columns, RLS and grants as `migrate`.)*
+- **Heavy reads as declared views** (Ledger 007): `ledger.v_account_balances` (posted amounts per account
+  per day and currency) and `ledger.v_ageing` (open items with what is owed), `security_invoker` so RLS
+  scopes them. The reads keep their own SQL; the views are proven to agree with the trial balance and
+  ageing on the demo books. *(B11 · v3-conformance.test "B11".)*
 
 ## 13. The blueprint: what is the app's and what is the platform's
 
@@ -112,6 +149,13 @@ for every app) draws them with one renderer**. My Desk, approvals, jobs, switchb
 doors, packages, apps, audit and team are platform surfaces, shared by every NEOP. The desk in this
 repo is a **test harness** for those surfaces; the product UI is the NEOS app, which adopts the one
 renderer. *(`docs/pilot-ledger-integration.md`.)*
+
+The standard tests (§13) are in `apps/ledger/tests/`: contract, proposal, switchboard, resume,
+injection, **sender** (a stranger, another company's person and the app itself open nothing in a room or a
+DM; an app can neither resolve a proposal nor answer a wait — gateway, L3 and `answer_proposal()` all
+refuse; a bridge's "go ahead" without may_approve is not a yes), **honesty** (every read returns a fresh
+`generatedAt`), migration, and **schema-only** (as `ledger_app` and `ledger_runner` every `marketing.*` and
+`neos.*` relation is 42501; the assistant's deployment, entry script and session hand-off carry no DB link).
 
 ## 14. On the NEOS platform as it runs today
 

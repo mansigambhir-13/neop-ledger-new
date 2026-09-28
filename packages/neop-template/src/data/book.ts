@@ -2,7 +2,7 @@
 // Every function takes a client that is already inside a transaction; callers
 // decide which role (app with RLS, or runner) and which company.
 
-import type { OutboxEventType, Question } from '@neop/contracts';
+import { canonicalize, sha256, type OutboxEventType, type Question } from '@neop/contracts';
 import { assertIdent, type PoolClient } from '@neop/pgkit';
 
 export type JobStatus = 'RECEIVED' | 'RUNNING' | 'WAITING' | 'DONE' | 'FAILED' | 'EXPIRED' | 'CANCELLED';
@@ -42,6 +42,13 @@ export interface JobRow {
   run_by: Date | null;
   /** The person the work is for when an app opened the job (a2a, t005). */
   on_behalf_of: string | null;
+  /** Where the ask came from (t007): room event id · 'timer' · the task id. */
+  origin: string | null;
+  /** The board the latest session was spawned on (t007). */
+  switchboard_version: number | null;
+  switchboard_snapshot: unknown;
+  /** Last session heartbeat (t007). */
+  heartbeat_at: Date | null;
   created_at: Date;
   updated_at: Date;
 }
@@ -73,6 +80,11 @@ export interface ProposalRow {
   superseded_by: string | null;
   idempotency_key: string;
   proof: any;
+  /** t007: the app manifest version the card was written against; when it was answered, carried out, confirmed. */
+  manifest_version: string | null;
+  answered_at: Date | null;
+  executed_at: Date | null;
+  verified_at: Date | null;
   created_at: Date;
   updated_at: Date;
 }
@@ -94,7 +106,17 @@ export interface WaitRow {
   created_at: Date;
 }
 
-export type WaitKind = 'proposal' | 'timer' | 'a2a_task' | 'input';
+export type WaitKind = 'proposal' | 'timer' | 'a2a_task' | 'input' | 'dependency';
+
+/** sha256 (hex) of the RFC 8785 canonical JSON of a value (t007 operations checksums); null if it has no JSON form. */
+export function checksumOf(v: unknown): string | null {
+  try {
+    const json = JSON.stringify(v === undefined ? null : v);
+    return sha256(canonicalize(json === undefined ? null : JSON.parse(json)));
+  } catch {
+    return null;
+  }
+}
 
 export interface FactRow {
   subject: string;
@@ -118,14 +140,14 @@ export class Book {
   // ── jobs ────────────────────────────────────────────────────────────────
   async insertJob(
     c: PoolClient,
-    j: { company_id: string; source: JobRow['source']; requester: string; task_id: string | null; ask: string; parent_job_id?: string | null; trace_id?: string | null; on_behalf_of?: string | null },
+    j: { company_id: string; source: JobRow['source']; requester: string; task_id: string | null; ask: string; parent_job_id?: string | null; trace_id?: string | null; on_behalf_of?: string | null; origin?: string | null },
   ): Promise<{ job: JobRow; created: boolean }> {
     const ins = await c.query<JobRow>(
-      `insert into ${this.s}.jobs (company_id, source, requester, task_id, ask, parent_job_id, trace_id, on_behalf_of)
-       values ($1, $2, $3, $4, $5, $6, $7, $8)
+      `insert into ${this.s}.jobs (company_id, source, requester, task_id, ask, parent_job_id, trace_id, on_behalf_of, origin)
+       values ($1, $2, $3, $4, $5, $6, $7, $8, $9)
        on conflict (company_id, task_id) where task_id is not null do nothing
        returning *`,
-      [j.company_id, j.source, j.requester, j.task_id, j.ask, j.parent_job_id ?? null, j.trace_id ?? null, j.on_behalf_of ?? null],
+      [j.company_id, j.source, j.requester, j.task_id, j.ask, j.parent_job_id ?? null, j.trace_id ?? null, j.on_behalf_of ?? null, j.origin ?? j.task_id ?? null],
     );
     if (ins.rows[0]) return { job: ins.rows[0], created: true };
     const existing = await c.query<JobRow>(`select * from ${this.s}.jobs where company_id = $1 and task_id = $2`, [
@@ -142,13 +164,13 @@ export class Book {
    */
   async openJobAtomic(
     c: PoolClient,
-    j: { company_id: string; source: JobRow['source']; requester: string; task_id: string; ask: string; parent_job_id?: string | null; trace_id?: string | null; on_behalf_of?: string | null },
+    j: { company_id: string; source: JobRow['source']; requester: string; task_id: string; ask: string; parent_job_id?: string | null; trace_id?: string | null; on_behalf_of?: string | null; origin?: string | null },
   ): Promise<{ job: JobRow; created: boolean }> {
     const summary = `Asked by ${j.requester}: ${j.ask}`.slice(0, 2000);
     const r = await c.query<JobRow & { notified: number }>(
       `with j as (
-         insert into ${this.s}.jobs (company_id, source, requester, task_id, ask, parent_job_id, trace_id, on_behalf_of)
-         values ($1, $2, $3, $4, $5, $6, $7, $10)
+         insert into ${this.s}.jobs (company_id, source, requester, task_id, ask, parent_job_id, trace_id, on_behalf_of, origin)
+         values ($1, $2, $3, $4, $5, $6, $7, $10, $11)
          on conflict (company_id, task_id) where task_id is not null do nothing
          returning *),
        st as (
@@ -162,7 +184,7 @@ export class Book {
          on conflict (dedupe_key) do nothing returning 1),
        n as (select pg_notify($9, 'job:' || id) from j)
        select j.*, (select count(*) from n)::int as notified, (select count(*) from st)::int + (select count(*) from ob)::int as written from j`,
-      [j.company_id, j.source, j.requester, j.task_id, j.ask, j.parent_job_id ?? null, j.trace_id ?? null, summary, this.channel, j.on_behalf_of ?? null],
+      [j.company_id, j.source, j.requester, j.task_id, j.ask, j.parent_job_id ?? null, j.trace_id ?? null, summary, this.channel, j.on_behalf_of ?? null, (j.origin ?? j.task_id).slice(0, 500)],
     );
     if (r.rows[0]) return { job: r.rows[0], created: true };
     const existing = await c.query<JobRow>(`select * from ${this.s}.jobs where company_id = $1 and task_id = $2`, [j.company_id, j.task_id]);
@@ -241,14 +263,17 @@ export class Book {
       approved_via?: 'grant' | null;
       grant_id?: string | null;
       decided_by?: string | null;
+      /** The app manifest version the card was written against (t007). */
+      manifest_version?: string | null;
       ttl_ms: number;
     },
   ): Promise<ProposalRow> {
     const r = await c.query<ProposalRow>(
       `insert into ${this.s}.proposals
          (id, company_id, job_id, ability_key, ability_version, args, card, fingerprint, status,
-          approved_via, grant_id, decided_by, expires_at, idempotency_key)
-       values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, now() + ($13 || ' milliseconds')::interval, $14)
+          approved_via, grant_id, decided_by, expires_at, idempotency_key, manifest_version, answered_at)
+       values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, now() + ($13 || ' milliseconds')::interval, $14, $15,
+               case when $9 = 'APPROVED' then now() end)
        returning *`,
       [
         p.id,
@@ -265,6 +290,7 @@ export class Book {
         p.decided_by ?? null,
         String(p.ttl_ms),
         `${this.s}:proposal:${p.id}`,
+        p.manifest_version ?? null,
       ],
     );
     return r.rows[0]!;
@@ -279,6 +305,7 @@ export class Book {
     c: PoolClient,
     id: string,
     patch: Partial<Pick<ProposalRow, 'status' | 'decided_by' | 'feedback' | 'proof' | 'approved_via' | 'superseded_by'>>,
+    stamp: { executed?: boolean; verified?: boolean } = {},
   ): Promise<void> {
     const sets: string[] = ['updated_at = now()'];
     const vals: unknown[] = [id];
@@ -286,6 +313,9 @@ export class Book {
       vals.push(k === 'proof' ? JSON.stringify(v) : v);
       sets.push(`${k} = $${vals.length}`);
     }
+    // t007: when it was carried out, and when a read-back confirmed it (database time; first time only).
+    if (stamp.executed) sets.push('executed_at = coalesce(executed_at, now())');
+    if (stamp.verified) sets.push('verified_at = coalesce(verified_at, now())');
     await c.query(`update ${this.s}.proposals set ${sets.join(', ')} where id = $1`, vals);
   }
 
@@ -355,13 +385,40 @@ export class Book {
   // ── operations ──────────────────────────────────────────────────────────
   async recordOperation(
     c: PoolClient,
-    o: { company_id: string; job_id: string | null; caller: string; ability_key: string; idempotency_key: string; outcome: string; gateway_request_id?: string | null; detail?: unknown; trace_id?: string | null },
+    o: {
+      company_id: string;
+      job_id: string | null;
+      caller: string;
+      ability_key: string;
+      idempotency_key: string;
+      outcome: string;
+      gateway_request_id?: string | null;
+      detail?: unknown;
+      trace_id?: string | null;
+      /** t007: what was asked and what came back (checksummed, never stored twice), and why it ran. */
+      request?: unknown;
+      result?: unknown;
+      reason?: string | null;
+    },
   ): Promise<boolean> {
     const r = await c.query(
-      `insert into ${this.s}.operations (company_id, job_id, caller, ability_key, idempotency_key, outcome, gateway_request_id, detail, trace_id)
-       values ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+      `insert into ${this.s}.operations (company_id, job_id, caller, ability_key, idempotency_key, outcome, gateway_request_id, detail, trace_id, request_checksum, result_checksum, reason)
+       values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
        on conflict (company_id, caller, ability_key, idempotency_key) do nothing`,
-      [o.company_id, o.job_id, o.caller, o.ability_key, o.idempotency_key, o.outcome, o.gateway_request_id ?? null, JSON.stringify(o.detail ?? null), o.trace_id ?? null],
+      [
+        o.company_id,
+        o.job_id,
+        o.caller,
+        o.ability_key,
+        o.idempotency_key,
+        o.outcome,
+        o.gateway_request_id ?? null,
+        JSON.stringify(o.detail ?? null),
+        o.trace_id ?? null,
+        o.request === undefined ? null : checksumOf(o.request),
+        o.result === undefined ? null : checksumOf(o.result),
+        o.reason ? o.reason.slice(0, 1000) : null,
+      ],
     );
     const inserted = (r.rowCount ?? 0) > 0;
     if (inserted) {

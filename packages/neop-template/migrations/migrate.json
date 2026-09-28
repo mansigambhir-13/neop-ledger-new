@@ -60,6 +60,41 @@
       ],
       "baseline": false,
       "proven_on_populated_data": "2026-09-27 \u00b7 apps/ledger/tests/documents-kept.test.ts \u203a t006 + 006 apply forward on a populated book"
+    },
+    {
+      "file": "t007_standard_columns.sql",
+      "tables": [
+        "jobs",
+        "operations",
+        "proposals",
+        "waits"
+      ],
+      "baseline": false,
+      "proven_on_populated_data": "2026-09-28 \u00b7 apps/ledger/tests/v3-conformance.test.ts \u203a t007 + t008 + t009 + 007 apply forward on a populated book"
+    },
+    {
+      "file": "t008_transitions.sql",
+      "tables": [
+        "jobs",
+        "proposals",
+        "waits"
+      ],
+      "baseline": false,
+      "proven_on_populated_data": "2026-09-28 \u00b7 apps/ledger/tests/v3-conformance.test.ts \u203a t007 + t008 + t009 + 007 apply forward on a populated book"
+    },
+    {
+      "file": "t009_notify.sql",
+      "tables": [
+        "grants",
+        "installs",
+        "jobs",
+        "proposal_events",
+        "proposals",
+        "switchboard",
+        "waits"
+      ],
+      "baseline": false,
+      "proven_on_populated_data": "2026-09-28 \u00b7 apps/ledger/tests/v3-conformance.test.ts \u203a t007 + t008 + t009 + 007 apply forward on a populated book"
     }
   ]
 }

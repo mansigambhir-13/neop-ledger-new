@@ -6,3 +6,4 @@ export * from './server.ts';
 export * from './backup.ts';
 export * from './personal.ts';
 export * from './uninstall.ts';
+export * from './bundle.ts';

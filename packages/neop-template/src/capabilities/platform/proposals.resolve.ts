@@ -1,6 +1,5 @@
 import { DECISIONS, type Decision } from '@neop/contracts';
 import type { Core } from '../../core.ts';
-import { alreadyResolvedAs, statusForDecision } from '../../domain/proposals.ts';
 import { ExecError } from '../execute.ts';
 
 export interface ResolveInput {
@@ -22,57 +21,36 @@ export function validateResolve(b: any): string | null {
 }
 
 /**
- * A yes / no / change / withdraw arrives here, against a fingerprint. The app
- * writes the answer in its own hand after checking the fingerprint itself.
+ * A yes / no / change / withdraw arrives here, against a fingerprint. The check and the write live in
+ * exactly one SQL place, `<schema>.answer_proposal()` (t009, WP v3 §6): fingerprint, expiry, the legal
+ * transition, the event trail, the step, the outbox event, and — for anything but a yes — the wait made
+ * ready and the runner notified. The desk and the room call the same function.
  * A yes does NOT wake the job (B2): the wait turns ready only after execute.
  */
 export async function resolveProposal(core: Core, companyId: string, input: ResolveInput): Promise<{ status: string; idempotent: boolean }> {
-  const out = await core.company(companyId, async (c): Promise<{ status: string; idempotent: boolean } | 'fingerprint_mismatch'> => {
-    const p = await core.book.getProposal(c, input.proposal_id, true);
-    if (!p) throw new ExecError(404, 'not_found', 'no such proposal');
-    if (alreadyResolvedAs(p.status, input.decision) && p.fingerprint === input.fingerprint_seen) {
-      return { status: p.status, idempotent: true };
-    }
-    const withdrawable = input.decision === 'withdraw' && p.status === 'APPROVED';
-    if (p.status !== 'PROPOSED' && !withdrawable) throw new ExecError(409, 'not_open', `proposal is ${p.status}`);
-    if (input.fingerprint_seen !== p.fingerprint) {
-      await core.book.proposalEvent(c, { company_id: companyId, proposal_id: p.id, event: 'answer_refused:fingerprint', actor: input.decided_by, fingerprint_seen: input.fingerprint_seen });
-      return 'fingerprint_mismatch'; // commit the refusal event, then refuse
-    }
-    const { rows } = await c.query<{ expired: boolean }>('select $1::timestamptz <= now() as expired', [p.expires_at]);
-    if (rows[0]!.expired && input.decision !== 'withdraw') throw new ExecError(409, 'expired', 'the proposal expired before this answer arrived');
-
-    const status = statusForDecision(input.decision);
-    await core.book.updateProposal(c, p.id, { status, decided_by: input.decided_by, feedback: input.feedback ?? null, approved_via: input.decision === 'yes' ? 'person' : null });
-    await core.book.proposalEvent(c, {
-      company_id: companyId,
-      proposal_id: p.id,
-      event: `answered:${input.decision}`,
-      actor: input.decided_by,
-      fingerprint_seen: input.fingerprint_seen,
-      detail: input.feedback ? { feedback: input.feedback } : undefined,
+  let out: { status: string; idempotent: boolean; refused?: string };
+  try {
+    out = await core.company(companyId, async (c) => {
+      const r = await c.query<{ r: { status: string; idempotent: boolean; refused?: string } }>(`select ${core.key}.answer_proposal($1, $2, $3, $4, $5) as r`, [
+        input.proposal_id,
+        input.fingerprint_seen,
+        input.decision,
+        input.decided_by,
+        input.feedback ?? null,
+      ]);
+      return r.rows[0]!.r; // a fingerprint refusal commits its proposal_events row, then is refused below
     });
-    const said = { yes: 'yes', no: 'no', change: 'change this first', withdraw: 'withdrawn' }[input.decision];
-    await core.book.addStep(c, {
-      company_id: companyId,
-      job_id: p.job_id,
-      kind: 'system',
-      summary: `Answer on proposal ${p.id.slice(0, 8)}: ${said} (${input.decided_by})${input.feedback ? ` — "${input.feedback}"` : ''}`,
-    });
-    await core.book.emit(c, companyId, 'proposal.resolved', { proposal_id: p.id, job_id: p.job_id, decision: input.decision, status }, `resolved:${p.id}:${input.decision}`);
-    if (input.decision !== 'yes') {
-      const woke = await core.book.readyWait(c, p.id, status, {
-        proposal_id: p.id,
-        status,
-        decided_by: input.decided_by,
-        feedback: input.feedback ?? null,
-      });
-      if (woke) await core.book.notify(c, `wait:${p.job_id}`);
+  } catch (e) {
+    const msg = String((e as Error).message ?? '');
+    const m = /^(not_found|not_open|expired|bad_request): (.*)$/s.exec(msg);
+    if (m) {
+      const status = m[1] === 'not_found' ? 404 : m[1] === 'bad_request' ? 400 : 409;
+      throw new ExecError(status, m[1]!, m[2]!);
     }
-    return { status, idempotent: false };
-  });
-  if (out === 'fingerprint_mismatch') {
+    throw e;
+  }
+  if (out.refused === 'fingerprint_mismatch') {
     throw new ExecError(409, 'fingerprint_mismatch', 'the answer was given against a different version of this proposal');
   }
-  return out;
+  return { status: out.status, idempotent: out.idempotent };
 }

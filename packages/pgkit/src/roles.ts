@@ -72,10 +72,10 @@ async function ensureRole(client: pg.Client, role: string, opts: string): Promis
 
 const ROLE_DEFAULTS = ['statement_timeout=30s', 'lock_timeout=10s', 'idle_in_transaction_session_timeout=30s'];
 
-/** Role-level timeouts (cluster-wide rows): set only what is missing, retrying concurrent bootstraps. */
-async function roleDefaults(client: pg.Client, role: string): Promise<void> {
+/** Role-level defaults (cluster-wide rows): set only what is missing, retrying concurrent bootstraps. */
+async function roleDefaults(client: pg.Client, role: string, extra: string[] = []): Promise<void> {
   const cur = (await client.query<{ c: string[] | null }>('select rolconfig as c from pg_roles where rolname = $1', [role])).rows[0]?.c ?? [];
-  for (const d of ROLE_DEFAULTS.filter((x) => !cur.includes(x))) {
+  for (const d of [...ROLE_DEFAULTS, ...extra].filter((x) => !cur.includes(x))) {
     const [k, v] = d.split('=') as [string, string];
     for (let i = 0; ; i++) {
       try {
@@ -103,7 +103,10 @@ export async function bootstrapFamily(adminUrl: string, schema: string, opts: { 
     if (withRunner) await ensureRole(client, roles.runner, 'bypassrls nosuperuser nocreaterole');
     // Timeouts as role defaults: they hold however the role connects, including through
     // PgBouncer, which drops per-connection startup settings (S8).
-    for (const r of withRunner ? [roles.app, roles.runner] : [roles.app]) await roleDefaults(client, r);
+    // WP v3 §11 step 9: an app's roles resolve names in their own schema only (search_path = <schema>).
+    // Every query the template writes is schema-qualified; this makes an unqualified name mean the app's own table.
+    const home = withRunner ? [`search_path=${schema}`] : [];
+    for (const r of withRunner ? [roles.app, roles.runner] : [roles.app]) await roleDefaults(client, r, home);
     const db = (await client.query<{ db: string }>('select current_database() as db')).rows[0]!.db;
     await client.query(`grant create, connect on database "${db}" to ${roles.migrator}`);
     await client.query(`grant connect on database "${db}" to ${withRunner ? `${roles.app}, ${roles.runner}` : roles.app}`);
@@ -121,6 +124,45 @@ export async function bootstrapFamily(adminUrl: string, schema: string, opts: { 
     await client.end();
   }
   return roles;
+}
+
+/**
+ * What bootstrapFamily does, as reviewable SQL for a DBA (scripts/dba-bundle.ts): the family's roles
+ * (created without a password — the DBA sets each from the secret store), their options and role-level
+ * defaults, and the database grants. Idempotent: every statement checks before it changes anything,
+ * so it can be applied to a cluster where the roles already exist.
+ */
+export function familyBootstrapSql(schema: string, opts: { runner?: boolean } = {}): string {
+  const roles = familyRoles(schema);
+  const withRunner = opts.runner !== false;
+  const make: [string, string, boolean][] = [
+    [roles.migrator, 'nobypassrls nosuperuser nocreaterole', false],
+    [roles.app, 'nobypassrls nosuperuser nocreaterole', false],
+    ...(withRunner ? ([[roles.runner, 'bypassrls nosuperuser nocreaterole', true]] as [string, string, boolean][]) : []),
+  ];
+  const home = withRunner ? [`search_path=${schema}`] : [];
+  const out: string[] = [`-- roles for family ${schema} (pgkit bootstrapFamily). Passwords are the DBA's, from the secret store: ALTER ROLE ${roles.app} PASSWORD '…';`];
+  for (const [r, o, bypass] of make) {
+    out.push(
+      `do $$ begin\n` +
+        `  if not exists (select 1 from pg_roles where rolname = '${r}') then create role ${r} login ${o}; end if;\n` +
+        `  if exists (select 1 from pg_roles where rolname = '${r}' and (not rolcanlogin or rolsuper or rolcreaterole or rolbypassrls <> ${bypass})) then alter role ${r} login ${o}; end if;\n` +
+        `end $$;`,
+    );
+  }
+  for (const r of withRunner ? [roles.app, roles.runner] : [roles.app]) {
+    for (const d of [...ROLE_DEFAULTS, ...home]) {
+      const [k, v] = d.split('=') as [string, string];
+      out.push(`do $$ begin\n  if not ('${d}' = any(coalesce((select rolconfig from pg_roles where rolname = '${r}'), '{}'))) then alter role ${r} set ${k} = '${v}'; end if;\nend $$;`);
+    }
+  }
+  out.push(
+    `do $$ begin\n` +
+      `  execute format('grant create, connect on database %I to ${roles.migrator}', current_database());\n` +
+      `  execute format('grant connect on database %I to ${withRunner ? `${roles.app}, ${roles.runner}` : roles.app}', current_database());\n` +
+      `end $$;`,
+  );
+  return out.join('\n');
 }
 
 /** Build a connection string for one role against the same host/database as the admin URL. */

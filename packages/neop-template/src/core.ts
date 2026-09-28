@@ -2,6 +2,7 @@ import { Metrics, personalDataProblems, Tracer, type Manifest, type ManifestAbil
 import { createPool, forceClose, withCompany, type Pool, type PoolClient } from '@neop/pgkit';
 import { Validators } from './capabilities/schemas.ts';
 import { Book } from './data/book.ts';
+import { PlatformMirror } from './data/mirror.ts';
 import { createDoors, PgDoorJournal, type Doors } from './doors/index.ts';
 import { BorrowCache } from './gate/borrowed.ts';
 import { JobTokens } from './gate/jobtoken.ts';
@@ -26,6 +27,8 @@ export class Core {
   readonly book: Book;
   readonly platform: PlatformClient;
   readonly board: SwitchboardCache;
+  /** The book's read-only copies of the platform's switchboard, installs and grants (t009). */
+  readonly mirror: PlatformMirror;
   readonly jobTokens: JobTokens;
   readonly validators: Validators;
   readonly gatewayAuth: GatewayAuth;
@@ -50,6 +53,8 @@ export class Core {
     this.book = new Book(this.key);
     this.platform = new PlatformClient(cfg.platformUrl, this.key, cfg.serviceSecret);
     this.board = new SwitchboardCache(this.platform, this.manifest);
+    this.mirror = new PlatformMirror(this.runnerPool, this.key, this.manifest);
+    this.board.observer = this.mirror;
     this.jobTokens = new JobTokens(cfg.jobTokenSecret, this.key);
     this.validators = new Validators(this.manifest);
     this.borrowed = new BorrowCache(this);
