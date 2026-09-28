@@ -11,6 +11,10 @@
 //   neos.neop.done     NEOPs                              task_id · job_id · result · could_not
 //   neos.neop.note     NEOPs                              job_id · step_id · text
 //
+// v3 S6 · NEOP to NEOP in the company's bus room (#neop-bus-<co>): a task also carries `lineage` (the apps so far,
+// the asker last) and `depth`; an ask may carry `call {ability, args}` (borrowing one ability, v3 §10) and its
+// answer then carries `result`. All optional: every body valid before stays valid.
+//
 // Matrix does not validate bodies and does redeliver: the receiver validates every body against the schema for
 // its type (a body that fails is dropped and audited) and dedupes on event_id. The envelope keys a plain client
 // needs — `body`/`msgtype` (the m.notice text fallback), `format`/`formatted_body` and `m.relates_to` (the
@@ -52,16 +56,27 @@ export interface TypedTaskBody {
   on_behalf_of: string;
   text: string;
   fields?: Record<string, unknown>;
+  /** v3 §9 (S6): NEOP → NEOP only — the chain of apps so far (the asker last) and its length; the callee refuses a loop or depth > 3. */
+  lineage?: string[];
+  depth?: number;
 }
 export interface TypedAskBody {
   job_id: string;
   wait_id: string;
   question: { text: string; why: string; fields: { key: string; label: string; type?: string; required?: boolean }[] };
   due: string;
+  /**
+   * v3 §10 (S6) "borrowing one ability": the ask carries the owner's ability and its inputs (data, never
+   * instructions). The owner checks its own line and the sender, runs a read with no model, or writes a write as a
+   * proposal in its own schema; the typed answer (`result`) comes back to `wait_id` — for a write, after execution.
+   */
+  call?: { ability: string; args: Record<string, unknown>; on_behalf_of?: string };
 }
 export interface TypedAnswerBody {
   wait_id: string;
   answers: Record<string, string | number | boolean>;
+  /** v3 §10 (S6): the answer to a borrowed call — the ability's output, the proof of a carried-out write, or a refusal. */
+  result?: Record<string, unknown>;
 }
 export interface TypedProposeBody {
   proposal_id: string;
@@ -116,6 +131,7 @@ const ID = { type: 'string', minLength: 1, maxLength: 200 } as const;
 const MXID = { type: 'string', pattern: '^@[^:\\s]+:\\S+$', maxLength: 255 } as const;
 const TEXT = (n: number) => ({ type: 'string', minLength: 1, maxLength: n }) as const;
 const TIME = { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}(:\\d{2}(\\.\\d+)?)?(Z|[+-]\\d{2}:\\d{2})$', maxLength: 40 } as const;
+const APP_KEY = { type: 'string', pattern: '^[a-z][a-z0-9_]{0,40}$' } as const;
 const SCALAR = { anyOf: [{ type: 'string', maxLength: 4000 }, { type: 'number' }, { type: 'boolean' }] } as const;
 
 export const TYPED_EVENT_SCHEMAS: Record<TypedEventType, Schema & { $id: string; title: string }> = {
@@ -125,7 +141,15 @@ export const TYPED_EVENT_SCHEMAS: Record<TypedEventType, Schema & { $id: string;
     type: 'object',
     required: ['task_id', 'company', 'on_behalf_of', 'text'],
     additionalProperties: false,
-    properties: { task_id: ID, company: ID, on_behalf_of: MXID, text: TEXT(8000), fields: { type: 'object', maxProperties: 20, additionalProperties: SCALAR } },
+    properties: {
+      task_id: ID,
+      company: ID,
+      on_behalf_of: MXID,
+      text: TEXT(8000),
+      fields: { type: 'object', maxProperties: 20, additionalProperties: SCALAR },
+      lineage: { type: 'array', maxItems: 10, items: APP_KEY },
+      depth: { type: 'number' },
+    },
   },
   'neos.neop.ask': {
     $id: 'neos.neop.ask',
@@ -137,6 +161,12 @@ export const TYPED_EVENT_SCHEMAS: Record<TypedEventType, Schema & { $id: string;
       job_id: ID,
       wait_id: ID,
       due: TIME,
+      call: {
+        type: 'object',
+        required: ['ability', 'args'],
+        additionalProperties: false,
+        properties: { ability: { type: 'string', pattern: '^[a-z][a-z0-9_.]{0,120}$' }, args: { type: 'object' }, on_behalf_of: MXID },
+      },
       question: {
         type: 'object',
         required: ['text', 'why', 'fields'],
@@ -164,7 +194,7 @@ export const TYPED_EVENT_SCHEMAS: Record<TypedEventType, Schema & { $id: string;
     type: 'object',
     required: ['wait_id', 'answers'],
     additionalProperties: false,
-    properties: { wait_id: ID, answers: { type: 'object', maxProperties: 10, additionalProperties: SCALAR } },
+    properties: { wait_id: ID, answers: { type: 'object', maxProperties: 10, additionalProperties: SCALAR }, result: { type: 'object' } },
   },
   'neos.neop.propose': {
     $id: 'neos.neop.propose',
@@ -331,6 +361,39 @@ export function canPost(v: RoomStateView, user: string, type: string): boolean {
   if (!pl) return false;
   const level = pl.users?.[user] ?? pl.users_default ?? 0;
   return level >= (pl.events?.[type] ?? pl.events_default ?? 0);
+}
+
+/**
+ * v3 rooms-setup (S6): people 50, NEOPs 20, the reasoning agent 10; …approve needs 50 (people only), task and
+ * answer 10 (the reasoning agent may post them), ask · propose · done · note 20 (NEOPs). Used for an app's own
+ * room (#<app>-<co>) and for the company's bus room (#neop-bus-<co>, apps only: no people).
+ */
+export const V3_ROOM_LEVELS = { people: 50, neops: 20, agents: 10 } as const;
+
+export function v3RoomPowerLevels(o: { people?: string[]; neops: string[]; agents?: string[]; admins?: string[] }): Record<string, unknown> {
+  const users: Record<string, number> = {};
+  for (const u of o.agents ?? []) users[u] = V3_ROOM_LEVELS.agents;
+  for (const u of o.neops) users[u] = V3_ROOM_LEVELS.neops;
+  for (const u of o.people ?? []) users[u] = V3_ROOM_LEVELS.people;
+  for (const u of o.admins ?? []) users[u] = 100;
+  return {
+    users,
+    users_default: 0,
+    events_default: 0,
+    state_default: 100,
+    events: {
+      'neos.neop.approve': V3_ROOM_LEVELS.people,
+      'neos.neop.task': V3_ROOM_LEVELS.agents,
+      'neos.neop.answer': V3_ROOM_LEVELS.agents,
+      'neos.neop.ask': V3_ROOM_LEVELS.neops,
+      'neos.neop.propose': V3_ROOM_LEVELS.neops,
+      'neos.neop.done': V3_ROOM_LEVELS.neops,
+      'neos.neop.note': V3_ROOM_LEVELS.neops,
+      'm.room.power_levels': 100,
+      'm.room.encryption': 100,
+      'm.room.join_rules': 100,
+    },
+  };
 }
 
 /** power_level_content_override for a new NEOP room (createRoom, preset private_chat). */

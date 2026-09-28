@@ -55,11 +55,23 @@ export interface FakeHomeserver {
   /** v3 §8: typed (custom) events the appservice posted, e.g. neos.neop.propose. */
   typed: { room: string; user: string; type: string; content: any; txn: string; event_id: string }[];
   /** Push one typed event (any type, any content) as the homeserver would; pass `event_id` to redeliver one. */
-  pushTyped(ev: { room_id: string; sender: string; type: string; content: any; event_id?: string }): Promise<{ status: number; event_id: string }>;
+  pushTyped(ev: { room_id: string; sender: string; type: string; content: any; event_id?: string; to?: string }): Promise<{ status: number; event_id: string }>;
   /** Room state the appservice reads when it binds a room. Default: invite-only, no encryption, approve at 50. */
   setState(room: string, type: string, content: any | null): void;
   /** Rooms created through createRoom, with the request body. */
   created: { room_id: string; user: string; body: any }[];
+  /**
+   * v3 S6 · several apps' own appservices on one homeserver: events an app sends into a room are delivered (as the
+   * homeserver would, in order, after the send returns) to every OTHER appservice with a name joined to that room.
+   * `prefix` is the namespace (e.g. '@neop_ledger_'); `url` is that backend's /_matrix/app/v1 base.
+   */
+  route(prefix: string, url: () => string): void;
+  /** What was delivered between appservices (by route prefix), in order. */
+  delivered: { to: string; room: string; sender: string; type: string; content: any; event_id: string; status: number }[];
+  /** Invites sent (POST /rooms/{room}/invite). */
+  invites: { room: string; by: string; user: string }[];
+  /** Wait until every queued delivery between appservices has been made. */
+  settle(): Promise<void>;
   close(): Promise<void>;
 }
 
@@ -82,6 +94,28 @@ export async function fakeHomeserver(platformUrl: () => string): Promise<FakeHom
   const typed: FakeHomeserver['typed'] = [];
   const created: FakeHomeserver['created'] = [];
   const state = new Map<string, Map<string, any>>();
+  const routes: { prefix: string; url: () => string }[] = [];
+  const delivered: FakeHomeserver['delivered'] = [];
+  const invites: FakeHomeserver['invites'] = [];
+  const aliases = new Map<string, string>();
+  let queue: Promise<void> = Promise.resolve();
+  let htxn = 0;
+  /** Deliver one event to every other appservice with a member in the room (in order, after the send returned). */
+  const fanOut = (ev: { room: string; sender: string; type: string; content: any; event_id: string }) => {
+    const targets = routes.filter((r) => !ev.sender.startsWith(r.prefix) && joined.some((j) => j.room === ev.room && j.user.startsWith(r.prefix)));
+    if (!targets.length) return;
+    queue = queue.then(async () => {
+      await new Promise((r) => setImmediate(r));
+      for (const t of targets) {
+        const res = await fetch(`${t.url()}/_matrix/app/v1/transactions/hs${++htxn}`, {
+          method: 'PUT',
+          headers: { authorization: `Bearer ${MATRIX.hsToken}`, 'content-type': 'application/json' },
+          body: JSON.stringify({ events: [{ type: ev.type, event_id: ev.event_id, room_id: ev.room, sender: ev.sender, content: ev.content }] }),
+        }).catch(() => null);
+        delivered.push({ to: t.prefix, room: ev.room, sender: ev.sender, type: ev.type, content: ev.content, event_id: ev.event_id, status: res?.status ?? 0 });
+      }
+    });
+  };
   const stateOf = (room: string) => {
     if (!state.has(room)) state.set(room, goodRoomState());
     return state.get(room)!;
@@ -115,6 +149,7 @@ export async function fakeHomeserver(platformUrl: () => string): Promise<FakeHom
     const event_id = `$out${++n}:${MATRIX.serverName}`;
     byTxn.set(key, event_id);
     sent.push({ room: c.req.param('room'), user, body: body.body, txn, event_id, msgtype: body.msgtype });
+    fanOut({ room: c.req.param('room'), sender: user, type: 'm.room.message', content: body, event_id });
     return c.json({ event_id });
   });
   app.put('/_matrix/client/v3/rooms/:room/send/:type/:txn', async (c) => {
@@ -127,6 +162,7 @@ export async function fakeHomeserver(platformUrl: () => string): Promise<FakeHom
     const event_id = `$out${++n}:${MATRIX.serverName}`;
     byTxn.set(key, event_id);
     typed.push({ room: c.req.param('room'), user, type: c.req.param('type'), content, txn, event_id });
+    fanOut({ room: c.req.param('room'), sender: user, type: c.req.param('type'), content, event_id });
     return c.json({ event_id });
   });
   app.get('/_matrix/client/v3/rooms/:room/state', (c) => {
@@ -138,15 +174,33 @@ export async function fakeHomeserver(platformUrl: () => string): Promise<FakeHom
     const user = c.req.query('user_id') ?? '';
     if (!users.has(user)) return c.json({ errcode: 'M_FORBIDDEN' }, 403);
     const body = await c.req.json();
+    const alias = body.room_alias_name ? `#${body.room_alias_name}:${MATRIX.serverName}` : null;
+    if (alias && aliases.has(alias)) return c.json({ errcode: 'M_ROOM_IN_USE', error: 'alias in use' }, 400);
     const room_id = `!made${++n}:${MATRIX.serverName}`;
+    if (alias) aliases.set(alias, room_id);
     const st = new Map<string, any>();
     st.set('m.room.join_rules', { join_rule: body.preset === 'public_chat' ? 'public' : 'invite' });
     for (const e of body.initial_state ?? []) st.set(e.type, e.content);
     st.set('m.room.power_levels', { users: { [user]: 100 }, users_default: 0, events_default: 0, state_default: 50, events: {}, ...(body.power_level_content_override ?? {}) });
     state.set(room_id, st);
     created.push({ room_id, user, body });
+    for (const u of body.invite ?? []) invites.push({ room: room_id, by: user, user: u });
     joined.push({ room: room_id, user });
     return c.json({ room_id });
+  });
+  app.get('/_matrix/client/v3/directory/room/:alias', (c) => {
+    if (!asOk(c)) return c.json({ errcode: 'M_UNKNOWN_TOKEN' }, 401);
+    const room_id = aliases.get(c.req.param('alias'));
+    return room_id ? c.json({ room_id, servers: [MATRIX.serverName] }) : c.json({ errcode: 'M_NOT_FOUND' }, 404);
+  });
+  app.post('/_matrix/client/v3/rooms/:room/invite', async (c) => {
+    if (!asOk(c)) return c.json({ errcode: 'M_UNKNOWN_TOKEN' }, 401);
+    const by = c.req.query('user_id') ?? '';
+    const b = await c.req.json();
+    if (!joined.some((j) => j.room === c.req.param('room') && j.user === by)) return c.json({ errcode: 'M_FORBIDDEN' }, 403);
+    if (invites.some((i) => i.room === c.req.param('room') && i.user === b.user_id)) return c.json({ errcode: 'M_FORBIDDEN', error: 'already invited' }, 403);
+    invites.push({ room: c.req.param('room'), by, user: b.user_id });
+    return c.json({});
   });
   const { server, port } = await new Promise<{ server: ReturnType<typeof serve>; port: number }>((resolve) => {
     const server = serve({ fetch: app.fetch, port: 0, hostname: '127.0.0.1' }, (info) => resolve({ server, port: info.port }));
@@ -160,13 +214,29 @@ export async function fakeHomeserver(platformUrl: () => string): Promise<FakeHom
     joined,
     typed,
     created,
+    delivered,
+    invites,
+    route(prefix, url) {
+      const i = routes.findIndex((r) => r.prefix === prefix);
+      if (i >= 0) routes.splice(i, 1);
+      routes.push({ prefix, url });
+    },
+    async settle() {
+      let q: Promise<void>;
+      do {
+        q = queue;
+        await q;
+      } while (q !== queue);
+    },
     setState(room, type, content) {
       if (content === null) stateOf(room).delete(type);
       else stateOf(room).set(type, content);
     },
     async pushTyped(ev) {
       const event_id = ev.event_id ?? `$in${++evn}:${MATRIX.serverName}`;
-      const res = await fetch(`${platformUrl()}/_matrix/app/v1/transactions/${++txn}`, {
+      const target = ev.to ? routes.find((r) => r.prefix === ev.to || r.prefix === `@neop_${ev.to}_`)?.url() : platformUrl();
+      if (!target) throw new Error(`no appservice route for ${ev.to}`);
+      const res = await fetch(`${target}/_matrix/app/v1/transactions/${++txn}`, {
         method: 'PUT',
         headers: { authorization: `Bearer ${MATRIX.hsToken}`, 'content-type': 'application/json' },
         body: JSON.stringify({ events: [{ type: ev.type, event_id, room_id: ev.room_id, sender: ev.sender, content: ev.content }] }),
@@ -202,6 +272,8 @@ export interface Pilot {
   presence: Presence | null;
   /** v3 S4, presence 'appservice': the first app's Matrix name at the pilot's company. */
   neopUser: string | null;
+  /** v3 S6, presence 'appservice': each presence app's Matrix name at the pilot's company. */
+  neopUsers: Record<string, string>;
   platformUrl: string;
   platform: Awaited<ReturnType<typeof startPlatform>>['platform'];
   /** The first app's backend (most tests drive one app). */
@@ -257,6 +329,11 @@ export interface BootOptions {
    * 'client' — the backend's presence runs with no account yet (tests add one with a fake client homeserver).
    */
   presence?: 'appservice' | 'client';
+  /**
+   * v3 S6 · with presence 'appservice': EVERY app speaks as its own name (not only the first), each with its own
+   * /_matrix/app/v1; the fake homeserver routes events between their appservices (the bus room). `neopUsers` names them.
+   */
+  presenceAll?: boolean;
 }
 
 export async function bootPilot(opts: BootOptions): Promise<Pilot> {
@@ -350,7 +427,7 @@ export async function bootPilot(opts: BootOptions): Promise<Pilot> {
       secrets: new FileSecretStore({ root: doorsDir, app: key }),
       llm: llmKeys[key] ? { proxyUrl: `${plat.url}/llm`, signingKey: llmKeys[key].privateJwk } : undefined,
       timings: { ...FAST, ...(opts.timings ?? {}) },
-      ...(opts.presence && a === opts.apps[0]
+      ...(opts.presence && (a === opts.apps[0] || (opts.presenceAll && opts.presence === 'appservice'))
         ? {
             presence:
               opts.presence === 'appservice'
@@ -368,11 +445,17 @@ export async function bootPilot(opts: BootOptions): Promise<Pilot> {
   const first = opts.apps[0]!.def.manifest.app;
   // v3 S4: the app's own name at the company, written into its schema (as an admin would, PUT /api/chat/presence).
   let neopUser: string | null = null;
+  const neopUsers: Record<string, string> = {};
   if (opts.presence === 'appservice') {
     presenceUrl = `http://127.0.0.1:${backends[first]!.ports.appservice}`;
     const slug = (await plat.platform.db.query<{ slug: string }>('select slug from neos.companies where id = $1', [company.id])).rows[0]!.slug;
-    neopUser = `@neop_${first}_${slug}:${MATRIX.serverName}`;
-    await plat.platform.setChatIdentity(company.id, first, { matrix_user: neopUser }, `user:${admin.id}`);
+    for (const key of Object.keys(backends).filter((k) => k === first || opts.presenceAll)) {
+      neopUsers[key] = `@neop_${key}_${slug}:${MATRIX.serverName}`;
+      await plat.platform.setChatIdentity(company.id, key, { matrix_user: neopUsers[key] }, `user:${admin.id}`);
+      // Events another app says in a shared room reach this app's own appservice (the bus room, v3 S6).
+      hs!.route(`@neop_${key}_`, () => `http://127.0.0.1:${backends[key]!.ports.appservice}`);
+    }
+    neopUser = neopUsers[first]!;
   }
 
   const api = async (method: string, p: string, body?: unknown, token = admin.token) => {
@@ -405,6 +488,7 @@ export async function bootPilot(opts: BootOptions): Promise<Pilot> {
       return backends[first]!.presence;
     },
     neopUser,
+    neopUsers,
     platformUrl: plat.url,
     platform: plat.platform,
     backend: backends[first]!,

@@ -207,6 +207,12 @@ export class Runner {
         await this.fail(job, `Stopped after ${job.attempts} interrupted attempts; nothing further was done. A person should look at this job.`);
         return;
       }
+      // v3 S6: a borrowed write another app asked for over the bus room is carried by the runner itself — no model
+      // (runner/bus.ts takeJob): proposed exactly as asked, answered with the proof once it ends.
+      if (this.core.bus && (await this.core.bus.takeJob(job))) {
+        span.end();
+        return;
+      }
       const board = await this.core.board.get(job.company_id);
       // The board this session runs on, kept with the job (t007): what was on, at which version.
       await this.core.runnerPool.query(`update ${this.s}.jobs set switchboard_version = $2, switchboard_snapshot = $3 where id = $1`, [job.id, board.version, JSON.stringify(board.snapshot())]);

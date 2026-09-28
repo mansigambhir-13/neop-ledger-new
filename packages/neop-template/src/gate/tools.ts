@@ -146,6 +146,7 @@ export function buildTools(
   borrowed: Borrowed[] = [],
   a2aTargets: string[] = [],
   packaged: ManifestAbility[] = [],
+  opts: { bus?: boolean } = {},
 ): ToolSpec[] {
   const out: ToolSpec[] = [];
   for (const b of borrowed) {
@@ -176,6 +177,24 @@ export function buildTools(
       setting: 'on',
       input: { type: 'object', required: ['app', 'ask'], properties: { app: { type: 'string', enum: a2aTargets }, ask: { type: 'string', minLength: 3, maxLength: 4000 } } },
     });
+    if (opts.bus) {
+      // v3 §9 on the bus road (S6): the other app's question about a task comes back to this job; this answers it.
+      out.push({
+        name: toolName('a2a.answer'),
+        key: 'a2a.answer',
+        version: '1',
+        title: 'Answer another app’s question about a task you handed it',
+        description:
+          'When an app you handed a task to asks you something about it, answer here with the task id and the answers (field key → value). Answer only with what the book, your tools or the person gave you; if you do not know, ask the person with job_ask first and relay their answer. The job then waits for that app\'s result again.',
+        kind: 'builtin',
+        setting: 'on',
+        input: {
+          type: 'object',
+          required: ['task_id', 'answers'],
+          properties: { task_id: { type: 'string' }, answers: { type: 'object', description: 'field key → short text, number or true/false', additionalProperties: { type: ['string', 'number', 'boolean'] } } },
+        },
+      });
+    }
   }
   for (const a of [...manifest.abilities, ...packaged]) {
     const setting = board.setting(a);

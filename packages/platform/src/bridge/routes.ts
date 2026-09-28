@@ -137,14 +137,35 @@ export function chatClientRoutes(platform: Platform, clients: () => ChatClient[]
     if (typeof b.app !== 'string' || !/^[a-z][a-z0-9_]{0,40}$/.test(b.app)) return bad(c, 'app required');
     if (b.matrix_user !== undefined && b.matrix_user !== null && (typeof b.matrix_user !== 'string' || !MXID.test(b.matrix_user))) return bad(c, 'matrix_user is a Matrix id like @neop_ledger_acme:server');
     if (b.room_ids !== undefined && (!Array.isArray(b.room_ids) || b.room_ids.length > 20 || b.room_ids.some((r) => typeof r !== 'string' || !/^![^:\s]+:\S+$/.test(r)))) return bad(c, 'room_ids is a list of room ids like !abc:server');
-    if (b.matrix_user === undefined && b.room_ids === undefined) return bad(c, 'matrix_user and/or room_ids');
+    // v3 S6: the company's bus room (#neop-bus-<co>) and the other apps on it (Matrix id → app key), from rooms-setup.
+    if (b.bus_room_id !== undefined && b.bus_room_id !== null && (typeof b.bus_room_id !== 'string' || !/^![^:\s]+:\S+$/.test(b.bus_room_id))) return bad(c, 'bus_room_id is a room id like !abc:server');
+    if (
+      b.bus_peers !== undefined &&
+      (!b.bus_peers ||
+        typeof b.bus_peers !== 'object' ||
+        Array.isArray(b.bus_peers) ||
+        Object.keys(b.bus_peers).length > 50 ||
+        Object.entries(b.bus_peers as Record<string, unknown>).some(([k, v]) => !MXID.test(k) || typeof v !== 'string' || !/^[a-z][a-z0-9_]{0,40}$/.test(v)))
+    )
+      return bad(c, 'bus_peers maps Matrix ids to app keys, like {"@neop_marketing_acme:server": "marketing"}');
+    if (b.matrix_user === undefined && b.room_ids === undefined && b.bus_room_id === undefined && b.bus_peers === undefined) return bad(c, 'matrix_user and/or room_ids');
     // The app's name is its own: another app's (or another company's) install may not already speak as it.
     try {
-      await platform.setChatIdentity(a.u!.company_id, b.app, { matrix_user: b.matrix_user as string | null | undefined, room_ids: b.room_ids as string[] | undefined }, `user:${a.u!.id}`);
+      await platform.setChatIdentity(
+        a.u!.company_id,
+        b.app,
+        {
+          matrix_user: b.matrix_user as string | null | undefined,
+          room_ids: b.room_ids as string[] | undefined,
+          bus_room_id: b.bus_room_id as string | null | undefined,
+          bus_peers: b.bus_peers as Record<string, string> | undefined,
+        },
+        `user:${a.u!.id}`,
+      );
     } catch (e: any) {
       return c.json({ error: { code: e.code ?? 'chat_error', message: String(e.message ?? e) } }, e.status ?? 500);
     }
-    await platform.gateway.audit({ company_id: a.u!.company_id, actor: `user:${a.u!.id}`, app_key: b.app, action: 'chat.presence_set', outcome: 'ok', detail: { matrix_user: b.matrix_user ?? null, room_ids: b.room_ids ?? null } });
+    await platform.gateway.audit({ company_id: a.u!.company_id, actor: `user:${a.u!.id}`, app_key: b.app, action: 'chat.presence_set', outcome: 'ok', detail: { matrix_user: b.matrix_user ?? null, room_ids: b.room_ids ?? null, ...(b.bus_room_id !== undefined ? { bus_room_id: b.bus_room_id } : {}), ...(b.bus_peers !== undefined ? { bus_peers: b.bus_peers } : {}) } });
     return c.json({ ok: true, app: b.app, ...(await platform.boards.readChatIdentity(b.app, a.u!.company_id)) });
   });
 

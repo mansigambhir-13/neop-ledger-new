@@ -557,6 +557,92 @@ applies forward on a populated book").
   the person on a callee NEOP's wait are still the platform's (`neos.questions` root task). Per-NEOP appservice
   registration beyond Ledger is the same file with the app's key.
 
+## v3 S6 · NEOP to NEOP on the bus room (2026-09-28)
+`docs/V3-MIGRATION-PLAN.md` stage S6 (v3 §9 "Talking to other NEOPs", §10 "Borrowing one ability from another app").
+Template migration **t015** (expand-only; proven on a populated book by `apps/ledger/tests/bus-room.test.ts` › "t015
+applies forward on a populated book").
+- **The choice is the presence flag (`Core.presenceOn`).** `NEOP_PRESENCE` on: every road to another app — `a2a.request`,
+  a borrowed line, and the new `a2a.answer` — goes through `gate/a2a.ts` (extracted from `gate.ts`: `handOff`,
+  `a2aRequest`, `borrow`) to the bus (`runner/bus.ts`, set as `Core.bus` by `Presence.start` on the appservice road);
+  the platform's `openA2A`, `borrowDescribe`, `gatewayCall` (and so `neos.acl`, `/internal/a2a|borrow|gateway/*`,
+  `a2aResultsTick`) are never called. Presence on the client road has no bus (a multi-app room needs the app's own
+  appservice name): a hand-off is refused `no_bus`, nothing is sent. Off: the platform road, byte for byte (S9 deletes
+  it; the platform-mode tests are unchanged).
+- **t015.** `installs.bus_room_id` (the company's `#neop-bus-<co>`), `installs.bus_peers` (Matrix id → app key: the only
+  senders acted on in the bus room — `Identity.busSender`; a person, the reasoning agent or a stranger there is
+  `typed:unknown_sender`), `<schema>.bus_threads` (company_id + forced RLS; app and runner select/insert/update): one row
+  per thread, `out` (this app asked) or `in` (this app took), kind `task` | `call`, the root event, the peer and its
+  app, the job and the wait, `lineage`/`depth`, the callee's open `question`, status and result.
+- **Contracts** (`matrix-events.ts`, optional and additive — every body valid before stays valid): task `lineage`
+  (app keys, the asker last) and `depth`; ask `call {ability, args, on_behalf_of?}` (borrowing one ability — the
+  documented form of "ask carrying {ability, args}"); answer `result` (a borrowed call's output, proof or refusal).
+  `v3RoomPowerLevels` / `V3_ROOM_LEVELS` (people 50, NEOPs 20, agents 10; approve 50, task/answer 10, ask/propose/done/
+  note 20); `neopRoomPowerLevels` (S4's own-room levels) unchanged.
+- **Opening a task (asker).** `busHandOff`: the chain is this job's `in` thread's lineage + this app; the asker's gate
+  already refuses a loop (`a2a_loop`) or depth > 3 (`a2a_depth`); the person must have a Matrix id here (`no_person`).
+  The `a2a_task` wait (ref_id = the thread id = the body's `task_id`) and the `out` row are written **before** the send
+  (item 5); `neos.neop.task {task_id, company, on_behalf_of, text, lineage, depth}` goes from the app's own name,
+  addressed by `m.mentions` (every app on the bus receives every event; only the mentioned one acts); the root event id
+  is recorded after. A send that fails closes the wait `NOT_OPENED` and refuses with the homeserver's words as
+  untrusted data. `consumeReadyWaits(…, except)` never consumes the wait the hand-off just wrote, so a `done` faster
+  than the send's return is kept (runtime-a2a-presence proves it).
+- **Taking a task (callee, `Bus.onTask`).** Addressed to this app, from a bus peer whose manifest `uses {app: <callee>,
+  ability: tasks.open}` (read in `neos_registry.uses`), for this company, with a chain that ends with the sender, does
+  not contain the callee and is ≤ 3 deep — else a typed `done {job_id:'none', result:{outcome:'failed', refused:<code>},
+  could_not}` in the thread (`wrong_company`, `not_declared`, `bad_lineage`, `a2a_loop`, `a2a_depth`, `no_person`,
+  `registry_unavailable`). Otherwise an `in` row, then a job (`Inbound.open` with `requester app:<mxid>`, source
+  `a2a`, `on_behalf_of user:<person>`, origin = the event id, task id derived from it: a redelivery opens nothing).
+  It runs on the callee's switchboard; a yes is a person's (desk, or a reply in the callee's own room — the mirror
+  sends a bus-origin job's plain story to the company's own room, never the bus); the asking app's `approve` is
+  refused by the sender-class rule (`typed:refused:approve`). The callee's question goes back into the thread as a
+  typed `ask` (mirror), its result as `done` with the asker's task id.
+- **The callee asks (asker's side).** A typed `ask` (no `call`) in a thread this app opened readies its `a2a_task` wait
+  with `{status:'NEEDS_INPUT', question, due}` (a job not waiting on it gets a ready wait of its own) and keeps the
+  question on the row; the prompt shows the question inside the untrusted fence and says: answer with `a2a_answer`
+  from the book/tools/person, else `job_ask` your person first and relay; never guess. `a2a.answer {task_id, answers}`
+  (≤ 10 scalar answers) sends a typed `answer` to the callee's wait in the thread and waits again (a new `a2a_task`
+  wait). At the callee it is `Inbound.onAnswer` as before: only for a wait shown in that thread, only from the app
+  that opened the task, recorded `answered_by app:<mxid>`, via bridge — relayed data, never a person's word.
+- **The result (asker).** `done` with this app's task id (and the thread's root) readies the wait with `{status:
+  COMPLETED|FAILED|REFUSED, from_app, result (+could_not)}`, writes the step and an `operations` row
+  (`task:<peer>`); the prompt shows it as untrusted data (the existing a2a_task wake).
+- **Borrowing one ability.** Asker: `BorrowCache.list` with presence on reads the owner's contract from
+  `neos_registry.abilities` (A6), no platform call; the line is the borrower's own `uses` line on its switchboard —
+  **off until the company sets it** (`EffectiveBoard.companySetting`; `setSwitchboard` now accepts a `uses` key as a
+  `borrowed` line, on/off, never looser than the `uses` floor), so no ACL row. A borrowed read or write is one typed
+  `ask {…, call:{ability, args, on_behalf_of}}` (wait id = the thread id); the job waits. Owner (`Bus.onCall`): the
+  asker declares it in `neos_registry.uses`, the ability exists, the owner's own line is not off, its doors are on,
+  the input validates — else a typed `answer {result:{refused:{code, message}}}`. A **read** runs at once with no
+  model and no job, recorded `served` (`caller app:<mxid>`, idempotency `bus:<event>`, reason "a read served to
+  <app> over the bus room (no model)"), answered `{status:'DONE', output}`. A **write** opens a job (source a2a,
+  requester `app:<mxid>`) that no model runs: the runner's hook (`Runner.spawn` → `Bus.takeJob`) puts the step
+  through the owner's own gate exactly as asked — switched on: done now; ask first: a proposal whose card the runner
+  writes ("… — borrowed by <app>", the exact inputs); a standing yes: done under it — and releases the job; when the
+  proposal ends (a person's yes carried out by the approved path, a no, expiry) the runner answers `{status, proposal_id,
+  decided_by, proof}` and finishes the job. Asker: the answer readies the wait (REFUSED / COMPLETED / the status) and
+  writes `operations` `borrow:<owner>:<ability>` (`answered` | `refused`). Both apps write their row.
+- **Rooms (`scripts/rooms-setup.ts`, idempotent).** Per company: `#<app>-<co>` for each app (people + the app) and
+  `#neop-bus-<co>` (apps only, made by the first app's name, the others invited), invite-only, no `m.room.encryption`,
+  `v3RoomPowerLevels`; found again by alias; each app's `room_ids`, `bus_room_id`, `bus_peers` written through the
+  platform (`PUT /api/chat/presence` now takes `bus_room_id` and `bus_peers`; `Platform.setChatIdentity` →
+  `AppBoards.writeChat` as `neos_desk`; `readChatIdentity` returns them when set). Each backend joins the bus room on
+  its room refresh and checks it like any room (bus peers count as non-people for the approve level).
+- **Testkit.** `fakeHomeserver` routes events between several apps' appservices (`route(prefix, url)`: an event an app
+  sends is delivered, in order and after the send returns, to every other appservice with a name joined to the room),
+  resolves aliases, records invites; `pushTyped({to})` targets one app; `bootPilot({presence:'appservice',
+  presenceAll:true})` gives every app its own presence and `neopUsers`.
+- **Tests.** New `apps/ledger/tests/bus-room.test.ts` (rooms-setup; Marketing → Ledger task with a question back,
+  Marketing's typed answer, the result waking Marketing; a borrowed read answered with no model; the owner's line
+  refusing; a borrowed write as Ledger's proposal, Marketing's approve refused, a person's yes, the proof; depth > 3,
+  loop, bad chain refused; not-ours and strangers; redelivery; the asker's gate refusing early; t015 forward).
+  Ported to presence mode (platform-mode versions kept): `runtime-a2a-presence.test.ts`,
+  `apps/marketing/tests/a2a-questions-presence.test.ts` (in presence mode the callee's question goes to the asking
+  app, which asks its own person and relays), `apps/marketing/tests/borrowed-write-presence.test.ts`.
+  `migration`, `v3-conformance`, `board-db`, `approved-path` list t015 among the files they see applied.
+- **Not done here.** The bus on the client road; NeuralChat (the reasoning agent) posting tasks in the bus room (S5);
+  borrowing what an installed registry entry `requires` without a `uses` line (the platform-mode ACL path; S7's
+  registry); deleting the platform's a2a road and `neos.acl` (S9).
+
 ## Deliberately not built from WP v3
 - **Voice.** The NEOS app transcribes speech on the device/client before it calls `POST /api/ask`; the platform and every NEOP take text only. Nothing here receives audio, so there is no speech model, audio store or consent flow to build or secure on this side. An audio note a person wants kept is an attachment like any other file (kept by the document store).
 - **pgvector `similar_to`.** No Ledger ability needs similarity search: every Ledger read is exact (accounts, parties, documents by number, dates, amounts), and matching bank lines is rule- and amount-based. When an app does need it, it is the app's own concern inside its own schema, as §11 says: its migration adds `create extension if not exists vector` (the DBA enables the extension once per database), a `vector(n)` column on its own table with `company_id` and RLS like every other table, and an index (`hnsw`/`ivfflat`); a `similar_to` read is then ordinary SQL (`order by embedding <=> $1 limit k`) in that app's repository. Embeddings are computed in the backend through the LLM proxy, never by the assistant with a key. No separate vector store.

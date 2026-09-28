@@ -132,6 +132,15 @@
       ],
       "baseline": false,
       "proven_on_populated_data": "2026-09-28 \u00b7 apps/ledger/tests/presence-dedupe.test.ts \u203a t012 applies forward on a populated book"
+    },
+    {
+      "file": "t015_bus_room.sql",
+      "tables": [
+        "bus_threads",
+        "installs"
+      ],
+      "baseline": false,
+      "proven_on_populated_data": "2026-09-28 \u00b7 apps/ledger/tests/bus-room.test.ts \u203a t015 applies forward on a populated book"
     }
   ]
 }

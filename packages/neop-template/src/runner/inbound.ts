@@ -31,6 +31,7 @@ import type { Core } from '../core.ts';
 import { bridgeCardText, clip, FIXED_FAILURE, roomText, waitingCardText } from '../presence/cards.ts';
 import { isTypedEventType, keyTxnId, maySend, replyTxnId, shortType, taskIdForEvent, threadRelation, threadRootOf, typedContent, validateTypedBody, type TypedBodies, type TypedEventType } from '../presence/events.ts';
 import type { Identity, Person, Who } from '../presence/identity.ts';
+import type { Bus } from './bus.ts';
 import { DECLINE, isConsent, parseDecision, PLAIN_DECLINE, plainAnswers, POSTPONE } from '../presence/lexicon.ts';
 
 /** One voice of this app in Matrix: the appservice name at a company, or one ordinary account (client road). */
@@ -66,6 +67,8 @@ export class Inbound {
   readonly core: Core;
   readonly identity: Identity;
   replyDeadlineMs: number;
+  /** v3 S6: the bus room's handler (NEOP to NEOP); set by Presence on the appservice road. */
+  bus: Bus | null = null;
   private readonly log: (msg: string, extra?: Record<string, unknown>) => void;
 
   constructor(core: Core, identity: Identity, o: { replyDeadlineMs: number; log?: (msg: string, extra?: Record<string, unknown>) => void }) {
@@ -298,8 +301,11 @@ export class Inbound {
     return (await this.db.query<{ job_id: string }>(`select job_id from ${this.s}.inbound_events where account = $1 and room_id = $2 and event_id = $3 and outcome = 'typed:task_opened'`, [road.account, room, root])).rows[0]?.job_id ?? null;
   }
 
-  /** Open a job for this person from this event (idempotent on the event: its task id is derived from it). */
-  async open(road: Road, eventId: string, room: string, personId: string, text: string, outcome: string): Promise<string | null> {
+  /**
+   * Open a job for this person from this event (idempotent on the event: its task id is derived from it). `as`: a
+   * task from another app on the bus (v3 §9, S6) — the asking app is the requester, the person is on_behalf_of.
+   */
+  async open(road: Road, eventId: string, room: string, personId: string, text: string, outcome: string, as?: { requester: string; source: 'a2a' }): Promise<string | null> {
     const inst = await this.identity.install(road.companyId);
     if (!inst || inst.status !== 'active') {
       await this.replyNow(road, eventId, room, outcome.startsWith('typed:') ? 'typed:not_installed' : 'not_installed', 'This app is not installed for your company. Nothing was done.');
@@ -308,8 +314,9 @@ export class Inbound {
     const { job_id } = await openJob(this.core, road.companyId, {
       task_id: taskIdForEvent(eventId),
       ask: text,
-      requester: `user:${personId}`,
-      source: road.kind === 'appservice' ? 'room' : 'task',
+      requester: as?.requester ?? `user:${personId}`,
+      source: as?.source ?? (road.kind === 'appservice' ? 'room' : 'task'),
+      ...(as ? { on_behalf_of: `user:${personId}` } : {}),
       origin: eventId,
     });
     await this.setIn(eventId, null, { person_id: `user:${personId}` });
@@ -641,6 +648,8 @@ export class Inbound {
     const v = validateTypedBody(ev.type, ev.content);
     if (!v.ok) return this.drop(ev, who, 'invalid', { error: v.error });
     const root = threadRootOf(ev.content);
+    // v3 S6: the company's bus room is apps talking to apps (runner/bus.ts): tasks, borrowed calls, their answers.
+    if (this.bus && (await this.bus.isBusRoom(road, ev.room_id))) return this.bus.onTyped(road, ev, who, v.body, root);
     switch (ev.type) {
       case 'neos.neop.task':
         return this.onTask(road, ev, who, v.body as TypedBodies['neos.neop.task']);
@@ -693,7 +702,7 @@ export class Inbound {
     return !!(await this.db.query(`select 1 from ${this.s}.outbound_events where account = $1 and room_id = $2 and ${col} = $3 limit 1`, [road.account, room, id])).rowCount;
   }
 
-  private async onAnswer(road: Road, ev: TypedIn, who: Who, b: TypedBodies['neos.neop.answer'], root: string | null): Promise<string> {
+  async onAnswer(road: Road, ev: TypedIn, who: Who, b: TypedBodies['neos.neop.answer'], root: string | null): Promise<string> {
     const w = UUID.test(b.wait_id) ? await this.waitRow(b.wait_id) : null;
     if (!w || w.company_id !== road.companyId || w.kind !== 'input' || !(await this.shownHere(road, ev.room_id, 'wait_id', w.id))) return this.drop(ev, who, 'unknown_wait', { wait_id: b.wait_id });
     if (!(await this.threadOk(road, ev.room_id, root, w.job_id))) return this.drop(ev, who, 'thread_mismatch', { wait_id: b.wait_id, thread: root });

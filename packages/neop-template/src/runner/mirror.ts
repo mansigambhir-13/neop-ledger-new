@@ -35,6 +35,8 @@ interface Origin {
   room_id: string;
   road: 'appservice' | 'client';
   typed: boolean;
+  /** v3 S6: opened by a borrowed call (a typed ask with `call`) — its answer is the bus's, never a `done`. */
+  call: boolean;
   event_id: string;
   typed_task_id: string | null;
 }
@@ -131,7 +133,7 @@ export class Mirror {
         [jobId],
       )
     ).rows[0];
-    return r ? { ...r, typed: r.type === 'neos.neop.task' } : null;
+    return r ? { ...r, typed: r.type === 'neos.neop.task' || r.type === 'neos.neop.ask', call: r.type === 'neos.neop.ask' } : null;
   }
 
   private async jobOf(p: any): Promise<string | null> {
@@ -142,6 +144,9 @@ export class Mirror {
 
   /** The room plain notices go to: the appservice room the job was asked in, else the company's own room. */
   private async plainRoom(companyId: string, o: Origin | null): Promise<{ road: Road; room: string } | null> {
+    // v3 S6: a job asked over the bus room speaks there only in its typed thread; its plain story (the card a person
+    // answers, the result) goes to the company's own room, as a desk job's does.
+    if (o && (await this.identity.install(companyId))?.bus_room_id === o.room_id) o = null;
     if (o) {
       if (o.road !== 'appservice') return null; // a DM gets exactly one reply, from inbound
       const road = this.roadOf(o.account);
@@ -199,7 +204,7 @@ export class Mirror {
         const q = { text: String(p.text ?? ''), why: String(p.why ?? ''), fields: (p.fields ?? []) as QuestionField[], due_at: String(p.due_at ?? '') };
         const body = roomText.question(app, q);
         await say(`question:${p.wait_id}`, body, 'question', { wait_id: p.wait_id });
-        if (thread && o) {
+        if (thread && o && !o.call) {
           await this.inbound.typed(
             thread,
             o.room_id,
@@ -217,7 +222,7 @@ export class Mirror {
       case 'task.failed': {
         const r: TaskResult = { outcome: 'failed', summary: 'The job did not finish.', changed: [], could_not: [], sources: [], ...(p.result ?? {}) };
         await say(`result:${p.job_id}`, roomText.result(app, r), 'result');
-        if (thread && o) {
+        if (thread && o && !o.call) {
           await this.inbound.typed(
             thread,
             o.room_id,

@@ -133,7 +133,7 @@ export class AppBoards {
       agent_senders?: string[];
       agent_acts_for?: Record<string, string>;
       company_slug?: string;
-      identity?: { matrix_user?: string | null; room_ids?: string[] };
+      identity?: { matrix_user?: string | null; room_ids?: string[]; bus_room_id?: string | null; bus_peers?: Record<string, string> };
     },
     actor?: string,
   ): Promise<boolean> {
@@ -169,6 +169,12 @@ export class AppBoards {
         if (d.identity) {
           if (d.identity.matrix_user !== undefined) await c.query(`update ${s}.installs set matrix_user = $2, updated_at = now() where company_id = $1`, [companyId, d.identity.matrix_user]);
           if (d.identity.room_ids) await c.query(`update ${s}.installs set room_ids = $2::text[], updated_at = now() where company_id = $1`, [companyId, d.identity.room_ids]);
+          // v3 S6 (template t015): the company's bus room and the other apps on it — written by rooms-setup.
+          if (d.identity.bus_room_id !== undefined || d.identity.bus_peers !== undefined) {
+            if (!(await hasColumn(c, s, 'installs', 'bus_room_id'))) throw Object.assign(new Error(`${app} has no bus room columns (template t015) on this database`), { status: 409, code: 'no_bus_columns' });
+            if (d.identity.bus_room_id !== undefined) await c.query(`update ${s}.installs set bus_room_id = $2, updated_at = now() where company_id = $1`, [companyId, d.identity.bus_room_id]);
+            if (d.identity.bus_peers !== undefined) await c.query(`update ${s}.installs set bus_peers = $2::jsonb, updated_at = now() where company_id = $1`, [companyId, JSON.stringify(d.identity.bus_peers)]);
+          }
         }
         return true;
       },
@@ -177,12 +183,24 @@ export class AppBoards {
   }
 
   /** The app's Matrix identity and rooms at this company, as its own schema holds them (null: no t012 schema). */
-  async readChatIdentity(app: string, companyId: string): Promise<{ matrix_user: string | null; room_ids: string[]; agent_senders: string[]; agent_acts_for: Record<string, string> } | null> {
+  async readChatIdentity(
+    app: string,
+    companyId: string,
+  ): Promise<{ matrix_user: string | null; room_ids: string[]; agent_senders: string[]; agent_acts_for: Record<string, string>; bus_room_id?: string | null; bus_peers?: Record<string, string> } | null> {
     return this.asDesk(app, companyId, async (c, s) => {
       if (!s) return null;
       const has = (await c.query<{ ok: boolean }>('select to_regclass($1) is not null as ok', [`${s}.people`])).rows[0]?.ok;
       if (!has) return null;
-      return (await c.query(`select matrix_user, room_ids, agent_senders, agent_acts_for from ${s}.installs where company_id = $1`, [companyId])).rows[0] ?? null;
+      // bus_room_id / bus_peers (t015) are read through to_jsonb, so a schema before t015 still answers.
+      const row = (
+        await c.query(
+          `select matrix_user, room_ids, agent_senders, agent_acts_for, to_jsonb(i)->>'bus_room_id' as bus_room_id, to_jsonb(i)->'bus_peers' as bus_peers from ${s}.installs i where company_id = $1`,
+          [companyId],
+        )
+      ).rows[0];
+      if (!row) return null;
+      const { bus_room_id, bus_peers, ...rest } = row;
+      return bus_room_id || (bus_peers && Object.keys(bus_peers).length) ? { ...rest, bus_room_id, bus_peers: bus_peers ?? {} } : rest;
     });
   }
 
@@ -491,6 +509,10 @@ export async function backfillBoards(db: Pool, opts: { app?: string; company?: s
  * What each line of an app's board is at a company: the app's own abilities and doors from its manifest,
  * package abilities from the company's registry installs, skills. Unknown lines have no kind and no floor.
  */
+async function hasColumn(c: PoolClient, schema: string, table: string, column: string): Promise<boolean> {
+  return !!(await c.query('select 1 from information_schema.columns where table_schema = $1 and table_name = $2 and column_name = $3', [schema, table, column])).rowCount;
+}
+
 export function lineMetaFrom(manifest: Manifest | null | undefined, packageAbilities: { key: string; kind: string; floor: Setting }[]): (line: string) => LineMeta {
   return (line) => {
     if (line.startsWith('door:')) {
@@ -502,6 +524,9 @@ export function lineMetaFrom(manifest: Manifest | null | undefined, packageAbili
     if (own) return { kind: own.kind, floor: own.floor };
     const pk = packageAbilities.find((a) => a.key === line);
     if (pk) return { kind: pk.kind, floor: pk.floor };
+    // v3 S6: a `uses` line (an ability of another app this one borrows) is the company's own on/off switch.
+    const u = (manifest?.uses ?? []).find((x) => x.ability === line && x.ability !== 'tasks.open');
+    if (u) return { kind: 'borrowed', floor: (u.floor as Setting | undefined) ?? null };
     return { kind: null, floor: null };
   };
 }
