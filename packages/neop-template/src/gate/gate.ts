@@ -182,6 +182,9 @@ export class Gate {
           idempotency_key: idem,
           outcome: res.outcome,
           detail: { ...m, external_ref: res.external_ref },
+          request: args,
+          result: res,
+          reason: `${key} is switched on for this company: done without asking`,
         });
         await this.core.book.addStep(c, { company_id: claims.company_id, job_id: claims.sub, kind: 'ability', summary: `${ability.title}: ${res.outcome}`, ability_key: key });
       });
@@ -219,6 +222,8 @@ export class Gate {
       .catch(() => null);
 
     if (grant) {
+      // The book's read-only mirror learns of the standing yes (t009 <schema>.grants; the platform holds it).
+      await this.core.mirror.grantSeen(claims.company_id, grant.grant_id, key).catch((e) => this.core.log('grant mirror failed', { e: String(e) }));
       const exec = await this.core.gatewayAuth.verifyExecution(grant.token, { company_id: claims.company_id, proposal_id: proposalId, fingerprint: fp });
       await this.core.company(claims.company_id, async (c) => {
         await this.core.book.insertProposal(c, {
@@ -234,6 +239,7 @@ export class Gate {
           approved_via: 'grant',
           grant_id: grant.grant_id,
           decided_by: `grant:${grant.grant_id}`,
+          manifest_version: this.core.manifest.version,
           ttl_ms: this.core.cfg.timings.proposalTtlMs,
         });
         await this.core.book.proposalEvent(c, { company_id: claims.company_id, proposal_id: proposalId, event: 'approved_by_grant', actor: `grant:${grant.grant_id}`, fingerprint_seen: fp });
@@ -262,6 +268,7 @@ export class Gate {
         card,
         fingerprint: fp,
         status: 'PROPOSED',
+        manifest_version: this.core.manifest.version,
         ttl_ms: this.core.cfg.timings.proposalTtlMs,
       });
       await this.core.book.proposalEvent(c, { company_id: claims.company_id, proposal_id: p.id, event: 'proposed', actor: `assistant:${claims.sub}`, fingerprint_seen: fp });
@@ -348,6 +355,9 @@ export class Gate {
         idempotency_key: idem,
         outcome: 'answered',
         gateway_request_id: res.request_id,
+        request: args,
+        result: out,
+        reason: `borrowed from ${b.owner}`,
       });
       await this.core.book.addStep(c, { company_id: claims.company_id, job_id: claims.sub, kind: 'ability', summary: `Asked ${b.owner}: ${b.ability.title}`, ability_key: key });
     });
@@ -528,7 +538,7 @@ export class Gate {
   async heartbeat(claims: JobTokenClaims): Promise<void> {
     await this.core.company(claims.company_id, async (c) => {
       const r = await c.query(
-        `update ${this.core.key}.jobs set claimed_until = now() + ($3 || ' milliseconds')::interval
+        `update ${this.core.key}.jobs set claimed_until = now() + ($3 || ' milliseconds')::interval, heartbeat_at = now()
           where id = $1 and claimed_by = $2 and status in ('RUNNING', 'WAITING')`,
         [claims.sub, claims.sid, String(this.core.cfg.timings.claimMs)],
       );

@@ -51,7 +51,7 @@ export class PlatformClient {
 
   async switchboard(companyId: string): Promise<SwitchboardDoc> {
     const r = await this.call<SwitchboardDoc>('GET', `/internal/switchboard?company_id=${encodeURIComponent(companyId)}`);
-    if (r.status !== 200) throw new Error(`switchboard fetch failed: ${r.status}`);
+    if (r.status !== 200) throw Object.assign(new Error(`switchboard fetch failed: ${r.status}`), { status: r.status });
     return r.body;
   }
 

@@ -59,6 +59,54 @@ describe('honesty', () => {
   });
 });
 
+describe('honesty · generatedAt (WP v3 §13 standard test)', () => {
+  // Every read the manifest declares, with arguments it accepts. The two document reads need a file the
+  // person attached (documents-kept.test covers them); every other read is called here.
+  const R = { from: '2026-08-01', to: '2026-08-31' };
+  const ARGS: Record<string, unknown> = {
+    'ledger.report.pnl': R,
+    'ledger.report.balance_sheet': { as_of: '2026-09-30' },
+    'ledger.report.cash_flow': R,
+    'ledger.report.trial_balance': { as_of: '2026-09-30' },
+    'ledger.report.aging': { kind: 'receivable', as_of: '2026-09-30' },
+    'ledger.report.vat_summary': R,
+    'ledger.budget.remaining': { account_code: '1000', month: '2026-08' },
+    'ledger.accounts.list': {},
+    'ledger.account.ledger': { account_code: '1000', ...R },
+    'ledger.journal.list': R,
+    'ledger.documents.list': { kind: 'invoice' },
+    'ledger.parties.list': {},
+    'ledger.bank.unreconciled': {},
+    'ledger.periods.status': {},
+    'ledger.coding_rules.list': {},
+    'ledger.home.summary': {},
+    'ledger.close.checklist': { month: '2026-08' },
+    'ledger.settings.get': {},
+    'ledger.report.aging_analysis': { kind: 'payable', as_of: '2026-09-30' },
+    'ledger.report.cash_forecast': {},
+    'ledger.report.tax_return': R,
+    'ledger.report.export': { report: 'trial_balance', as_of: '2026-09-30' },
+  };
+  const NEEDS_A_FILE = ['ledger.document.extract', 'ledger.document.get'];
+
+  it('every read declares generatedAt in its output and returns a fresh ISO time stamp', async () => {
+    const reads = P.backend.core.manifest.abilities.filter((a) => a.kind === 'read');
+    // The list above is every read: a new read must be added here, not silently skipped.
+    expect(reads.map((a) => a.key).filter((k) => !NEEDS_A_FILE.includes(k)).sort()).toEqual(Object.keys(ARGS).sort());
+    for (const a of reads) expect((a.output as { required?: string[] }).required ?? [], a.key).toContain('generatedAt');
+    const before = Date.now();
+    for (const [key, args] of Object.entries(ARGS)) {
+      const r = await P.api('POST', `/api/apps/ledger/read/${key}`, args);
+      expect(r.status, `${key}: ${JSON.stringify(r.body)}`).toBe(200);
+      const at = r.body.result.generatedAt;
+      expect(typeof at, key).toBe('string');
+      expect(new Date(at).toISOString(), key).toBe(at);
+      expect(Date.parse(at), key).toBeGreaterThanOrEqual(before - 1_000);
+      expect(Date.parse(at), key).toBeLessThanOrEqual(Date.now() + 1_000);
+    }
+  });
+});
+
 describe('honesty · every report says where its facts came from', () => {
   it('when the assistant forgets to list sources, the book fills them from the reads the job made', async () => {
     P.setBrain((v) => (v.calls === 0 ? call('ledger.report.pnl', { from: '2026-08-01', to: '2026-08-31' }) : finish('August net loss was ₹67,590.')));

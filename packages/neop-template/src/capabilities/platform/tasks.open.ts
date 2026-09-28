@@ -15,6 +15,8 @@ export interface OpenJobInput {
   trace?: string | null;
   /** Files the person attached: read by the documents door, kept on the job as untrusted notes. */
   attachments?: DocumentUpload[];
+  /** Where the ask came from (jobs.origin, t007): the room event id for a room message; the task id otherwise. */
+  origin?: string | null;
 }
 
 /**
@@ -40,6 +42,7 @@ export async function openJob(core: Core, companyId: string, input: OpenJobInput
       parent_job_id: parent,
       trace_id: input.trace ?? null,
       on_behalf_of: input.on_behalf_of ?? (input.requester.startsWith('user:') ? input.requester : null),
+      origin: input.origin ?? input.task_id,
     });
     if (r.created) for (const n of notes) await core.book.addFact(c, { company_id: companyId, job_id: r.job.id, ...n });
     if (r.created) for (const f of kept) if (f) await recordFile(c, core.key, companyId, r.job.id, f);

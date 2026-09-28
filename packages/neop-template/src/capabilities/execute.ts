@@ -239,7 +239,8 @@ async function finish(
     // The outcome is written once: if another attempt already finished, its proof stands.
     const cur = await core.book.getProposal(c, p.id, true);
     if (cur && cur.status !== 'EXECUTING') return cur.proof as Proof;
-    await core.book.updateProposal(c, p.id, { status: res.outcome, proof });
+    // executed_at: the attempt is over (whatever its outcome); verified_at: a read-back found the effect (t007).
+    await core.book.updateProposal(c, p.id, { status: res.outcome, proof }, { executed: true, verified: res.outcome === 'DONE' });
     await core.book.proposalEvent(c, { company_id: p.company_id, proposal_id: p.id, event: `executed:${res.outcome}`, actor: claims.sub, detail: proof });
     await core.book.recordOperation(c, {
       company_id: p.company_id,
@@ -251,6 +252,9 @@ async function finish(
       gateway_request_id: claims.request_id ?? null,
       trace_id: claims.trace ?? null,
       detail: { proposal_id: p.id, amount_minor: m.amount_minor ?? null, currency: m.currency ?? null, external_ref: res.external_ref },
+      request: p.args,
+      result: proof,
+      reason: `${p.approved_via === 'grant' ? 'a standing yes' : 'a yes'} from ${p.decided_by ?? 'unknown'} on proposal ${p.id}${res.error ? ` · ${res.error}` : ''}`,
     });
     await core.book.emit(c, p.company_id, 'proposal.executed', { proposal_id: p.id, job_id: p.job_id, outcome: res.outcome, proof }, `executed:${p.id}`);
     // B2: the job wakes only now that execution is terminal.
@@ -283,7 +287,7 @@ export async function reconcileUnknown(core: Core, p: ProposalRow): Promise<Exec
       await core.book.updateProposal(c, p.id, { proof });
       return;
     }
-    await core.book.updateProposal(c, p.id, { status: outcome, proof });
+    await core.book.updateProposal(c, p.id, { status: outcome, proof }, { verified: outcome === 'DONE' });
     await core.book.proposalEvent(c, { company_id: p.company_id, proposal_id: p.id, event: `reconciled:${outcome}`, actor: 'runner:reconcile', detail: proof });
     await core.book.addStep(c, {
       company_id: p.company_id,

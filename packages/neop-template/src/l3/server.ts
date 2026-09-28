@@ -106,7 +106,7 @@ export function l3App(core: Core): Hono {
     if (claims.sub.startsWith('user:')) return c.json({ error: { code: 'denied', message: 'people ask through the platform, not by opening jobs' } }, 403);
     if (!requesterMatches(claims, body.requester)) return c.json({ error: { code: 'denied', message: 'caller cannot speak for that requester' } }, 403);
     const source = claims.sub.startsWith('app:') ? 'a2a' : 'task';
-    return c.json(await openJob(core, claims.company_id!, { ...body, source, trace: trace(c) }));
+    return c.json(await openJob(core, claims.company_id!, { ...body, source, trace: trace(c), origin: body.task_id }));
   });
 
   // Phase 3 path, live now: the appservice turns a room event into a signed call.
@@ -119,7 +119,7 @@ export function l3App(core: Core): Hono {
     if (bad || typeof b.event_id !== 'string' || !String(b.sender).startsWith('user:')) {
       return c.json({ error: { code: 'bad_request', message: bad ?? 'event_id and a person sender (user:<id>) required' } }, 400);
     }
-    return c.json(await openJob(core, claims.company_id!, { task_id: b.task_id, ask: b.text, requester: b.sender, source: 'room', trace: trace(c) }));
+    return c.json(await openJob(core, claims.company_id!, { task_id: b.task_id, ask: b.text, requester: b.sender, source: 'room', trace: trace(c), origin: b.event_id }));
   });
 
   app.post('/l3/tasks.cancel', async (c) => {
@@ -289,6 +289,10 @@ export function l3App(core: Core): Hono {
     core.borrowed.invalidate(claims.company_id!);
     // Installs and uninstalls change which package lines and skills exist: reload them now.
     core.packages.invalidate(claims.company_id!);
+    // Reload now, so the book's read-only mirror (<schema>.switchboard) shows the new board before the
+    // platform hears "ok" — not whenever the next job happens to load it. A failed reload is not this
+    // call's failure: the cache stays dropped and the next use fetches it.
+    await core.board.get(claims.company_id!).catch((e) => core.log('switchboard reload failed', { e: String(e) }));
     return c.json({ ok: true });
   });
 
@@ -326,6 +330,9 @@ export function l3App(core: Core): Hono {
           idempotency_key: claims.idem_key,
           outcome: 'served',
           gateway_request_id: c.req.header('x-request-id') ?? null,
+          request: args,
+          result,
+          reason: `a read served to ${claims.sub} through the gateway`,
         }),
       );
     }

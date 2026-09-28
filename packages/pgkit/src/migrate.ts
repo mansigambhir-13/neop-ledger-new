@@ -175,6 +175,12 @@ export function migrationChecksum(raw: string): string {
   return createHash('sha256').update(raw).digest('hex');
 }
 
+/** The shipped migration files (template stream, then the app's), in order: name, path and checksum. */
+export async function shippedMigrationFiles(sources: MigrationSource): Promise<(AppliedMigration & { file: string })[]> {
+  const files = await listFiles(sources);
+  return Promise.all(files.map(async (f) => ({ name: f.name, file: f.file, checksum: migrationChecksum(await readFile(f.file, 'utf8')) })));
+}
+
 /** The shipped migration set (template stream, then the app's), in order, with each file's checksum. */
 export async function shippedMigrations(sources: MigrationSource): Promise<AppliedMigration[]> {
   const files = await listFiles(sources);
