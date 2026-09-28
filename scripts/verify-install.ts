@@ -7,9 +7,13 @@
 //   tsx scripts/verify-install.ts <app> <company id|slug>
 //
 //   NEOS_PLATFORM_URL                   the running platform (GET /live)
-//   NEOS_DB_URL[_FILE]                  a platform database link (read-only use): apps, installs, vault
+//   NEOS_DB_URL[_FILE]                  a platform database link (read-only use): apps, installs
 //   NEOP_RUNNER_DB_URL[_FILE]           the app's runner link (it reads <app>.schema_migrations, like the boot check, and
 //                                       <app>.switchboard, the board's truth since v3 S1); defaults to NEOS_DB_URL
+//   NEOP_DOOR_SECRETS_DIR               the door secret store as the backend mounts it (default /run/secrets/doors):
+//                                       each connected door has a file — checked by name and mode, never opened
+//   NEOS_COMPOSE_FILE                   the rendered compose config (docker compose config): only the backend
+//                                       mounts the doors; no agent, no web
 //   NEOP_LLM_UPSTREAM_KEY[_FILE]        the LLM proxy's provider key — present, never read (run where the proxy's env is)
 //   MATRIX_MODE=client + MATRIX_HOMESERVER_URL + MATRIX_CLIENT_ACCOUNTS[_FILE]   each account's token: whoami
 //   NEOS_ENV=production                 an app registered without a conformance attestation is a FAIL (else a WARN)
@@ -21,7 +25,8 @@ import { createPool, familyRoles, schemaDrift, shippedMigrations, type AppliedMi
 
 type Pool = ReturnType<typeof createPool>;
 import { attestationProblem, chatClientConfigFromEnv, MatrixClientHttp } from '@neop/platform';
-import { appMigrationSources, type AppDefinition } from '@neop/template';
+import { appMigrationSources, DEFAULT_DOOR_SECRETS_DIR, doorSecretPaths, type AppDefinition } from '@neop/template';
+import { parse as parseYaml } from 'yaml';
 
 type Manifest = AppDefinition['manifest'];
 
@@ -269,17 +274,73 @@ export async function verifyInstall(o: {
     });
     return `version ${sb?.version ?? 0}: ${eff.filter((s) => s === 'on').length} on, ${eff.filter((s) => s === 'ask_first').length} ask first, ${eff.filter((s) => s === 'off').length} off`;
   });
-  await check('vault: a door key for every declared door', async () => {
+  // v3 §12: door credentials are files in the secret store, read by the backend per call. Checked to be there (and
+  // not open to others) by name and mode only — never opened.
+  await check('doors: a credential file for every connected door (not read)', async () => {
     if (!companyId || !appRow) throw new Skip('no install to read');
-    const doors = ((appRow as { manifest: Manifest }).manifest.doors ?? []).map((d) => d.key);
-    if (!doors.length) return 'no doors declared';
-    const rows = await q<{ door: string }>("select distinct door from neos.vault_secrets where company_id = $1 and app_key in ($2, '*')", [companyId, o.app]);
-    const have = new Set(rows.map((r) => r.door));
-    const missing = doors.filter((d) => !have.has(d));
+    const m = (appRow as { manifest: Manifest }).manifest;
+    const declared = (m.doors ?? []).map((d) => d.key);
+    if (!declared.length) return 'no doors declared';
+    // v3 S1: door switches are lines of the app's own <schema>.switchboard, read over the runner link.
+    must(runnerUrl, 'NEOP_RUNNER_DB_URL (or NEOS_DB_URL) is not set');
+    const rp = createPool(runnerUrl!, 1);
+    const sb: { settings: Record<string, string> } = { settings: {} };
+    try {
+      const c = await rp.connect();
+      try {
+        await c.query('begin transaction read only');
+        const lines = (await c.query<{ line: string; setting: string }>(`select line, setting from ${schema}.switchboard where company_id = $1 and line like 'door:%'`, [companyId])).rows;
+        sb.settings = Object.fromEntries(lines.map((l) => [l.line, l.setting]));
+      } finally {
+        await c.query('rollback').catch(() => {});
+        c.release(true);
+      }
+    } finally {
+      await rp.end().catch(() => {});
+    }
+    const off = (d: string) => (m.doors ?? []).find((x) => x.key === d)?.floor === 'off' || sb?.settings?.[`door:${d}`] === 'off';
+    const connected = declared.filter((d) => !off(d));
+    const root = env.NEOP_DOOR_SECRETS_DIR ?? DEFAULT_DOOR_SECRETS_DIR;
+    must(existsSync(root), `no secret store at ${root} — run this where the backend's doors mount is (NEOP_DOOR_SECRETS_DIR)`);
+    const missing: string[] = [];
+    const open: string[] = [];
+    const found: string[] = [];
+    for (const d of connected) {
+      const p = doorSecretPaths(root, companyId, o.app, d);
+      const f = [p.own, p.company].find((x) => existsSync(x));
+      if (!f) {
+        missing.push(d);
+        continue;
+      }
+      found.push(`${d} (${f === p.own ? 'own' : 'company-wide'})`);
+      if (statSync(f).mode & 0o077) open.push(`${path.relative(root, f)} is ${(statSync(f).mode & 0o777).toString(8)}`);
+    }
     // A door is connected per company when it is needed; until then its gated abilities fail cleanly (a definite
-    // "not connected", never UNKNOWN). So a missing key is a warning to act on, not a broken install.
-    if (missing.length) throw new Warn(`no key yet for ${missing.join(', ')} — abilities using it fail cleanly until an admin connects it (RUNBOOK: Configure a company's providers)`);
-    return doors.join(', ');
+    // "not connected", never UNKNOWN). So a missing file is a warning to act on, not a broken install.
+    if (missing.length) throw new Warn(`no credential yet for ${missing.join(', ')} — abilities using it fail cleanly until ops runs scripts/deploy.sh door set ${companyId} <door> ${o.app} (RUNBOOK: Door secrets)`);
+    if (open.length) throw new Warn(`readable by group or others (chmod 600): ${open.join('; ')}`);
+    const offList = declared.filter(off);
+    return `${found.join(', ')}${offList.length ? ` · switched off: ${offList.join(', ')}` : ''}`;
+  });
+  await check('deploy: the door secret store reaches the backend only (no agent, no web mount)', async () => {
+    const file = env.NEOS_COMPOSE_FILE;
+    if (!file) throw new Skip('NEOS_COMPOSE_FILE is not set (the rendered compose config)');
+    must(existsSync(file), `NEOS_COMPOSE_FILE names ${file}, which is missing`);
+    const services = (parseYaml(readFileSync(file, 'utf8'), { merge: true })?.services ?? {}) as Record<string, any>;
+    const mountsDoors = (s: any) =>
+      (s.volumes ?? []).some((v: any) => /\/doors(:|$|\/)/.test(typeof v === 'string' ? v : `${v.source ?? ''}:${v.target ?? ''}`)) || /DOOR_SECRETS/.test(JSON.stringify(s.environment ?? {}));
+    const bad = Object.entries(services)
+      .filter(([k, s]) => (k.endsWith('-agent') || k === 'web' || /agent\.ts/.test(JSON.stringify(s.command ?? ''))) && mountsDoors(s))
+      .map(([k]) => k);
+    must(!bad.length, `${bad.join(', ')} can see the door secret store — only the backend may`);
+    const backend = services[`${o.app}-backend`];
+    must(backend, `no ${o.app}-backend service in ${path.basename(file)}`);
+    const vols = (backend.volumes ?? []).map((v: any) => (typeof v === 'string' ? v : `${v.source}:${v.target}${v.read_only ? ':ro' : ''}`));
+    const doors = vols.find((v: string) => /:\/run\/secrets\/doors(:|$)/.test(v) || /\/doors:/.test(v));
+    must(doors, `${o.app}-backend has no doors mount: its doors will all fail as not connected`);
+    must(/:ro$/.test(doors) || (backend.volumes ?? []).some((v: any) => typeof v === 'object' && v.read_only), `${o.app}-backend mounts the doors read-write; mount it :ro`);
+    const agents = Object.keys(services).filter((k) => k.endsWith('-agent'));
+    return `${o.app}-backend read-only; ${agents.length} agent container(s) without it`;
   });
 
   // ── what runs beside it ──────────────────────────────────────────────────

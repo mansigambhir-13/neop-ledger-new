@@ -4,7 +4,6 @@
 // (gate/switchboard.ts, gate/grants.ts) — never fetched from here.
 
 import type { ManifestAbility, Setting } from '@neop/contracts';
-import { DoorError } from './doors/errors.ts';
 
 export class PlatformClient {
   readonly base: string;
@@ -59,21 +58,6 @@ export class PlatformClient {
     if (r.status !== 200) throw new Error(`artifact ${hash}: ${r.status}`);
     return r.body.base64;
   }
-
-  /** An LLM session token for one assistant session; null when the platform runs no proxy. */
-  async llmSession(req: { company_id: string; job_id: string; sid: string; ttl_seconds: number }): Promise<{ base_url: string; token: string } | null> {
-    const r = await this.call<{ base_url: string; token: string }>('POST', '/internal/llm/session', req);
-    if (r.status === 200) return r.body;
-    if (r.status === 404) return null;
-    throw new Error(`llm session refused: ${r.status}`);
-  }
-
-  /** Borrow a door credential for one call. */
-  async lend(companyId: string, door: string): Promise<Record<string, unknown>> {
-    const r = await this.call<{ secret: Record<string, unknown> }>('POST', '/internal/vault/lend', { company_id: companyId, door });
-    // No credential for this door (404) or not allowed (403): nothing was sent, so the outcome is definite.
-    if (r.status === 404 || r.status === 403) throw new DoorError(`${door} is not connected for this company (vault ${r.status})`, { definite: true });
-    if (r.status !== 200) throw new Error(`vault refused ${door}: ${r.status}`);
-    return r.body.secret;
-  }
+  // v3 (S8): door credentials come from the secret store (doors/secrets.ts) and LLM session tokens are minted by
+  // the runner (runner/llm.ts); the backend no longer asks the platform for either.
 }

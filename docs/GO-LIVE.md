@@ -15,7 +15,7 @@ Ledger's Matrix account (`@ledger`) exactly as `neos-agent-neuralchat` #143 does
 | 5 | A **new** model provider key (the one used in testing must be rotated) with a spend limit, on an account **with credit** — the test OpenRouter account has about $4 left after validation, not enough for a day of use (budget ~$0.25–0.50 per request) | Mansi | file → `LLM_KEY_FILE` |
 | 6 | Company name, time zone, the admin person (name, email, optionally their own Matrix id) | Mansi | `COMPANY_*`, `ADMIN_*` |
 | 7 | Who approves on day one: the people who will say yes on the desk (admins / members per the switchboard's approver policy), and optionally their own Matrix ids for approving in their own DM (see §3 — no setting: a bridge never approves) | Mansi | `ADMIN_*`, `ADMIN_MXID` |
-| 8 | Optional: email provider key (Resend) and sender, if invoices/reminders/close packs should be emailed on day one | Mansi | `EMAIL_DOOR_JSON` |
+| 8 | Optional: email provider key (Resend) and sender, if invoices/reminders/close packs should be emailed on day one. The key is a **file** (`api_key_file`); deploy writes the credential into the door secret store, `$NEOS_SECRETS_DIR/doors/<company>/ledger/email.json` (0600), which only the Ledger backend mounts (read-only) — no longer `PUT /api/vault` | Mansi | `EMAIL_DOOR_JSON` (+ key file) |
 
 ## 2. Deploy (about 15 minutes)
 
@@ -25,7 +25,22 @@ scripts/deploy.sh /srv/neops/production.env
 ```
 
 It stops at the first problem and says which. On success it prints `DEPLOYED`. The admin's API token is in
-`$NEOS_SECRETS_DIR/admin_token`. Back up `$NEOS_SECRETS_DIR` (it holds every generated secret) to a vault.
+`$NEOS_SECRETS_DIR/admin_token`. Back up `$NEOS_SECRETS_DIR` (it holds every generated secret, the door secret store
+under `doors/`, and `backup_doors_key`) to a vault.
+
+**Door credentials (v3 §12).** The Ledger backend reads each door's credential from the secret store at the moment
+of a call — `$NEOS_SECRETS_DIR/doors/<company_id>/[ledger/]<door>.json`, mounted read-only into `ledger-backend`
+only; the assistant's container never has it. Connect or rotate a door at any time, no restart:
+
+```
+scripts/deploy.sh door set <company_id> email ledger < resend.json      # {"provider":"resend","api_key":"…","from":"…"}
+scripts/deploy.sh door set <company_id> gst_portal ledger < gsp.json   # {"provider":"gsp",…}
+scripts/deploy.sh door ls                                               # names only
+```
+
+(`NEOS_SECRETS_DIR` in the environment, or `NEOS_ENV_FILE=/srv/neops/production.env`.) The credential goes on
+stdin, never the command line. Upgrading a host that connected doors through the old vault: see RUNBOOK *Door
+secrets* (`scripts/v3/export-door-secrets.ts` moves them once).
 
 ## 3. Approvals: a person says yes — never NeuralChat
 
@@ -93,7 +108,7 @@ stand-in external homeserver, and NeuralChat simulated exactly as #143 talks (`s
 | What | Result |
 | --- | --- |
 | `deploy.sh` first install | DEPLOYED — migrations, attested registration, company, admin, install, starter chart (38 accounts), Matrix client running, bridge allowed to approve |
-| `deploy.sh` re-run (upgrade path) | pre-upgrade backup taken; idempotent; verify-install 12/12 (+1 warning: email door not connected yet) |
+| `deploy.sh` re-run (upgrade path) | pre-upgrade backup taken; idempotent; verify-install all checks pass (+1 warning until the email door has a file in the secret store) |
 | Network policy at run time | holds in every container |
 | NeuralChat conversation (`docs/NEURALCHAT-SIM.md`) | **11/11**: hello, vendors, cash, a change proposed → "Go ahead with …" → executed once (decided by the person, via the bridge), a plain decline drops the other card, a money transfer is refused, a question asked and answered in plain text; replies p50 23 s, max 31 s |
 | Every ability, live (`docs/LIVE-VALIDATION.md`) | final build: governance 16/16 and writes 20/20 (3 skipped: a one-time write, and two emails cut by the run's $5 cap — both passed in the earlier full run of 104 checks) |

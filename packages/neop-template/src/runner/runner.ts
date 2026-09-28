@@ -198,13 +198,18 @@ export class Runner {
       const board = await this.core.board.get(job.company_id);
       // The board this session runs on, kept with the job (t007): what was on, at which version.
       await this.core.runnerPool.query(`update ${this.s}.jobs set switchboard_version = $2, switchboard_snapshot = $3 where id = $1`, [job.id, board.version, JSON.stringify(board.snapshot())]);
-      // The agent's only model credential: a platform-signed, budgeted session token (R1).
-      const llm = await this.core.platform.llmSession({
-        company_id: job.company_id,
-        job_id: job.id,
-        sid,
-        ttl_seconds: Math.ceil(this.core.cfg.timings.sessionMaxMs / 1000) + 60,
-      });
+      // The agent's only model credential: a budgeted session token the runner mints itself (R1; v3: no platform
+      // call). The budget is this company's, from the board this session runs on; the proxy trusts this app's key.
+      const llm = this.core.llm
+        ? await this.core.llm.mint({
+            company_id: job.company_id,
+            job_id: job.id,
+            sid,
+            ttl_seconds: Math.ceil(this.core.cfg.timings.sessionMaxMs / 1000) + 60,
+            budget: board.budget ?? {},
+            tz: board.company?.time_zone ?? 'UTC',
+          })
+        : null;
       // Spend is what the proxy metered for this job, across all its sessions (S9, item 12).
       const m = llm ? await this.meter(llm) : null;
       if (m) {

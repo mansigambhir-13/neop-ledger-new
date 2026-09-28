@@ -1,13 +1,14 @@
 // doors-switch.test · v3 §4 "abilities and connections sit in one list". Every door an app declares is a line
 // `door:<key>` on its switchboard, on or off (the app's floor from its manifest door entry, default on; a company
-// can only switch it off). Off means three things at once: the vault lends no key for it, every ability that
+// can only switch it off). Off means three things at once: the backend reads no key for it from the secret store, every ability that
 // needs it is not shown to the assistant, and the gate refuses such an ability even when asked by name.
 import { mkdtemp } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { bootstrapFamily, migrate, templateFiles } from '@neop/pgkit';
 import { TEMPLATE_INFRA_TABLES, TEMPLATE_MIGRATIONS } from '@neop/template';
+import { offDoors } from '../../../packages/neop-template/src/gate/tools.ts';
 import { bootPilot, finish, type Pilot } from './harness.ts';
 
 let P: Pilot;
@@ -44,7 +45,7 @@ describe('door lines on the board', () => {
 });
 
 describe('a door switched off', () => {
-  it('is off on the board, the vault lends no key, its abilities are hidden and refused by name', async () => {
+  it('is off on the board, no key is read for it, its abilities are hidden and refused by name', async () => {
     const before = await toolsNow();
     expect(before).toContain('ledger__invoice__send');
     expect(before).toContain('ledger__close_pack__email');
@@ -52,10 +53,13 @@ describe('a door switched off', () => {
     expect((await setDoor('off')).status).toBe(200);
     expect((await board()).doors[0]).toMatchObject({ line: 'door:email', company: 'off', setting: 'off' });
 
-    // The vault: refused, and audited.
-    await expect(P.platform.lend('ledger', P.company.id, 'email')).rejects.toMatchObject({ status: 403, code: 'door_off' });
-    const a = await P.platform.db.query("select outcome from neos.audit where action = 'vault.lend' and ability_key = 'email' order by id desc limit 1");
-    expect(a.rows[0].outcome).toBe('refused_door_off');
+    // The backend's lend: refused on the switch, definitely, before the secret store is read.
+    const core = P.backend.core;
+    const spy = vi.spyOn(core.secrets, 'get');
+    await P.waitFor(async () => (await core.lendDoor(P.company.id, 'email', ['email']).catch((e) => e))?.code === 'door_off', 'board refreshed');
+    await expect(core.doors(P.company.id).email.send({ to: ['a@b.example'], subject: 's', text: 't' }, 'k-off')).rejects.toMatchObject({ code: 'door_off', definite: true });
+    expect(spy).not.toHaveBeenCalled();
+    spy.mockRestore();
 
     // The assistant is not shown any ability that needs it; the rest are untouched.
     const after = await toolsNow();
@@ -81,17 +85,17 @@ describe('a door switched off', () => {
     P.worker.kill(t.job_id);
   });
 
-  it('switched back on: shown again and the vault no longer refuses on the switch', async () => {
+  it('switched back on: shown again and the key is read again', async () => {
     expect((await setDoor('on')).status).toBe(200);
     expect((await board()).doors[0]).toMatchObject({ company: 'on', setting: 'on' });
     expect(await toolsNow()).toContain('ledger__invoice__send');
-    const r = await P.platform.lend('ledger', P.company.id, 'email').catch((e) => e);
-    expect(r?.code).not.toBe('door_off');
+    const r = await P.waitFor(async () => P.backend.core.lendDoor(P.company.id, 'email', ['email']).catch(() => null), 'key read');
+    expect(r).toMatchObject({ provider: 'dev-mailbox' });
   });
 });
 
 describe('a door whose floor is off', () => {
-  it('a company cannot switch it on; the vault refuses it; a floor is on or off', async () => {
+  it('a company cannot switch it on; the backend refuses it; a floor is on or off', async () => {
     const m = (await P.platform.db.query("select manifest from neos.apps where key = 'ledger'")).rows[0].manifest;
     const base = { ...m, app: 'doorfloor', name: 'Door floor', abilities: [], uses: [], skills: [], packages: [], blocks: [], personal_data: undefined };
     await expect(P.platform.registerApp({ key: 'doorfloor', l3_url: 'http://x', manifest: { ...base, doors: [{ key: 'post', scopes: [], floor: 'ask_first' as any }] }, service_secret: 's' })).rejects.toMatchObject({ code: 'bad_door_floor' });
@@ -109,6 +113,11 @@ describe('a door whose floor is off', () => {
       ['door:post', 'off', 'off'],
       ['door:sms', 'on', 'off'],
     ]);
-    await expect(P.platform.lend('doorfloor', P.company.id, 'post')).rejects.toMatchObject({ code: 'door_off' });
+    // What a backend's lend checks (the same rule as its gate): off by floor, or off by the company.
+    const sb = await P.platform.switchboard(P.company.id, 'doorfloor');
+    const board = { hostSetting: (k: string) => (sb.settings as any)?.[k] ?? 'on' };
+    const fm = { doors: [{ key: 'post', scopes: [], floor: 'off' as const }, { key: 'sms', scopes: [] }] };
+    expect(offDoors(fm as any, board as any, { doors: ['post', 'sms'] })).toEqual(['post', 'sms']);
+    expect(offDoors(fm as any, { hostSetting: () => 'on' } as any, { doors: ['post', 'sms'] })).toEqual(['post']);
   });
 });

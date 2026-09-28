@@ -7,7 +7,7 @@
 // --dedicated (or NEOS_DEDICATED_DB="ledger=pg-ledger:5432,…"): D2's dedicated-DB tier. That app's
 //   roles, its direct URLs, its PgBouncer entry and its own admin URL (pg_admin_url_<app>, read by the
 //   migrate runner as NEOS_ADMIN_URL_<APP>) point at its own cluster. Everything else stays shared.
-import { randomBytes } from 'node:crypto';
+import { createPrivateKey, createPublicKey, generateKeyPairSync, randomBytes } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 
@@ -58,6 +58,7 @@ const url = (family: string, user: string, pw: string) => `postgres://${user}:${
 const pgbDb = (family: string) => (dedicated.has(family) ? `${db.name}_${family}` : db.name);
 const pooled = (family: string, user: string, pw: string) => `postgres://${user}:${encodeURIComponent(pw)}@pgbouncer:6432/${pgbDb(family)}`;
 const userlist: string[] = [];
+const runnerKeys: Record<string, unknown[]> = {};
 
 const adminPw = put('pg_admin', random);
 put('pg_admin_url', () => url('neos', 'neos_admin', adminPw));
@@ -78,10 +79,33 @@ for (const family of ['neos', ...apps]) {
     put(`${family}_service_secret`, () => random(32));
     put(`${family}_job_token_secret`, () => random(32));
     put(`${family}_pkg_pw_key`, () => random(32));
+    // v3 (S8): the runner signs its assistants' LLM session tokens itself. Private half: this app's backend only.
+    const jwk = JSON.parse(
+      put(`${family}_llm_signing_key`, () => {
+        const { privateKey } = generateKeyPairSync('ed25519');
+        return JSON.stringify({ ...privateKey.export({ format: 'jwk' }), kid: `llm-${family}-${random(6)}`, alg: 'EdDSA' });
+      }),
+    );
+    const pub = createPublicKey(createPrivateKey({ key: jwk, format: 'jwk' })).export({ format: 'jwk' });
+    runnerKeys[family] = [{ ...pub, kid: jwk.kid, alg: 'EdDSA' }];
   }
 }
+// The public halves, for the LLM proxy only. Derived from the private keys above, so it is rewritten whenever it
+// does not match them (an app added, a key rotated by deleting its file); it holds nothing secret.
+{
+  const f = path.join(dir, 'llm_runner_keys');
+  const v = JSON.stringify(runnerKeys);
+  const cur = existsSync(f) ? readFileSync(f, 'utf8').trim() : null;
+  if (cur !== v) {
+    writeFileSync(f, v + '\n', { mode: 0o600 });
+    made.push('llm_runner_keys');
+  } else kept.push('llm_runner_keys');
+}
+// Door credentials (v3 §12) live under doors/<company>/[<app>/]<door>.json, written by `scripts/deploy.sh door set`.
+mkdirSync(path.join(dir, 'doors'), { recursive: true, mode: 0o700 });
 put('vault_keys', () => JSON.stringify({ active: 'k1', keys: { k1: randomBytes(32).toString('base64') } }));
 put('metrics_token', () => random(24));
+put('backup_doors_key', () => randomBytes(32).toString('base64')); // seals the doors/ copy in each nightly backup
 put('grafana_admin', () => random(18)); // observability profile: Grafana's admin password
 put('pgbouncer_userlist', () => userlist.join('\n'));
 put('pgbouncer_ini', () =>

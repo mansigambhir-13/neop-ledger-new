@@ -77,7 +77,9 @@ describe('rotation', () => {
 });
 
 describe('vault', () => {
+  // Deprecated with v3 (S8): no backend reads the vault; it stays the sealed source for scripts/v3/export-door-secrets.ts until S9.
   it('stores door credentials sealed and bound to their company and door', async () => {
+    await P.platform.setVaultSecret(P.company.id, 'email', { provider: 'dev-mailbox', dir: P.mailDir });
     const row = (await P.platform.db.query("select secret from neos.vault_secrets where company_id = $1 and door = 'email'", [P.company.id])).rows[0];
     expect(row.secret.v).toBe(1);
     expect(JSON.stringify(row.secret)).not.toContain(P.mailDir);

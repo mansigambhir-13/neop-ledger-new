@@ -2,12 +2,14 @@ import { Metrics, personalDataProblems, Tracer, type Manifest, type ManifestAbil
 import { createPool, forceClose, withCompany, type Pool, type PoolClient } from '@neop/pgkit';
 import { Validators } from './capabilities/schemas.ts';
 import { Book } from './data/book.ts';
-import { createDoors, PgDoorJournal, type Doors } from './doors/index.ts';
+import { createDoors, DoorError, FileSecretStore, PgDoorJournal, type Doors, type SecretStore } from './doors/index.ts';
 import { BorrowCache } from './gate/borrowed.ts';
 import { JobTokens } from './gate/jobtoken.ts';
 import { GatewayAuth } from './l3/auth.ts';
 import { PackageHost, type ResolvedAbility } from './packages/host.ts';
 import { SwitchboardCache } from './gate/switchboard.ts';
+import { offDoors } from './gate/tools.ts';
+import { LlmSessions } from './runner/llm.ts';
 import { PlatformClient } from './platform-client.ts';
 import type { AppDefinition, NeopConfig } from './types.ts';
 
@@ -32,6 +34,10 @@ export class Core {
   readonly borrowed: BorrowCache;
   readonly packages: PackageHost;
   readonly tracer: Tracer;
+  /** Door credentials (v3 §12): read per (app, company) per call; never cached, never handed to the assistant. */
+  readonly secrets: SecretStore;
+  /** Mints the assistant's budgeted LLM session token itself (v3: no platform call); null when no proxy is configured. */
+  readonly llm: LlmSessions | null;
   readonly metrics = new Metrics();
   /** Test/fault-injection hooks; empty in production. */
   readonly hooks: { beforeExecuteEffect?: (proposalId: string) => Promise<void>; afterGrantMatched?: (proposalId: string) => Promise<void> } = {};
@@ -56,6 +62,8 @@ export class Core {
     this.borrowed = new BorrowCache(this);
     this.packages = new PackageHost(this, cfg.packageCacheDir);
     this.tracer = new Tracer(`neop-${this.key}`);
+    this.secrets = cfg.secrets ?? new FileSecretStore({ app: this.key, warn: (m, e) => this.log(m, e) });
+    this.llm = cfg.llm ? new LlmSessions(this.key, cfg.llm) : null;
     this.gatewayAuth = new GatewayAuth({ jwksUrl: `${cfg.platformUrl.replace(/\/$/, '')}/.well-known/jwks.json`, app: this.key, runnerPool: this.runnerPool, schema: this.key, cacheMs: cfg.jwksCacheMs });
     for (const a of this.manifest.abilities) {
       if (a.kind === 'read' && a.floor === 'ask_first') throw new Error(`ability ${a.key}: a read cannot be ask-first (R7)`);
@@ -95,7 +103,24 @@ export class Core {
   }
 
   doors(companyId: string, extra: string[] = []): Doors {
-    return createDoors(this.platform, companyId, [...this.manifest.doors.map((d) => d.key), ...extra], new PgDoorJournal(this.appPool, this.key, companyId));
+    const declared = [...this.manifest.doors.map((d) => d.key), ...extra];
+    return createDoors((door) => this.lendDoor(companyId, door, declared), companyId, declared, new PgDoorJournal(this.appPool, this.key, companyId));
+  }
+
+  /**
+   * A door's credential for one call (v3 §12): declared by this app (or the installed package asking), switched on
+   * for the company (B6 `door:<key>` lines; the gate has already refused abilities needing an off door), then read
+   * from the secret store now. Any refusal is definite: nothing was sent.
+   */
+  async lendDoor(companyId: string, door: string, declared: string[]): Promise<Record<string, unknown>> {
+    if (!declared.includes(door)) throw new DoorError(`${this.key} does not declare the ${door} door`, { definite: true, code: 'undeclared_door' });
+    const board = await this.board.get(companyId);
+    if (offDoors(this.manifest, board, { doors: [door] }).length) {
+      throw new DoorError(`the ${door} door is switched off for ${this.key} at this company; nothing was sent`, { definite: true, code: 'door_off' });
+    }
+    const secret = await this.secrets.get(companyId, door);
+    if (!secret) throw new DoorError(`${door} is not connected for this company: no credential in the secret store (ops: scripts/deploy.sh door set); nothing was sent`, { definite: true, code: 'no_secret' });
+    return secret;
   }
 
   log(msg: string, extra?: Record<string, unknown>): void {

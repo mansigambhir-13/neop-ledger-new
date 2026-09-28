@@ -39,15 +39,20 @@ async function approve(card: any) {
   return P.waitFor(async () => (await P.platform.db.query("select status, proof from neos.approvals where id = $1 and status in ('EXECUTED','FAILED','UNKNOWN','REFUSED')", [card.id])).rows[0], 'executed');
 }
 
-describe('B1 · vault and internal endpoints are scoped to installs and declared doors', () => {
-  it('refuses lending for a company that has not installed the app, and for an undeclared door', async () => {
+describe('B1 · door credentials and internal endpoints are scoped to installs and declared doors', () => {
+  it('refuses a door credential for a company that has not installed the app, and for an undeclared door', async () => {
+    const core = P.backend.core;
+    const declared = core.manifest.doors.map((d) => d.key);
     const other = await P.platform.createCompany('Not A Customer');
-    await P.platform.setVaultSecret(other.id, 'email', { provider: 'dev-mailbox', dir: '/tmp/x' });
-    expect((await internal('POST', '/internal/vault/lend', { company_id: other.id, door: 'email' })).status).toBe(403);
-    await P.platform.setVaultSecret(P.company.id, 'payroll_bank', { provider: 'http', base_url: 'https://x', token: 'secret' });
-    const r = await internal('POST', '/internal/vault/lend', { company_id: P.company.id, door: 'payroll_bank' });
-    expect(r.status).toBe(403);
-    expect((await r.json()).error.code).toBe('undeclared_door');
+    await P.setDoorSecret('email', { provider: 'dev-mailbox', dir: '/tmp/x' }, { company: other.id });
+    // Not installed there: the board is refused before the secret store is looked at.
+    await expect(core.lendDoor(other.id, 'email', declared)).rejects.toThrow();
+    await P.setDoorSecret('payroll_bank', { provider: 'http', base_url: 'https://x', token: 'secret' });
+    await expect(core.lendDoor(P.company.id, 'payroll_bank', declared)).rejects.toMatchObject({ code: 'undeclared_door', definite: true });
+    expect(core.doors(P.company.id).payroll_bank).toBeUndefined();
+    // v3 (S8): the platform lends nothing and mints no model sessions any more.
+    expect((await internal('POST', '/internal/vault/lend', { company_id: P.company.id, door: 'email' })).status).toBe(404);
+    expect((await internal('POST', '/internal/llm/session', { company_id: P.company.id, job_id: 'x', sid: 'x', ttl_seconds: 60 })).status).toBe(404);
     expect((await internal('GET', `/internal/switchboard?company_id=${other.id}`)).status).toBe(403);
     expect((await internal('GET', `/internal/registry/entries?company_id=${other.id}`)).status).toBe(403);
   });

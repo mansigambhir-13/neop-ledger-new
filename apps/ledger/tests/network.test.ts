@@ -43,9 +43,39 @@ describe('network policy', () => {
   });
 
   it('backends hold no model key; only the LLM proxy holds the provider key', () => {
-    for (const b of backends) expect(envKeys(b)).not.toMatch(/LLM|llm/);
+    // v3 (S8): a backend's only LLM settings are where the proxy is and its runner's session-signing key.
+    for (const b of backends) {
+      const llmKeys = envKeys(b).split(' ').filter((k) => /LLM|llm/.test(k)).sort();
+      const app = b.replace('-backend', '');
+      expect(llmKeys, b).toEqual(['NEOP_LLM_PROXY_URL', 'NEOP_LLM_SIGNING_KEY_FILE', `${app}_llm_signing_key`].sort());
+      expect(envKeys(b)).not.toMatch(/UPSTREAM|llm_upstream|VIRTUAL_KEY|llm_runner_keys/);
+    }
     const holders = Object.keys(svc).filter((k) => /llm_upstream_key/.test(envKeys(k)));
     expect(holders).toEqual(['llm-proxy']);
+    // The signing keys stay with their backends; the proxy holds only the public halves.
+    expect(Object.keys(svc).filter((k) => /_llm_signing_key/.test(envKeys(k))).sort()).toEqual(backends.sort());
+    expect(Object.keys(svc).filter((k) => /llm_runner_keys/.test(envKeys(k)))).toEqual(['llm-proxy']);
+    expect(svc['llm-proxy']!.environment).toMatchObject({ NEOP_LLM_RUNNER_KEYS_FILE: '/run/secrets/llm_runner_keys' });
+  });
+
+  it('door credentials (v3 §12): the secret store is mounted read-only into the backend only — never an agent, never web', () => {
+    const mounts = (s: string) => (((raw as any)[s].volumes ?? []) as string[]).filter((v) => /\/doors(:|$)/.test(v));
+    for (const b of backends) {
+      expect(mounts(b), b).toEqual(['${NEOS_SECRETS_DIR:-./secrets}/doors:/run/secrets/doors:ro']);
+      expect(svc[b]!.environment).toMatchObject({ NEOP_DOOR_SECRETS_DIR: '/run/secrets/doors' });
+    }
+    for (const a of agents) {
+      expect(mounts(a), a).toEqual([]);
+      expect(JSON.stringify((raw as any)[a]), a).not.toMatch(/doors|DOOR_SECRETS/);
+    }
+    for (const s of ['web', 'platform', 'llm-proxy', 'egress-proxy', 'grafana', 'prometheus']) expect(mounts(s), s).toEqual([]);
+    // Only the nightly backup also reads it (read-only), and seals what it copies with its own key.
+    const holders = Object.keys(raw).filter((k) => mounts(k).length).sort();
+    expect(holders).toEqual(['backup', ...backends].sort());
+    expect(mounts('backup')).toEqual(['${NEOS_SECRETS_DIR:-./secrets}/doors:/run/secrets/doors:ro']);
+    expect(svc.backup!.environment).toMatchObject({ NEOS_BACKUP_DOORS_DIR: '/run/secrets/doors', NEOS_BACKUP_DOORS_KEY_FILE: '/run/secrets/backup_doors_key' });
+    // The platform's vault key is still the platform's alone (it is deprecated with v3; S9 removes it).
+    expect(Object.keys(svc).filter((k) => /vault_keys|VAULT/.test(envKeys(k)))).toEqual(['platform']);
   });
 
   it('the llm network joins agents and the proxy only; only the platform reaches L3 and chat', () => {
@@ -115,7 +145,7 @@ describe('network policy', () => {
     expect(svc.backup!.networks).toEqual(['db']);
     expect(compose.networks.db.internal).toBe(true);
     expect((raw as any).backup.command).toEqual(['tsx', 'scripts/backup.ts', 'schedule']);
-    expect((raw as any).backup.volumes).toEqual(['backups:/backups']);
+    expect((raw as any).backup.volumes).toEqual(['backups:/backups', '${NEOS_SECRETS_DIR:-./secrets}/doors:/run/secrets/doors:ro']);
     expect(svc.backup!.environment).toMatchObject({ NEOS_ADMIN_URL_FILE: '/run/secrets/pg_admin_url', NEOS_BACKUP_DIR: '/backups', NEOS_BACKUP_COMPANIES: '1' });
     expect(readFileSync(path.join(ROOT, 'deploy/backup.Dockerfile'), 'utf8')).toMatch(/postgresql-client-17/);
   });
@@ -243,6 +273,18 @@ describe('gen-secrets (D2 dedicated-DB tier)', () => {
     const ini = s('pgbouncer_ini');
     expect(ini).toContain('neos = host=pg-main.internal port=6543 dbname=neos');
     expect(ini).toContain('neos_ledger = host=pg-ledger port=5433 dbname=neos');
+  });
+
+  it('v3 (S8): a session-signing key per app for its backend, the public halves for the proxy, and a doors/ store', () => {
+    const s = gen();
+    const priv = JSON.parse(s('ledger_llm_signing_key'));
+    expect(priv).toMatchObject({ kty: 'OKP', crv: 'Ed25519', alg: 'EdDSA' });
+    expect(priv.d).toBeTruthy();
+    const pub = JSON.parse(s('llm_runner_keys'));
+    expect(Object.keys(pub)).toEqual(['ledger']);
+    expect(pub.ledger).toEqual([{ kty: 'OKP', crv: 'Ed25519', x: priv.x, kid: priv.kid, alg: 'EdDSA' }]);
+    expect(pub.ledger[0].d).toBeUndefined();
+    expect(Buffer.from(s('backup_doors_key'), 'base64')).toHaveLength(32);
   });
 
   it('refuses a dedicated cluster for an app it is not generating', () => {

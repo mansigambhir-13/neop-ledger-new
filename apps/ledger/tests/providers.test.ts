@@ -14,7 +14,7 @@ let RS: FakeProvider;
 beforeAll(async () => {
   RS = await fakeResend();
   P = await bootPilot();
-  await P.platform.setVaultSecret(P.company.id, 'email', { provider: 'resend', api_key: RS.token, from: 'Acme Books <books@acme.example>', base_url: RS.url });
+  await P.setDoorSecret('email', { provider: 'resend', api_key: RS.token, from: 'Acme Books <books@acme.example>', base_url: RS.url });
 });
 afterAll(async () => {
   await P?.close();
@@ -109,12 +109,12 @@ describe('email via Resend', () => {
 
 describe('a door that is not connected (found in the live acceptance run)', () => {
   it('fails definitely — FAILED, not UNKNOWN — and nothing is sent or reconciled', async () => {
-    await P.platform.db.query("delete from neos.vault_secrets where company_id = $1 and door = 'email'", [P.company.id]);
+    await P.removeDoorSecret('email');
     const before = RS.performed.length;
     const { proof } = await approveOne('ledger.close_pack.email', closePack);
     expect(proof.outcome).toBe('FAILED');
     expect(JSON.stringify(proof)).toMatch(/not connected/);
     expect(RS.performed.length).toBe(before);
-    await P.platform.setVaultSecret(P.company.id, 'email', { provider: 'resend', api_key: RS.token, from: 'Acme Books <books@acme.example>', base_url: RS.url });
+    await P.setDoorSecret('email', { provider: 'resend', api_key: RS.token, from: 'Acme Books <books@acme.example>', base_url: RS.url });
   });
 });

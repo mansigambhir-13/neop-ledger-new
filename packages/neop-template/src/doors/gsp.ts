@@ -16,9 +16,9 @@
 // would need that encryption here; it is not implemented.)
 //
 // Secrets stay here. The GSP credential (client id/secret, username) comes from
-// the vault per call. The session auth token lives only in this process's
+// the secret store per call. The session auth token lives only in this process's
 // memory, per company — never in the database, never in a result, never seen by
-// a model. OTPs are entered by a person into a separate vault slot (default
+// a model. OTPs are entered by a person into a separate secret-store slot (default
 // `<door>_otp`: { provider: 'person', auth_otp?, evc_otp? }); a used OTP is never
 // replayed by this process.
 //
@@ -51,7 +51,7 @@ export interface GspCredential {
   headers?: Record<string, string>;
   timeout_ms?: number;
   ip_usr?: string;
-  /** Vault slot a person writes OTPs into. Default `<door>_otp`. */
+  /** Secret-store slot a person's OTP is written into. Default `<door>_otp`. */
   person_door?: string;
   /** Call RETSUBMIT before RETFILE (default true). */
   submit_before_file?: boolean;
@@ -91,7 +91,7 @@ export interface GspContext {
   door: string;
   companyId: string;
   journal: DoorJournal | null;
-  /** Borrow another vault slot the host declared (for the person's OTPs). */
+  /** Read another secret-store slot the host declared (for the person's OTPs). */
   lend: (door: string) => Promise<Record<string, unknown>>;
 }
 
@@ -205,7 +205,7 @@ export class GspProvider {
         throw e;
       });
       throw new DoorError(
-        `${this.ctx.door}: no GST portal session. The portal has sent an OTP to the registered mobile of ${this.cred.username}; a person enters it as auth_otp in the ${slot} door (vault), then asks again. Nothing was sent.`,
+        `${this.ctx.door}: no GST portal session. The portal has sent an OTP to the registered mobile of ${this.cred.username}; a person enters it as auth_otp in the ${slot} door (secret store: scripts/deploy.sh door set), then asks again. Nothing was sent.`,
         { definite: true },
       );
     }

@@ -5,7 +5,7 @@
 // against a fake upstream through the LLM proxy.
 
 import { randomBytes } from 'node:crypto';
-import { mkdtemp } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fauxAssistantMessage, fauxText, fauxToolCall, registerFauxProvider, type Context } from '@mariozechner/pi-ai';
@@ -13,7 +13,7 @@ import { serve } from '@hono/node-server';
 import { Hono } from 'hono';
 import { closeServer, createTestDatabase, roleUrl } from '@neop/pgkit';
 import { generateSigningKeys, migratePlatform, startPlatform, type ChatBridge } from '@neop/platform';
-import { migrateApp, startBackend, toolName, type AppDefinition, type NeopBackend } from '@neop/template';
+import { doorSecretPaths, FileSecretStore, generateLlmSigningKey, migrateApp, startBackend, toolName, type AppDefinition, type NeopBackend } from '@neop/template';
 import { proxyModel, startAgentWorker } from '@neop/template/agent';
 
 export interface BrainView {
@@ -210,6 +210,12 @@ export interface Pilot {
   /** A second operator: registry reviews are four-eyes (the submitter cannot co-sign). */
   operator2: { id: string; token: string };
   mailDir: string;
+  /** The door secret store (v3 §12): `<doorsDir>/<company>/[<app>/]<door>.json`, 0600, read by each backend per call. */
+  doorsDir: string;
+  /** Provision a door credential in the secret store (as ops would). Default: company-wide at this pilot's company. */
+  setDoorSecret(door: string, secret: Record<string, unknown>, o?: { company?: string; app?: string }): Promise<string>;
+  /** Remove a door credential (the door then fails definitely: "not connected"). */
+  removeDoorSecret(door: string, o?: { company?: string; app?: string }): Promise<void>;
   worker: Awaited<ReturnType<typeof startAgentWorker>>;
   workers: Record<string, Awaited<ReturnType<typeof startAgentWorker>>>;
   setBrain(b: Brain): void;
@@ -251,12 +257,15 @@ export async function bootPilot(opts: BootOptions): Promise<Pilot> {
   for (const a of opts.apps) await migrateApp(db.adminUrl, a.def);
 
   const keys = await generateSigningKeys();
+  // v3: each runner mints its assistants' LLM session tokens with its own key; the proxy holds the public halves.
+  const llmKeys: Record<string, Awaited<ReturnType<typeof generateLlmSigningKey>>> = {};
+  if (opts.llmUpstream) for (const a of opts.apps) llmKeys[a.def.manifest.app] = await generateLlmSigningKey(`llm-${a.def.manifest.app}`);
   let platUrl = '';
   const hs = opts.chat ? await fakeHomeserver(() => platUrl) : null;
   const plat = await startPlatform({
     chat: hs ? { matrix: { homeserverUrl: hs.url, serverName: MATRIX.serverName, hsToken: MATRIX.hsToken, asToken: MATRIX.asToken } } : undefined,
     bridgeSendEveryMs: 100,
-    llm: opts.llmUpstream ? { upstream: { baseUrl: opts.llmUpstream.url, apiKey: opts.llmUpstream.apiKey, auth: opts.llmUpstream.auth, modelPrefix: opts.llmUpstream.modelPrefix }, prices: { 'claude-sonnet-5': { input: 3, output: 15 } } } : undefined,
+    llm: opts.llmUpstream ? { upstream: { baseUrl: opts.llmUpstream.url, apiKey: opts.llmUpstream.apiKey, auth: opts.llmUpstream.auth, modelPrefix: opts.llmUpstream.modelPrefix }, prices: { 'claude-sonnet-5': { input: 3, output: 15 } }, runnerKeys: Object.fromEntries(Object.entries(llmKeys).map(([k, v]) => [k, [v.publicJwk]])) } : undefined,
     dbUrl: roleUrl(db.adminUrl, 'neos_app'),
     dbPoolSize: opts.platformDbPool ?? 6,
     keys,
@@ -270,9 +279,27 @@ export async function bootPilot(opts: BootOptions): Promise<Pilot> {
   const operator = await plat.platform.createUser(company.id, { name: 'Ops', email: 'ops@neos.example', role: 'operator' });
   const operator2 = await plat.platform.createUser(company.id, { name: 'Reviewer', email: 'review@neos.example', role: 'operator' });
   const mailDir = await mkdtemp(path.join(os.tmpdir(), 'neop-mail-'));
-  await plat.platform.setVaultSecret(company.id, 'email', { provider: 'dev-mailbox', dir: mailDir });
+  // v3 §12: door credentials live in the secret store, per (app, company), read by the backend per call.
+  const doorsDir = await mkdtemp(path.join(os.tmpdir(), 'neop-doors-'));
+  const doorFile = (door: string, o: { company?: string; app?: string } = {}) => {
+    const p = doorSecretPaths(doorsDir, o.company ?? company.id, o.app ?? 'x', door);
+    return o.app ? p.own : p.company;
+  };
+  const setDoorSecret = async (door: string, secret: Record<string, unknown>, o: { company?: string; app?: string } = {}) => {
+    const f = doorFile(door, o);
+    await mkdir(path.dirname(f), { recursive: true, mode: 0o700 });
+    // Write-then-rename, as ops rotates: a reader sees the old file or the new one, never half of one.
+    const tmp = `${f}.${randomBytes(4).toString('hex')}.tmp`;
+    await writeFile(tmp, JSON.stringify(secret), { mode: 0o600 });
+    await chmod(tmp, 0o600);
+    const { rename } = await import('node:fs/promises');
+    await rename(tmp, f);
+    return f;
+  };
+  const removeDoorSecret = async (door: string, o: { company?: string; app?: string } = {}) => rm(doorFile(door, o), { force: true });
+  await setDoorSecret('email', { provider: 'dev-mailbox', dir: mailDir });
   for (const door of ['social', 'ads', 'gst_portal']) {
-    await plat.platform.setVaultSecret(company.id, door, { provider: 'dev-file', dir: path.join(mailDir, `_${door}`) });
+    await setDoorSecret(door, { provider: 'dev-file', dir: path.join(mailDir, `_${door}`) });
   }
 
   const faux = registerFauxProvider({ provider: `faux-${randomBytes(3).toString('hex')}`, tokensPerSecond: 1_000_000 });
@@ -308,6 +335,8 @@ export async function bootPilot(opts: BootOptions): Promise<Pilot> {
       runnerId: `runner-${key}`,
       packageCacheDir: await mkdtemp(path.join(os.tmpdir(), `neop-pkg-${key}-`)),
       jwksCacheMs: 1_000,
+      secrets: new FileSecretStore({ root: doorsDir, app: key }),
+      llm: llmKeys[key] ? { proxyUrl: `${plat.url}/llm`, signingKey: llmKeys[key].privateJwk } : undefined,
       timings: { ...FAST, ...(opts.timings ?? {}) },
       ...(opts.backendConfig?.(key, company) ?? {}),
     };
@@ -354,6 +383,9 @@ export async function bootPilot(opts: BootOptions): Promise<Pilot> {
     operator,
     operator2,
     mailDir,
+    doorsDir,
+    setDoorSecret,
+    removeDoorSecret,
     worker: workers[first]!,
     workers,
     adminUrl: db.adminUrl,
@@ -385,6 +417,7 @@ export async function bootPilot(opts: BootOptions): Promise<Pilot> {
       for (const w of Object.values(workers)) await closeServer(w.server as any);
       await plat.stop().catch(() => {});
       await hs?.close();
+      await rm(doorsDir, { recursive: true, force: true }).catch(() => {});
       await db.drop();
     },
   };

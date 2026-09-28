@@ -48,7 +48,7 @@ describe('lifecycle', () => {
     // Break the mailbox so the send fails indeterminately and read-back cannot look.
     const broken = path.join(P.mailDir, 'not-a-dir');
     await writeFile(broken, 'x');
-    await P.platform.setVaultSecret(P.company.id, 'email', { provider: 'dev-mailbox', dir: path.join(broken, 'box') });
+    await P.setDoorSecret('email', { provider: 'dev-mailbox', dir: path.join(broken, 'box') });
     await P.backend.core.appPool.query('select 1');
     let woken = '';
     P.setBrain((v) => {
@@ -64,7 +64,7 @@ describe('lifecycle', () => {
     await P.waitFor(async () => (await P.task(task_id)).task.status === 'FAILED', 'task reported');
     expect(woken).toContain('is now UNKNOWN');
     // Reconciliation reads back; the message never appears, so after its retries it is FAILED.
-    await P.platform.setVaultSecret(P.company.id, 'email', { provider: 'dev-mailbox', dir: P.mailDir });
+    await P.setDoorSecret('email', { provider: 'dev-mailbox', dir: P.mailDir });
     const p = await P.waitFor(async () => {
       const r = await P.backend.core.runnerPool.query('select status, proof from ledger.proposals where id = $1', [card.proposal_id]);
       return r.rows[0].status === 'FAILED' && r.rows[0];

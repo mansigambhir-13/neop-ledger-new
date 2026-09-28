@@ -25,8 +25,8 @@ export function recoveryWindowMs(): number {
 }
 
 /**
- * Email door. The provider is chosen by the credential the vault lends for
- * this call:
+ * Email door. The provider is chosen by the credential the secret store holds,
+ * read for this call:
  *   { provider: 'resend', api_key, from, base_url? }   production (Resend API)
  *   { provider: 'dev-mailbox', dir }                     local mailbox (dev/tests)
  * Contract (S1): send with a door-level idempotency key; look the message up by

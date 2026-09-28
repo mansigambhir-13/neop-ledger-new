@@ -5,6 +5,12 @@ import { bindAddress, env, loadFileEnv, log, onShutdown, requireEnv } from './en
 
 requireEnv(['NEOP_APP_DB_URL', 'NEOP_RUNNER_DB_URL', 'NEOS_PLATFORM_URL', 'NEOP_SERVICE_SECRET', 'NEOP_JOB_TOKEN_SECRET', 'NEOP_AGENT_URL', 'NEOP_GATE_URL']);
 loadFileEnv(['NEOP_METRICS_TOKEN', 'NEOS_PKG_PW_KEY_LEDGER']);
+// Door credentials: read per call from NEOP_DOOR_SECRETS_DIR (default /run/secrets/doors, mounted read-only here only).
+// LLM sessions: the runner mints them with this app's signing key; the LLM proxy trusts the public half (v3, S8).
+const llm = process.env.NEOP_LLM_PROXY_URL
+  ? { proxyUrl: env('NEOP_LLM_PROXY_URL'), signingKey: JSON.parse(env('NEOP_LLM_SIGNING_KEY')) }
+  : undefined;
+if (!llm) log('warn', 'NEOP_LLM_PROXY_URL is not set: assistant sessions get no model token');
 const app = await ledgerApp();
 // WP §11 step 8: a schema out of step with this build's migrations is a configuration error (EX_CONFIG).
 const b = await startBackend(
@@ -22,6 +28,7 @@ const b = await startBackend(
     poolSize: Number(env('POOL_SIZE', '5')),
     runnerId: env('RUNNER_ID', `runner-${process.pid}`),
     packageCacheDir: env('NEOP_PACKAGE_CACHE_DIR', '/var/lib/neop/packages'),
+    llm,
     // Today's NEOS platform gateway (docs/pilot-ledger-integration.md): on only with its public key and a customer map.
     neosV1: process.env.NEOS_V1_PUBLIC_KEY || process.env.NEOS_V1_PUBLIC_KEY_FILE
       ? { publicKeyPem: env('NEOS_V1_PUBLIC_KEY'), customers: JSON.parse(env('NEOS_V1_CUSTOMERS')) as Record<string, string> }

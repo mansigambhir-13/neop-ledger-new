@@ -1,6 +1,9 @@
 // llm-proxy.test · R1: the agent holds no provider key; spend is metered and
-// capped where the key lives (reserve-then-settle), not by the agent's report.
+// capped where the key lives (reserve-then-settle), not by the agent's report. v3 (S8): the runner mints the
+// session token itself with a key only the proxy trusts for that app; no platform call.
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { randomUUID } from 'node:crypto';
+import { generateLlmSigningKey, LlmSessions } from '@neop/template';
 import { bootPilot, type Pilot } from './harness.ts';
 import { fakeAnthropic, type FakeUpstream } from './harness.ts';
 
@@ -67,6 +70,29 @@ describe('LLM proxy', () => {
     expect((await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json', 'x-api-key': U.apiKey }, body })).status).toBe(401);
     const gatewayToken = await P.platform.gateway.mint({ aud: 'ledger', sub: 'platform', company_id: P.company.id, ability: 'tasks.open', idem_key: 'k' });
     expect((await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json', 'x-api-key': gatewayToken }, body })).status).toBe(401);
+    // v3 (S8): the runner mints its sessions with its own key. A key the proxy was not given, or a runner token
+    // claiming another app, is refused; the real runner's token is accepted without any platform call.
+    const spend = `${P.platformUrl}/llm/v1/spend`;
+    const claims = { company_id: P.company.id, job_id: randomUUID(), sid: randomUUID(), ttl_seconds: 60, budget: { per_job_usd: 1 }, tz: 'UTC' };
+    const good = await P.backend.core.llm!.mint(claims);
+    expect(good.base_url).toBe(`${P.platformUrl}/llm`);
+    expect((await fetch(spend, { headers: { 'x-api-key': good.token } })).status).toBe(200);
+    const stranger = await generateLlmSigningKey('llm-ledger'); // same kid, different key
+    const forged = await new LlmSessions('ledger', { proxyUrl: 'x', signingKey: stranger.privateJwk }).mint(claims);
+    expect((await fetch(spend, { headers: { 'x-api-key': forged.token } })).status).toBe(401);
+    const unknownApp = await new LlmSessions('wage', { proxyUrl: 'x', signingKey: stranger.privateJwk }).mint(claims);
+    expect((await fetch(spend, { headers: { 'x-api-key': unknownApp.token } })).status).toBe(401);
+    // Ledger's key, but a token that says it is for marketing: the issuer picks the key, the subject must match it.
+    const { SignJWT, importJWK } = await import('jose');
+    const priv = (P.backend.core.cfg.llm as any).signingKey;
+    const crossed = await new SignJWT({ company_id: P.company.id, job_id: claims.job_id, sid: randomUUID(), budget_micros: 1, day_cap_micros: 1, tz: 'UTC' })
+      .setProtectedHeader({ alg: 'EdDSA', kid: priv.kid })
+      .setIssuer('neop-runner:ledger')
+      .setAudience('llm-proxy')
+      .setSubject('app:marketing')
+      .setExpirationTime('1m')
+      .sign(await importJWK(priv, 'EdDSA'));
+    expect((await fetch(spend, { headers: { 'x-api-key': crossed } })).status).toBe(401);
   });
 
   it('the daily cap holds across jobs for the company and app, enforced by the proxy', async () => {

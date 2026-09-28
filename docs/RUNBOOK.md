@@ -62,7 +62,7 @@ This whole sequence has been run end to end in Docker Compose. Every image sets 
 10. **Acceptance:** `NEOS_TOKEN_FILE=<an admin's token file> pnpm exec tsx scripts/pilot-acceptance.ts` sends 20 real requests and checks the plan's five acceptance criteria from the platform's records.
 11. **Verify the install (read-only):** after the migrator ran and the company was installed, run where the platform's and the LLM proxy's environment is (the platform container, with the proxy's key file mounted):
     `tsx scripts/verify-install.ts ledger <company id|slug>` with `NEOS_PLATFORM_URL`, `NEOS_DB_URL[_FILE]`, `NEOP_RUNNER_DB_URL[_FILE]` (defaults to `NEOS_DB_URL`), `NEOP_LLM_UPSTREAM_KEY_FILE`, and for the client road `MATRIX_MODE=client` + `MATRIX_HOMESERVER_URL` + `MATRIX_CLIENT_ACCOUNTS[_FILE]`.
-   - It prints one row per check — PASS / WARN / FAIL / SKIP — and exits 1 on any FAIL. Checks: the platform answers `/live`; the app is registered, active, attested (a WARN outside `NEOS_ENV=production`) and carries this build's manifest; the company has an active install; the `<app>_migrator/_app/_runner` roles exist, the app role is under RLS, neither app nor runner may CREATE; the schema is in step with the shipped migrations (the backend's own boot comparison: nothing pending, unknown or changed); every switchboard line is within its manifest floor; a vault door key exists for every declared door; the LLM proxy's provider key is present (never read or printed); the backend answers `/l3/ready` at the URL the platform routes to; each client-road account's token passes `whoami` and belongs to that account.
+   - It prints one row per check — PASS / WARN / FAIL / SKIP — and exits 1 on any FAIL. Checks: the platform answers `/live`; the app is registered, active, attested (a WARN outside `NEOS_ENV=production`) and carries this build's manifest; the company has an active install; the `<app>_migrator/_app/_runner` roles exist, the app role is under RLS, neither app nor runner may CREATE; the schema is in step with the shipped migrations (the backend's own boot comparison: nothing pending, unknown or changed); every switchboard line is within its manifest floor; a door secret file exists for every connected door (checked by name and mode, never opened) and only the backend mounts the store (from the rendered compose config); the LLM proxy's provider key is present (never read or printed); the backend answers `/l3/ready` at the URL the platform routes to; each client-road account's token passes `whoami` and belongs to that account.
    - It writes nothing (read-only sessions), sends no chat message, never logs in or out, and prints no secret. A FAIL row says what to fix (run the migrator, register this build, set the door key, issue a new Matrix token).
 12. **Acceptance — live validation of every ability:**
     ```
@@ -71,28 +71,61 @@ This whole sequence has been run end to end in Docker Compose. Every image sets 
     ```
     Uses only the person-facing API (never the DB) and the stack's **real model**. Sections: `reads` (every read with args built from today in the company's time zone; result checked against its output schema with ajv, `generatedAt`, `sources`, and `empty` agreeing with the sources cited; a read without args coverage is a FAIL "not exercised"), `writes` (every write run as one precise ask, in an order that builds on itself: party → account → coding rule → journal entry (a wrong fingerprint is refused) → its reversal → invoice → payment → bank import → match / categorise / set aside / expense → bill → settings (put back) → opening balances (reversed; SKIPPED if already set) → close a past month and reopen it → invoice email, reminder, close pack; each card checked (fields, `sha256:` fingerprint, args), approved, EXECUTED with proof DONE, exactly one `app.operation` in the audit, and the effect read back), `governance` (a read switched off and back; loosening refused 422; a standing yes within/beyond its cap; an `amount_cap` rule refusing with its id; member vs admin), `questions` (job_ask answered on the desk and by a follow-up in the conversation), `documents` (a CSV bill attached → a matching bill card, declined; the file kept and downloaded byte-identical; unauthenticated download 401), `schedules` (a daily schedule 2 minutes ahead → a timer job runs; then disabled — there is no delete), `blocks` (every read every block references, placeholders resolved). External-effect writes run only with `--email-to` and a connected door (otherwise SKIPPED with the reason); nep-gst portal writes are SKIPPED unless `--gst` (sandbox portal only). Spend is capped by `--budget-usd` (task cost from `/api/tasks/:id`, cross-checked with `/api/usage/<app>`); every job is cancelled after `--job-timeout-s` (360). Writes a markdown report plus a `.json` copy and exits 1 on any FAIL. Changes it makes are ₹1-scale and tagged `LV…` (the run tag); accounts, parties and coding rules it adds remain. Output schemas come from this checkout (the API does not serve them), so run it from the commit that is deployed — the report fails `manifest version` otherwise. Its logic is self-tested against the in-process pilot in `apps/ledger/tests/live-validate.test.ts`.
 
-## Configure a company's providers (admin, write-only)
-- **Email (Resend):**
+## Door secrets (v3 §12: the secret store, per (app, company))
+Door credentials are files, one JSON object each, read by the app backend **at the moment of a call** (no cache;
+a changed file is used on the next call, no restart). Ops provisions them; the assistant never sees them.
+
+- **Layout:** `$NEOS_SECRETS_DIR/doors/<company_id>/<app>/<door>.json` (that app's own credential) and
+  `$NEOS_SECRETS_DIR/doors/<company_id>/<door>.json` (company-wide: any app that declares the door). The app's own
+  file wins. A backend only ever builds paths from its own app key and the job's company; names are checked, so
+  another company's directory (or another app's file) is never read. Same binding as the old vault (migration 015).
+- **Where it is mounted:** read-only at `/run/secrets/doors` into `ledger-backend` (`NEOP_DOOR_SECRETS_DIR`), and
+  into `backup`, which seals it (below). Never into an agent, never into `web` or the platform. `verify-install`
+  checks both: a file for every connected door (by name and mode — never opened), and no agent/web mount.
+  With several NEOPs on one host, each backend still mounts the whole `doors/` tree read-only; isolation between
+  apps is the backend's path rule. For hard isolation, mount `doors/<company>/<app>` per app instead (company-wide
+  files then have to be copied into each app's directory).
+- **Set / rotate / remove** (the credential on stdin — never on the command line; files 0600, directories 0700, owned
+  by the backend's uid `NEOS_DOORS_UID`, default 1000):
   ```
-  PUT /api/vault/email
-  {"provider":"resend","api_key":"re_…","from":"Acme Books <books@acme.in>"}
+  scripts/deploy.sh door set <company_id> email ledger < resend.json
+     {"provider":"resend","api_key":"re_…","from":"Acme Books <books@acme.in>"}
+  scripts/deploy.sh door set <company_id> gst_portal ledger < gsp.json
+     {"provider":"gsp","base_url":"https://<gsp>","client_id":"…","client_secret":"…","username":"<GST portal username>",
+      "gstin":"27AAPFU0939F1ZV","signatory_pan":"AAPFU0939F","assume_supply":"intra_state",
+      "paths":{"authenticate":"/taxpayerapi/v1.0/authenticate","gstr3b":"/taxpayerapi/v1.1/returns/gstr3b","returns":"/taxpayerapi/v0.3/returns"},
+      "headers":{}, "timeout_ms":5000}
+  scripts/deploy.sh door rm <company_id> <door> [app]        # the door then fails definitely: "not connected", nothing sent
+  scripts/deploy.sh door ls                                   # names only
   ```
-- **GST filing (a GST Suvidha Provider):** install `nep-gst` (2.x), enable API access for the taxpayer's username on the GST portal, then set the GSP credential. Paths default to the GSTN taxpayer API layout; override them (and add any GSP-specific headers) to match your GSP.
+  (`NEOS_SECRETS_DIR` from the environment, or `NEOS_ENV_FILE=<deploy env file>`.) Rotation is write-then-rename,
+  so a call in flight sees the old credential or the new one, never half of one.
+- **GST (nep-gst 2.x):** install the package, enable API access for the taxpayer's username on the GST portal, then
+  set `gst_portal` as above. Paths default to the GSTN taxpayer API layout; override them (and add GSP-specific
+  headers) to match your GSP. `assume_supply` is used only when the chart keeps a single output and a single input
+  GST account; name the tax accounts per head (IGST / CGST / SGST / cess) and the split is read from the books.
+  OTPs are entered by a person, never by the assistant: when the portal sends one (login, or the signatory's EVC OTP
+  before a filing), ops writes it on the OTP slot — `scripts/deploy.sh door set <company_id> gst_portal_otp ledger`
+  with `{"provider":"person","auth_otp":"123456"}` or `{"provider":"person","evc_otp":"654321"}` on stdin. (A desk
+  path for the person to enter it themselves is a later stage.) The GSP session token lives only in the backend's
+  memory (a restart means a new login OTP).
+- **A door switched off** (`door:<key>` off on the switchboard) is refused by the gate before anything, and the
+  backend reads no key for it even if a file exists.
+- **Upgrading from the platform vault (before v3 S8):** move every stored credential once, then mount the result:
   ```
-  PUT /api/vault/gst_portal
-  {"provider":"gsp","base_url":"https://<gsp>","client_id":"…","client_secret":"…","username":"<GST portal username>",
-   "gstin":"27AAPFU0939F1ZV","signatory_pan":"AAPFU0939F","assume_supply":"intra_state",
-   "paths":{"authenticate":"/taxpayerapi/v1.0/authenticate","gstr3b":"/taxpayerapi/v1.1/returns/gstr3b","returns":"/taxpayerapi/v0.3/returns"},
-   "headers":{}, "timeout_ms":5000}
+  docker compose -f deploy/compose.pilot.yml run --rm --no-deps -T \
+    -e NEOS_DB_URL_FILE=/run/secrets/neos_app_url -e NEOS_VAULT_KEYS_FILE=/run/secrets/vault_keys \
+    -v "$NEOS_SECRETS_DIR/doors:/out" platform tsx scripts/v3/export-door-secrets.ts /out [--company <id>] [--dry-run]
   ```
-  `assume_supply` is used only when the chart keeps a single output and a single input GST account (the books then cannot tell CGST/SGST from IGST); name the tax accounts per head (IGST / CGST / SGST / cess) and the split is read from the books instead.
-  OTPs are entered by a person, never by the assistant: when the portal sends one (login, or the signatory's EVC OTP before a filing), an admin puts it on the OTP door:
-  ```
-  PUT /api/vault/gst_portal_otp
-  {"provider":"person","auth_otp":"123456"}        or        {"provider":"person","evc_otp":"654321"}
-  ```
-  The GSP session token lives only in the backend's memory (a restart means a new login OTP).
-- **Check what is configured:** `GET /api/vault` lists door names and dates only. Secrets are never returned.
+  It opens each row exactly as the platform did (keyring + the (company, app, door) binding), writes 0600 files,
+  keeps files already there unless `--overwrite`, prints names and paths only, and exits 1 if any row could not be
+  opened. Then `sudo chown -R 1000:1000 "$NEOS_SECRETS_DIR/doors"` (or re-run `scripts/deploy.sh`). `PUT /api/vault`
+  still answers but is **deprecated** — no backend reads the vault any more (S9 deletes it).
+- **Backups:** each nightly run holds `doors.enc`, the whole store sealed (AES-256-GCM) with `backup_doors_key`
+  (generated by `gen-secrets`). Without that key the store is skipped, never copied in clear. Keep the key with the
+  rest of `$NEOS_SECRETS_DIR`, **not** beside the backups. Restore:
+  `docker compose … exec backup tsx scripts/backup.ts restore-doors /backups/<stamp>/doors.enc /tmp/doors` (then
+  copy into `$NEOS_SECRETS_DIR/doors` on the host, 0600, owned by the backend's uid).
 
 Every provider must either accept an `Idempotency-Key` and let us look the effect up afterwards, or (the GST portal) let us ask the system of record directly (RETSUM for a save, RETTRACK for a filing). Ledger journals each call before sending, so "did it happen?" always has an answer.
 
@@ -104,7 +137,7 @@ Every provider must either accept an `Idempotency-Key` and let us look the effec
 ## Backups and restore
 Point-in-time recovery of the cluster (your Postgres host's job) rewinds every app at once. The `backup` service adds per-schema logical exports so one app, or one company in one app, can come back alone.
 - **What runs:** `tsx scripts/backup.ts schedule`, every day at `NEOS_BACKUP_AT` (default `02:00`, `TZ` default UTC).
-  - It writes `/backups/<UTC stamp>/` in the `backups` volume: `<schema>.dump` per migrated schema (`pg_dump -Fc`: `neos`, `ledger`, …), `companies/<schema>/<company_id>.json` per company with rows, and `manifest.json` (sizes, sha256).
+  - It writes `/backups/<UTC stamp>/` in the `backups` volume: `<schema>.dump` per migrated schema (`pg_dump -Fc`: `neos`, `ledger`, …), `companies/<schema>/<company_id>.json` per company with rows, `manifest.json` (sizes, sha256), and `doors.enc` — the door secret store, sealed with `backup_doors_key` (see *Door secrets*).
   - It keeps `NEOS_BACKUP_KEEP` runs (default 14), pruning only after a complete run.
   - A failed night logs `backup failed` and does not stop the service.
 - **Run one now:** `docker compose -f deploy/compose.pilot.yml exec backup tsx scripts/backup.ts nightly --dir /backups --keep 14 --companies`.
@@ -219,7 +252,9 @@ docker compose -p neops-chaos -f deploy/compose.pilot.yml -f deploy/compose.chao
 - **Gateway signing key:** `POST /api/ops/keys/rotate` (operator). This publishes the new key first; it starts signing after `activate_after_ms` (default 120 s). Call `retirePrevious` after a further 2 minutes.
 - **Job-token secret:** set `NEOP_JOB_TOKEN_SECRET="new,old"`, restart, then drop `old` after 20 minutes.
 - **Service secret:** write the new value to `deploy/secrets/ledger_service_secret`, run `$OPS rotate-service-secret ledger`, then restart `ledger-backend`. The old one keeps working for 24 h.
-- **Vault key:** add a new key id to `NEOS_VAULT_KEYS`, make it `active`, and restart. Boot re-encrypts every secret.
+- **Vault key** (deprecated with v3 S8; the vault is only the source for `export-door-secrets.ts`): add a new key id to `NEOS_VAULT_KEYS`, make it `active`, and restart. Boot re-encrypts every secret.
+- **A door credential:** `scripts/deploy.sh door set …` with the new one (see *Door secrets*); the next call uses it.
+- **LLM session-signing key** (v3 S8: each runner mints its assistants' proxy tokens): delete `<app>_llm_signing_key`, re-run `gen-secrets` (it rewrites `llm_runner_keys` to match), restart `llm-proxy` then `<app>-backend`. Sessions in flight end with their token (at most a session's length).
 
 ## When something goes wrong
 | Signal | Meaning | Do |

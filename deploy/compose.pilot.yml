@@ -11,6 +11,10 @@
 #   obs     prometheus, jaeger ↔ grafana                           (observability profile)
 # The model and a database role are never in the same container; no agent holds a
 # provider key; package handlers run in Deno inside the backend with no permissions.
+# Door credentials (v3 §12) are files in $NEOS_SECRETS_DIR/doors/<company>/[<app>/]<door>.json,
+# mounted read-only into the app backend only (never an agent, never web); written by
+# `scripts/deploy.sh door set`. The runner signs its assistants' LLM session tokens with its own
+# key (<app>_llm_signing_key); the LLM proxy holds only the public halves (llm_runner_keys).
 #
 #   tsx scripts/gen-secrets.ts            # fills deploy/secrets/ (never overwrites)
 #   docker compose -f deploy/compose.pilot.yml run --rm migrate
@@ -89,9 +93,12 @@ services:
       NEOS_BACKUP_KEEP: ${NEOS_BACKUP_KEEP:-14}
       NEOS_BACKUP_COMPANIES: "1"
       NEOS_BACKUP_ON_START: ${NEOS_BACKUP_ON_START:-0}
+      # Door credentials go into each run sealed (AES-256-GCM, doors.enc) with backup_doors_key — never in clear.
+      NEOS_BACKUP_DOORS_DIR: /run/secrets/doors
+      NEOS_BACKUP_DOORS_KEY_FILE: /run/secrets/backup_doors_key
       TZ: ${TZ:-UTC}
-    secrets: [pg_admin_url]
-    volumes: [backups:/backups]
+    secrets: [pg_admin_url, backup_doors_key]
+    volumes: ["backups:/backups", "${NEOS_SECRETS_DIR:-./secrets}/doors:/run/secrets/doors:ro"]
     networks: [db]
     logging: { driver: json-file, options: { max-size: 10m, max-file: "3" } }
 
@@ -131,10 +138,12 @@ services:
       NEOP_LLM_UPSTREAM_AUTH: ${NEOP_LLM_UPSTREAM_AUTH:-x-api-key}
       NEOP_LLM_UPSTREAM_MODEL_PREFIX: ${NEOP_LLM_UPSTREAM_MODEL_PREFIX:-}
       NEOP_LLM_UPSTREAM_KEY_FILE: /run/secrets/llm_upstream_key
+      # Public halves of each runner's session-signing key: {"ledger": [<Ed25519 JWK>]}.
+      NEOP_LLM_RUNNER_KEYS_FILE: /run/secrets/llm_runner_keys
       PORT: "4200"
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
       <<: *egress-env
-    secrets: [neos_app_url, llm_upstream_key]
+    secrets: [neos_app_url, llm_upstream_key, llm_runner_keys]
     # The provider is reached through egress-proxy (outbound); no route of its own to the internet.
     networks: [db, llm, ctl, outbound, telemetry]
 
@@ -154,6 +163,11 @@ services:
       NEOS_PLATFORM_URL: http://platform:4000
       NEOP_AGENT_URL: http://ledger-agent-rpc:4103
       NEOP_GATE_URL: http://ledger-gate:4102
+      # v3 §12: door credentials, read per (app, company) per call from the read-only mount below.
+      NEOP_DOOR_SECRETS_DIR: /run/secrets/doors
+      # v3 (S8): the runner mints each assistant session's proxy token itself (no platform call).
+      NEOP_LLM_PROXY_URL: http://llm-proxy:4200
+      NEOP_LLM_SIGNING_KEY_FILE: /run/secrets/ledger_llm_signing_key
       # Attached source documents are kept (WP §11): bytes on the ledger-files volume, keyed
       # ledger/<company_id>/<sha256>. For an S3-compatible bucket instead: NEOP_DOCUMENTS_BACKEND=s3
       # plus NEOP_S3_ENDPOINT, NEOP_S3_BUCKET, NEOP_S3_REGION, NEOP_S3_ACCESS_KEY_ID_FILE, NEOP_S3_SECRET_ACCESS_KEY_FILE.
@@ -168,8 +182,12 @@ services:
       METRICS_PORT: "9464"
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
       <<: *egress-env
-    secrets: [ledger_app_url, ledger_runner_url, ledger_direct_url, ledger_service_secret, ledger_job_token_secret, ledger_pkg_pw_key, metrics_token]
-    volumes: [ledger-packages:/var/lib/neop/packages, ledger-files:/var/lib/neop/files]
+    secrets: [ledger_app_url, ledger_runner_url, ledger_direct_url, ledger_service_secret, ledger_job_token_secret, ledger_pkg_pw_key, ledger_llm_signing_key, metrics_token]
+    volumes:
+      - ledger-packages:/var/lib/neop/packages
+      - ledger-files:/var/lib/neop/files
+      # The door secret store, read-only, this backend only (never the agent, never web).
+      - "${NEOS_SECRETS_DIR:-./secrets}/doors:/run/secrets/doors:ro"
     # L3 listens only on the l3 network (alias ledger-l3) and the gate only on the agent network
     # (alias ledger-gate): the gateway alone reaches L3; the agent alone reaches the gate.
     # outbound: the email and GST doors reach their providers through egress-proxy only.
@@ -314,6 +332,9 @@ secrets:
   neos_app_url: { file: "${NEOS_SECRETS_DIR:-./secrets}/neos_app_url" }
   vault_keys: { file: "${NEOS_SECRETS_DIR:-./secrets}/vault_keys" }
   metrics_token: { file: "${NEOS_SECRETS_DIR:-./secrets}/metrics_token" }
+  backup_doors_key: { file: "${NEOS_SECRETS_DIR:-./secrets}/backup_doors_key" }
+  llm_runner_keys: { file: "${NEOS_SECRETS_DIR:-./secrets}/llm_runner_keys" }
+  ledger_llm_signing_key: { file: "${NEOS_SECRETS_DIR:-./secrets}/ledger_llm_signing_key" }
   llm_upstream_key: { file: "${NEOS_SECRETS_DIR:-./secrets}/llm_upstream_key" }
   ledger_app_url: { file: "${NEOS_SECRETS_DIR:-./secrets}/ledger_app_url" }
   ledger_runner_url: { file: "${NEOS_SECRETS_DIR:-./secrets}/ledger_runner_url" }

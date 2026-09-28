@@ -7,14 +7,65 @@
 # Steps: check inputs → backup (upgrade only) → secrets → build → migrate → start → register (with the
 # release's conformance attestation) → company, admin, install → Matrix allowlist → optional email door →
 # verify-install → smoke. The admin's API token is written to $NEOS_SECRETS_DIR/admin_token (0600).
+#
+# Door credentials (v3 §12: the secret store, per (app, company), read by the backend per call):
+#   scripts/deploy.sh door set <company_id> <door> [app] < credential.json    (JSON on stdin, never argv)
+#   scripts/deploy.sh door rm  <company_id> <door> [app]
+#   scripts/deploy.sh door ls                                                (names only, never contents)
+# NEOS_SECRETS_DIR from the environment, or from the env file named by NEOS_ENV_FILE. Files land in
+# $NEOS_SECRETS_DIR/doors/<company>/[<app>/]<door>.json, 0600, owned by the backend's user (NEOS_DOORS_UID,
+# default 1000 = the image's `node`); without [app] the credential is company-wide. The backend reads it on the
+# next call: no restart.
 set -euo pipefail
-ENV_FILE=${1:?usage: scripts/deploy.sh <env file>}
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
-set -a; . "$ENV_FILE"; set +a
-cd "$ROOT"
 
 say() { printf '\n== %s\n' "$*"; }
 die() { printf 'DEPLOY FAILED: %s\n' "$*" >&2; exit 1; }
+seg() { [[ "$2" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$ && "$2" != *..* ]] || die "$1 '$2' is not a valid secret-store name"; }
+# The backend runs as NEOS_DOORS_UID; the store must be its own (0700 directories, 0600 files).
+own_doors() {
+  local u=${NEOS_DOORS_UID:-1000} d="$NEOS_SECRETS_DIR/doors"
+  [ -d "$d" ] || return 0
+  chmod -R go-rwx "$d"
+  if [ "$(id -u)" = 0 ]; then chown -R "$u:$u" "$d"
+  elif [ "$(id -u)" != "$u" ]; then printf 'WARNING: %s is owned by uid %s but the backend reads it as uid %s: run as root or set NEOS_DOORS_UID\n' "$d" "$(id -u)" "$u" >&2; fi
+}
+# door_write <company> <door> [app] — the credential JSON on stdin. Written beside, then renamed: a backend reading
+# mid-rotation sees the old credential or the new one, never half of one. Nothing is echoed.
+door_write() {
+  local co=$1 door=$2 app=${3:-} dir file tmp
+  seg company "$co"; seg door "$door"; [ -z "$app" ] || seg app "$app"
+  dir="$NEOS_SECRETS_DIR/doors/$co${app:+/$app}"; file="$dir/$door.json"
+  (umask 077; mkdir -p "$dir")
+  tmp=$(umask 077; mktemp "$dir/.$door.XXXXXX")
+  if ! jq -ce 'if type == "object" and (.provider | type) == "string" then . else error("x") end' > "$tmp" 2>/dev/null; then
+    rm -f "$tmp"; die "the credential on stdin must be one JSON object with a \"provider\" (nothing was written)"
+  fi
+  chmod 600 "$tmp"; mv -f "$tmp" "$file"
+  own_doors
+  printf '{"ok":true,"company":"%s","door":"%s","app":%s,"file":"%s"}\n' "$co" "$door" "$( [ -n "$app" ] && printf '"%s"' "$app" || printf null)" "${file#"$NEOS_SECRETS_DIR"/}"
+}
+
+if [ "${1:-}" = door ]; then
+  if [ -z "${NEOS_SECRETS_DIR:-}" ] && [ -n "${NEOS_ENV_FILE:-}" ]; then set -a; . "$NEOS_ENV_FILE"; set +a; fi
+  [ -n "${NEOS_SECRETS_DIR:-}" ] || die "NEOS_SECRETS_DIR is not set (or name the deploy env file in NEOS_ENV_FILE)"
+  command -v jq >/dev/null || die "jq is required"
+  case "${2:-}" in
+    set) [ -n "${3:-}" ] && [ -n "${4:-}" ] || die "usage: scripts/deploy.sh door set <company_id> <door> [app] < credential.json"
+         [ -t 0 ] && die "the credential goes on stdin (never on the command line): scripts/deploy.sh door set $3 $4 ${5:-} < credential.json"
+         door_write "$3" "$4" "${5:-}";;
+    rm)  [ -n "${3:-}" ] && [ -n "${4:-}" ] || die "usage: scripts/deploy.sh door rm <company_id> <door> [app]"
+         seg company "$3"; seg door "$4"; [ -z "${5:-}" ] || seg app "$5"
+         rm -f "$NEOS_SECRETS_DIR/doors/$3${5:+/$5}/$4.json"; echo "removed: the door now fails as not connected";;
+    ls)  [ -d "$NEOS_SECRETS_DIR/doors" ] && (cd "$NEOS_SECRETS_DIR/doors" && find . -name '*.json' -type f | sed 's|^\./||' | sort) || true;;
+    *)   die "usage: scripts/deploy.sh door set|rm|ls …";;
+  esac
+  exit 0
+fi
+
+ENV_FILE=${1:?usage: scripts/deploy.sh <env file>  |  scripts/deploy.sh door set|rm|ls …}
+set -a; . "$ENV_FILE"; set +a
+cd "$ROOT"
 need() { for v in "$@"; do [ -n "${!v:-}" ] || die "$v is not set in $ENV_FILE"; done; }
 need NEOS_PROJECT NEOS_SECRETS_DIR COMPANY_NAME COMPANY_TZ ADMIN_NAME ADMIN_EMAIL LLM_KEY_FILE MATRIX_HOMESERVER_URL MATRIX_SERVER_NAME LEDGER_MXID LEDGER_MATRIX_TOKEN_FILE BRIDGE_MXID
 [ -s "$LLM_KEY_FILE" ] || die "LLM_KEY_FILE ($LLM_KEY_FILE) is empty or missing"
@@ -69,6 +120,8 @@ for f in matrix_hs_token matrix_as_token; do [ -e "$NEOS_SECRETS_DIR/$f" ] || : 
 chmod a+r "$NEOS_SECRETS_DIR"/*
 # … except what no container reads: the admin's token and the deploy state stay owner-only.
 for f in admin_token deploy-state.json; do [ -e "$NEOS_SECRETS_DIR/$f" ] && chmod 600 "$NEOS_SECRETS_DIR/$f"; done
+# … and the door secret store (v3 §12): the backend's alone, 0700/0600, mounted read-only into it (and the backup).
+mkdir -p "$NEOS_SECRETS_DIR/doors"; own_doors
 chmod 755 "$NEOS_SECRETS_DIR"
 
 say "3/11 build images"
@@ -112,20 +165,25 @@ ME=$(api GET /api/me | jq -r .id)
 api PUT /api/chat/allowlist "{\"app\":\"ledger\",\"matrix_id\":\"$BRIDGE_MXID\",\"kind\":\"bridge\",\"acts_for\":\"$ME\"}" | jq -c '{matrix_id,kind,acts_for}'
 api GET /api/chat/client | jq -c '.accounts[]|{account,running,stopped}'
 
-say "9/11 email door (optional)"
+say "9/11 email door (optional) → the secret store, for Ledger at this company"
 if [ -n "${EMAIL_DOOR_JSON:-}" ]; then
   keyfile=$(jq -r '.api_key_file // empty' <<<"$EMAIL_DOOR_JSON") || die "EMAIL_DOOR_JSON is not valid JSON — in the env file it must be in single quotes: EMAIL_DOOR_JSON='{\"provider\":…}'"
   key=""; if [ -n "$keyfile" ]; then [ -s "$keyfile" ] || die "email api_key_file ($keyfile) is empty or missing"; key=$(tr -d '\n' < "$keyfile"); fi
   body=$(jq -c --arg k "$key" 'if .api_key_file then (.api_key = $k | del(.api_key_file)) else . end' <<<"$EMAIL_DOOR_JSON")
-  res=$(api PUT '/api/vault/email?app=ledger' "$body"); unset key body
-  jq -e '.ok == true' >/dev/null <<<"$res" || die "the email door was refused: $(jq -c '.error // .' <<<"$res")"
-  jq -c '{ok,door,app,provider}' <<<"$res"
-else echo "not configured: gated emails will fail cleanly until an admin connects the email door"; fi
+  # On stdin (printf is a builtin), never argv; written 0600 where the backend reads it on the next call.
+  printf '%s' "$body" | door_write "$CO" email ledger >/dev/null; unset key body
+  jq -c '{ok: true, door: "email", app: "ledger", provider}' <<<"$EMAIL_DOOR_JSON"
+else echo "not configured: gated emails will fail cleanly until ops runs: scripts/deploy.sh door set $CO email ledger < credential.json"; fi
 
 say "10/11 verify the install (read-only)"
+# The door files are checked by name and mode only (never opened); the rendered compose config shows who mounts them.
+RENDERED=$(mktemp /tmp/neops-compose.XXXXXX); dc config > "$RENDERED" 2>/dev/null || die "docker compose config failed"; chmod 644 "$RENDERED"
 dc run --rm --no-deps -T -e NEOS_DB_URL_FILE=/run/secrets/neos_app_url -e NEOP_RUNNER_DB_URL_FILE=/tmp/r -e NEOS_PLATFORM_URL=http://platform:4000 -e NEOP_LLM_UPSTREAM_KEY_FILE=/tmp/k \
+  -e NEOP_DOOR_SECRETS_DIR=/run/secrets/doors -e NEOS_COMPOSE_FILE=/tmp/compose.yml \
   -v "$NEOS_SECRETS_DIR/ledger_runner_url:/tmp/r:ro" -v "$NEOS_SECRETS_DIR/llm_upstream_key:/tmp/k:ro" \
+  -v "$NEOS_SECRETS_DIR/doors:/run/secrets/doors:ro" -v "$RENDERED:/tmp/compose.yml:ro" \
   platform tsx scripts/verify-install.ts ledger "$CO" 2>/dev/null | grep -v '^ *Container ' | tee /tmp/neops-verify.txt | tail -16
+rm -f "$RENDERED"
 grep -q 'All checks passed' /tmp/neops-verify.txt || die "verify-install reported failures (above)"
 
 say "11/11 smoke"

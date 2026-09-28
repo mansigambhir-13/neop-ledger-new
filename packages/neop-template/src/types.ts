@@ -135,7 +135,7 @@ export interface NeopConfig {
   /** A direct (session) connection for LISTEN and the execution lock — never through a transaction pooler (S8). Defaults to runnerDbUrl. */
   directDbUrl?: string;
   platformUrl: string;
-  /** Service secret the backend uses for platform-internal calls (switchboard, vault, grant tokens). */
+  /** Service secret the backend uses for platform-internal calls (switchboard, grant tokens). */
   serviceSecret: string;
   /** HMAC secret(s) for job tokens; never leave the backend. Comma-separated or a list: first signs, all verify. */
   jobTokenSecret: string | string[];
@@ -157,6 +157,10 @@ export interface NeopConfig {
   outboxRetentionMs?: number;
   /** Where attached files are kept (WP §11): a local volume or an S3-compatible bucket. Default: NEOP_DOCUMENTS_* env, else a local directory. */
   documents?: import('./doors/documents/store.ts').DocumentStoreConfig;
+  /** Door credentials (v3 §12). Default: a FileSecretStore at NEOP_DOOR_SECRETS_DIR (else /run/secrets/doors), read per call. */
+  secrets?: import('./doors/secrets.ts').SecretStore;
+  /** The LLM proxy and this app's session-signing key (v3: the runner mints session tokens). Unset: sessions get no token. */
+  llm?: import('./runner/llm.ts').LlmConfig;
   /** The bridge to today's NEOS platform gateway (`/capabilities/<id>`); off unless set. */
   neosV1?: import('./l3/neos-v1.ts').NeosV1Config;
   timings: Timings;
