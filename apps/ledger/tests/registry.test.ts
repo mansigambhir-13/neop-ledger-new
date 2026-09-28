@@ -37,9 +37,9 @@ const review = async (key: string, version: string) =>
 function stockBundle(version: string, o: { selftestOk?: boolean; extraTable?: boolean; key?: string } = {}): PackageBundle {
   const key = o.key ?? 'nep-stock';
   const name = key.replace(/^nep-/, '');
-  const table = (n: string) => `create table {{schema}}.nep_${name}_${n} (id uuid primary key default gen_random_uuid(), company_id uuid not null, label text);
-alter table {{schema}}.nep_${name}_${n} enable row level security; alter table {{schema}}.nep_${name}_${n} force row level security;
-create policy company_isolation on {{schema}}.nep_${name}_${n} using (company_id = nullif(current_setting('neos.company_id', true), '')::uuid) with check (company_id = nullif(current_setting('neos.company_id', true), '')::uuid);`;
+  const table = (n: string) => `create table {{schema}}.nep_${name}__${n} (id uuid primary key default gen_random_uuid(), company_id uuid not null, label text);
+alter table {{schema}}.nep_${name}__${n} enable row level security; alter table {{schema}}.nep_${name}__${n} force row level security;
+create policy company_isolation on {{schema}}.nep_${name}__${n} using (company_id = nullif(current_setting('neos.company_id', true), '')::uuid) with check (company_id = nullif(current_setting('neos.company_id', true), '')::uuid);`;
   return {
     manifest: {
       key,
@@ -47,19 +47,19 @@ create policy company_isolation on {{schema}}.nep_${name}_${n} using (company_id
       name: 'Stock',
       description: 'Counts stock items (test fixture).',
       doors: [],
-      tables: [`nep_${name}_items`, ...(o.extraTable ? [`nep_${name}_moves`] : [])],
+      tables: [`nep_${name}__items`, ...(o.extraTable ? [`nep_${name}__moves`] : [])],
       skills: [],
       migrations: { '001_items.sql': table('items'), ...(o.extraTable ? { '002_moves.sql': table('moves') } : {}) },
       abilities: [{ key: `${name}.count`, version, title: 'Count', description: 'count items', kind: 'read', floor: 'on', input: { type: 'object' }, output: { type: 'object' } }],
     },
     handlers: `
 export async function selftest(ctx) {
-  const row = await ctx.tables.insert('nep_${name}_items', { label: 'selftest' });
-  const back = await ctx.tables.select('nep_${name}_items', { id: row.id });
+  const row = await ctx.tables.insert('nep_${name}__items', { label: 'selftest' });
+  const back = await ctx.tables.select('nep_${name}__items', { id: row.id });
   return { ok: ${o.selftestOk === false ? 'false' : 'back.length === 1'}, checks: [{ name: 'write and read back', ok: ${o.selftestOk === false ? 'false' : 'back.length === 1'} }] };
 }
 export const abilities = {
-  '${name}.count': { async run(args, ctx) { const r = await ctx.tables.select('nep_${name}_items', {}); return { generatedAt: new Date().toISOString(), empty: r.length === 0, sources: { entries: r.length, entry_ids: [], basis: 'stock' }, n: r.length }; } },
+  '${name}.count': { async run(args, ctx) { const r = await ctx.tables.select('nep_${name}__items', {}); return { generatedAt: new Date().toISOString(), empty: r.length === 0, sources: { entries: r.length, entry_ids: [], basis: 'stock' }, n: r.length }; } },
 };`,
   };
 }
@@ -178,12 +178,12 @@ describe('packages', () => {
           await c.query('rollback');
         }
       };
-      expect(await attempt('select * from ledger.nep_probe_notes')).toBe('OPEN');
-      expect(await attempt("insert into ledger.nep_probe_notes (company_id, body) values ($1, 'x')")).toBe('42501');
-      expect(await attempt("update ledger.nep_probe_notes set body = 'y'")).toBe('42501');
-      expect(await attempt('delete from ledger.nep_probe_notes')).toBe('42501');
-      expect(await attempt('truncate ledger.nep_probe_notes')).toBe('42501');
-      expect(await attempt('alter table ledger.nep_probe_notes add column z int')).toBe('42501');
+      expect(await attempt('select * from ledger.nep_probe__notes')).toBe('OPEN');
+      expect(await attempt("insert into ledger.nep_probe__notes (company_id, body) values ($1, 'x')")).toBe('42501');
+      expect(await attempt("update ledger.nep_probe__notes set body = 'y'")).toBe('42501');
+      expect(await attempt('delete from ledger.nep_probe__notes')).toBe('42501');
+      expect(await attempt('truncate ledger.nep_probe__notes')).toBe('42501');
+      expect(await attempt('alter table ledger.nep_probe__notes add column z int')).toBe('42501');
     } finally {
       await c.end();
     }
@@ -209,7 +209,7 @@ describe('packages', () => {
     expect(a.detail.selftest).toBe('passed');
     const admin = new pg.Client({ connectionString: P.adminUrl });
     await admin.connect();
-    const left = await admin.query('select count(*)::int as n from ledger.nep_stock_items').finally(() => admin.end());
+    const left = await admin.query('select count(*)::int as n from ledger.nep_stock__items').finally(() => admin.end());
     expect(left.rows[0].n).toBe(0); // the self-test's row never persisted
     const r = await P.api('POST', '/api/apps/ledger/read/stock.count', {});
     expect(r.body.result.n).toBe(0);
@@ -222,7 +222,7 @@ describe('packages', () => {
     const inst = (await P.platform.db.query("select status, last_error from neos.registry_installs where entry_key = 'nep-broken'")).rows[0];
     expect(inst.status).toBe('failed');
     expect(inst.last_error).toMatch(/write and read back/);
-    expect((await P.platform.db.query("select 1 from pg_tables where schemaname = 'ledger' and tablename = 'nep_broken_items'")).rowCount).toBe(0);
+    expect((await P.platform.db.query("select 1 from pg_tables where schemaname = 'ledger' and tablename = 'nep_broken__items'")).rowCount).toBe(0);
     expect((await P.platform.db.query("select 1 from neos.package_migrations where entry_key = 'nep-broken'")).rowCount).toBe(0);
     const audit = (await P.platform.db.query("select outcome from neos.audit where action = 'registry.install_failed' and detail->>'entry' = 'nep-broken'")).rows;
     expect(audit).toEqual([{ outcome: 'failed' }]);
@@ -235,7 +235,7 @@ describe('packages', () => {
     await expect(runPackageMigrations(P.adminUrl, P.platform)).rejects.toThrow(/self-test failed/);
     const inst = (await P.platform.db.query("select status, pinned_version from neos.registry_installs where entry_key = 'nep-stock'")).rows[0];
     expect(inst).toEqual({ status: 'active', pinned_version: '1.0.0' });
-    expect((await P.platform.db.query("select 1 from pg_tables where schemaname = 'ledger' and tablename = 'nep_stock_moves'")).rowCount).toBe(0);
+    expect((await P.platform.db.query("select 1 from pg_tables where schemaname = 'ledger' and tablename = 'nep_stock__moves'")).rowCount).toBe(0);
     expect((await P.platform.db.query("select outcome from neos.audit where action = 'registry.install_failed' and detail->>'entry' = 'nep-stock'")).rows).toEqual([{ outcome: 'rolled_back' }]);
     expect((await P.api('POST', '/api/apps/ledger/read/stock.count', {})).status).toBe(200);
   });
@@ -246,13 +246,13 @@ describe('packages', () => {
     await expect(reg.dropPackageTables(P.adminUrl, { id: P.operator.id, role: 'operator' }, 'ledger', 'nep-stock')).rejects.toMatchObject({ code: 'still_installed' });
     expect((await P.api('DELETE', '/api/registry/installs', { host_app: 'ledger', entry_key: 'nep-stock' })).body.status).toBe('disabled');
     // Uninstall keeps the tables.
-    expect((await P.platform.db.query("select 1 from pg_tables where schemaname = 'ledger' and tablename = 'nep_stock_items'")).rowCount).toBe(1);
+    expect((await P.platform.db.query("select 1 from pg_tables where schemaname = 'ledger' and tablename = 'nep_stock__items'")).rowCount).toBe(1);
     const out = await reg.dropPackageTables(P.adminUrl, { id: P.operator.id, role: 'operator' }, 'ledger', 'nep-stock');
-    expect(out.dropped).toEqual(['nep_stock_items']);
-    expect((await P.platform.db.query("select 1 from pg_tables where schemaname = 'ledger' and tablename = 'nep_stock_items'")).rowCount).toBe(0);
+    expect(out.dropped).toEqual(['nep_stock__items']);
+    expect((await P.platform.db.query("select 1 from pg_tables where schemaname = 'ledger' and tablename = 'nep_stock__items'")).rowCount).toBe(0);
     expect((await P.platform.db.query("select 1 from neos.package_migrations where entry_key = 'nep-stock'")).rowCount).toBe(0);
     const a = (await P.platform.db.query("select actor, detail from neos.audit where action = 'registry.package_tables_dropped'")).rows[0];
-    expect(a).toMatchObject({ actor: `user:${P.operator.id}`, detail: { entry: 'nep-stock', tables: ['nep_stock_items'] } });
+    expect(a).toMatchObject({ actor: `user:${P.operator.id}`, detail: { entry: 'nep-stock', tables: ['nep_stock__items'] } });
   });
 
   it('versions are immutable; a pinned version is retired only 30 days after deprecation', async () => {

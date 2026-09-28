@@ -397,6 +397,25 @@ export class Platform {
         }
       }
     }
+    // …nor drop or break an ability an installed registry skill or package requires (v3 §10: what is pinned keeps working).
+    const served = (await this.db.query<{ manifest: Manifest }>('select manifest from neos.apps where key = $1', [a.key])).rows[0]?.manifest;
+    if (served) {
+      const needed = await this.db.query<{ req: string; entry_key: string; pinned_version: string; host_app: string }>(
+        `select distinct r.req, i.entry_key, i.pinned_version, i.host_app
+           from neos.registry_installs i
+           join neos.registry_entries e on e.key = i.entry_key and e.version = i.pinned_version
+           cross join lateral jsonb_array_elements_text(e.requires) as r(req)
+          where i.status <> 'disabled'
+          order by 1, 2`,
+      );
+      for (const n of needed.rows) {
+        const was = served.abilities.find((x) => x.key === n.req);
+        if (!was) continue; // not this app's ability
+        const now = a.manifest.abilities.find((x) => x.key === n.req);
+        const why = !now ? 'drops it' : now.kind !== was.kind ? `turns it from a ${was.kind} into a ${now.kind}` : major(now.version) !== major(was.version) ? `moves it from ${was.version} to ${now.version}` : null;
+        if (why) throw new PlatformError(409, 'breaks_installed', `${n.entry_key}@${n.pinned_version} (installed in ${n.host_app}) requires ${n.req}; this manifest ${why}`);
+      }
+    }
     await this.db.query(
       `insert into neos.apps (key, l3_url, manifest, contract_version, service_secret_hash, blocks, conformance, author_key) values ($1,$2,$3,$4,$5,$6,$7,$8)
        on conflict (key) do update set l3_url = excluded.l3_url, manifest = excluded.manifest,
@@ -1905,6 +1924,10 @@ export const MONTH_START_SQL = (tz: string) => `(date_trunc('month', now() at ti
 /** Where a card ends once its execution reports: DONE → EXECUTED; FAILED and UNKNOWN say so. */
 export function approvalStatusFor(outcome: unknown): 'EXECUTED' | 'FAILED' | 'UNKNOWN' {
   return outcome === 'FAILED' ? 'FAILED' : outcome === 'UNKNOWN' ? 'UNKNOWN' : 'EXECUTED';
+}
+
+function major(v: string): string {
+  return String(v ?? '').split('.')[0] ?? '';
 }
 
 /** v3 §4: a door's floor from the manifest (default on; only 'off' is stricter). */
