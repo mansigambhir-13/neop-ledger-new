@@ -179,6 +179,43 @@ NeuralChat (#143) sees no difference: plain `m.text` to `@ledger`, exactly one t
   roles, four-eyes — is the database's, as for the desk) and is carried out by the runner's approved path, like a desk
   yes; the desk shows the same card (`neos.v_desk_cards`).
 
+## Bus room setup (v3 S6 — NEOP to NEOP in `#neop-bus-<co>`)
+With `NEOP_PRESENCE=appservice` on every app of a company, NEOP-to-NEOP work (a task handed to another app, one
+borrowed ability) goes over typed events in the company's **bus room**, between the apps' own Matrix names — the
+platform's a2a routing (`/internal/a2a/open`, `/internal/borrow/describe`, `/internal/gateway/call`, `neos.acl`,
+`a2aResultsTick`) is not used for those apps. With `NEOP_PRESENCE=off` the old platform road still works unchanged
+(S9 deletes it).
+
+1. Each app's name is set first (`PUT /api/chat/presence {"app":"<app>","matrix_user":"@neop_<app>_<slug>:<server>"}`;
+   `scripts/deploy.sh` does it) and each app's appservice registration is live.
+2. Run, once per company (idempotent — it finds rooms by alias and fills only what is missing):
+   ```sh
+   NEOS_URL=https://neos.example NEOS_ADMIN_TOKEN_FILE=/run/secrets/neos_admin \
+   NEOP_MATRIX_HOMESERVER_URL=https://matrix.example \
+   tsx scripts/rooms-setup.ts --company <slug> \
+     --app ledger=/run/secrets/matrix_ledger_as_token --app marketing=/run/secrets/matrix_marketing_as_token \
+     --person @priya:<server> [--admin @ops:<server>] [--agent @neuralchat_<slug>:<server>]
+   ```
+   It creates `#<app>-<slug>` (people + the app) and `#neop-bus-<slug>` (apps only; made by the first app's name, the
+   others invited): invite-only, **no** end-to-end encryption, power levels people 50 · NEOPs 20 · reasoning agent 10;
+   `neos.neop.approve` needs 50 (only people), task/answer 10, ask/propose/done/note 20. Then, through the platform's
+   `neos_desk` write-through, it writes into each `<app>.installs`: `room_ids`, `bus_room_id`, and `bus_peers` (the other
+   apps on the bus, Matrix id → app key — the only senders an app acts on in the bus room).
+3. Check: `GET /api/chat/presence?app=<app>` shows `bus_room_id` and `bus_peers`; each backend joins the bus room on
+   its next room refresh (≈ 2 s) and checks it like any room (`room not fit for this app` otherwise).
+4. **Borrowing** needs the borrower's own line switched on — a `uses` line on its switchboard, off until the company
+   sets it: `PUT /api/switchboards/<borrower> {"settings":{"<owner ability>":"on"}}` (on/off only; no ACL row). The
+   owner still checks its own line and that the borrower's manifest declares it (`neos_registry.uses`) when the ask
+   arrives. A borrowed write becomes the owner's proposal (written by the owner's runner, no model) and waits for a
+   person on the desk or in the owner's room; the borrower is answered after it is carried out, with the proof.
+- **What to look at:** `<app>.bus_threads` (one row per thread: out = what this app asked, in = what it took; the
+  root event, the peer, the chain `lineage`/`depth`, status and result), `<app>.inbound_events` outcomes
+  `typed:task_opened`, `typed:refused:a2a_depth|a2a_loop|bad_lineage|not_declared|…`, `typed:call_served`,
+  `typed:call_opened`, `typed:call_refused:<code>`, `typed:bus:done|question|answered|not_ours|stale`, and both apps'
+  `operations` (`task:<peer>`, `borrow:<owner>:<ability>`, and the owner's `served` row for a read).
+- **Limits:** the bus is the appservice road only (a client-road app has no voice there: its hand-offs are refused
+  `no_bus`); a chain stops at depth 3 and never loops (refused by the callee, and early by the asker's gate).
+
 ## Everyday operations
 - **Backups** run nightly by themselves (see *Backups and restore*). Check that last night's run logged `backup complete`.
 - **Metrics, alerts, traces:** the `observability` profile (see *Observability*).

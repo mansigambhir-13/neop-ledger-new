@@ -55,4 +55,10 @@ export {
   type PresenceMode,
   type Road,
   type ClientStatus as PresenceClientStatus,
+  Bus,
+  borrowedCallAsk,
+  type BusPeer,
+  type BusRoad,
 } from './presence/index.ts';
+export { A2A_MAX_DEPTH } from './gate/a2a.ts';
+export { v3RoomPowerLevels, V3_ROOM_LEVELS } from '@neop/contracts';

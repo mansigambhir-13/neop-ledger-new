@@ -82,7 +82,7 @@ export async function buildBundle(core: Core, c: PoolClient, job: JobRow, board:
     core.log('registry unavailable; packages and borrowed skills skipped', { e: String(e) });
     return { abilities: [], skills: [] };
   });
-  const tools = buildTools(core.manifest, board, borrowed, core.borrowed.a2aTargets(), installed.abilities.map((a) => a.meta));
+  const tools = buildTools(core.manifest, board, borrowed, core.borrowed.a2aTargets(), installed.abilities.map((a) => a.meta), { bus: core.presenceOn });
   const on = new Set(tools.map((t) => t.key));
   // A skill loads only when every ability it requires is switched on — the app's own, a package's, or a borrowed skill.
   const skills = [

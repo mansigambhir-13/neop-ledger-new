@@ -13,10 +13,11 @@ import { closeServer } from '@neop/pgkit';
 import type { Core } from '../core.ts';
 import { Inbound, type Road, type TypedIn } from '../runner/inbound.ts';
 import { Mirror } from '../runner/mirror.ts';
+import { Bus } from '../runner/bus.ts';
 import { appserviceRoutes, AppserviceTransport, type AppserviceConfig } from './appservice.ts';
 import { DEFAULT_REPLY_DEADLINE_MS, PresenceClient, type ClientAccountConfig, type ClientOptions, type FetchLike } from './client.ts';
 import { claimInbound } from './events.ts';
-import { Identity, type Who } from './identity.ts';
+import { Identity, type InstallIdentity, type Who } from './identity.ts';
 
 export type PresenceMode = 'off' | 'appservice' | 'client';
 
@@ -75,6 +76,8 @@ export class Presence {
   readonly identity: Identity;
   readonly inbound: Inbound;
   readonly mirror: Mirror;
+  /** v3 S6: NEOP to NEOP in the company's bus room (appservice road only; null otherwise). */
+  readonly bus: Bus | null;
   readonly transport: AppserviceTransport | null;
   readonly clients: PresenceClient[] = [];
   /** The appservice listener's port, when that road is on. */
@@ -93,6 +96,17 @@ export class Presence {
     this.inbound = new Inbound(core, this.identity, { replyDeadlineMs: cfg.replyDeadlineMs ?? DEFAULT_REPLY_DEADLINE_MS, log: (m, e) => this.log(m, e) });
     this.transport = cfg.mode === 'appservice' && cfg.appservice && cfg.homeserverUrl ? new AppserviceTransport({ ...cfg.appservice, homeserverUrl: cfg.homeserverUrl }) : null;
     this.mirror = new Mirror(core, this.identity, this.inbound, { roadOf: (a) => this.roadOf(a), roomReady: (r, room) => this.roomReady(r, room) });
+    // The bus room is a multi-app room: only the appservice road (the app's own name in the room) speaks there.
+    this.bus = this.transport ? new Bus(core, this.identity, this.inbound, { roadFor: (co) => this.roadForCompany(co), roomReady: (r, room) => this.roomReady(r, room) }) : null;
+    this.inbound.bus = this.bus;
+  }
+
+  /** The company's own name on the appservice road (null: no name there, or not this road). */
+  async roadForCompany(companyId: string): Promise<Road | null> {
+    if (!this.transport) return null;
+    const inst = await this.identity.install(companyId);
+    if (!inst?.matrix_user || inst.status !== 'active') return null;
+    return this.appserviceRoad(companyId, inst.matrix_user);
   }
 
   log(msg: string, extra?: Record<string, unknown>): void {
@@ -137,7 +151,8 @@ export class Presence {
     try {
       await this.transport.prepare(room, road.account);
       const inst = await this.identity.install(road.companyId);
-      const problems = await this.transport.problems(room, road.account, inst?.agent_senders ?? []);
+      const nonPeople = [...(inst?.agent_senders ?? []), ...(room === inst?.bus_room_id ? Object.keys(inst?.bus_peers ?? {}) : [])];
+      const problems = await this.transport.problems(room, road.account, nonPeople);
       this.rooms.set(key, problems.length ? problems : true);
       if (problems.length) this.log('room not fit for this app — not spoken in, nothing said there is acted on', { room, problems });
       return !problems.length;
@@ -157,24 +172,25 @@ export class Presence {
     if (!this.transport) return;
     for (const inst of await this.identity.named()) {
       const road = this.appserviceRoad(inst.company_id, inst.matrix_user!);
-      for (const room of inst.room_ids ?? []) await this.roomReady(road, room);
+      for (const room of [...(inst.room_ids ?? []), ...(inst.bus_room_id ? [inst.bus_room_id] : [])]) await this.roomReady(road, room);
     }
   }
 
   // ── the appservice ear ──────────────────────────────────────────────────────
-  private async roomOf(roomId: string, sender: string): Promise<{ road: Road } | { outcome: string }> {
+  private async roomOf(roomId: string, sender: string): Promise<{ road: Road; inst: InstallIdentity } | { outcome: string }> {
     const inst = await this.identity.installOfRoom(roomId);
     if (!inst) return { outcome: (await this.identity.isOurs(sender)) ? 'ignored_bot' : 'unknown_room' };
     if (sender === inst.matrix_user || (await this.identity.isOurs(sender))) return { outcome: 'ignored_bot' }; // our own echo: no loops
     const road = this.appserviceRoad(inst.company_id, inst.matrix_user!);
     if (!(await this.roomReady(road, roomId))) return { outcome: 'room_unfit' };
-    return { road };
+    return { road, inst };
   }
 
   async onAppserviceTyped(ev: TypedIn): Promise<string> {
     const r = await this.roomOf(ev.room_id, ev.sender);
     if ('outcome' in r) return r.outcome;
-    const who: Who | null = await this.identity.sender(r.road.companyId, ev.sender, 'appservice');
+    // In the bus room only another app on the bus is anyone (v3 S6); elsewhere the room's people and allowed agents.
+    const who: Who | null = r.inst.bus_room_id === ev.room_id ? await this.identity.busSender(r.road.companyId, ev.sender) : await this.identity.sender(r.road.companyId, ev.sender, 'appservice');
     const fresh = await claimInbound(
       this.core.runnerPool,
       this.core.key,
@@ -214,6 +230,11 @@ export class Presence {
       type: 'm.room.message',
     });
     if (!fresh) return 'duplicate';
+    if (r.inst.bus_room_id === ev.room_id) {
+      // The bus room carries typed events between apps; plain text there is nobody's task.
+      await this.inbound.setIn(ev.event_id, 'bus:plain_ignored');
+      return 'bus:plain_ignored';
+    }
     return this.inbound.onRoomMessage(r.road, { event_id: ev.event_id, room: ev.room_id, sender: ev.sender, body: ev.body, in_reply_to: ev.in_reply_to });
   }
 
@@ -243,6 +264,8 @@ export class Presence {
 
   // ── lifecycle ───────────────────────────────────────────────────────────────
   async start(opts: { host?: string } = {}): Promise<void> {
+    // v3 S6: the gate hands tasks and borrowed calls to the bus from now on (never the platform's a2a routing).
+    this.core.bus = this.bus;
     if (this.cfg.mode === 'appservice' && this.transport) {
       const routes = appserviceRoutes(
         { onTyped: (ev) => this.onAppserviceTyped(ev), onMessage: (ev) => this.onAppserviceMessage(ev), isOurs: (u) => this.isOurs(u) },
@@ -274,6 +297,7 @@ export class Presence {
 
   async stop(): Promise<void> {
     this.stopped = true;
+    if (this.core.bus === this.bus) this.core.bus = null;
     if (this.timer) clearInterval(this.timer);
     this.timer = null;
     for (const c of [...this.clients]) await c.stop().catch(() => {});
@@ -290,3 +314,4 @@ export { classOfNonPerson, Identity, neopUser, type Person, type Who } from './i
 export { cardTextOf, goAheadOf, GO_AHEAD_LEXICON, isConsent, numbersIn, numbersNotOn, parseDecision, plainAnswers, stripReplyFallback } from './lexicon.ts';
 export { Inbound, type Road } from '../runner/inbound.ts';
 export { Mirror } from '../runner/mirror.ts';
+export { Bus, borrowedCallAsk, type BusPeer, type BusRoad } from '../runner/bus.ts';

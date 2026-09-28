@@ -12,6 +12,7 @@ import { offDoors } from './gate/tools.ts';
 import { LlmSessions } from './runner/llm.ts';
 import { PlatformClient } from './platform-client.ts';
 import type { AppDefinition, NeopConfig } from './types.ts';
+import type { BusRoad } from './runner/bus.ts';
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms).unref?.());
 
@@ -39,6 +40,11 @@ export class Core {
   /** Mints the assistant's budgeted LLM session token itself (v3: no platform call); null when no proxy is configured. */
   readonly llm: LlmSessions | null;
   readonly metrics = new Metrics();
+  /**
+   * v3 S6 · NEOP to NEOP over the company's bus room, between the apps' own presences. Set by Presence when this
+   * backend runs with NEOP_PRESENCE on (appservice road); the gate then never uses the platform's a2a routing.
+   */
+  bus: BusRoad | null = null;
   /** Test/fault-injection hooks; empty in production. */
   readonly hooks: {
     beforeExecuteEffect?: (proposalId: string) => Promise<void>;
@@ -81,6 +87,14 @@ export class Core {
     for (const k of Object.keys(app.abilities)) {
       if (!this.ability(k)) throw new Error(`handler ${k} is not declared in the manifest; undeclared abilities do not exist`);
     }
+  }
+
+  /**
+   * NEOP_PRESENCE on (appservice | client): NEOP-to-NEOP work goes over Matrix (the bus room, v3 §9–§10), and the
+   * platform's a2a routing (openA2A, borrowDescribe, the gateway call) is not used. Off: today's platform path.
+   */
+  get presenceOn(): boolean {
+    return !!this.cfg.presence && this.cfg.presence.mode !== 'off';
   }
 
   ability(key: string): ManifestAbility | undefined {

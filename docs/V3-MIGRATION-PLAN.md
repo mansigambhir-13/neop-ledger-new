@@ -33,7 +33,7 @@ Companies, users/auth, Conversations, NeuralChat (reads `neos_registry`), the de
 | S3 ✅ | Desk on the database; `answer_wait()`; DeskHarness in testkit | medium — **done 2026-09-28** (below) |
 | S4 ✅ | Presence in the NEOP (appservice + client road, flag `NEOP_PRESENCE`); NeuralChat #143 plain text keeps working (task/answer, never approve) | high — **done 2026-09-28** (below) |
 | S5 | NeuralChat posts typed tasks as its own Matrix identity; tasks/outbox delivery deleted | medium |
-| S6 | NEOP to NEOP on the bus room; callee asks answered by the caller | medium-high |
+| S6 ✅ | NEOP to NEOP on the bus room; callee asks answered by the caller | medium-high — **done 2026-09-28** (below) |
 | S7 | Packages at build time; publish writes `neos_registry` | medium |
 | S8 | Doors from the secret store; LLM tokens without the platform — **done** (IMPLEMENTATION-NOTES "v3 S8") | low-medium |
 | S9 | Delete the gateway, L3, platform-client, execution-token and legacy platform tables | low |
@@ -124,6 +124,28 @@ What changed (details: `docs/IMPLEMENTATION-NOTES.md` › "v3 S4"):
   `matrix-setup.sh` (NEOP_PRESENCE=appservice), `deploy.sh` honours NEOP_PRESENCE (default off), env example, netcheck.
 - **Deferred.** `answer_wait()` is S3's (done — inbound answers now go through it); NeuralChat as its own identity S5; the bus room S6. A yes received in Matrix
   is carried out by the runner's approved path (S2), like a desk yes.
+
+## S6 — done (2026-09-28)
+What changed (details: `docs/IMPLEMENTATION-NOTES.md` › "v3 S6"; operations: `docs/RUNBOOK.md` › *Bus room setup*):
+- **The choice is the presence flag.** `NEOP_PRESENCE` on (appservice road): `a2a.request`, borrowed lines and the new
+  `a2a.answer` go over typed events in `#neop-bus-<co>` (`gate/a2a.ts` → `runner/bus.ts`); the platform's a2a routing
+  (`openA2A`, `borrowDescribe`, `gatewayCall`, `neos.acl`, `a2aResultsTick`, `/internal/a2a|borrow|gateway`) is never
+  called. Off: the platform road, unchanged (S9 deletes it).
+- **t015**: `installs.bus_room_id`, `installs.bus_peers` (Matrix id → app key), `<schema>.bus_threads` (the thread
+  root is the correlation; out/in, task/call, lineage/depth, status, result). Contracts (optional, additive): task
+  `lineage`/`depth`, ask `call {ability, args, on_behalf_of?}`, answer `result`; `v3RoomPowerLevels`.
+- **A task** from a NEOP on the bus is a job in the callee's schema (requester `app:<mxid>`, on_behalf_of the person),
+  refused with a typed `done` on a loop, depth > 3, a bad chain or an undeclared `uses … tasks.open`; its question
+  goes back as a typed `ask`; the asker answers with `a2a.answer` (or asks its person first and relays); its `done`
+  wakes the asker with the result as untrusted data.
+- **Borrowing**: the borrower's own `uses` line (off until set; `PUT /api/switchboards` accepts it, on/off) + the
+  owner schema from `neos_registry.abilities`; the owner checks `neos_registry.uses` and its own line; a read is served
+  with no model (no job), a write is the owner's proposal written by its runner (no model), answered after execution
+  with the proof. Both `operations` tables get a row.
+- **Platform**: `PUT|GET /api/chat/presence` carry `bus_room_id`/`bus_peers` (write-through as `neos_desk`);
+  `setSwitchboard` accepts borrowed lines. **`scripts/rooms-setup.ts`** (idempotent) makes the rooms.
+- **Deferred.** The bus on the client road; NeuralChat in the bus room (S5); a borrowed *skill* requirement
+  (`registry entries requires[]`) is not borrowable on the bus yet (S7's registry); deleting the platform road (S9).
 
 ## Deploy kit after the move
 DBA bundle per NEOP (schema, roles, grants, functions, triggers, view registration) → one DB link per NEOP role

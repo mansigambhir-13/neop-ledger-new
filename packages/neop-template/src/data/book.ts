@@ -368,8 +368,9 @@ export class Book {
   }
 
   /** Consume the waits this session was woken for; returns them so the proposal trail can say REPORTED. */
-  async consumeReadyWaits(c: PoolClient, jobId: string): Promise<WaitRow[]> {
-    const r = await c.query<WaitRow>(`update ${this.s}.waits set status = 'consumed' where job_id = $1 and status = 'ready' returning *`, [jobId]);
+  async consumeReadyWaits(c: PoolClient, jobId: string, except: string | null = null): Promise<WaitRow[]> {
+    // `except`: a wait this very call just wrote (a bus hand-off) — an answer that already readied it is still owed.
+    const r = await c.query<WaitRow>(`update ${this.s}.waits set status = 'consumed' where job_id = $1 and status = 'ready' and id is distinct from $2::uuid returning *`, [jobId, except]);
     return r.rows;
   }
 

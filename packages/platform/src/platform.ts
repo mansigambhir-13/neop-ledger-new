@@ -168,9 +168,15 @@ export class Platform {
   }
 
   /** v3 S4: the app's own Matrix name at this company and its rooms (NEOP presence), written into its schema. */
-  async setChatIdentity(companyId: string, app: string, identity: { matrix_user?: string | null; room_ids?: string[] }, by: string): Promise<void> {
+  async setChatIdentity(companyId: string, app: string, identity: { matrix_user?: string | null; room_ids?: string[]; bus_room_id?: string | null; bus_peers?: Record<string, string> }, by: string): Promise<void> {
     await this.assertInstalled(app, companyId);
-    const wrote = await this.boards.writeChat(app, companyId, { identity }, by);
+    let wrote: boolean;
+    try {
+      wrote = await this.boards.writeChat(app, companyId, { identity }, by);
+    } catch (e: any) {
+      if (e?.code === 'no_bus_columns') throw new PlatformError(409, e.code, e.message);
+      throw e;
+    }
     if (!wrote) throw new PlatformError(409, 'no_app_schema', `${app} has no schema at t012 or later on this database: its Matrix identity cannot be written`);
     await this.syncChat(companyId, app);
   }
@@ -640,6 +646,14 @@ export class Platform {
       if (k.startsWith('skill:')) {
         if (!skills.some((x) => `skill:${x.key}` === k)) throw new PlatformError(422, 'unknown_skill', `${k.slice(6)} is not a skill of ${app}`);
         if (v !== 'on' && v !== 'off') throw new PlatformError(422, 'bad_setting', `${k}: a skill line is on or off`);
+        continue;
+      }
+      // v3 S6: a borrowed line (the app's manifest `uses` another app's ability) is the company's own on/off switch —
+      // with NEOP_PRESENCE on it is the borrower's check (off until set), in place of an ACL row.
+      const u = (manifest.uses ?? []).find((x) => x.ability === k && x.ability !== 'tasks.open');
+      if (u && !lines.some((x) => x.key === k)) {
+        if (v !== 'on' && v !== 'off') throw new PlatformError(422, 'bad_setting', `${k}: a borrowed line is on or off`);
+        if (u.floor && strictest(u.floor, v) !== v) throw new PlatformError(422, 'cannot_loosen', `${k}: the app's floor is ${u.floor}; a company can only tighten it`);
         continue;
       }
       const a = lines.find((x) => x.key === k);

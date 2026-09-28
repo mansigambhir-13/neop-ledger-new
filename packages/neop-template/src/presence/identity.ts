@@ -21,6 +21,9 @@ export interface InstallIdentity {
   room_ids: string[];
   agent_senders: string[];
   agent_acts_for: Record<string, string>;
+  /** v3 S6 (t015): the company's bus room (#neop-bus-<co>) and the other apps on it (Matrix id → app key). */
+  bus_room_id: string | null;
+  bus_peers: Record<string, string>;
 }
 
 export interface Person {
@@ -35,7 +38,7 @@ export interface Person {
 }
 
 /** Who is writing, by class (v3 §8 TYPED_SENDERS): a person, or a non-person with the person it relays for. */
-export type Who = { cls: 'person'; person: Person } | { cls: Exclude<SenderClass, 'person'>; actsFor: string | null };
+export type Who = { cls: 'person'; person: Person } | { cls: Exclude<SenderClass, 'person'>; actsFor: string | null; /** v3 S6: a peer on the bus room — its app key. */ app?: string };
 
 /** A non-person on the allowlist is a NEOP when it speaks from the apps' exclusive namespace, else an agent/bridge. */
 export const classOfNonPerson = (mxid: string): Exclude<SenderClass, 'person'> => (/^@neop_/.test(mxid) ? 'neop' : 'agent');
@@ -51,7 +54,7 @@ export class Identity {
     this.s = schema;
   }
 
-  private cols = 'company_id, status, company_name, company_slug, matrix_user, room_ids, agent_senders, agent_acts_for';
+  private cols = 'company_id, status, company_name, company_slug, matrix_user, room_ids, agent_senders, agent_acts_for, bus_room_id, bus_peers';
 
   async install(companyId: string): Promise<InstallIdentity | null> {
     return (await this.pool.query<InstallIdentity>(`select ${this.cols} from ${this.s}.installs where company_id = $1`, [companyId])).rows[0] ?? null;
@@ -62,9 +65,9 @@ export class Identity {
     return (await this.pool.query<InstallIdentity>(`select ${this.cols} from ${this.s}.installs where matrix_user = $1 and status = 'active'`, [matrixUser])).rows;
   }
 
-  /** The active install whose rooms include this one (the appservice road); null: not our room. */
+  /** The active install whose rooms (or bus room, v3 S6) include this one (the appservice road); null: not our room. */
   async installOfRoom(roomId: string): Promise<InstallIdentity | null> {
-    const rows = (await this.pool.query<InstallIdentity>(`select ${this.cols} from ${this.s}.installs where $1 = any(room_ids) and status = 'active' and matrix_user is not null`, [roomId])).rows;
+    const rows = (await this.pool.query<InstallIdentity>(`select ${this.cols} from ${this.s}.installs where ($1 = any(room_ids) or bus_room_id = $1) and status = 'active' and matrix_user is not null`, [roomId])).rows;
     return rows.length === 1 ? rows[0]! : null; // a room bound to two companies is nobody's
   }
 
@@ -92,6 +95,17 @@ export class Identity {
       [companyId, userId],
     );
     return r.rows[0] ?? null;
+  }
+
+  /**
+   * v3 S6: who is writing in the company's bus room — only another app on the bus (installs.bus_peers, written by
+   * rooms-setup) is anyone there; a person, the reasoning agent or a stranger is not acted on in it.
+   */
+  async busSender(companyId: string, matrixId: string): Promise<Who | null> {
+    const inst = await this.install(companyId);
+    if (!inst || inst.status !== 'active') return null;
+    const app = inst.bus_peers?.[matrixId];
+    return typeof app === 'string' && /^[a-z][a-z0-9_]{0,40}$/.test(app) ? { cls: 'neop', actsFor: null, app } : null;
   }
 
   /**

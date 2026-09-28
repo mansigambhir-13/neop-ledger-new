@@ -25,6 +25,7 @@ import { checkRules } from '../domain/rules.ts';
 import type { ExecCtx, Measure } from '../types.ts';
 import { BUILTIN_TOOLS, offDoors } from './tools.ts';
 import { matchGrant, recordGrantUse } from './grants.ts';
+import { a2aAnswer, a2aRequest, borrow } from './a2a.ts';
 
 export type GateResult =
   | { status: 'done'; ability: string; output: unknown; untrusted: boolean }
@@ -74,7 +75,9 @@ export class Gate {
     }
 
     if (key in BUILTIN_TOOLS) return this.builtin(claims, job, key, rawArgs);
-    if (key === 'a2a.request') return this.a2a(claims, job, rawArgs);
+    // Another app (v3 §9–§10): the platform's a2a routing with NEOP_PRESENCE off, the bus room with it on (gate/a2a.ts).
+    if (key === 'a2a.request') return a2aRequest(this, claims, job, rawArgs);
+    if (key === 'a2a.answer') return a2aAnswer(this, claims, job, rawArgs);
 
     // 1. scope
     if (!claims.abilities.includes(key)) {
@@ -82,7 +85,7 @@ export class Gate {
     }
     // 2. manifest (own, or an installed package); anything else in scope is borrowed
     const resolved = await this.core.resolve(claims.company_id, key);
-    if (!resolved) return this.borrow(claims, job, key, rawArgs);
+    if (!resolved) return borrow(this, claims, job, key, rawArgs);
     const ability = resolved.meta;
     const handler = resolved.handler;
 
@@ -330,109 +333,8 @@ export class Gate {
     }
   }
 
-  /**
-   * A borrowed read: through the gateway as this app; recorded in this book with the gateway's request id (R4).
-   * A borrowed WRITE (v3 §10 "one step in another app's subject") is never run here: it is handed to its owner as
-   * an a2a task — the owner's gate, switchboard, proposal and a person's yes apply there — and this job waits on it.
-   */
-  private async borrow(claims: JobTokenClaims, job: JobRow, key: string, args: unknown): Promise<GateResult> {
-    const board = await this.core.board.get(claims.company_id);
-    const b = (await this.core.borrowed.list(claims.company_id, board)).find((x) => x.key === key);
-    if (!b || b.setting === 'off') return this.refuse(claims, key, 'switched_off', `${key} is not available to borrow here`);
-    const v = this.core.borrowed.validators(b);
-    if (b.ability.kind === 'write') {
-      // The card (if the model added one) is the owner's to write; only the inputs travel.
-      const { card: _card, ...inputs } = args && typeof args === 'object' && !Array.isArray(args) ? (args as Record<string, unknown>) : ({} as Record<string, unknown>);
-      if (!v.input(inputs)) return this.refuse(claims, key, 'invalid_args', this.core.borrowed.errors(v.input));
-      return this.handOff(claims, job, key, { target: b.owner, ask: `${b.ability.title} (${key})`, ability: key, args: inputs });
-    }
-    if (!v.input(args)) return this.refuse(claims, key, 'invalid_args', this.core.borrowed.errors(v.input));
-    const idem = `${this.core.key}:borrow:${claims.sub}:${sha256(canonicalize({ key, args }))}`;
-    const res = await this.core.platform.gatewayCall({ company_id: claims.company_id, app: b.owner, endpoint: key, body: args, idem_key: idem });
-    if (res.status !== 200) {
-      // The owner's words are outside text: data for the model, never instruction (item 10).
-      return this.refuse(claims, key, 'owner_refused', `${b.owner} answered ${res.status}`, { detail: res.body?.error?.message ?? 'refused', detail_source: b.owner });
-    }
-    const out = res.body?.result;
-    if (!v.output(out)) return this.refuse(claims, key, 'contract_violation', `${b.owner} returned a result outside its schema`);
-    await this.core.company(claims.company_id, async (c) => {
-      await this.core.book.recordOperation(c, {
-        company_id: claims.company_id,
-        job_id: claims.sub,
-        caller: `assistant:${claims.sub}`,
-        ability_key: `borrow:${b.owner}:${key}`,
-        idempotency_key: idem,
-        outcome: 'answered',
-        gateway_request_id: res.request_id,
-        request: args,
-        result: out,
-        reason: `borrowed from ${b.owner}`,
-      });
-      await this.core.book.addStep(c, { company_id: claims.company_id, job_id: claims.sub, kind: 'ability', summary: `Asked ${b.owner}: ${b.ability.title}`, ability_key: key });
-    });
-    return { status: 'done', ability: key, output: out, untrusted: true };
-  }
-
-  /**
-   * Hand a task to another app; the job waits on it like it waits on a person (Phase 4).
-   * The wait is written BEFORE the platform is asked (item 5): a result that comes back
-   * faster than this call returns finds a hand-off in flight and is retried, never lost.
-   */
-  private async a2a(claims: JobTokenClaims, job: JobRow, args: any): Promise<GateResult> {
-    const targets = this.core.borrowed.a2aTargets();
-    if (!args || typeof args.app !== 'string' || !targets.includes(args.app) || typeof args.ask !== 'string' || args.ask.trim().length < 3) {
-      return this.refuse(claims, 'a2a.request', 'invalid_args', `app must be one of ${targets.join(', ') || '(none)'} and ask is required`);
-    }
-    return this.handOff(claims, job, 'a2a.request', { target: args.app, ask: args.ask });
-  }
-
-  /** Open a task at another app and make this job wait on it (a2a.request, and borrowed writes). */
-  private async handOff(claims: JobTokenClaims, job: JobRow, toolKey: string, req: { target: string; ask: string; ability?: string; args?: unknown }): Promise<GateResult> {
-    const args = { app: req.target, ask: req.ask };
-    const wait = await this.core.company(claims.company_id, (c) =>
-      this.core.book.insertWait(c, { company_id: claims.company_id, job_id: claims.sub, kind: 'a2a_task', ref_id: null, expires_at_sql: `now() + interval '24 hours'` }),
-    );
-    let res: { status: number; body: any };
-    try {
-      res = await this.core.platform.openA2A({
-        company_id: claims.company_id,
-        target: args.app,
-        ask: args.ask,
-        parent_task_id: job.task_id,
-        host_job_id: claims.sub,
-        ...(req.ability ? { ability: req.ability, args: req.args ?? {} } : {}),
-      });
-    } catch (e) {
-      res = { status: 502, body: { error: { code: 'a2a_unreachable', message: String(e) } } };
-    }
-    if (res.status !== 200) {
-      await this.core.company(claims.company_id, (c) =>
-        c.query(`update ${this.core.key}.waits set status = 'consumed', ready_at = now(), outcome = 'NOT_OPENED' where id = $1 and status = 'pending'`, [wait.id]),
-      );
-      return this.refuse(claims, toolKey, res.body?.error?.code ?? 'a2a_refused', `the platform answered ${res.status}`, {
-        detail: res.body?.error?.message ?? null,
-        detail_source: 'platform',
-      });
-    }
-    const taskId = res.body.task_id as string;
-    await this.core.company(claims.company_id, async (c) => {
-      await c.query(`update ${this.core.key}.waits set ref_id = $2 where id = $1`, [wait.id, taskId]);
-      const consumed = await this.core.book.consumeReadyWaits(c, claims.sub);
-      await this.core.book.markReported(c, claims.company_id, consumed, `assistant:${claims.sub}`, { next_task: taskId });
-      await this.core.book.setJobStatus(c, claims.sub, 'WAITING');
-      await this.core.book.addStep(c, {
-        company_id: claims.company_id,
-        job_id: claims.sub,
-        kind: 'system',
-        summary: req.ability ? `Handed one step to ${args.app} (task ${taskId.slice(0, 8)}): ${args.ask}` : `Handed to ${args.app} (task ${taskId.slice(0, 8)}): ${args.ask}`,
-        ...(req.ability ? { ability_key: req.ability } : {}),
-      });
-      await this.core.book.emit(c, claims.company_id, 'a2a.requested', { job_id: claims.sub, task_id: taskId, target: args.app, lineage: res.body.lineage, ...(req.ability ? { ability: req.ability } : {}) }, `a2a:${taskId}`);
-    });
-    return { status: 'waiting_on_app', app: args.app, task_id: taskId };
-  }
-
-  private async refuse(claims: JobTokenClaims, key: string, code: string, reason: string, outside?: { detail: unknown; detail_source: string }): Promise<GateResult> {
+  /** Refuse a call: a `refused` step in the book; another party's words (detail) travel as data. */
+  async refuse(claims: JobTokenClaims, key: string, code: string, reason: string, outside?: { detail: unknown; detail_source: string }): Promise<GateResult> {
     await this.core
       .company(claims.company_id, (c) =>
         this.core.book.addStep(c, { company_id: claims.company_id, job_id: claims.sub, kind: 'refused', summary: `Refused ${key}: ${reason}`, ability_key: key }),

@@ -34,6 +34,7 @@ export class BorrowCache {
   }
 
   async list(companyId: string, board: EffectiveBoard): Promise<Borrowed[]> {
+    if (this.core.presenceOn) return this.listFromRegistry(companyId, board);
     // The registry pins (cached by the package host, dropped on switchboard.changed) are part of the key:
     // an install or uninstall changes what is borrowed at once, with no deploy and no hand-cleared cache.
     const entries = await this.core.packages.entriesFor(companyId).catch(() => null);
@@ -72,6 +73,44 @@ export class BorrowCache {
     }
     this.cache.set(companyId, { at: Date.now(), list: out, entries });
     return out.map((b) => ({ ...b, setting: strictest(b.setting, board.hostSetting(b.key)) }));
+  }
+
+  /**
+   * v3 §10 with NEOP_PRESENCE on (S6): no platform call and no neos.acl. The owner's contract is read from the
+   * registry schema (neos_registry.abilities, A6); the line is this app's own `uses` line on its own switchboard —
+   * off until the company sets it (the desk: "Marketing wants to be able to ask Ledger for …"), never looser than
+   * the `uses` floor. The owner's own line is the owner's to check when the ask arrives (three checks, one ask).
+   */
+  private async listFromRegistry(companyId: string, board: EffectiveBoard): Promise<Borrowed[]> {
+    const hit = this.cache.get(companyId);
+    const eff = (list: Borrowed[]) =>
+      list.map((b) => {
+        const own = board.companySetting(b.key);
+        return { ...b, setting: own === undefined ? ('off' as Setting) : strictest(b.setting, own) };
+      });
+    if (hit && hit.entries === 'registry' && Date.now() - hit.at < 30_000) return eff(hit.list);
+    const uses = this.core.manifest.uses.filter((u) => u.ability !== 'tasks.open');
+    const out: Borrowed[] = [];
+    if (uses.length) {
+      const rows = await this.core.runnerPool
+        .query<{ app: string; ability: string; version: string; title: string; description: string; kind: 'read' | 'write'; floor: Setting; doors: string[]; input: any; output: any }>(
+          `select app, ability, version, title, description, kind, floor, doors, input, output from neos_registry.abilities where (app, ability) in (select * from unnest($1::text[], $2::text[]))`,
+          [uses.map((u) => u.app), uses.map((u) => u.ability)],
+        )
+        .then((r) => r.rows)
+        .catch((e) => {
+          this.core.log('registry unavailable; nothing borrowed', { e: String(e?.message ?? e).slice(0, 200) });
+          return [];
+        });
+      for (const u of uses) {
+        const a = rows.find((r) => r.app === u.app && r.ability === u.ability);
+        if (!a) continue; // the owner is not registered (or no longer offers it): not offered
+        const ability: ManifestAbility = { key: a.ability, version: a.version, title: a.title, description: a.description, kind: a.kind, floor: a.floor, input: a.input ?? {}, output: a.output ?? {}, ...(Array.isArray(a.doors) && a.doors.length ? { doors: a.doors } : {}) } as ManifestAbility;
+        out.push({ key: u.ability, owner: u.app, ability, setting: (u.floor ?? 'on') as Setting });
+      }
+    }
+    this.cache.set(companyId, { at: Date.now(), list: out, entries: 'registry' });
+    return eff(out);
   }
 
   invalidate(companyId: string): void {

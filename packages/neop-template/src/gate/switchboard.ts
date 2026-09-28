@@ -38,6 +38,8 @@ export interface EffectiveBoard {
   setting(ability: ManifestAbility): Setting;
   /** The company's own setting for a key this app does not own (borrowed lines). */
   hostSetting(key: string): Setting;
+  /** The company's own row for a line, if it has set one (v3 S6: a borrowed line is off until the company sets it). */
+  companySetting(key: string): Setting | undefined;
   /** The board as a job runs on it (jobs.switchboard_snapshot, t007). */
   snapshot(): BoardSnapshot;
 }
@@ -135,6 +137,9 @@ export class SwitchboardCache {
       company: doc.company,
       hostSetting(key) {
         return strictest('on', doc.settings[key]);
+      },
+      companySetting(key) {
+        return doc.settings[key];
       },
       setting(ability) {
         // effective = min(app floor, company setting); require_person forces ask-first.
