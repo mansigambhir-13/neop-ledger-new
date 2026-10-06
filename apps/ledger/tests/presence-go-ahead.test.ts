@@ -4,7 +4,7 @@
 // expense.") — never a yes. The one reply re-shows the card and says "I can't take a yes through NeuralChat. Please
 // approve #<id> on your desk."; nothing executes and no job opens. A person's yes on the desk then executes it once.
 // A bridge's clear DECLINE still binds (PLAIN_DECLINE, never when it only postpones) — also for a person the bridge
-// relays for who has no Matrix id of their own (t017, found in the v3 rehearsal).
+// relays for who has no Matrix id of their own (t017, found in the v3 dry run).
 import { cp, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -222,7 +222,7 @@ describe('a bridge’s clear decline still binds (caution may be added, never re
   });
 });
 
-describe('a person the bridge relays for need not have a Matrix id (found in the v3 rehearsal, t017)', () => {
+describe('a person the bridge relays for need not have a Matrix id (found in the v3 dry run, t017)', () => {
   it('a plain decline relayed for a person with no Matrix link is recorded for them', async () => {
     const AGENT3 = '@reasoning_agent_three:hs.test';
     const r = await P.api('PUT', '/api/chat/allowlist', { app: 'ledger', matrix_id: AGENT3, kind: 'bridge', acts_for: P.member.id });

@@ -1,7 +1,7 @@
 # Go-live · NEOS + Ledger on the NEOS reasoning agent's Matrix road
 
 For the deployment on 28 September 2026. Everything below has been rehearsed from an empty host with
-`scripts/deploy.sh` (see *Rehearsal* at the end). What people use: the NEOS app's NeuralChat, which talks to
+`scripts/deploy.sh` (see *Dry runs* at the end). What people use: the NEOS app's NeuralChat, which talks to
 Ledger's Matrix account (`@ledger`) exactly as `neos-agent-neuralchat` #143 does.
 
 ## 1. Inputs only the team can provide (the day before)
@@ -100,7 +100,7 @@ NeuralChat. Please approve #<card> on your desk."*, re-showing the card (audited
 - The person-facing desk in this repo is a test harness, not the product UI.
 - Observability (Jaeger/Prometheus/Grafana) is out of scope for go-live: leave `OBSERVABILITY=0`.
 
-## Rehearsal (27 September 2026)
+## Dry run (27 September 2026)
 
 From an empty host, with the same script and the release attestation (`deploy/attestations/ledger.json`), a
 stand-in external homeserver, and NeuralChat simulated exactly as #143 talks (`scripts/neuralchat-sim.ts`):
@@ -115,11 +115,11 @@ stand-in external homeserver, and NeuralChat simulated exactly as #143 talks (`s
 | A one-minute provider outage | before: every job in flight failed within seconds; now retries back off 5/15/30/60/120 s and the job finishes (`transient-retry.test`) |
 | A note from another job | before: the assistant sometimes skipped a request as "already done" from another job's note; now it never does (governance and writes pass live) |
 
-Found and fixed by the rehearsal: a new company had **no chart of accounts** (now a starter chart on first
+Found and fixed by the dry run: a new company had **no chart of accounts** (now a starter chart on first
 install), NeuralChat's plain decline did not bind to the card (now it does, only on explicit decline words),
 and two `deploy.sh` portability bugs (macOS bash 3.2, the Matrix overlay on upgrade).
 
-## Rehearsal (28 September 2026, the deployment candidate)
+## Dry run (28 September 2026, the deployment candidate)
 
 Upgrade of the same clean-room install to the candidate (typed Matrix events, database-level lifecycle and
 `answer_proposal()`, desk views, registry schema, **no approval on anyone's behalf**):
@@ -132,5 +132,5 @@ Upgrade of the same clean-room install to the candidate (typed Matrix events, da
 | PDF bill → exact `ledger.bill.record` with its source document; XLSX statement read in rupees as written (₹23,600.00) | live, 28 Sep |
 | Backup → damage → restore | trial balance restored identical |
 
-Found and fixed by this rehearsal: image builds failed on a slow registry link (pnpm now waits 10 min per
+Found and fixed by this dry run: image builds failed on a slow registry link (pnpm now waits 10 min per
 download, 5 retries).

@@ -85,7 +85,7 @@ case "$PRESENCE" in
     # The backend reaches the homeserver through egress-proxy (443 only): allow its host.
     HS_HOST=$(printf '%s' "$MATRIX_HOMESERVER_URL" | sed -E 's#^[a-z]+://##; s#[:/].*$##')
     export NEOS_EGRESS_EXTRA="${NEOS_EGRESS_EXTRA:+$NEOS_EGRESS_EXTRA,}$HS_HOST"
-    # …and its port, when the homeserver is not on 443 (found in rehearsal: http on 8108 was refused).
+    # …and its port, when the homeserver is not on 443 (found in a dry run: http on 8108 was refused).
     HS_PORT=$(printf '%s' "$MATRIX_HOMESERVER_URL" | sed -nE 's#^[a-z]+://[^/:]+:([0-9]+).*$#\1#p')
     [ -z "$HS_PORT" ] && case "$MATRIX_HOMESERVER_URL" in http://*) HS_PORT=80 ;; esac
     [ -n "$HS_PORT" ] && [ "$HS_PORT" != 443 ] && export NEOS_EGRESS_PORTS="${NEOS_EGRESS_PORTS:-443},$HS_PORT" ;;

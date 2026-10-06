@@ -468,7 +468,7 @@ describe('deadline and token handling', () => {
     expect(c3.status().stopped?.reason).toBe('no_install');
   });
 
-  it('a homeserver not reachable at boot (found in rehearsal): the client keeps trying and starts once it answers', async () => {
+  it('a homeserver not reachable at boot (found in a dry run): the client keeps trying and starts once it answers', async () => {
     const hs = fakeClientHomeserver({ me: ME });
     let down = true;
     const flaky = (async (url: any, init?: any) => {

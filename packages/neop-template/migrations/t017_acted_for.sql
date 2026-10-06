@@ -1,5 +1,5 @@
 -- t017 · template upgrade stream. Expand-only.
--- Found in the v3 rehearsal (NEOP_PRESENCE=client): a bridge such as NeuralChat relays for a person (its
+-- Found in the v3 dry run (NEOP_PRESENCE=client): a bridge such as NeuralChat relays for a person (its
 -- `acts_for`), and that person need not have a Matrix id of their own. `people` (t012) is keyed by Matrix id,
 -- so such a person was unknown to the app's presence and a relayed "no" could not be recorded for them.
 --   · acted_for — the people a bridge speaks for at this company (user id, name, role), written by the platform's
