@@ -25,7 +25,14 @@ import {
 import { parseTemplateGateArgs } from '../run-template-gate.ts';
 
 const catalog = JSON.parse(readFileSync(path.join(ROOT, 'fleet/catalog.json'), 'utf8'));
-const baseline = () => JSON.parse(readFileSync(path.join(ROOT, 'fleet/template-alignment.json'), 'utf8'));
+const baseline = () => {
+  const data = JSON.parse(readFileSync(path.join(ROOT, 'fleet/template-alignment.json'), 'utf8'));
+  for (const app of data.apps) {
+    app.assessment = 'gap';
+    app.evidence = [];
+  }
+  return data;
+};
 const temporary: string[] = [];
 
 afterEach(async () => {
@@ -132,7 +139,7 @@ describe('pinned upstream template alignment', () => {
     expect(report.direct_template_sync_allowed).toBe(false);
     expect(report.total).toBe(20);
     expect(report.aligned).toBe(0);
-    expect(report.apps.every((app) => app.verified_gates.length === 0 && !app.template_aligned)).toBe(true);
+    expect(report.apps.every((app) => app.verified_gates.length === 1 && app.verified_gates[0] === 'ownership' && !app.template_aligned)).toBe(true);
   });
 
   it.each([
