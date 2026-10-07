@@ -28,6 +28,8 @@ async function run(env: Record<string, string> = {}, fetchImpl?: any) {
       NEOS_DB_URL: P.adminUrl,
       NEOP_LLM_UPSTREAM_KEY: 'sk-never-printed',
       NEOP_DOOR_SECRETS_DIR: P.doorsDir,
+      NEOP_FILES_URL: `http://127.0.0.1:${P.backend.ports.files}`,
+      NEOP_PRESENCE: 'appservice',
       NEOS_COMPOSE_FILE: path.join(LEDGER_ROOT, '../../deploy/compose.pilot.yml'),
       ...env,
     },
@@ -51,12 +53,13 @@ describe('verify-install (read-only, against a running deployment)', () => {
       "database: schema in step with this build's migrations",
       'switchboard: every line within its floor',
       'llm proxy: provider key present (not read)',
-      'backend: /l3/ready, reached as the platform reaches it',
+      'backend: files/ops /ready',
       'doors: a credential file for every connected door (not read)',
       'deploy: the door secret store reaches the backend only (no agent, no web mount)',
     ]) expect(r.by[name]?.status, `${name}: ${r.by[name]?.detail}`).toBe('PASS');
     expect(['PASS', 'WARN']).toContain(r.by['platform: ledger is registered, active and attested']!.status);
-    expect(r.by['matrix: client tokens valid (whoami)']!.status).toBe('SKIP');
+    expect(r.by["matrix: the app's own account token valid (whoami, NEOP_PRESENCE=client)"]!.status).toBe('SKIP');
+    expect(r.by['matrix: NeuralChat client token valid (whoami)']!.status).toBe('SKIP');
     expect(r.text).toMatch(/^STATUS\s+CHECK\s+DETAIL/);
     expect(r.text).not.toContain('sk-never-printed');
     expect(r.text).not.toContain('sk-door-never-printed');
@@ -78,7 +81,7 @@ describe('verify-install (read-only, against a running deployment)', () => {
     };
     await behindTheBack("insert into ledger.switchboard (company_id, line, kind, floor, setting, version) values ($1, $2, 'write', 'ask_first', 'on', 999)");
     try {
-      const r = await run({ NEOP_LLM_UPSTREAM_KEY: '', NEOS_PLATFORM_URL: 'http://127.0.0.1:1' });
+      const r = await run({ NEOP_LLM_UPSTREAM_KEY: '', NEOS_COMPOSE_FILE: '', NEOS_PLATFORM_URL: 'http://127.0.0.1:1' });
       expect(r.ok).toBe(false);
       expect(r.by['switchboard: every line within its floor']).toMatchObject({ status: 'FAIL' });
       expect(r.by['switchboard: every line within its floor']!.detail).toContain(`${write.key} is on, looser than its floor ask_first`);
@@ -123,21 +126,22 @@ describe('verify-install (read-only, against a running deployment)', () => {
     await P.setDoorSecret('email', { provider: 'dev-mailbox', dir: P.mailDir });
   });
 
-  it('MATRIX_MODE=client: each account’s token is checked with whoami — its own account passes, another’s fails', async () => {
+  it('NEOP_PRESENCE=client: the app token is checked with whoami — its own account passes, another’s fails', async () => {
     const dir = await mkdtemp(path.join(os.tmpdir(), 'neos-verify-'));
     try {
       await writeFile(path.join(dir, 'tok'), 'tok-ledger\n');
       const accounts = JSON.stringify([{ account: '@ledger:hs.test', company: P.company.id, app: 'ledger', token_file: path.join(dir, 'tok') }]);
-      const env = { MATRIX_MODE: 'client', MATRIX_HOMESERVER_URL: 'http://hs.test', MATRIX_CLIENT_ACCOUNTS: accounts };
+      const env = { NEOP_PRESENCE: 'client', NEOP_MATRIX_HOMESERVER_URL: 'http://hs.test', NEOP_MATRIX_CLIENT_ACCOUNTS: accounts };
       const good = fakeClientHomeserver({ me: '@ledger:hs.test', token: 'tok-ledger' });
       const passthrough = (hs: any) => (url: string, init: any) => (url.startsWith('http://hs.test') ? hs.fetchImpl(url, init) : fetch(url, init));
-      expect((await run(env, passthrough(good))).by['matrix: client tokens valid (whoami)']).toMatchObject({ status: 'PASS', detail: '@ledger:hs.test' });
+      const check = "matrix: the app's own account token valid (whoami, NEOP_PRESENCE=client)";
+      expect((await run(env, passthrough(good))).by[check]).toMatchObject({ status: 'PASS', detail: '@ledger:hs.test' });
       const other = fakeClientHomeserver({ me: '@ledger:hs.test', token: 'tok-ledger', whoamiAs: '@someone_else:hs.test' });
-      expect((await run(env, passthrough(other))).by['matrix: client tokens valid (whoami)']!.detail).toContain('belongs to @someone_else:hs.test');
+      expect((await run(env, passthrough(other))).by[check]!.detail).toContain('belongs to @someone_else:hs.test');
       const expired = fakeClientHomeserver({ me: '@ledger:hs.test', token: 'tok-ledger' });
       expired.expireToken();
       const r = await run(env, passthrough(expired));
-      expect(r.by['matrix: client tokens valid (whoami)']).toMatchObject({ status: 'FAIL' });
+      expect(r.by[check]).toMatchObject({ status: 'FAIL' });
       expect(r.text).not.toContain('tok-ledger');
     } finally {
       await rm(dir, { recursive: true, force: true });

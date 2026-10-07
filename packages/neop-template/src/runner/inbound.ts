@@ -1,3 +1,4 @@
+import {sqlIdent, type PoolClient} from '@neop/pgkit';
 // THE RUNNER'S EAR · events pushed by the appservice or pulled by /sync (v3 §3 step 2, §8, §13 `inbound.ts`;
 // V3 migration stage S4). Template-only. What arrives is data until it has become something in the book:
 //
@@ -25,8 +26,8 @@
 
 import { answersFromText, readTaskFields, type Question, type TaskResult } from '@neop/contracts';
 import { ExecError } from '../capabilities/execute.ts';
-import { openJob } from '../capabilities/platform/tasks.open.ts';
-import { answerWait } from '../capabilities/platform/waits.answer.ts';
+import { openJob } from '../capabilities/jobs.open.ts';
+import { answerWait } from '../capabilities/waits.answer.ts';
 import type { Core } from '../core.ts';
 import { bridgeCardText, clip, FIXED_FAILURE, roomText, waitingCardText } from '../presence/cards.ts';
 import { isTypedEventType, keyTxnId, maySend, replyTxnId, shortType, taskIdForEvent, threadRelation, threadRootOf, typedContent, validateTypedBody, type TypedBodies, type TypedEventType } from '../presence/events.ts';
@@ -48,6 +49,8 @@ export interface Road {
   sendEvent(room: string, type: string, content: Record<string, unknown>, txnId: string): Promise<string>;
   /** Rooms only: do Matrix's power levels give this sender the approve level? (A DM is the person's own.) */
   mayApproveHere?(room: string, sender: string): Promise<boolean>;
+  /** Download a file a task references (mxc://…) from this road's homeserver, with this road's own token (v3 S9). */
+  download?(mxc: string, maxBytes: number): Promise<Buffer>;
 }
 
 export interface TypedIn {
@@ -92,9 +95,9 @@ export class Inbound {
 
   // ── records ─────────────────────────────────────────────────────────────────
   /** Set what an inbound event became (and what it bound to). */
-  async setIn(eventId: string, outcome: string | null, x: Extra = {}): Promise<void> {
-    await this.db.query(
-      `update ${this.s}.inbound_events set outcome = coalesce($2, outcome), job_id = coalesce($3, job_id), proposal_id = coalesce($4, proposal_id),
+  async setIn(eventId: string, outcome: string | null, x: Extra = {}, client?: PoolClient): Promise<void> {
+    await (client ?? this.db).query(
+      `update ${sqlIdent(this.s)}.inbound_events set outcome = coalesce($2, outcome), job_id = coalesce($3, job_id), proposal_id = coalesce($4, proposal_id),
               wait_id = coalesce($5, wait_id), fingerprint_shown = coalesce($6, fingerprint_shown), person_id = coalesce($7, person_id),
               typed_task_id = coalesce($8, typed_task_id), detail = coalesce($9::jsonb, detail)
         where event_id = $1`,
@@ -105,14 +108,14 @@ export class Inbound {
   /** Record what this app said where (the key is the transaction id: nothing is said twice). */
   async recordOut(road: Road, room: string, key: string, kind: string, eventId: string | null, x: Extra = {}): Promise<void> {
     await this.db.query(
-      `insert into ${this.s}.outbound_events (company_id, account, room_id, key, event_id, kind, job_id, proposal_id, wait_id, fingerprint_shown)
+      `insert into ${sqlIdent(this.s)}.outbound_events (company_id, account, room_id, key, event_id, kind, job_id, proposal_id, wait_id, fingerprint_shown)
        values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) on conflict (account, room_id, key) do nothing`,
       [road.companyId, road.account, room, key, eventId, kind, x.job_id ?? null, x.proposal_id ?? null, x.wait_id ?? null, x.fingerprint ?? null],
     );
   }
 
   async said(road: Road, room: string, key: string): Promise<boolean> {
-    return !!(await this.db.query(`select 1 from ${this.s}.outbound_events where account = $1 and room_id = $2 and key = $3`, [road.account, room, key])).rowCount;
+    return !!(await this.db.query(`select 1 from ${sqlIdent(this.s)}.outbound_events where account = $1 and room_id = $2 and key = $3`, [road.account, room, key])).rowCount;
   }
 
   /** One m.notice, once per key (txn id = the key). */
@@ -135,7 +138,7 @@ export class Inbound {
   /** The reply to this event is owed when its job settles (or the deadline passes). */
   async owe(eventId: string, outcome: string, jobId: string, x: { proposal_id?: string; fingerprint?: string } = {}): Promise<void> {
     await this.db.query(
-      `update ${this.s}.inbound_events set outcome = $2, job_id = $3, proposal_id = coalesce($4, proposal_id), fingerprint_shown = coalesce($5, fingerprint_shown),
+      `update ${sqlIdent(this.s)}.inbound_events set outcome = $2, job_id = $3, proposal_id = coalesce($4, proposal_id), fingerprint_shown = coalesce($5, fingerprint_shown),
               reply_status = 'waiting', reply_due_at = now() + ($6 || ' milliseconds')::interval where event_id = $1 and reply_status = 'none'`,
       [eventId, outcome, jobId, x.proposal_id ?? null, x.fingerprint ?? null, String(this.replyDeadlineMs)],
     );
@@ -149,7 +152,7 @@ export class Inbound {
       return;
     }
     const claimed = await this.db.query(
-      `update ${this.s}.inbound_events set outcome = $2, proposal_id = coalesce($3, proposal_id), fingerprint_shown = coalesce($4, fingerprint_shown),
+      `update ${sqlIdent(this.s)}.inbound_events set outcome = $2, proposal_id = coalesce($3, proposal_id), fingerprint_shown = coalesce($4, fingerprint_shown),
               reply_status = 'sending', reply_text = $5 where event_id = $1 and reply_status = 'none'`,
       [eventId, outcome, x.proposal_id ?? null, x.fingerprint ?? null, clip(text)],
     );
@@ -158,7 +161,7 @@ export class Inbound {
 
   /** The thread root for the reply to this event, when it belongs to a typed thread (else null: a plain reply). */
   private async typedRootFor(road: Road, eventId: string, room: string): Promise<string | null> {
-    const e = (await this.db.query<{ outcome: string; job_id: string | null }>(`select outcome, job_id from ${this.s}.inbound_events where event_id = $1`, [eventId])).rows[0];
+    const e = (await this.db.query<{ outcome: string; job_id: string | null }>(`select outcome, job_id from ${sqlIdent(this.s)}.inbound_events where event_id = $1`, [eventId])).rows[0];
     if (!e?.outcome.startsWith('typed:')) return null;
     if (e.outcome === 'typed:task_opened') return eventId;
     if (!e.job_id) return null;
@@ -169,7 +172,7 @@ export class Inbound {
     const root = await this.typedRootFor(road, eventId, room);
     const content = { msgtype: 'm.notice', body: text, 'm.relates_to': root ? threadRelation(root, eventId) : { 'm.in_reply_to': { event_id: eventId } } };
     const sent = await road.send(room, content, replyTxnId(eventId));
-    await this.db.query(`update ${this.s}.inbound_events set reply_status = 'sent', reply_event_id = $2, replied_at = now() where event_id = $1`, [eventId, sent]);
+    await this.db.query(`update ${sqlIdent(this.s)}.inbound_events set reply_status = 'sent', reply_event_id = $2, replied_at = now() where event_id = $1`, [eventId, sent]);
     // Recorded as what was said here: a card with the fingerprint it showed, a question with its wait.
     await this.recordOut(road, room, `reply:${eventId}`, card ? 'card' : question ? 'question' : 'reply', sent, card ? { proposal_id: card.proposal_id, fingerprint: card.fingerprint } : question ? { wait_id: question } : {});
     this.log('replied', { event: eventId, fixed: text === FIXED_FAILURE });
@@ -179,7 +182,7 @@ export class Inbound {
   async replyTick(road: Road, stopping: () => boolean = () => false): Promise<number> {
     const { rows } = await this.db.query<{ event_id: string; room_id: string; sender_class: string | null; job_id: string | null; at: Date; reply_status: string; reply_text: string | null; overdue: boolean }>(
       `select event_id, room_id, sender_class, job_id, at, reply_status, reply_text, reply_due_at <= now() as overdue
-         from ${this.s}.inbound_events where account = $1 and reply_status in ('waiting', 'sending') order by at limit 50`,
+         from ${sqlIdent(this.s)}.inbound_events where account = $1 and reply_status in ('waiting', 'sending') order by at limit 50`,
       [road.account],
     );
     let n = 0;
@@ -192,7 +195,7 @@ export class Inbound {
       const settled = await this.settled(road, r);
       const text = settled?.text ?? (r.overdue ? FIXED_FAILURE : null);
       if (!text) continue;
-      const claimed = await this.db.query(`update ${this.s}.inbound_events set reply_status = 'sending', reply_text = $2 where event_id = $1 and reply_status = 'waiting'`, [r.event_id, clip(text)]);
+      const claimed = await this.db.query(`update ${sqlIdent(this.s)}.inbound_events set reply_status = 'sending', reply_text = $2 where event_id = $1 and reply_status = 'waiting'`, [r.event_id, clip(text)]);
       if (!claimed.rowCount) continue;
       await this.deliver(road, r.event_id, r.room_id, clip(text), settled?.card ?? null, settled?.question ?? null);
       n++;
@@ -203,12 +206,12 @@ export class Inbound {
   /** What the one reply says, from the book — or null while the job is still working. */
   private async settled(road: Road, r: { job_id: string | null; at: Date; sender_class: string | null }): Promise<{ text: string; card?: Card; question?: string } | null> {
     if (!r.job_id) return null;
-    const job = (await this.db.query<{ status: string; result: TaskResult | null; on_behalf_of: string | null; requester: string }>(`select status, result, on_behalf_of, requester from ${this.s}.jobs where id = $1`, [r.job_id])).rows[0];
+    const job = (await this.db.query<{ status: string; result: TaskResult | null; on_behalf_of: string | null; requester: string }>(`select status, result, on_behalf_of, requester from ${sqlIdent(this.s)}.jobs where id = $1`, [r.job_id])).rows[0];
     if (!job) return null;
     if (job.status === 'DONE') return { text: roomText.reply(job.result) };
     if (['FAILED', 'CANCELLED', 'EXPIRED'].includes(job.status)) return { text: FIXED_FAILURE };
     // A card raised by this job since the message: the reply states what is proposed; only a person may say yes.
-    const a = (await this.db.query(`select * from ${this.s}.proposals where job_id = $1 and status = 'PROPOSED' and created_at >= $2 order by created_at desc limit 1`, [r.job_id, r.at])).rows[0];
+    const a = (await this.db.query(`select * from ${sqlIdent(this.s)}.proposals where job_id = $1 and status = 'PROPOSED' and created_at >= $2 order by created_at desc limit 1`, [r.job_id, r.at])).rows[0];
     if (a) {
       const shown = { card: a.card, args: a.args, expires_at: new Date(a.expires_at).toISOString(), fingerprint: a.fingerprint };
       const card = { proposal_id: a.id as string, fingerprint: a.fingerprint as string };
@@ -221,7 +224,7 @@ export class Inbound {
     // A question the job asked since the message: the reply IS the question, and a reply to it answers it.
     const w = (
       await this.db.query<{ id: string; question: Question; expires_at: Date; job_id: string }>(
-        `select id, question, expires_at, job_id from ${this.s}.waits where job_id = $1 and kind = 'input' and status = 'pending' and created_at >= $2 order by created_at desc limit 1`,
+        `select id, question, expires_at, job_id from ${sqlIdent(this.s)}.waits where job_id = $1 and kind = 'input' and status = 'pending' and created_at >= $2 order by created_at desc limit 1`,
         [r.job_id, r.at],
       )
     ).rows[0];
@@ -253,13 +256,13 @@ export class Inbound {
   async questionsTick(road: Road): Promise<number> {
     const { rows } = await this.db.query<{ id: string; job_id: string; question: Question; expires_at: Date; room_id: string }>(
       `select w.id, w.job_id, w.question, w.expires_at, d.room_id
-         from ${this.s}.waits w
-         join ${this.s}.jobs j on j.id = w.job_id
-         join ${this.s}.people p on p.company_id = w.company_id and ('user:' || p.user_id) = coalesce(j.on_behalf_of, j.requester) and p.chat_person
-         join ${this.s}.presence_dms d on d.account = $1 and d.peer = p.matrix_id
+         from ${sqlIdent(this.s)}.waits w
+         join ${sqlIdent(this.s)}.jobs j on j.id = w.job_id
+         join ${sqlIdent(this.s)}.people p on p.company_id = w.company_id and ('user:' || p.user_id) = coalesce(j.on_behalf_of, j.requester) and p.chat_person
+         join ${sqlIdent(this.s)}.presence_dms d on d.account = $1 and d.peer = p.matrix_id
         where w.company_id = $2 and w.kind = 'input' and w.status = 'pending' and w.question is not null
-          and not exists (select 1 from ${this.s}.inbound_events e where e.account = $1 and e.event_id = j.origin)
-          and not exists (select 1 from ${this.s}.outbound_events o where o.account = $1 and o.room_id = d.room_id and o.wait_id = w.id)
+          and not exists (select 1 from ${sqlIdent(this.s)}.inbound_events e where e.account = $1 and e.event_id = j.origin)
+          and not exists (select 1 from ${sqlIdent(this.s)}.outbound_events o where o.account = $1 and o.room_id = d.room_id and o.wait_id = w.id)
         order by w.created_at limit 20`,
       [road.account, road.companyId],
     );
@@ -279,11 +282,11 @@ export class Inbound {
   }
 
   async dmOf(road: Road, peer: string): Promise<string | null> {
-    return (await this.db.query<{ room_id: string }>(`select room_id from ${this.s}.presence_dms where account = $1 and peer = $2`, [road.account, peer])).rows[0]?.room_id ?? null;
+    return (await this.db.query<{ room_id: string }>(`select room_id from ${sqlIdent(this.s)}.presence_dms where account = $1 and peer = $2`, [road.account, peer])).rows[0]?.room_id ?? null;
   }
 
   private async jobRow(id: string) {
-    return (await this.db.query<{ id: string; status: string; on_behalf_of: string | null; requester: string; company_id: string }>(`select id, status, on_behalf_of, requester, company_id from ${this.s}.jobs where id = $1`, [id])).rows[0] ?? null;
+    return (await this.db.query<{ id: string; status: string; on_behalf_of: string | null; requester: string; company_id: string }>(`select id, status, on_behalf_of, requester, company_id from ${sqlIdent(this.s)}.jobs where id = $1`, [id])).rows[0] ?? null;
   }
 
   /** The typed task root of this job in this room: its event and sender. */
@@ -291,7 +294,7 @@ export class Inbound {
     return (
       (
         await this.db.query(
-          `select event_id, sender, typed_task_id from ${this.s}.inbound_events where account = $1 and room_id = $2 and job_id = $3 and outcome = 'typed:task_opened' order by at limit 1`,
+          `select event_id, sender, typed_task_id from ${sqlIdent(this.s)}.inbound_events where account = $1 and room_id = $2 and job_id = $3 and outcome = 'typed:task_opened' order by at limit 1`,
           [road.account, room, jobId],
         )
       ).rows[0] ?? null
@@ -300,7 +303,7 @@ export class Inbound {
 
   /** The job whose typed thread is rooted at this event in this room (null: not a typed thread here). */
   async jobOfRoot(road: Road, room: string, root: string): Promise<string | null> {
-    return (await this.db.query<{ job_id: string }>(`select job_id from ${this.s}.inbound_events where account = $1 and room_id = $2 and event_id = $3 and outcome = 'typed:task_opened'`, [road.account, room, root])).rows[0]?.job_id ?? null;
+    return (await this.db.query<{ job_id: string }>(`select job_id from ${sqlIdent(this.s)}.inbound_events where account = $1 and room_id = $2 and event_id = $3 and outcome = 'typed:task_opened'`, [road.account, room, root])).rows[0]?.job_id ?? null;
   }
 
   /**
@@ -354,7 +357,7 @@ export class Inbound {
     try {
       r = await this.core.company(
         companyId,
-        async (c) => (await c.query(`select ${this.s}.answer_proposal($1, $2, $3, $4, $5, $6) as r`, [proposalId, fingerprint, decision, `user:${person.id}`, feedback ?? null, [person.role]])).rows[0].r,
+        async (c) => (await c.query(`select ${sqlIdent(this.s)}.answer_proposal($1, $2, $3, $4, $5, $6) as r`, [proposalId, fingerprint, decision, `user:${person.id}`, feedback ?? null, [person.role]])).rows[0].r,
       );
     } catch (e) {
       const m = /^(not_found|not_open|expired|bad_request|not_an_approver|four_eyes): (.*)$/s.exec(String((e as Error).message ?? ''));
@@ -374,7 +377,7 @@ export class Inbound {
   private async waitRow(id: string) {
     return (
       await this.db.query<{ id: string; job_id: string; status: string; outcome: string | null; question: Question | null; company_id: string; kind: string }>(
-        `select id, job_id, status, outcome, question, company_id, kind from ${this.s}.waits where id = $1`,
+        `select id, job_id, status, outcome, question, company_id, kind from ${sqlIdent(this.s)}.waits where id = $1`,
         [id],
       )
     ).rows[0] ?? null;
@@ -409,7 +412,7 @@ export class Inbound {
   private async answerByReply(road: Road, eventId: string, room: string, sender: string, who: Relay, body: string, inReplyTo: string): Promise<boolean> {
     const shown = (
       await this.db.query<{ wait_id: string }>(
-        `select o.wait_id from ${this.s}.outbound_events o join ${this.s}.presence_dms d on d.account = o.account and d.room_id = o.room_id and d.peer = $4
+        `select o.wait_id from ${sqlIdent(this.s)}.outbound_events o join ${sqlIdent(this.s)}.presence_dms d on d.account = o.account and d.room_id = o.room_id and d.peer = $4
           where o.event_id = $1 and o.account = $2 and o.room_id = $3 and o.wait_id is not null`,
         [inReplyTo, road.account, room, sender],
       )
@@ -431,7 +434,7 @@ export class Inbound {
    * A plain answer binds to a question, and a bridge's plain decline to a card, only while the DM is AT it.
    */
   async latestSaid(road: Road, room: string): Promise<{ event_id: string | null; proposal_id: string | null; wait_id: string | null; fingerprint_shown: string | null } | null> {
-    return (await this.db.query(`select event_id, proposal_id, wait_id, fingerprint_shown from ${this.s}.outbound_events where account = $1 and room_id = $2 order by id desc limit 1`, [road.account, room])).rows[0] ?? null;
+    return (await this.db.query(`select event_id, proposal_id, wait_id, fingerprint_shown from ${sqlIdent(this.s)}.outbound_events where account = $1 and room_id = $2 order by id desc limit 1`, [road.account, room])).rows[0] ?? null;
   }
 
   /**
@@ -443,7 +446,7 @@ export class Inbound {
     if (!at?.wait_id) return false;
     const w = await this.waitRow(at.wait_id);
     if (!w?.question || w.status !== 'pending' || w.company_id !== road.companyId) return false;
-    const asked = await this.db.query(`select 1 from ${this.s}.inbound_events where account = $1 and room_id = $2 and sender = $3 and job_id = $4 limit 1`, [road.account, room, sender, w.job_id]);
+    const asked = await this.db.query(`select 1 from ${sqlIdent(this.s)}.inbound_events where account = $1 and room_id = $2 and sender = $3 and job_id = $4 limit 1`, [road.account, room, sender, w.job_id]);
     if (!asked.rowCount) return false;
     // The whole text answers a one-field question for a PERSON only; a bridge's plain message needs key: value.
     const read = plainAnswers({ fields: w.question.fields }, body, { wholeText: !!who.user_id });
@@ -477,7 +480,7 @@ export class Inbound {
       // An answer binds to a card THIS account showed in THIS person's own recorded DM, and to its fingerprint.
       const card = (
         await this.db.query<{ proposal_id: string; fingerprint_shown: string; job_id: string | null }>(
-          `select o.proposal_id, o.fingerprint_shown, o.job_id from ${this.s}.outbound_events o join ${this.s}.presence_dms d on d.account = o.account and d.room_id = o.room_id and d.peer = $4
+          `select o.proposal_id, o.fingerprint_shown, o.job_id from ${sqlIdent(this.s)}.outbound_events o join ${sqlIdent(this.s)}.presence_dms d on d.account = o.account and d.room_id = o.room_id and d.peer = $4
             where o.event_id = $1 and o.account = $2 and o.room_id = $3 and o.proposal_id is not null`,
           [inReplyTo, road.account, room, sender],
         )
@@ -517,9 +520,9 @@ export class Inbound {
       // v3 §5/§8/§16: a bridge's "go ahead" is never a yes. If a card from its asks is open, re-show it and say where a person approves it.
       const open = (
         await this.db.query<{ id: string; card: any; args: any; expires_at: Date; fingerprint: string; job_id: string }>(
-          `select p.id, p.card, p.args, p.expires_at, p.fingerprint, p.job_id from ${this.s}.proposals p
+          `select p.id, p.card, p.args, p.expires_at, p.fingerprint, p.job_id from ${sqlIdent(this.s)}.proposals p
             where p.status = 'PROPOSED' and p.company_id = $3
-              and p.job_id in (select job_id from ${this.s}.inbound_events where account = $1 and sender = $2 and job_id is not null)
+              and p.job_id in (select job_id from ${sqlIdent(this.s)}.inbound_events where account = $1 and sender = $2 and job_id is not null)
             order by p.created_at desc limit 5`,
           [road.account, bridge, road.companyId],
         )
@@ -567,9 +570,9 @@ export class Inbound {
     const shown = (
       await this.db.query<{ proposal_id: string; fingerprint_shown: string; event_id: string; fingerprint: string; job_id: string }>(
         `select o.proposal_id, o.fingerprint_shown, o.event_id, p.fingerprint, p.job_id
-           from ${this.s}.outbound_events o
-           join ${this.s}.presence_dms d on d.account = o.account and d.room_id = o.room_id and d.peer = $3
-           join ${this.s}.proposals p on p.id = o.proposal_id
+           from ${sqlIdent(this.s)}.outbound_events o
+           join ${sqlIdent(this.s)}.presence_dms d on d.account = o.account and d.room_id = o.room_id and d.peer = $3
+           join ${sqlIdent(this.s)}.proposals p on p.id = o.proposal_id
           where o.account = $1 and o.room_id = $2 and o.proposal_id is not null and p.status = 'PROPOSED' and p.company_id = $4
           order by o.id desc`,
         [road.account, room, bridge, road.companyId],
@@ -636,13 +639,13 @@ export class Inbound {
     if (m.in_reply_to) {
       const card = (
         await this.db.query<{ proposal_id: string; fingerprint_shown: string }>(
-          `select proposal_id, fingerprint_shown from ${this.s}.outbound_events where event_id = $1 and account = $2 and room_id = $3 and proposal_id is not null`,
+          `select proposal_id, fingerprint_shown from ${sqlIdent(this.s)}.outbound_events where event_id = $1 and account = $2 and room_id = $3 and proposal_id is not null`,
           [m.in_reply_to, road.account, m.room],
         )
       ).rows[0];
       if (card) {
         await this.cardReply(road, m.event_id, m.room, person, card, m.body);
-        return (await this.db.query<{ outcome: string }>(`select outcome from ${this.s}.inbound_events where event_id = $1`, [m.event_id])).rows[0]?.outcome ?? 'received';
+        return (await this.db.query<{ outcome: string }>(`select outcome from ${sqlIdent(this.s)}.inbound_events where event_id = $1`, [m.event_id])).rows[0]?.outcome ?? 'received';
       }
     }
     await this.open(road, m.event_id, m.room, person.id, m.body, 'task_opened');
@@ -711,7 +714,7 @@ export class Inbound {
     let attachments: DocumentUpload[] = [];
     if (f.files.length) {
       try {
-        attachments = await fetchTaskFiles(this.core, f.files);
+        attachments = await fetchTaskFiles(road, f.files);
       } catch (e) {
         await this.setIn(ev.event_id, null, { detail: { class: who.cls, task_id: b.task_id, error: String((e as Error).message).slice(0, 300) } });
         await this.typedSay(road, ev, 'typed:file_refused', `Nothing was done: ${(e as Error).message}.`);
@@ -722,7 +725,7 @@ export class Inbound {
     // even as a new event, then finds the same job); anything else gets the id derived from the event.
     let taskId: string | undefined;
     if (UUID.test(b.task_id)) {
-      const held = (await this.db.query<{ sender: string | null }>(`select e.sender from ${this.s}.jobs j left join ${this.s}.inbound_events e on e.event_id = j.origin where j.company_id = $1 and j.task_id = $2`, [road.companyId, b.task_id])).rows[0];
+      const held = (await this.db.query<{ sender: string | null }>(`select e.sender from ${sqlIdent(this.s)}.jobs j left join ${sqlIdent(this.s)}.inbound_events e on e.event_id = j.origin where j.company_id = $1 and j.task_id = $2`, [road.companyId, b.task_id])).rows[0];
       if (!held || held.sender === ev.sender) taskId = b.task_id;
     }
     const job = await this.open(road, ev.event_id, ev.room_id, person, `${b.text}${fields}`, 'typed:task_opened', { task_id: taskId, trace: b.trace ?? null, attachments, parent_job_id: f.parent_job_id });
@@ -736,7 +739,7 @@ export class Inbound {
   }
 
   private async shownHere(road: Road, room: string, col: 'proposal_id' | 'wait_id', id: string): Promise<boolean> {
-    return !!(await this.db.query(`select 1 from ${this.s}.outbound_events where account = $1 and room_id = $2 and ${col} = $3 limit 1`, [road.account, room, id])).rowCount;
+    return !!(await this.db.query(`select 1 from ${sqlIdent(this.s)}.outbound_events where account = $1 and room_id = $2 and ${col} = $3 limit 1`, [road.account, room, id])).rowCount;
   }
 
   async onAnswer(road: Road, ev: TypedIn, who: Who, b: TypedBodies['neos.neop.answer'], root: string | null): Promise<string> {
@@ -781,7 +784,7 @@ export class Inbound {
     if (who.cls !== 'person') return this.drop(ev, who, 'refused:approve');
     if (road.mayApproveHere && !(await road.mayApproveHere(ev.room_id, ev.sender))) return this.drop(ev, who, 'below_approve_level');
     const p = UUID.test(b.proposal_id)
-      ? (await this.db.query<{ id: string; job_id: string; company_id: string }>(`select id, job_id, company_id from ${this.s}.proposals where id = $1`, [b.proposal_id])).rows[0]
+      ? (await this.db.query<{ id: string; job_id: string; company_id: string }>(`select id, job_id, company_id from ${sqlIdent(this.s)}.proposals where id = $1`, [b.proposal_id])).rows[0]
       : undefined;
     if (!p || p.company_id !== road.companyId || !(await this.shownHere(road, ev.room_id, 'proposal_id', p.id))) return this.drop(ev, who, 'unknown_proposal', { proposal_id: b.proposal_id });
     if (!(await this.threadOk(road, ev.room_id, root, p.job_id))) return this.drop(ev, who, 'thread_mismatch', { proposal_id: b.proposal_id, thread: root });

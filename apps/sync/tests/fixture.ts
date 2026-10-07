@@ -1,0 +1,2 @@
+// Synthetic domain inputs, never production data or a business-policy approval.
+export const fixture={"id":"sync","master":"datasets","table":"exports","noun":"export","fk":"reference_id","sample":{"destination":"Reviewed item","sensitivity":"pii","notes":null},"settings":null,"expected":{"requires_elevated_approval":true},"invalid":{"sensitivity":"invalid"},"mutation":{"destination":"Changed item"}};

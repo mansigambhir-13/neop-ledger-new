@@ -1,0 +1,53 @@
+{
+  "block": "page",
+  "title": "Reach drafts",
+  "description": "Internal review only; not business approval or external completion.",
+  "nav": {
+    "label": "Reach",
+    "icon": "table",
+    "order": 1
+  },
+  "children": [
+    {
+      "block": "table",
+      "source": {
+        "ability": "reach.campaigns.list"
+      },
+      "rows": "/rows",
+      "columns": [
+        {
+          "label": "source id",
+          "path": "/source_id"
+        },
+        {
+          "label": "channel",
+          "path": "/channel"
+        },
+        {
+          "label": "recipients",
+          "path": "/recipients"
+        },
+        {
+          "label": "subject",
+          "path": "/subject"
+        },
+        {
+          "label": "body",
+          "path": "/body"
+        },
+        {
+          "label": "recipient limit",
+          "path": "/recipient_limit"
+        },
+        {
+          "label": "status",
+          "path": "/status"
+        },
+        {
+          "label": "requires elevated approval",
+          "path": "/requires_elevated_approval"
+        }
+      ]
+    }
+  ]
+}

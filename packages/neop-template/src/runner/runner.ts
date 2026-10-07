@@ -1,3 +1,4 @@
+import {sqlIdent} from '@neop/pgkit';
 // THE RUNNER · template-only · always on · holds no model.
 // Turns inbound calls and timers into jobs (via L3 and schedules), claims
 // runnable jobs, hands each to a fresh assistant session with a job token,
@@ -74,9 +75,23 @@ export class Runner {
     this.every(t.expiryMs, () => this.expire(), 'expiry');
     this.every(t.expiryMs, () => this.fireSchedules(), 'schedules');
     this.every(t.reconcileMs, () => this.reconcile(), 'reconcile');
-    this.every(60_000, () => this.core.gatewayAuth.pruneSeen(), 'prune');
+    this.every(60_000, () => this.pruneOutbox(), 'prune');
     this.kick();
     this.approved.kick();
+  }
+
+  /**
+   * v3 S9: the outbox is read only by this app's own presence mirror (its cursor per company, <schema>.presence_mirror).
+   * An event older than the retention is pruned once every mirror cursor of its company has passed it — never before.
+   */
+  async pruneOutbox(): Promise<number> {
+    const s = this.core.key;
+    const r = await this.core.runnerPool.query(
+      `delete from ${sqlIdent(s)}.outbox o where o.created_at < now() - ($1 || ' milliseconds')::interval
+          and not exists (select 1 from ${sqlIdent(s)}.presence_mirror m where m.company_id = o.company_id and m.cursor < o.id)`,
+      [String(this.core.cfg.outboxRetentionMs ?? 7 * 86_400_000)],
+    );
+    return r.rowCount ?? 0;
   }
 
   /** A company's board changed in the database: drop every cache built on it. */
@@ -143,15 +158,15 @@ export class Runner {
       await client.query('begin');
       const { rows } = await client.query<JobRow>(
         `with c as (
-           select j.id, j.status as prev_status from ${this.s}.jobs j
+           select j.id, j.status as prev_status from ${sqlIdent(this.s)}.jobs j
             where (j.claimed_until is null or j.claimed_until < now())
               and (j.status <> 'RECEIVED' or j.run_by is null or j.run_by >= now())
               and (j.status in ('RECEIVED', 'RUNNING')
-                   or (j.status = 'WAITING' and exists (select 1 from ${this.s}.waits w where w.job_id = j.id and w.status = 'ready')))
+                   or (j.status = 'WAITING' and exists (select 1 from ${sqlIdent(this.s)}.waits w where w.job_id = j.id and w.status = 'ready')))
             order by j.updated_at
             for update skip locked
             limit $1)
-         update ${this.s}.jobs j
+         update ${sqlIdent(this.s)}.jobs j
             set attempts = j.attempts + (case when j.status = 'RUNNING' then 1 else 0 end),
                 status = 'RUNNING',
                 claimed_by = $2 || ':' || gen_random_uuid()::text,
@@ -163,7 +178,7 @@ export class Runner {
       );
       for (const j of rows) {
         await client.query(
-          `update ${this.s}.waits set claimed_by = $2, claimed_until = $3 where job_id = $1 and status = 'ready'`,
+          `update ${sqlIdent(this.s)}.waits set claimed_by = $2, claimed_until = $3 where job_id = $1 and status = 'ready'`,
           [j.id, j.claimed_by, j.claimed_until],
         );
       }
@@ -184,7 +199,7 @@ export class Runner {
    */
   private async release(job: JobRow & { prev_status?: string }): Promise<void> {
     await this.core.runnerPool.query(
-      `update ${this.s}.jobs set claimed_until = now() + interval '1 second', attempts = greatest(attempts - $3, 0) where id = $1 and claimed_by = $2`,
+      `update ${sqlIdent(this.s)}.jobs set claimed_until = now() + interval '1 second', attempts = greatest(attempts - $3, 0) where id = $1 and claimed_by = $2`,
       [job.id, job.claimed_by, job.prev_status === 'RUNNING' ? 1 : 0],
     );
   }
@@ -215,7 +230,7 @@ export class Runner {
       }
       const board = await this.core.board.get(job.company_id);
       // The board this session runs on, kept with the job (t007): what was on, at which version.
-      await this.core.runnerPool.query(`update ${this.s}.jobs set switchboard_version = $2, switchboard_snapshot = $3 where id = $1`, [job.id, board.version, JSON.stringify(board.snapshot())]);
+      await this.core.runnerPool.query(`update ${sqlIdent(this.s)}.jobs set switchboard_version = $2, switchboard_snapshot = $3 where id = $1`, [job.id, board.version, JSON.stringify(board.snapshot())]);
       // The agent's only model credential: a budgeted session token the runner mints itself (R1; v3: no platform
       // call). The budget is this company's, from the board this session runs on; the proxy trusts this app's key.
       const llm = this.core.llm
@@ -231,7 +246,7 @@ export class Runner {
       // Spend is what the proxy metered for this job, across all its sessions (S9, item 12).
       const m = llm ? await this.meter(llm) : null;
       if (m) {
-        await this.core.runnerPool.query(`update ${this.s}.jobs set spend_micros = $2 where id = $1`, [job.id, m.job_spent_micros]);
+        await this.core.runnerPool.query(`update ${sqlIdent(this.s)}.jobs set spend_micros = $2 where id = $1`, [job.id, m.job_spent_micros]);
         if (m.job_spent_micros + m.job_reserved_micros >= m.job_budget_micros) {
           await this.fail(job, `Stopped: NEOS budget reached — the model budget for this job (${usd(m.job_budget_micros)}) is used up. Nothing further was done.`);
           return;
@@ -299,7 +314,7 @@ export class Runner {
     this.active.delete(claims.sid);
     if (llm) {
       const m = await this.meter(llm);
-      if (m) await this.core.runnerPool.query(`update ${this.s}.jobs set spend_micros = $2 where id = $1`, [claims.sub, m.job_spent_micros]).catch(() => {});
+      if (m) await this.core.runnerPool.query(`update ${sqlIdent(this.s)}.jobs set spend_micros = $2 where id = $1`, [claims.sub, m.job_spent_micros]).catch(() => {});
     }
     const transient = reason.startsWith('transient');
     // A 402 from the proxy is final (S9): retrying would spend nothing and say nothing.
@@ -312,7 +327,7 @@ export class Runner {
           // Back off before the next attempt (found live: a one-minute outage burned all attempts in seconds).
           const steps = this.core.cfg.timings.retryBackoffMs ?? [0];
           const wait = steps[Math.min(Math.max(job.attempts, 0), steps.length - 1)] ?? 0;
-          await c.query(`update ${this.s}.jobs set claimed_until = now() + ($2 || ' milliseconds')::interval where id = $1`, [job.id, String(wait)]);
+          await c.query(`update ${sqlIdent(this.s)}.jobs set claimed_until = now() + ($2 || ' milliseconds')::interval where id = $1`, [job.id, String(wait)]);
           await this.core.book.addStep(c, { company_id: job.company_id, job_id: job.id, kind: 'system', summary: `The model could not be reached (${reason.slice(0, 120)}); trying again in ${Math.round(wait / 1000)} s (attempt ${job.attempts + 1} of ${this.core.cfg.timings.maxAttempts}).` });
           return;
         }
@@ -329,7 +344,7 @@ export class Runner {
           return;
         }
       }
-      await c.query(`update ${this.s}.jobs set claimed_by = null, claimed_until = null where id = $1`, [job.id]);
+      await c.query(`update ${sqlIdent(this.s)}.jobs set claimed_by = null, claimed_until = null where id = $1`, [job.id]);
     });
     this.kick();
   }
@@ -341,7 +356,7 @@ export class Runner {
     try {
       await client.query('begin');
       const expired = await client.query<ProposalRow>(
-        `update ${this.s}.proposals set status = 'EXPIRED', updated_at = now()
+        `update ${sqlIdent(this.s)}.proposals set status = 'EXPIRED', updated_at = now()
           where status = 'PROPOSED' and expires_at < now() returning *`,
       );
       for (const p of expired.rows) {
@@ -352,22 +367,30 @@ export class Runner {
         n++;
       }
       const a2a = await client.query(
-        `update ${this.s}.waits set status = 'ready', ready_at = now(), outcome = 'EXPIRED', answer = '{"status":"EXPIRED","result":null}'
+        `update ${sqlIdent(this.s)}.waits set status = 'ready', ready_at = now(), outcome = 'EXPIRED', answer = '{"status":"EXPIRED","result":null}'
           where kind = 'a2a_task' and status = 'pending' and expires_at < now()`,
       );
       n += a2a.rowCount ?? 0;
       const timers = await client.query(
-        `update ${this.s}.waits set status = 'ready', ready_at = now(), outcome = 'TIMER', answer = coalesce(answer, '{}'::jsonb) || '{"timer":true}'
+        `update ${sqlIdent(this.s)}.waits set status = 'ready', ready_at = now(), outcome = 'TIMER', answer = coalesce(answer, '{}'::jsonb) || '{"timer":true}'
           where kind = 'timer' and status = 'pending' and expires_at < now()`,
       );
       n += timers.rowCount ?? 0;
       // A question nobody answered in time wakes its job to say so (WP §5 "waiting is a real state, with a clock").
       const questions = await client.query<WaitRow & { task_id: string | null }>(
-        `with w as (
-           update ${this.s}.waits set status = 'ready', ready_at = now(), outcome = 'EXPIRED',
-                  answer = jsonb_build_object('wait_id', id, 'question', question, 'answers', null, 'expired', true)
-            where kind = 'input' and status = 'pending' and expires_at < now() returning *)
-         select w.*, j.task_id from w join ${this.s}.jobs j on j.id = w.job_id`,
+        // Input answer/cancellation and step sequencing lock job before wait. Do not invert that order here.
+        // Busy jobs remain pending for the next expiry pass; two passes cannot expire the same question.
+        `with locked_jobs as materialized (
+           select j.id, j.task_id from ${sqlIdent(this.s)}.jobs j
+            where exists (select 1 from ${sqlIdent(this.s)}.waits q
+                          where q.job_id = j.id and q.kind = 'input' and q.status = 'pending' and q.expires_at < now())
+            order by j.id for update of j skip locked), w as (
+           update ${sqlIdent(this.s)}.waits q set status = 'ready', ready_at = now(), outcome = 'EXPIRED',
+                  answer = jsonb_build_object('wait_id', q.id, 'question', q.question, 'answers', null, 'expired', true)
+             from locked_jobs j
+            where q.job_id = j.id and q.kind = 'input' and q.status = 'pending' and q.expires_at < now()
+           returning q.*, j.task_id)
+         select * from w`,
       );
       for (const w of questions.rows) {
         await this.core.book.addStep(client, { company_id: w.company_id, job_id: w.job_id, kind: 'system', summary: `Question ${w.id.slice(0, 8)} expired: nobody answered by ${w.expires_at.toISOString()}.` });
@@ -376,14 +399,14 @@ export class Runner {
       }
       // A timer job that did not start inside its window (an outage) is skipped, not run late.
       const stale = await client.query<JobRow>(
-        `update ${this.s}.jobs set status = 'EXPIRED', updated_at = now(), claimed_by = null, claimed_until = null
+        `update ${sqlIdent(this.s)}.jobs set status = 'EXPIRED', updated_at = now(), claimed_by = null, claimed_until = null
           where status = 'RECEIVED' and run_by < now() and (claimed_until is null or claimed_until < now())
           returning *`,
       );
       for (const j of stale.rows) {
         const summary = `Skipped: this scheduled run was due by ${j.run_by!.toISOString()} and did not start in time, so it was not run late. The next one runs as scheduled.`;
         const result: TaskResult = { outcome: 'failed', summary, changed: [], could_not: [j.ask], sources: [] };
-        await client.query(`update ${this.s}.jobs set result = $2 where id = $1`, [j.id, JSON.stringify(result)]);
+        await client.query(`update ${sqlIdent(this.s)}.jobs set result = $2 where id = $1`, [j.id, JSON.stringify(result)]);
         await this.core.book.addStep(client, { company_id: j.company_id, job_id: j.id, kind: 'failed', summary });
         await this.core.book.emit(client, j.company_id, 'task.failed', { job_id: j.id, task_id: j.task_id, result, expired: true }, `finish:${j.id}`);
         n++;
@@ -413,17 +436,17 @@ export class Runner {
         `select id, company_id, ask, requester,
                 md5(id::text || ':' || extract(epoch from next_run_at)::bigint::text)::uuid::text as task_id,
                 next_run_at + interval '${TIMER_WINDOW}' as run_by
-           from ${this.s}.schedules where enabled and next_run_at <= now()
+           from ${sqlIdent(this.s)}.schedules where enabled and next_run_at <= now()
           order by next_run_at for update skip locked limit 50`,
       );
       for (const s of due.rows) {
         const { job, created } = await this.core.book.openJobAtomic(client, { company_id: s.company_id, source: 'timer', requester: s.requester, task_id: s.task_id, ask: s.ask, origin: 'timer' });
         if (created) {
-          await client.query(`update ${this.s}.jobs set run_by = $2 where id = $1`, [job.id, s.run_by]);
+          await client.query(`update ${sqlIdent(this.s)}.jobs set run_by = $2 where id = $1`, [job.id, s.run_by]);
           n++;
         }
         await client.query(
-          `update ${this.s}.schedules set last_run_at = next_run_at, next_run_at = ${this.s}.next_run(rule, time_zone, greatest(now(), next_run_at)), updated_at = now()
+          `update ${sqlIdent(this.s)}.schedules set last_run_at = next_run_at, next_run_at = ${sqlIdent(this.s)}.next_run(rule, time_zone, greatest(now(), next_run_at)), updated_at = now()
             where id = $1`,
           [s.id],
         );
@@ -439,7 +462,7 @@ export class Runner {
   }
 
   async reconcile(): Promise<void> {
-    const { rows } = await this.core.runnerPool.query<ProposalRow>(`select * from ${this.s}.proposals where status = 'UNKNOWN' order by updated_at limit 20`);
+    const { rows } = await this.core.runnerPool.query<ProposalRow>(`select * from ${sqlIdent(this.s)}.proposals where status = 'UNKNOWN' order by updated_at limit 20`);
     for (const p of rows) await reconcileUnknown(this.core, p);
   }
 }

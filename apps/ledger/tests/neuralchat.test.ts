@@ -101,7 +101,7 @@ describe('NeuralChat routing', () => {
     const r = await P.api('POST', '/api/ask', { text: 'Anything', app: 'ledger' });
     expect(r.body.routed_by).toBe('explicit');
     await expect(
-      P.platform.registerApp({ key: 'neuralchat', l3_url: 'http://x', manifest: P.backend.core.manifest, service_secret: 'x'.repeat(40) }),
+      P.platform.registerApp({ key: 'neuralchat', manifest: P.backend.core.manifest, service_secret: 'x'.repeat(40) }),
     ).rejects.toMatchObject({ code: 'reserved_key' });
     // Never listed or routed to as an app.
     expect((await P.api('GET', '/api/apps')).body.apps.map((a: any) => a.key)).not.toContain('neuralchat');

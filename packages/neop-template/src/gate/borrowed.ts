@@ -1,7 +1,7 @@
-// Borrowed abilities (7.5, Phase 4): another app's reads, offered to this app's
-// assistant, called through the gateway. Effective setting is the strictest of
-// the host's line (floor from `uses`, company setting) and the owner's setting
-// at this company; without an ACL row a person granted, it is off.
+// Borrowed abilities (v3 §10, S6; the only road since S9): another app's abilities offered to this app's assistant,
+// asked for over the company's bus room (gate/a2a.ts → runner/bus.ts). The owner's contract comes from the registry
+// schema (neos_registry.abilities); the line is this app's own on its switchboard — off until the company sets it, never
+// looser than the `uses` floor. The owner checks its own line (and its person's yes, for a write) when the ask arrives.
 
 import { strictest, type ManifestAbility, type Setting } from '@neop/contracts';
 import { Ajv, type ValidateFunction } from 'ajv';
@@ -19,7 +19,7 @@ export interface Borrowed {
 }
 
 export class BorrowCache {
-  private cache = new Map<string, { at: number; list: Borrowed[]; entries?: unknown }>();
+  private cache = new Map<string, { at: number; list: Borrowed[] }>();
   private ajv = new Ajv({ allErrors: true, strict: false });
   private compiled = new Map<string, { input: ValidateFunction; output: ValidateFunction }>();
   readonly core: Core;
@@ -33,65 +33,34 @@ export class BorrowCache {
     return this.core.manifest.uses.filter((u) => u.ability === 'tasks.open').map((u) => u.app);
   }
 
-  async list(companyId: string, board: EffectiveBoard): Promise<Borrowed[]> {
-    if (this.core.presenceOn) return this.listFromRegistry(companyId, board);
-    // v3 S7: what the build pinned (packages.lock.json) is fixed for this process; the ACL rows a person grants and
-    // the owner's switch are what change, and an ACL change drops this cache (switchboard.changed).
-    const hit = this.cache.get(companyId);
-    if (hit && hit.entries !== 'registry' && Date.now() - hit.at < 30_000) return hit.list.map((b) => ({ ...b, setting: strictest(b.setting, board.hostSetting(b.key)) }));
-    const out: Borrowed[] = [];
-    const seen = new Set<string>();
-    for (const u of this.core.manifest.uses) {
-      if (u.ability === 'tasks.open') continue;
-      seen.add(u.ability);
-      try {
-        const d = await this.core.platform.borrowDescribe({ company_id: companyId, app: u.app, ability: u.ability });
-        // A borrowed write is offered too, but runs only as an a2a task at its owner (gate.borrow), never direct.
-        const setting = d.acl ? strictest(u.floor ?? 'on', d.owner_setting) : 'off';
-        out.push({ key: u.ability, owner: u.app, ability: d.ability, setting });
-      } catch {
-        // owner not installed or unreachable: not offered
-      }
-    }
-    // What the pinned skills and installed packages require from other apps is borrowable without a manifest
-    // `uses` line: the pin is in the build (packages.lock.json), and an ACL row a person granted is the authority.
-    const own = new Set(this.core.manifest.abilities.map((a) => a.key));
-    for (const key of this.core.packages.requires()) {
-      if (own.has(key) || seen.has(key)) continue;
-      seen.add(key);
-      try {
-        const d = await this.core.platform.borrowDescribe({ company_id: companyId, ability: key });
-        if (d.ability.kind !== 'read' || !d.acl || !d.owner) continue;
-        out.push({ key, owner: d.owner, ability: d.ability, setting: strictest('on', d.owner_setting) });
-      } catch {
-        // no ACL row or owner unavailable: not offered
-      }
-    }
-    this.cache.set(companyId, { at: Date.now(), list: out });
-    return out.map((b) => ({ ...b, setting: strictest(b.setting, board.hostSetting(b.key)) }));
-  }
-
   /**
-   * v3 §10 with NEOP_PRESENCE on (S6): no platform call and no neos.acl. The owner's contract is read from the
-   * registry schema (neos_registry.abilities, A6); the line is this app's own `uses` line on its own switchboard —
-   * off until the company sets it (the desk: "Marketing wants to be able to ask Ledger for …"), never looser than
-   * the `uses` floor. The owner's own line is the owner's to check when the ask arrives (three checks, one ask).
+   * v3 §10 (S6/S9): no platform call and no ACL. The owner's contract is read from the registry schema
+   * (neos_registry.abilities, A6); the line is this app's own borrowed line on its own switchboard — off until the
+   * company sets it (the desk: "Marketing wants to be able to ask Ledger for …"), never looser than the `uses` floor.
+   * What a pinned skill or an installed package requires from another app (packages.lock.json) is borrowable the same
+   * way, without a manifest `uses` line: the pin is in the build, the company's line is the authority. The owner's own
+   * line is the owner's to check when the ask arrives (three checks, one ask).
    */
-  private async listFromRegistry(companyId: string, board: EffectiveBoard): Promise<Borrowed[]> {
+  async list(companyId: string, board: EffectiveBoard): Promise<Borrowed[]> {
     const hit = this.cache.get(companyId);
     const eff = (list: Borrowed[]) =>
       list.map((b) => {
         const own = board.companySetting(b.key);
         return { ...b, setting: own === undefined ? ('off' as Setting) : strictest(b.setting, own) };
       });
-    if (hit && hit.entries === 'registry' && Date.now() - hit.at < 30_000) return eff(hit.list);
-    const uses = this.core.manifest.uses.filter((u) => u.ability !== 'tasks.open');
+    if (hit && Date.now() - hit.at < 30_000) return eff(hit.list);
+    const own = new Set(this.core.manifest.abilities.map((a) => a.key));
+    const uses: { app: string | null; ability: string; floor?: Setting }[] = this.core.manifest.uses.filter((u) => u.ability !== 'tasks.open');
+    for (const key of this.core.packages.requires()) {
+      if (!own.has(key) && !uses.some((u) => u.ability === key)) uses.push({ app: null, ability: key });
+    }
     const out: Borrowed[] = [];
     if (uses.length) {
       const rows = await this.core.runnerPool
         .query<{ app: string; ability: string; version: string; title: string; description: string; kind: 'read' | 'write'; floor: Setting; doors: string[]; input: any; output: any }>(
-          `select app, ability, version, title, description, kind, floor, doors, input, output from neos_registry.abilities where (app, ability) in (select * from unnest($1::text[], $2::text[]))`,
-          [uses.map((u) => u.app), uses.map((u) => u.ability)],
+          `select app, ability, version, title, description, kind, floor, doors, input, output from neos_registry.abilities
+            where app <> $2 and ability = any($1::text[]) order by app`,
+          [uses.map((u) => u.ability), this.core.key],
         )
         .then((r) => r.rows)
         .catch((e) => {
@@ -99,13 +68,14 @@ export class BorrowCache {
           return [];
         });
       for (const u of uses) {
-        const a = rows.find((r) => r.app === u.app && r.ability === u.ability);
+        // A `uses` line names its owner; a pinned requirement is whoever offers it in the registry (the first by key).
+        const a = rows.find((r) => (u.app ? r.app === u.app : true) && r.ability === u.ability);
         if (!a) continue; // the owner is not registered (or no longer offers it): not offered
         const ability: ManifestAbility = { key: a.ability, version: a.version, title: a.title, description: a.description, kind: a.kind, floor: a.floor, input: a.input ?? {}, output: a.output ?? {}, ...(Array.isArray(a.doors) && a.doors.length ? { doors: a.doors } : {}) } as ManifestAbility;
-        out.push({ key: u.ability, owner: u.app, ability, setting: (u.floor ?? 'on') as Setting });
+        out.push({ key: u.ability, owner: a.app, ability, setting: (u.floor ?? 'on') as Setting });
       }
     }
-    this.cache.set(companyId, { at: Date.now(), list: out, entries: 'registry' });
+    this.cache.set(companyId, { at: Date.now(), list: out });
     return eff(out);
   }
 

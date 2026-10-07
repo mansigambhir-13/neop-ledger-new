@@ -17,9 +17,14 @@
     "migrate": "tsx scripts/migrate.ts",
     "backup": "tsx scripts/backup.ts",
     "neos-publish": "tsx scripts/neos-publish.ts",
-    "neos-install": "tsx scripts/neos-install.ts"
+    "neos-install": "tsx scripts/neos-install.ts",
+    "fleet:status": "tsx scripts/fleet/status.ts",
+    "fleet:template-alignment": "node --import tsx scripts/fleet/template-alignment.ts",
+    "fleet:template-gate": "node --import tsx scripts/fleet/run-template-gate.ts",
+    "fleet:template-ownership": "node --import tsx scripts/fleet/template-ownership.ts"
   },
   "devDependencies": {
+    "@neop/testkit": "workspace:*",
     "@types/node": "^24.0.0",
     "@types/pg": "^8.11.0",
     "tsx": "^4.20.0",
@@ -30,8 +35,28 @@
   "dependencies": {
     "@neop/ledger": "workspace:*",
     "@neop/marketing": "workspace:*",
+    "@neop/wage": "workspace:*",
     "@neop/platform": "workspace:*",
     "@neop/template": "workspace:*",
-    "@neop/pgkit": "workspace:*"
+    "@neop/pgkit": "workspace:*",
+    "@neop/domain-values": "workspace:*",
+    "@neop/pay": "workspace:*",
+    "@neop/buy": "workspace:*",
+    "@neop/renew": "workspace:*",
+    "@neop/deal": "workspace:*",
+    "@neop/quote": "workspace:*",
+    "@neop/hire": "workspace:*",
+    "@neop/desk": "workspace:*",
+    "@neop/reach": "workspace:*",
+    "@neop/roster": "workspace:*",
+    "@neop/grant": "workspace:*",
+    "@neop/shift": "workspace:*",
+    "@neop/sync": "workspace:*",
+    "@neop/post": "workspace:*",
+    "@neop/sign": "workspace:*",
+    "@neop/guard": "workspace:*",
+    "@neop/vet": "workspace:*",
+    "@neop/asset": "workspace:*",
+    "@neop/clear": "workspace:*"
   }
 }

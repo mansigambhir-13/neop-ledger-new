@@ -1,3 +1,4 @@
+import {sqlIdent} from './roles.ts';
 // Per-company logical backup and restore (plan §Backups). Point-in-time
 // recovery restores every app at once; this restores one company in one app's
 // family without rewinding anyone else. Tables are discovered from the catalog
@@ -62,7 +63,7 @@ export async function exportCompany(adminUrl: string, schema: string, companyId:
     const order = await tablesInOrder(c, schema);
     const tables: Record<string, unknown[]> = {};
     for (const t of order) {
-      tables[t] = (await c.query(`select to_jsonb(x) as r from ${schema}.${t} x where company_id = $1`, [companyId])).rows.map((r) => r.r);
+      tables[t] = (await c.query(`select to_jsonb(x) as r from ${sqlIdent(schema)}.${t} x where company_id = $1`, [companyId])).rows.map((r) => r.r);
     }
     await c.query('commit');
     return { schema, company_id: companyId, exported_at: new Date().toISOString(), order, tables };
@@ -84,14 +85,14 @@ export async function importCompany(adminUrl: string, dump: CompanyDump): Promis
     // An exact restore: the board triggers (t010) keep each row as it was dumped (version, history) and log nothing.
     await c.query("select set_config('neos.restore', 'on', true)");
     const order = await tablesInOrder(c, dump.schema);
-    for (const t of [...order].reverse()) await c.query(`delete from ${dump.schema}.${t} where company_id = $1`, [dump.company_id]);
+    for (const t of [...order].reverse()) await c.query(`delete from ${sqlIdent(dump.schema)}.${t} where company_id = $1`, [dump.company_id]);
     for (const t of order) {
       const rows = dump.tables[t] ?? [];
       for (const r of rows) {
         if ((r as { company_id?: string }).company_id !== dump.company_id) throw new Error(`${t}: a row in the dump belongs to another company`);
       }
       if (!rows.length) continue;
-      await c.query(`insert into ${dump.schema}.${t} overriding system value select * from jsonb_populate_recordset(null::${dump.schema}.${t}, $1)`, [JSON.stringify(rows)]);
+      await c.query(`insert into ${sqlIdent(dump.schema)}.${t} overriding system value select * from jsonb_populate_recordset(null::${sqlIdent(dump.schema)}.${t}, $1)`, [JSON.stringify(rows)]);
       counts[t] = rows.length;
     }
     await c.query('commit'); // deferred checks (e.g. balanced journal entries) run here

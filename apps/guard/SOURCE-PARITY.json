@@ -1,0 +1,149 @@
+{
+  "app": "guard",
+  "source_repo": "https://github.com/NEOS-Ecosystem/neos-neop-guard",
+  "source_commit": "86854d94bae7b38bd8cdbe071e303e5c4c3bd93f",
+  "source_blob": "23fc0ea16ac0823c62da21b9bd7a4b58da77c0cd",
+  "full_parity": false,
+  "mappings": [
+    {
+      "legacy": "guard.assets",
+      "evidence": "pinned_upstream",
+      "disposition": "partial_runtime",
+      "target": "guard.assets.list",
+      "notes": "Persisted internal review slice, not full legacy entity/configuration/workflow parity. Business authorization, provider effects and acceptance remain open."
+    },
+    {
+      "legacy": "guard.assets.import",
+      "evidence": "pinned_upstream",
+      "disposition": "partial_runtime",
+      "target": "guard.assets.import",
+      "notes": "Persisted internal review slice, not full legacy entity/configuration/workflow parity. Business authorization, provider effects and acceptance remain open. Checkpoint 11 adds internal-write authority or authenticated immutable draft origin, not a completed business lifecycle."
+    },
+    {
+      "legacy": "guard.chat",
+      "evidence": "pinned_upstream",
+      "disposition": "partial_transport_replacement",
+      "target": "shared Matrix typed task / job flow",
+      "notes": "Shared typed Matrix ingress exercised with a local fake homeserver and scripted assistant; real Matrix/model acceptance remains open."
+    },
+    {
+      "legacy": "guard.config",
+      "evidence": "pinned_upstream",
+      "disposition": "pending",
+      "target": null,
+      "notes": "Not exposed by this V3 build; domain port is not a full business workflow."
+    },
+    {
+      "legacy": "guard.configure",
+      "evidence": "pinned_upstream",
+      "disposition": "pending",
+      "target": null,
+      "notes": "Not exposed by this V3 build; domain port is not a full business workflow."
+    },
+    {
+      "legacy": "guard.customise",
+      "evidence": "quickbuild_catalog_only",
+      "disposition": "retired_runtime_mutation",
+      "target": null,
+      "notes": "Replace legacy live customization with reviewed signed/pinned registry skills or build-time packages. No runtime code/prompt mutation route is imported."
+    },
+    {
+      "legacy": "guard.customise.apply",
+      "evidence": "quickbuild_catalog_only",
+      "disposition": "retired_runtime_mutation",
+      "target": null,
+      "notes": "Replace legacy live customization with reviewed signed/pinned registry skills or build-time packages. No runtime code/prompt mutation route is imported."
+    },
+    {
+      "legacy": "guard.dashboard",
+      "evidence": "pinned_upstream",
+      "disposition": "pending",
+      "target": null,
+      "notes": "Not exposed by this V3 build; domain port is not a full business workflow."
+    },
+    {
+      "legacy": "guard.deliverables",
+      "evidence": "pinned_upstream",
+      "disposition": "pending",
+      "target": null,
+      "notes": "Not exposed by this V3 build; domain port is not a full business workflow."
+    },
+    {
+      "legacy": "guard.incidents",
+      "evidence": "pinned_upstream",
+      "disposition": "partial_runtime",
+      "target": "guard.incidents.list",
+      "notes": "Persisted internal review slice, not full legacy entity/configuration/workflow parity. Business authorization, provider effects and acceptance remain open."
+    },
+    {
+      "legacy": "guard.prompt",
+      "evidence": "quickbuild_catalog_only",
+      "disposition": "retired_runtime_mutation",
+      "target": null,
+      "notes": "Replace legacy live customization with reviewed signed/pinned registry skills or build-time packages. No runtime code/prompt mutation route is imported."
+    },
+    {
+      "legacy": "guard.prompt.set",
+      "evidence": "quickbuild_catalog_only",
+      "disposition": "retired_runtime_mutation",
+      "target": null,
+      "notes": "Replace legacy live customization with reviewed signed/pinned registry skills or build-time packages. No runtime code/prompt mutation route is imported."
+    },
+    {
+      "legacy": "guard.response.decide",
+      "evidence": "pinned_upstream",
+      "disposition": "pending_authorization",
+      "target": "shared human proposal row + domain authorization policy",
+      "notes": "Internal-write authority and immutable original draft provenance are locally tested (checkpoint 11). Business decisions remain unavailable: original-proposer separation, eligible/elevated entitlements, limits and historical/nonhuman policy still require implementation and review. No agent/actor argument can approve."
+    },
+    {
+      "legacy": "guard.response.execute",
+      "evidence": "pinned_upstream",
+      "disposition": "pending_provider",
+      "target": null,
+      "notes": "No supplied success flag can mark an external effect complete. Requires approved exact content, provider idempotency and independent read-back."
+    },
+    {
+      "legacy": "guard.response.propose",
+      "evidence": "pinned_upstream",
+      "disposition": "partial_runtime",
+      "target": "guard.response.prepare",
+      "notes": "Persisted internal review slice, not full legacy entity/configuration/workflow parity. Business authorization, provider effects and acceptance remain open. Checkpoint 11 adds internal-write authority or authenticated immutable draft origin, not a completed business lifecycle."
+    },
+    {
+      "legacy": "guard.skill.delete",
+      "evidence": "quickbuild_catalog_only",
+      "disposition": "retired_runtime_mutation",
+      "target": null,
+      "notes": "Replace legacy live customization with reviewed signed/pinned registry skills or build-time packages. No runtime code/prompt mutation route is imported."
+    },
+    {
+      "legacy": "guard.skill.set",
+      "evidence": "quickbuild_catalog_only",
+      "disposition": "retired_runtime_mutation",
+      "target": null,
+      "notes": "Replace legacy live customization with reviewed signed/pinned registry skills or build-time packages. No runtime code/prompt mutation route is imported."
+    },
+    {
+      "legacy": "guard.skills",
+      "evidence": "quickbuild_catalog_only",
+      "disposition": "retired_runtime_mutation",
+      "target": null,
+      "notes": "Replace legacy live customization with reviewed signed/pinned registry skills or build-time packages. No runtime code/prompt mutation route is imported."
+    },
+    {
+      "legacy": "guard.template.apply",
+      "evidence": "quickbuild_catalog_only",
+      "disposition": "retired_runtime_mutation",
+      "target": null,
+      "notes": "Replace legacy live customization with reviewed signed/pinned registry skills or build-time packages. No runtime code/prompt mutation route is imported."
+    },
+    {
+      "legacy": "guard.templates",
+      "evidence": "quickbuild_catalog_only",
+      "disposition": "retired_runtime_mutation",
+      "target": null,
+      "notes": "Replace legacy live customization with reviewed signed/pinned registry skills or build-time packages. No runtime code/prompt mutation route is imported."
+    }
+  ]
+}

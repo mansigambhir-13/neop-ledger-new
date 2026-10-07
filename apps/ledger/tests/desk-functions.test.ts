@@ -19,6 +19,7 @@ import { TEMPLATE_INFRA_TABLES, TEMPLATE_MIGRATIONS } from '@neop/template';
 import { DeskHarness } from '@neop/testkit';
 import { LEDGER_ROOT, seedLedger } from '../src/index.ts';
 import { bootPilot, call, finish, type Pilot } from './harness.ts';
+import { appMigrationsBefore } from '@neop/testkit';
 
 let P: Pilot;
 let D: DeskHarness;
@@ -205,11 +206,12 @@ describe('the desk role on the database', () => {
       "update ledger.waits set status = 'ready' where false",
       "insert into ledger.facts (company_id, subject, value, source) values ('" + co + "', 'x', '1', 'desk')",
       "delete from ledger.steps where false",
-      'select 1 from neos.questions',
-      'select 1 from neos.tasks',
     ]) {
       expect(await D.errorOf(co, sql), sql).toBe('42501');
     }
+    // S9 contract migration removed the platform-owned question/task tables altogether.
+    expect(['42P01', '42501']).toContain(await D.errorOf(co, 'select 1 from neos.questions'));
+    expect(['42P01', '42501']).toContain(await D.errorOf(co, 'select 1 from neos.tasks'));
     expect(await D.errorOf(co, 'select * from neos.v_open_questions')).toBe('ok');
     expect(await D.errorOf(co, 'select * from neos.v_questions')).toBe('ok');
     expect(await D.errorOf(co, 'select * from neos.v_activity')).toBe('ok');
@@ -292,6 +294,7 @@ describe('t013 on a populated book', () => {
     const db = await createTestDatabase();
     const CO = '11111111-2222-3333-4444-555555555555';
     const tdir = await mkdtemp(path.join(os.tmpdir(), 'neop-t013-'));
+    let beforeDir = '';
     try {
       await migratePlatform(db.adminUrl); // the desk's role exists, as in a real cluster
       await cp(TEMPLATE_MIGRATIONS, tdir, { recursive: true });
@@ -300,8 +303,8 @@ describe('t013 on a populated book', () => {
       tled.migrations = tled.migrations.filter((m: any) => m.file < 't013');
       await writeFile(path.join(tdir, 'migrate.json'), JSON.stringify(tled));
       await bootstrapFamily(db.adminUrl, 'ledger');
-      const run = async (t: string) => migrate({ adminUrl: db.adminUrl, schema: 'ledger', sources: { dir: path.join(LEDGER_ROOT, 'migrations'), prepend: await templateFiles(t) }, lintExempt: TEMPLATE_INFRA_TABLES });
-      await run(tdir);
+      const run = async (t: string, appDir = path.join(LEDGER_ROOT, 'migrations')) => migrate({ adminUrl: db.adminUrl, schema: 'ledger', sources: { dir: appDir, prepend: await templateFiles(t) }, lintExempt: TEMPLATE_INFRA_TABLES });
+      await run(tdir, (beforeDir = await appMigrationsBefore(path.join(LEDGER_ROOT, 'migrations'), '010')));
       const pool = createPool(roleUrl(db.adminUrl, 'ledger_app'));
       await seedLedger(pool, CO);
       // A book as t012 left it: jobs waiting on questions (open, answered, expired), other waits, steps and facts.
@@ -330,7 +333,7 @@ describe('t013 on a populated book', () => {
         ).rows[0];
       const before = await snap();
       const applied = await run(TEMPLATE_MIGRATIONS);
-      expect(applied.map((m) => m.name)).toEqual(['t013_answer_wait.sql', 't015_bus_room.sql', 't017_acted_for.sql']); // t015 (S6) follows; its own proof is in bus-room.test.ts
+      expect(applied.map((m) => m.name)).toEqual(['t013_answer_wait.sql', 't015_bus_room.sql', 't017_acted_for.sql', 't018_desk_without_gateway.sql', 't019_no_gateway_tables.sql', 't020_human_authority.sql', 't021_draft_origin.sql', 't022_answer_deadline.sql', 't023_input_deadline.sql', 't024_answer_intents.sql', '010_declared_reads.sql']);
       expect(await snap()).toEqual(before); // expand-only: every row as it was
       // The desk's grant is there (t013 grants it when the role exists; applyDeskGrants re-grants idempotently).
       const a = new pg.Client({ connectionString: db.adminUrl });
@@ -356,6 +359,7 @@ describe('t013 on a populated book', () => {
     } finally {
       await db.drop();
       await rm(tdir, { recursive: true, force: true });
+      if (beforeDir) await rm(beforeDir, { recursive: true, force: true });
     }
   });
 });

@@ -1,0 +1,2 @@
+// Synthetic domain inputs, never production data or a business-policy approval.
+export const fixture={"id":"hire","master":"candidates","table":"offers","noun":"offer","fk":"candidate_id","sample":{"salary_minor":12345,"currency":"INR","role":null},"settings":{"currency":"INR","review_limit_minor":10000},"expected":{"review_limit_minor":10000,"requires_elevated_approval":true},"invalid":{"salary_minor":1.5},"mutation":{"salary_minor":12346}};

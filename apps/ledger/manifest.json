@@ -4255,9 +4255,9 @@
     },
     {
       "key": "ledger.document.get",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "title": "A kept source document",
-      "description": "What is known about a file a person attached (it is kept, never discarded): its name, type, size, when it was stored, the jobs it came with and the bills recorded from it, plus a short-lived download link the platform serves to people. The file's bytes are never returned here; give the link to the person.",
+      "description": "What is known about a file a person attached (it is kept, never discarded): its name, type, size, when it was stored, the jobs it came with and the bills recorded from it, plus a short-lived download link Ledger itself serves to people of this company (its files listener). The file's bytes are never returned here; give the link to the person.",
       "kind": "read",
       "floor": "on",
       "input": {
@@ -4411,6 +4411,12 @@
             "properties": {
               "path": {
                 "type": "string"
+              },
+              "url": {
+                "type": [
+                  "string",
+                  "null"
+                ]
               },
               "expires_at": {
                 "type": "string",

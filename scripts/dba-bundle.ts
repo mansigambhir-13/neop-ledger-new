@@ -10,6 +10,25 @@ import { appMigrationSources, LOCK_FILE, packageBootstrapSql, readLock } from '@
 const loaders: Record<string, () => Promise<Parameters<typeof appMigrationSources>[0]>> = {
   ledger: async () => (await import('@neop/ledger')).ledgerApp(),
   marketing: async () => (await import('@neop/marketing')).marketingApp(),
+  wage: async () => (await import('@neop/wage')).wageApp(),
+  pay: async () => (await import('@neop/pay')).payApp(),
+  buy: async () => (await import('@neop/buy')).buyApp(),
+  renew: async () => (await import('@neop/renew')).renewApp(),
+  deal: async () => (await import('@neop/deal')).dealApp(),
+  quote: async () => (await import('@neop/quote')).quoteApp(),
+  hire: async () => (await import('@neop/hire')).hireApp(),
+  desk: async () => (await import('@neop/desk')).deskApp(),
+  reach: async () => (await import('@neop/reach')).reachApp(),
+  roster: async () => (await import('@neop/roster')).rosterApp(),
+  grant: async () => (await import('@neop/grant')).grantApp(),
+  shift: async () => (await import('@neop/shift')).shiftApp(),
+  sync: async () => (await import('@neop/sync')).syncApp(),
+  post: async () => (await import('@neop/post')).postApp(),
+  sign: async () => (await import('@neop/sign')).signApp(),
+  guard: async () => (await import('@neop/guard')).guardApp(),
+  vet: async () => (await import('@neop/vet')).vetApp(),
+  asset: async () => (await import('@neop/asset')).assetApp(),
+  clear: async () => (await import('@neop/clear')).clearApp(),
 };
 
 const args = process.argv.slice(2);

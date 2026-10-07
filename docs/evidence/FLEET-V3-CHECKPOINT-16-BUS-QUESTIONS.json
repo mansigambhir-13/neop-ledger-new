@@ -1,0 +1,279 @@
+{
+  "checkpoint": 16,
+  "date": "2026-10-05",
+  "branch": "rebuild/fleet-v3",
+  "starting_commit": "0aeb6ac76794360311ac24d6c07b9e770a4d6a14",
+  "scope": "Atomic incoming bus question receipt/thread/wait/step/outbox updates and persistent accepted peer wait identity; seeded receiver fixtures across eighteen schemas, no shipping manifest/domain/provider changes",
+  "status": "locally_verified_implementation_checkpoint_not_full_products_or_production_acceptance",
+  "retained_runs": [
+    {
+      "path": "/Users/mansi.gambhir/Documents/Codex/2026-09-28/lo/work/fleet-v3-checkpoint-16-reproduction.json",
+      "sha256": "353a4ce62f768ffec19d26e50a98b9ec3f4f16ef405ce37f22741aeb58f89283",
+      "start": "2026-10-05T12:36:19.647Z",
+      "end": "2026-10-05T12:36:43.557Z",
+      "files": 1,
+      "passed": 0,
+      "failed": 5,
+      "pending": 0,
+      "failing_tests": [
+        "pay atomic cross-NEOP questions rolls back a failed step and accepts exact-event redelivery after restart",
+        "pay atomic cross-NEOP questions rolls back a failed receipt and accepts exact-event redelivery after restart",
+        "pay atomic cross-NEOP questions serializes simultaneous deliveries of the same question under different event IDs",
+        "pay atomic cross-NEOP questions does not reopen an answered question when the peer resends its wait ID in a new event",
+        "pay atomic cross-NEOP questions does not attach a question or wake a cancelled job"
+      ]
+    },
+    {
+      "path": "/Users/mansi.gambhir/Documents/Codex/2026-09-28/lo/work/fleet-v3-checkpoint-16-confirmed-reproduction.json",
+      "sha256": "111673a7d4ffeba984dae58f79dcb03546837fad9a387ea2e6dcc734d8d27e8b",
+      "start": "2026-10-05T12:38:16.681Z",
+      "end": "2026-10-05T12:38:21.445Z",
+      "files": 1,
+      "passed": 0,
+      "failed": 5,
+      "pending": 0,
+      "failing_tests": [
+        "pay atomic cross-NEOP questions rolls back a failed step and accepts exact-event redelivery after restart",
+        "pay atomic cross-NEOP questions rolls back a failed receipt and accepts exact-event redelivery after restart",
+        "pay atomic cross-NEOP questions serializes simultaneous deliveries of the same question under different event IDs",
+        "pay atomic cross-NEOP questions does not reopen an answered question when the peer resends its wait ID in a new event",
+        "pay atomic cross-NEOP questions does not attach a question or wake a cancelled job"
+      ]
+    },
+    {
+      "path": "/Users/mansi.gambhir/Documents/Codex/2026-09-28/lo/work/fleet-v3-checkpoint-16-focused.json",
+      "sha256": "d6a9c5ea219db3e6604793be0cfc19fa6d0b5612db329593275e7478ecc8fffb",
+      "start": "2026-10-05T12:39:22.101Z",
+      "end": "2026-10-05T12:39:33.650Z",
+      "files": 6,
+      "passed": 41,
+      "failed": 0,
+      "pending": 0,
+      "failing_tests": []
+    },
+    {
+      "path": "/Users/mansi.gambhir/Documents/Codex/2026-09-28/lo/work/fleet-v3-checkpoint-16-expanded-pay.json",
+      "sha256": "3586de519e33d0694f5de4c38be8f5e1fc487fd1330a042b7bab9b30b0aa76d6",
+      "start": "2026-10-05T12:43:51.715Z",
+      "end": "2026-10-05T12:43:59.351Z",
+      "files": 1,
+      "passed": 12,
+      "failed": 0,
+      "pending": 0,
+      "failing_tests": []
+    },
+    {
+      "path": "/Users/mansi.gambhir/Documents/Codex/2026-09-28/lo/work/fleet-v3-checkpoint-16-fleet-targeted.json",
+      "sha256": "6586815219d4520c513f61872ca88b94dd507c64892e58935e0c284134ac280d",
+      "start": "2026-10-05T12:44:37.206Z",
+      "end": "2026-10-05T12:45:13.911Z",
+      "files": 23,
+      "passed": 252,
+      "failed": 0,
+      "pending": 0,
+      "failing_tests": []
+    }
+  ],
+  "report_notes": [
+    "The first reproduction has five failures: four runtime assertions and one fixture timeout because shipped fleet manifests offer no a2a.answer tool. The corrected fixture adds tasks.open for a synthetic peer only in an in-memory definition. The second pre-fix run reproduced all five runtime assertions in 4.80 seconds.",
+    "Confirmed pre-fix failures: injected step and final-receipt failures acknowledged HTTP 200 and left partial question state; simultaneous distinct events for one wait ID readied duplicate waits; repeating an answered wait ID reopened a question; post-cancellation questions changed history.",
+    "41-test initial focused pass, 12-test expanded Pay pass and 252-test fleet-targeted pass overlap the final full suite. The latter two preceded a test-only TypeScript comparison correction and are not the definitive final-source full evidence.",
+    "An initial complete run was deliberately interrupted (SIGINT/exit 130, no completed JSON report/count) after TypeScript caught TS2345 in the new second-question test. UUID-array includes(String(value)) was replaced with equality against each UUID, preserving the exact two-answer assertion. No runtime change, timeout increase or weakened assertion followed the targeted pass.",
+    "After interruption there were four owned residual synthetic databases and no active sessions; neos_desk stayed NOLOGIN/NOBYPASSRLS/NOSUPERUSER. The final run reuses only this turn's owned isolated cluster, not another task's fixture or shared development cluster.",
+    "24 changed runtime/test source hashes were refrozen after the test-only correction and before the definitive full run. Earlier diagnostics remain retained; green reruns do not repair unexplained intermittent failures."
+  ],
+  "changed_source_sha256": {
+    "apps/asset/tests/bus-question-lifecycle.test.ts": "21ef71073f0078f66acced1ed8c08941253a669538c79f268759354458a85cf7",
+    "apps/buy/tests/bus-question-lifecycle.test.ts": "0d9afe7380cb6e6392e43d3e18582095368b2997cbd98ca5f39a3ff11831a7fa",
+    "apps/clear/tests/bus-question-lifecycle.test.ts": "720c5f897190acd3528c9ecc40005715fc653245152f0ba4f21a5d89bb618231",
+    "apps/deal/tests/bus-question-lifecycle.test.ts": "b5f0f5a4f26e6266196b3d1b02d26d176313ddc0eaa6244feda53636b1c2403e",
+    "apps/desk/tests/bus-question-lifecycle.test.ts": "2a4a46ca66f12e16686dc3b73a1272957a18b2b9fa6f076e087e157ca957260d",
+    "apps/grant/tests/bus-question-lifecycle.test.ts": "d3611cbf8ab20b430a33f4b59e64c78672db2d68cf0a5dd4410c7b54f20920f1",
+    "apps/guard/tests/bus-question-lifecycle.test.ts": "1f43fbd232734dc4d0d3ac4ed73d395f2ea33444bcdfe7b15e49e6f05ebea907",
+    "apps/hire/tests/bus-question-lifecycle.test.ts": "c58e4ac518835b1a31bfc758271378b5e25bebbdad5417ff39d38ebd7571243b",
+    "apps/pay/tests/bus-question-lifecycle.test.ts": "458182653438c5aab9448ae539675a3ad34bdc83792ccae457650d55ac68db2e",
+    "apps/post/tests/bus-question-lifecycle.test.ts": "ef4762b35a9f17023f1592d1ece80ba311917c5aa943a344b67c6f0ded628b3f",
+    "apps/quote/tests/bus-question-lifecycle.test.ts": "1c8ab4f0465e7a0a713cdf03773c2f14dc92ec136d337180e548a2e0ef41694c",
+    "apps/reach/tests/bus-question-lifecycle.test.ts": "8bc9a3dfb32bf1c20cb7fc38816777c12b4ff1c43724e818c8036c1721c75176",
+    "apps/renew/tests/bus-question-lifecycle.test.ts": "fc5654df4194e2f70417b77ee6e385c0a194b3b331427d24b712eae6545f6509",
+    "apps/roster/tests/bus-question-lifecycle.test.ts": "22be12d9cf7096be85cd750d7a4f0e066dc353e47d218c9368982c27aaa681cf",
+    "apps/shift/tests/bus-question-lifecycle.test.ts": "6639b8ac5de42399b6920d1078c6ab72986f1eb3722b05372f9172ee3f433828",
+    "apps/sign/tests/bus-question-lifecycle.test.ts": "88b8a69c899396051346c3f586cc4fca96714501491af34d37d5ee8a0dee1b6a",
+    "apps/sync/tests/bus-question-lifecycle.test.ts": "2436635a459ae9fc269c184b1d134f6eed1ae07595d537b6878e979c14b1ed3a",
+    "apps/vet/tests/bus-question-lifecycle.test.ts": "16c050ecae233206e2dad42f2dac2d1820ccd8c586e263c36e9487d5ab423fd1",
+    "packages/neop-template/src/presence/appservice.ts": "03cc7914e52198674f011a76e73976809706074d11ebbafb8c65d172eee17f0b",
+    "packages/neop-template/src/presence/events.ts": "4ff105e1ffa5539211b2090d6f4740282d8124dad5c79d37bcd5f769dfb58312",
+    "packages/neop-template/src/presence/index.ts": "477d52855d7fb5fceaa57421daf94ce684df9323cf691e2db50944054b9ca261",
+    "packages/neop-template/src/runner/bus.ts": "e91671d420ec123273cd2a7ed52874fdd43a84ca6a808a1a2a20edb5277125bd",
+    "packages/testkit/src/bus-question-lifecycle.ts": "eb63300d638c5507261dc0e38e4541967c0aa47e4277b8ffb0221af7df2f634f",
+    "packages/testkit/src/index.ts": "f470e435d1f5647b4355d7958ce2500fe3c603b8fbbba33d912ec6c301f022ba"
+  },
+  "fixture": {
+    "container_name": "neop-fleet16-20261005",
+    "container_id": "024d62592ee1b8f2faf7ec97e7f276303751fe227b7b310eb2423c57b5f19387",
+    "label": "neop.fixture=fleet-checkpoint-16",
+    "image": "postgres:17-alpine",
+    "image_id": "sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24",
+    "storage": "tmpfs only; no persistent mounts",
+    "network": "loopback ephemeral port only",
+    "max_connections": 400,
+    "removed": true,
+    "shared_cluster_touched": false,
+    "remaining_synthetic_databases_before_removal": [
+      "neop_t_10b3be432a",
+      "neop_t_a2882dda6f",
+      "neop_t_ed03f6f99e",
+      "fleet_jobs_e42505c70d"
+    ],
+    "active_synthetic_sessions_before_removal": 0,
+    "neos_desk": {
+      "login": false,
+      "bypassrls": false,
+      "superuser": false
+    },
+    "label_inventory_after_removal": "empty"
+  },
+  "local_checks": {
+    "typescript": "pass after test-only UUID comparison correction",
+    "source_snapshots_verified": 108,
+    "completion_gate": "expected exit 1; eighteen products each remain 15 partial and 3 pending groups",
+    "production_ready": false,
+    "full_source_parity": false
+  },
+  "limitations": [
+    "Synthetic in-memory tasks.open target, seeded outgoing thread/wait, fake Matrix/model; not new shipping app borrowing, full hand-off or live acceptance.",
+    "Incoming question updates are atomic, not outgoing answer send/finalization, incoming answers to local input questions or a general durable Matrix inbox.",
+    "Late replies/deadlines on live jobs, early question before root is persisted, generic dependencies, mixed wait expiry locking, concurrent answer/new-question races and multi-host/in-flight recovery remain open.",
+    "Accepted wait-ID deduplication requires retained identity history; old answered receipts lacking question_wait_id and old eager/partial receipts are not automatically repaired.",
+    "Prior Pay approval wake-count and Ledger presence failures remain unexplained and are not claimed fixed.",
+    "Coordinate quiesced old question/result receiver rollout and t023/input-expiry worker upgrade; mixed-version rolling compatibility unverified. Refresh backend/assistant artifacts.",
+    "Business eligible/elevated approver roles, amount/currency caps, self-approval and historical/nonhuman policy need owner decisions. Workflow/source parity, providers, privacy/legacy conversion, production restore/DBA and real Matrix/model/NEOS UI/provider acceptance remain incomplete.",
+    "No push, merge, deployment or real payment/message/signature/access/export/filing."
+  ],
+  "full_regression": {
+    "path": "/Users/mansi.gambhir/Documents/Codex/2026-09-28/lo/work/fleet-v3-checkpoint-16-full-tests.json",
+    "sha256": "18e6c87e07d4364bc3dd36ebc8a4929fba36281fd6b6941285392d0c13de50fd",
+    "passed": 3216,
+    "failed": 0,
+    "skipped": 2,
+    "files": 295,
+    "start_time": "2026-10-05T12:47:26.154Z",
+    "elapsed_seconds": 549.1612912597657,
+    "success": true,
+    "new_cases": [
+      {
+        "path": "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/asset/tests/bus-question-lifecycle.test.ts",
+        "passed": 12,
+        "other": 0
+      },
+      {
+        "path": "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/buy/tests/bus-question-lifecycle.test.ts",
+        "passed": 12,
+        "other": 0
+      },
+      {
+        "path": "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/clear/tests/bus-question-lifecycle.test.ts",
+        "passed": 12,
+        "other": 0
+      },
+      {
+        "path": "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/desk/tests/bus-question-lifecycle.test.ts",
+        "passed": 12,
+        "other": 0
+      },
+      {
+        "path": "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/deal/tests/bus-question-lifecycle.test.ts",
+        "passed": 12,
+        "other": 0
+      },
+      {
+        "path": "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/grant/tests/bus-question-lifecycle.test.ts",
+        "passed": 12,
+        "other": 0
+      },
+      {
+        "path": "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/guard/tests/bus-question-lifecycle.test.ts",
+        "passed": 12,
+        "other": 0
+      },
+      {
+        "path": "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/hire/tests/bus-question-lifecycle.test.ts",
+        "passed": 12,
+        "other": 0
+      },
+      {
+        "path": "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/pay/tests/bus-question-lifecycle.test.ts",
+        "passed": 12,
+        "other": 0
+      },
+      {
+        "path": "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/post/tests/bus-question-lifecycle.test.ts",
+        "passed": 12,
+        "other": 0
+      },
+      {
+        "path": "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/quote/tests/bus-question-lifecycle.test.ts",
+        "passed": 12,
+        "other": 0
+      },
+      {
+        "path": "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/reach/tests/bus-question-lifecycle.test.ts",
+        "passed": 12,
+        "other": 0
+      },
+      {
+        "path": "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/renew/tests/bus-question-lifecycle.test.ts",
+        "passed": 12,
+        "other": 0
+      },
+      {
+        "path": "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/roster/tests/bus-question-lifecycle.test.ts",
+        "passed": 12,
+        "other": 0
+      },
+      {
+        "path": "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/shift/tests/bus-question-lifecycle.test.ts",
+        "passed": 12,
+        "other": 0
+      },
+      {
+        "path": "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/sign/tests/bus-question-lifecycle.test.ts",
+        "passed": 12,
+        "other": 0
+      },
+      {
+        "path": "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/sync/tests/bus-question-lifecycle.test.ts",
+        "passed": 12,
+        "other": 0
+      },
+      {
+        "path": "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/vet/tests/bus-question-lifecycle.test.ts",
+        "passed": 12,
+        "other": 0
+      }
+    ],
+    "skips": [
+      {
+        "file": "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/ledger/tests/backup.test.ts",
+        "name": "nightly: per-schema pg_dump + per-company exports with retention; one schema restores alone",
+        "status": "skipped",
+        "failureMessages": []
+      },
+      {
+        "file": "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/packages/neop-template/tests/document-store.test.ts",
+        "name": "S3 (Signature V4) round-trips through a real S3-compatible server",
+        "status": "skipped",
+        "failureMessages": []
+      }
+    ]
+  },
+  "catalog_after_documentation": {
+    "path": "/Users/mansi.gambhir/Documents/Codex/2026-09-28/lo/work/fleet-v3-checkpoint-16-catalog.json",
+    "sha256": "bc9b2c3ef10a7cdb1c1007118eee92b25cc63041c70fea18078810e8e45740d1",
+    "passed": 6,
+    "failed": 0,
+    "skipped": 0,
+    "files": 1,
+    "success": true
+  }
+}

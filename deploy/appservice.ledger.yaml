@@ -16,4 +16,8 @@ namespaces:
     - exclusive: true
       regex: "@neop_ledger_.*"
   rooms: []
-  aliases: []
+  aliases:
+    - exclusive: true
+      regex: "#ledger-.*"
+    - exclusive: true
+      regex: "#neop-bus-.*"

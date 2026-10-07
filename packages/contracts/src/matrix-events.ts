@@ -437,8 +437,9 @@ export function neopRoomPowerLevels(o: { people: string[]; nonPeople: string[]; 
 
 // ── v3 S5 · what NeuralChat puts in a task's `fields` besides the person's own ─────────────────────────────────
 // Files travel BY REFERENCE (no bytes in events): `neos_file_<n>` = a JSON string {id, filename, content_type?,
-// sha256, bytes, link}; `link` is a path on the platform (never a full URL) that serves the bytes once, signed and
-// short-lived — the NEOP resolves it against its own configured platform URL and checks the sha256 before keeping it.
+// sha256, bytes, link}; `link` is the file's Matrix media URI (mxc://<server>/<media id>, uploaded by the sender) — the
+// NEOP downloads it from its own homeserver with its own token and checks the size and sha256 before keeping it (v3 S9:
+// there is no platform path to fetch from).
 // `neos_parent_job` = the earlier job a follow-up in the same conversation continues. Everything else in `fields` is
 // the sender's data, shown to the job as given.
 export interface TaskFileRef {
@@ -482,7 +483,7 @@ export function readTaskFields(fields: Record<string, unknown> | undefined | nul
         (r.content_type === undefined || (typeof r.content_type === 'string' && r.content_type.length <= 200)) &&
         typeof r.sha256 === 'string' && /^[0-9a-f]{64}$/.test(r.sha256) &&
         typeof r.bytes === 'number' && Number.isInteger(r.bytes) && r.bytes >= 0 &&
-        typeof r.link === 'string' && r.link.startsWith('/') && !r.link.startsWith('//') && r.link.length <= 1000;
+        typeof r.link === 'string' && /^mxc:\/\/[^/\s]+\/[A-Za-z0-9_-]+$/.test(r.link) && r.link.length <= 1000;
       if (!ok) throw new Error('bad');
       files.push({ id: r.id!, filename: r.filename!, ...(r.content_type ? { content_type: r.content_type } : {}), sha256: r.sha256!, bytes: r.bytes!, link: r.link! });
     } catch {

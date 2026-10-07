@@ -67,49 +67,43 @@ ENV_FILE=${1:?usage: scripts/deploy.sh <env file>  |  scripts/deploy.sh door set
 set -a; . "$ENV_FILE"; set +a
 cd "$ROOT"
 need() { for v in "$@"; do [ -n "${!v:-}" ] || die "$v is not set in $ENV_FILE"; done; }
-need NEOS_PROJECT NEOS_SECRETS_DIR COMPANY_NAME COMPANY_TZ ADMIN_NAME ADMIN_EMAIL LLM_KEY_FILE MATRIX_HOMESERVER_URL MATRIX_SERVER_NAME LEDGER_MXID LEDGER_MATRIX_TOKEN_FILE BRIDGE_MXID
+need NEOS_PROJECT NEOS_SECRETS_DIR COMPANY_NAME COMPANY_TZ ADMIN_NAME ADMIN_EMAIL LLM_KEY_FILE NEOP_FILES_PUBLIC_URL MATRIX_HOMESERVER_URL LEDGER_MXID LEDGER_MATRIX_TOKEN_FILE NEURALCHAT_MXID NEURALCHAT_MATRIX_TOKEN_FILE
 [ -s "$LLM_KEY_FILE" ] || die "LLM_KEY_FILE ($LLM_KEY_FILE) is empty or missing"
 [ -s "$LEDGER_MATRIX_TOKEN_FILE" ] || die "LEDGER_MATRIX_TOKEN_FILE ($LEDGER_MATRIX_TOKEN_FILE) is empty or missing"
+[ -s "$NEURALCHAT_MATRIX_TOKEN_FILE" ] || die "NEURALCHAT_MATRIX_TOKEN_FILE ($NEURALCHAT_MATRIX_TOKEN_FILE) is empty or missing"
+[ "$LEDGER_MXID" != "$NEURALCHAT_MXID" ] || die "Ledger and NeuralChat must use different Matrix accounts"
+[ "$(readlink -f "$LEDGER_MATRIX_TOKEN_FILE" 2>/dev/null || printf '%s' "$LEDGER_MATRIX_TOKEN_FILE")" != "$(readlink -f "$NEURALCHAT_MATRIX_TOKEN_FILE" 2>/dev/null || printf '%s' "$NEURALCHAT_MATRIX_TOKEN_FILE")" ] || die "Ledger and NeuralChat must use different Matrix token files"
 # v3 §5/§8/§16: only a person says yes — on the desk, or with their own answer in their own DM/room. Nothing
 # approves on a person's behalf: the old BRIDGE_MAY_APPROVE switch is gone and the platform refuses it.
 case "${BRIDGE_MAY_APPROVE:-}" in
   ""|false) ;;
   *) die "BRIDGE_MAY_APPROVE is no longer supported: a bridge (NeuralChat) can never approve — only a person, on the desk or in their own DM (v3 §5/§8/§16). Remove BRIDGE_MAY_APPROVE from $ENV_FILE (docs/GO-LIVE.md §3)";;
 esac
-# v3 S4 · who speaks for Ledger in Matrix: the platform's bridge (off, the default today) or the ledger backend
-# itself (client: its own /sync road, deploy/compose.presence-client.yml). docs/RUNBOOK.md "Chat: NEOP presence".
-PRESENCE=${NEOP_PRESENCE:-off}
-case "$PRESENCE" in
-  off) CHAT_OVERLAY=deploy/compose.matrix-external.yml ;;
-  client) CHAT_OVERLAY=deploy/compose.presence-client.yml
-    # The backend reaches the homeserver through egress-proxy (443 only): allow its host.
-    HS_HOST=$(printf '%s' "$MATRIX_HOMESERVER_URL" | sed -E 's#^[a-z]+://##; s#[:/].*$##')
-    export NEOS_EGRESS_EXTRA="${NEOS_EGRESS_EXTRA:+$NEOS_EGRESS_EXTRA,}$HS_HOST"
-    # …and its port, when the homeserver is not on 443 (found in a dry run: http on 8108 was refused).
-    HS_PORT=$(printf '%s' "$MATRIX_HOMESERVER_URL" | sed -nE 's#^[a-z]+://[^/:]+:([0-9]+).*$#\1#p')
-    [ -z "$HS_PORT" ] && case "$MATRIX_HOMESERVER_URL" in http://*) HS_PORT=80 ;; esac
-    [ -n "$HS_PORT" ] && [ "$HS_PORT" != 443 ] && export NEOS_EGRESS_PORTS="${NEOS_EGRESS_PORTS:-443},$HS_PORT" ;;
-  *) die "NEOP_PRESENCE must be off or client for scripts/deploy.sh (the appservice road is set up with scripts/matrix-setup.sh + deploy/compose.chat.yml)";;
-esac
+# v3 S9: production has one topology. NeuralChat and Ledger each run their own Matrix client; no `off` road exists.
+[ "${NEOP_PRESENCE:-client}" = client ] || die "NEOP_PRESENCE must be client: v3 removed the platform bridge and gateway road"
+[ "${NEOS_NEURALCHAT_MATRIX:-client}" = client ] || die "NEOS_NEURALCHAT_MATRIX must be client: NeuralChat reaches apps only through Matrix"
+CHAT_OVERLAY=deploy/compose.presence-client.yml
+# The platform and backend reach the external homeserver through the allow-listing egress proxy.
+HS_HOST=$(printf '%s' "$MATRIX_HOMESERVER_URL" | sed -E 's#^[a-z]+://##; s#[:/].*$##')
+export NEOS_EGRESS_EXTRA="${NEOS_EGRESS_EXTRA:+$NEOS_EGRESS_EXTRA,}$HS_HOST"
+HS_PORT=$(printf '%s' "$MATRIX_HOMESERVER_URL" | sed -nE 's#^[a-z]+://[^/:]+:([0-9]+).*$#\1#p')
+[ -z "$HS_PORT" ] && case "$MATRIX_HOMESERVER_URL" in http://*) HS_PORT=80 ;; esac
+[ -n "$HS_PORT" ] && [ "$HS_PORT" != 443 ] && export NEOS_EGRESS_PORTS="${NEOS_EGRESS_PORTS:-443},$HS_PORT"
 ATTEST="$ROOT/deploy/attestations/ledger.json"
 [ -s "$ATTEST" ] || die "no conformance attestation for this release ($ATTEST): run tsx scripts/conformance.ts ledger --out $ATTEST on the build machine"
 command -v docker >/dev/null || die "docker is required"
 command -v jq >/dev/null || die "jq is required"
-export NEOS_SECRETS_DIR NEOS_PLATFORM_PORT="${NEOS_PLATFORM_PORT:-4000}"
+export NEOS_SECRETS_DIR NEOS_PLATFORM_PORT="${NEOS_PLATFORM_PORT:-4000}" NEOP_FILES_PORT="${NEOP_FILES_PORT:-4101}" NEOP_FILES_PUBLIC_URL
 PORT=$NEOS_PLATFORM_PORT
 STATE="$NEOS_SECRETS_DIR/deploy-state.json"
 BASE=(-f deploy/compose.pilot.yml)
 for extra in ${NEOS_COMPOSE_EXTRA:-}; do BASE+=(-f "$extra"); done
 FILES=("${BASE[@]}")
-# The Matrix client road needs the company; it is added once the company exists (steps 8+).
-[ -s "$STATE" ] && [ -n "$(jq -r '.company_id // empty' "$STATE")" ] && FILES=("${BASE[@]}" -f "$CHAT_OVERLAY")
 PROFILES=()
 [ "${OBSERVABILITY:-0}" = 1 ] && PROFILES+=(--profile observability)
 dc() { docker compose -p "$NEOS_PROJECT" "${FILES[@]}" ${PROFILES[@]+"${PROFILES[@]}"} "$@"; }
 state() { [ -s "$STATE" ] && jq -r ".$1 // empty" "$STATE" || true; }
 setstate() { local cur='{}'; [ -s "$STATE" ] && cur=$(cat "$STATE"); echo "$cur" | jq --arg k "$1" --arg v "$2" '.[$k]=$v' > "$STATE.tmp" && mv "$STATE.tmp" "$STATE"; chmod 600 "$STATE"; }
-# The Matrix overlay (added once the company exists) needs the company id from the very first compose call.
-export NEOS_CHAT_COMPANY="$(state company_id)"
 # The body goes on stdin (printf is a builtin), never on a command line where `ps` could show a key.
 api() {
   if [ -n "${3:-}" ]; then printf '%s' "$3" | curl -sS -X "$1" "http://127.0.0.1:$PORT$2" -H "@$NEOS_SECRETS_DIR/.auth_header" -H 'content-type: application/json' --data-binary @-
@@ -120,9 +114,18 @@ OPS=(run --rm --no-deps -T -e NEOS_DB_URL_FILE=/run/secrets/neos_app_url -e NEOP
 ops() { dc "${OPS[@]}" "$@" 2>/dev/null | grep -v '^ *Container ' | tail -1; }
 
 say "1/11 backup before upgrading (skipped on a first install)"
-if [ -n "$(state company_id)" ] && dc ps --services --status running 2>/dev/null | grep -qx backup; then
+if [ -e "$STATE" ]; then
+  [ -n "$(state company_id)" ] || die "deploy-state.json has no company_id; recover the deployment state before upgrading"
+  dc ps --services --status running | grep -qx backup || die "the backup service is not running; restore it and take a recovery backup before upgrading"
   dc exec -T backup tsx scripts/backup.ts nightly | tail -1 || die "pre-upgrade backup failed — nothing was changed"
-else echo "first install: nothing to back up"; fi
+else
+  # A stopped stack (or an orphaned database volume) is not a first install. Generating replacement
+  # credentials against it could strand the existing data, and migrations must not precede a backup.
+  existing_db=$(dc ps -a -q postgres) || die "could not inspect the existing database container"
+  existing_volume=$(docker volume ls -q --filter "label=com.docker.compose.project=$NEOS_PROJECT" --filter "label=com.docker.compose.volume=pgdata") || die "could not inspect existing database volumes"
+  [ -z "$existing_db$existing_volume" ] || die "existing database found without deploy-state.json; recover the original secrets and deployment state before upgrading"
+  echo "first install: nothing to back up"
+fi
 
 say "2/11 secrets (never overwrites)"
 mkdir -p "$NEOS_SECRETS_DIR" && chmod 700 "$NEOS_SECRETS_DIR"
@@ -130,7 +133,7 @@ docker run --rm -v "$ROOT:/src:ro" -v "$NEOS_SECRETS_DIR:/out" -w /src node:24-b
   || (command -v pnpm >/dev/null && pnpm exec tsx scripts/gen-secrets.ts "$NEOS_SECRETS_DIR" ledger >/dev/null) || die "could not generate secrets"
 install -m 600 "$LLM_KEY_FILE" "$NEOS_SECRETS_DIR/llm_upstream_key"
 install -m 600 "$LEDGER_MATRIX_TOKEN_FILE" "$NEOS_SECRETS_DIR/matrix_ledger_token"
-for f in matrix_hs_token matrix_as_token; do [ -e "$NEOS_SECRETS_DIR/$f" ] || : > "$NEOS_SECRETS_DIR/$f"; done
+install -m 600 "$NEURALCHAT_MATRIX_TOKEN_FILE" "$NEOS_SECRETS_DIR/matrix_neuralchat_token"
 # Containers run as their own users: they must be able to read the files mounted as secrets (the directory stays 0700).
 chmod a+r "$NEOS_SECRETS_DIR"/*
 # … except what no container reads: the admin's token and the deploy state stay owner-only.
@@ -145,15 +148,10 @@ dc build >/dev/null
 say "4/11 migrate (admin link; safe to re-run)"
 dc run --rm migrate 2>&1 | grep -E 'applying|complete|rror' || die "migration failed"
 
-say "5/11 start"
-# The company is needed by the Matrix client road; on a first install it does not exist yet, so start without it first.
-dc up -d --remove-orphans >/dev/null 2>&1 || die "compose up failed: dc up -d to see why"
-for i in $(seq 1 60); do curl -fsS "http://127.0.0.1:$PORT/live" >/dev/null 2>&1 && break; sleep 2; [ "$i" = 60 ] && die "platform did not become live"; done
+say "5/11 register Ledger (conformance attestation required in production)"
+ops register-app ledger --conformance /tmp/conformance.json | tee /dev/stderr | grep -q '"attested":true' || die "registration refused"
 
-say "6/11 register Ledger (conformance attestation required in production)"
-ops register-app ledger http://ledger-l3:4101 --conformance /tmp/conformance.json | tee /dev/stderr | grep -q '"attested":true' || die "registration refused"
-
-say "7/11 company, admin, install"
+say "6/11 company, admin, install (database bootstrap; no gateway or app endpoint)"
 CO=$(state company_id)
 if [ -z "$CO" ]; then
   CO=$(ops create-company "$COMPANY_NAME" "$COMPANY_TZ" | jq -r .id); [ -n "$CO" ] && [ "$CO" != null ] || die "create-company failed"
@@ -162,29 +160,27 @@ if [ -z "$CO" ]; then
   [ -s "$NEOS_SECRETS_DIR/admin_token" ] || die "create-user failed"
 fi
 ops install "$CO" ledger >/dev/null
-# A real company starts with empty books: give it the starter chart of accounts once (never on a re-run).
-if [ "${STARTER_CHART:-in_sme}" != none ] && [ -z "$(state starter_chart)" ]; then
-  dc exec -T ledger-backend tsx apps/ledger/scripts/seed.ts "$CO" --starter-chart | tail -1 || die "starter chart failed"
-  setstate starter_chart "${STARTER_CHART:-in_sme}"
-fi
 auth_header
 echo "company $CO · admin token in $NEOS_SECRETS_DIR/admin_token"
 
-say "8/11 Matrix client road for this company (NEOP_PRESENCE=$PRESENCE)"
+say "7/11 start the Matrix-only topology"
 export NEOS_CHAT_COMPANY="$CO"
 FILES=("${BASE[@]}" -f "$CHAT_OVERLAY")
-dc up -d platform >/dev/null 2>&1 || die "platform with the Matrix overlay did not start"
-for i in $(seq 1 60); do curl -fsS "http://127.0.0.1:$PORT/live" >/dev/null 2>&1 && break; sleep 2; done
+dc up -d --remove-orphans >/dev/null 2>&1 || die "compose up failed: dc up -d to see why"
+for i in $(seq 1 60); do curl -fsS "http://127.0.0.1:$PORT/live" >/dev/null 2>&1 && break; sleep 2; [ "$i" = 60 ] && die "platform did not become live"; done
 ME=$(api GET /api/me | jq -r .id)
 [ -n "${ADMIN_MXID:-}" ] && api PUT "/api/users/$ME/chat" "{\"matrix_user_id\":\"$ADMIN_MXID\"}" >/dev/null && api PUT /api/chat/allowlist "{\"app\":\"ledger\",\"matrix_id\":\"$ADMIN_MXID\",\"kind\":\"person\"}" >/dev/null
-api PUT /api/chat/allowlist "{\"app\":\"ledger\",\"matrix_id\":\"$BRIDGE_MXID\",\"kind\":\"bridge\",\"acts_for\":\"$ME\"}" | jq -c '{matrix_id,kind,acts_for}'
-if [ "$PRESENCE" = client ]; then
-  # Ledger's own account at this company, in ledger.installs (the backend binds its token to it), then the backend.
-  api PUT /api/chat/presence "{\"app\":\"ledger\",\"matrix_user\":\"$LEDGER_MXID\"}" | jq -c '{app,matrix_user}'
-  dc up -d egress-proxy ledger-backend >/dev/null 2>&1 || die "ledger backend with NEOP presence did not start"
-else
-  api GET /api/chat/client | jq -c '.accounts[]|{account,running,stopped}'
-fi
+api PUT /api/chat/presence "{\"app\":\"ledger\",\"matrix_user\":\"$LEDGER_MXID\"}" | jq -c '{app,matrix_user}'
+for i in $(seq 1 30); do
+  api GET /api/chat/neuralchat | jq -e --arg mx "$NEURALCHAT_MXID" '.road == "client" and .account == $mx and (.accounts | any(.running == true and .stopped == null))' >/dev/null 2>&1 && break
+  sleep 2; [ "$i" = 30 ] && die "NeuralChat's Matrix client did not become ready"
+done
+
+say "8/11 starter chart (first install only)"
+if [ "${STARTER_CHART:-in_sme}" != none ] && [ -z "$(state starter_chart)" ]; then
+  dc exec -T ledger-backend tsx apps/ledger/scripts/seed.ts "$CO" --starter-chart | tail -1 || die "starter chart failed"
+  setstate starter_chart "${STARTER_CHART:-in_sme}"
+else echo "already seeded (or STARTER_CHART=none)"; fi
 
 say "9/11 email door (optional) → the secret store, for Ledger at this company"
 if [ -n "${EMAIL_DOOR_JSON:-}" ]; then
@@ -197,23 +193,15 @@ if [ -n "${EMAIL_DOOR_JSON:-}" ]; then
 else echo "not configured: gated emails will fail cleanly until ops runs: scripts/deploy.sh door set $CO email ledger < credential.json"; fi
 
 say "10/11 verify the install (read-only)"
-# With Ledger on Matrix itself, check the token its backend holds (the platform holds none for it).
-PRESENCE_VERIFY=()
-[ "$PRESENCE" = client ] && PRESENCE_VERIFY=(-e NEOP_PRESENCE=client -e "NEOP_MATRIX_HOMESERVER_URL=$MATRIX_HOMESERVER_URL" -e "NEOP_MATRIX_ACCOUNT=$LEDGER_MXID"
-  -e NEOP_MATRIX_TOKEN_FILE=/tmp/mt -v "$NEOS_SECRETS_DIR/matrix_ledger_token:/tmp/mt:ro")
 # The door files are checked by name and mode only (never opened); the rendered compose config shows who mounts them.
 RENDERED=$(mktemp /tmp/neops-compose.XXXXXX); dc config > "$RENDERED" 2>/dev/null || die "docker compose config failed"; chmod 644 "$RENDERED"
-dc run --rm --no-deps -T -e NEOS_DB_URL_FILE=/run/secrets/neos_app_url -e NEOP_RUNNER_DB_URL_FILE=/tmp/r -e NEOS_PLATFORM_URL=http://platform:4000 -e NEOP_LLM_UPSTREAM_KEY_FILE=/tmp/k \
-  -e NEOP_DOOR_SECRETS_DIR=/run/secrets/doors -e NEOS_COMPOSE_FILE=/tmp/compose.yml \
-  -v "$NEOS_SECRETS_DIR/ledger_runner_url:/tmp/r:ro" -v "$NEOS_SECRETS_DIR/llm_upstream_key:/tmp/k:ro" \
-  -v "$NEOS_SECRETS_DIR/doors:/run/secrets/doors:ro" -v "$RENDERED:/tmp/compose.yml:ro" \
-  ${PRESENCE_VERIFY[@]+"${PRESENCE_VERIFY[@]}"} \
-  platform tsx scripts/verify-install.ts ledger "$CO" 2>/dev/null | grep -v '^ *Container ' | tee /tmp/neops-verify.txt | tail -16
+dc run --rm --no-deps -T -e NEOS_COMPOSE_FILE=/tmp/compose.yml -v "$RENDERED:/tmp/compose.yml:ro" \
+  verify tsx scripts/verify-install.ts ledger "$CO" 2>/dev/null | grep -v '^ *Container ' | tee /tmp/neops-verify.txt | tail -18
 rm -f "$RENDERED"
 grep -q 'All checks passed' /tmp/neops-verify.txt || die "verify-install reported failures (above)"
 
 say "11/11 smoke"
 tb=$(api POST /api/apps/ledger/read/ledger.periods.status '{}' | jq -r 'if .result then "ok" else . end')
-[ "$tb" = ok ] || die "a read through the gateway failed: $tb"
-echo "reads through the gateway: ok · model, Matrix and approvals: run scripts/neuralchat-sim.ts or ask through NeuralChat"
+[ "$tb" = ok ] || die "the declared block read through ledger.block_read failed: $tb"
+echo "declared DB read: ok · Matrix accounts: verified · ask through NeuralChat for the end-to-end production smoke"
 say "DEPLOYED · project $NEOS_PROJECT · company $CO · platform http://127.0.0.1:$PORT"

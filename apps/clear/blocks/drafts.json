@@ -1,0 +1,69 @@
+{
+  "block": "page",
+  "title": "Clear drafts",
+  "description": "Internal review only; not business approval or external completion.",
+  "nav": {
+    "label": "Clear",
+    "icon": "table",
+    "order": 1
+  },
+  "children": [
+    {
+      "block": "table",
+      "source": {
+        "ability": "clear.assessments.list"
+      },
+      "rows": "/rows",
+      "columns": [
+        {
+          "label": "source id",
+          "path": "/source_id"
+        },
+        {
+          "label": "sanctions",
+          "path": "/sanctions"
+        },
+        {
+          "label": "pep",
+          "path": "/pep"
+        },
+        {
+          "label": "adverse",
+          "path": "/adverse"
+        },
+        {
+          "label": "evidence reference",
+          "path": "/evidence_reference"
+        },
+        {
+          "label": "score",
+          "path": "/score"
+        },
+        {
+          "label": "rating",
+          "path": "/rating"
+        },
+        {
+          "label": "case draft",
+          "path": "/case_draft"
+        },
+        {
+          "label": "sar draft",
+          "path": "/sar_draft"
+        },
+        {
+          "label": "assessment status",
+          "path": "/assessment_status"
+        },
+        {
+          "label": "requires elevated approval",
+          "path": "/requires_elevated_approval"
+        },
+        {
+          "label": "status",
+          "path": "/status"
+        }
+      ]
+    }
+  ]
+}

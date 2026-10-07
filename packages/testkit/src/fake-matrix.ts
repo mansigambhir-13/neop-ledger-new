@@ -24,7 +24,9 @@ export interface FakeMatrixEvent {
 
 export interface FakeMatrix {
   serverName: string;
-  fetchImpl: (url: string, init?: any) => Promise<{ ok: boolean; status: number; json(): Promise<any> }>;
+  fetchImpl: (url: string, init?: any) => Promise<{ ok: boolean; status: number; json(): Promise<any>; arrayBuffer(): Promise<ArrayBuffer> }>;
+  /** v3 S9: files uploaded to the media store (mxc://<server>/<id> → bytes, type, uploader). */
+  media: Map<string, { bytes: Buffer; type: string; by: string }>;
   account(mxid: string): string;
   rooms: Map<string, { members: Set<string>; invited: Set<string>; events: FakeMatrixEvent[]; direct: boolean; creator: string }>;
   events(room?: string): FakeMatrixEvent[];
@@ -44,6 +46,7 @@ export function fakeMatrix(o: { serverName?: string } = {}): FakeMatrix {
   const counts: Record<string, number> = {};
   const all: FakeMatrixEvent[] = [];
   const waiters = new Set<() => void>();
+  const media: FakeMatrix['media'] = new Map();
   let isDown = false;
   let n = 0;
   const wake = () => {
@@ -67,8 +70,9 @@ export function fakeMatrix(o: { serverName?: string } = {}): FakeMatrix {
     const u = new URL(url);
     const p = decodeURIComponent(u.pathname);
     const method = init.method ?? 'GET';
-    const body = init.body ? JSON.parse(init.body) : null;
-    const reply = (status: number, j: unknown) => ({ ok: status >= 200 && status < 300, status, json: async () => j });
+    const isUpload = p === '/_matrix/media/v3/upload';
+    const body = init.body && !isUpload ? JSON.parse(init.body) : null;
+    const reply = (status: number, j: unknown) => ({ ok: status >= 200 && status < 300, status, json: async () => j, arrayBuffer: async () => new TextEncoder().encode(JSON.stringify(j)).buffer as ArrayBuffer });
     const kind = p.includes('/send/') ? 'send' : (p.split('/').filter(Boolean).at(-1) ?? p);
     counts[kind] = (counts[kind] ?? 0) + 1;
     if (isDown) return reply(503, { errcode: 'M_UNKNOWN', error: 'homeserver is down' });
@@ -76,6 +80,20 @@ export function fakeMatrix(o: { serverName?: string } = {}): FakeMatrix {
     const me = tokens.get(auth);
     if (!me) return reply(401, { errcode: 'M_UNKNOWN_TOKEN', error: 'unknown token' });
     if (p === '/_matrix/client/v3/account/whoami') return reply(200, { user_id: me });
+    // v3 S9 · the media repository: an upload (any account), an authenticated download (any account of this server).
+    if (isUpload && method === 'POST') {
+      const id = `m${++n}${randomUUID().replace(/-/g, '').slice(0, 10)}`;
+      const bytes = Buffer.from(init.body instanceof Uint8Array ? init.body : typeof init.body === 'string' ? Buffer.from(init.body) : new Uint8Array(init.body ?? []));
+      media.set(`mxc://${server}/${id}`, { bytes, type: String(init.headers?.['content-type'] ?? 'application/octet-stream'), by: me });
+      return reply(200, { content_uri: `mxc://${server}/${id}` });
+    }
+    let md: RegExpMatchArray | null;
+    if ((md = p.match(/^\/_matrix\/client\/v1\/media\/download\/([^/]+)\/([^/]+)$/)) && method === 'GET') {
+      const f = media.get(`mxc://${md[1]}/${md[2]}`);
+      if (!f) return reply(404, { errcode: 'M_NOT_FOUND', error: 'no such media' });
+      const ab = f.bytes.buffer.slice(f.bytes.byteOffset, f.bytes.byteOffset + f.bytes.byteLength) as ArrayBuffer;
+      return { ok: true, status: 200, json: async () => ({}), arrayBuffer: async () => ab };
+    }
     if (p === '/_matrix/client/v3/sync') {
       const since = u.searchParams.get('since');
       const seq = since ? Number(since.slice(1)) : 0;
@@ -154,6 +172,7 @@ export function fakeMatrix(o: { serverName?: string } = {}): FakeMatrix {
     fetchImpl,
     rooms,
     counts,
+    media,
     account(mxid) {
       for (const [t, a] of tokens) if (a === mxid) return t;
       const t = `tok-${mxid.slice(1).split(':')[0]}-${randomUUID().slice(0, 8)}`;

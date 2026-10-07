@@ -1,0 +1,643 @@
+{
+  "sourceBaseCommit": "1966d27d86f4a7d2b68fd7594befdc62c2c2285c",
+  "at": "2026-10-01T06:39:07.380Z",
+  "scope": "Locally built Linux ARM64 backend images and disposable startup/sandbox/refusal rehearsals. No complete two-image job or production acceptance.",
+  "production_ready": false,
+  "fullSuite": {
+    "files": 163,
+    "passed": 1413,
+    "failed": 0,
+    "existingConditionalSkips": 2,
+    "durationSeconds": 428.98,
+    "rawReportSha256": "26380363c3129982e4519dc9fbb6bd45ae6bf2d37118835e70f0ebfcdfa98f6a"
+  },
+  "sourceSha256": {
+    "scripts/fleet/packaging/backend-context.ts": "d46357986e82b23e8db6ac2ce11d2683ea85ec8f10d54bbe21e802870fe47734",
+    "scripts/fleet/packaging/agent-context.ts": "8c6eecca63f3265b6eaa5e182133f96a65240d1ac4a399dd535d3f1c9ed28a43",
+    "scripts/fleet/packaging/backend-probe.mjs": "0fbf3fa67946efe1019c2cd33ac169093462bc05151a97c9c1116c125b36ba76",
+    "scripts/fleet/packaging/check-backend-images.ts": "0ea662f97d90c2ee5ad2755d9a36ec03078272ed2e5b0e585c3cabce162449b8",
+    "scripts/fleet/tests/backend-context.test.ts": "021cb04a144a1d0c3609ddcafb3bc13e3e1389e324f9aa270a3a57752fde8ac4",
+    "deploy/fleet/backend.Dockerfile": "8e0c7431fb43841373c8e8f41420cfeb864d65d2231b8d8cecc16c27214ea6fd"
+  },
+  "rawReportSha256": "4cec96d104bb8060191c17cee31940046c97d036f5f353af27b282b75f15116b",
+  "artifactSha256": "1982a8d43e905faee910cc045e3f78090ceb0c814263669a3878171fdfa5ebd1",
+  "deno": {
+    "name": "@deno/linux-arm64-glibc",
+    "version": "2.9.6",
+    "architecture": "arm64",
+    "integrity": "sha512-poqhoH9B3nYloigEMPT5t8HY+wBeiuea1An5Q7fqgJzP0SYmWsoS/oUnWO/pEiA4ofzIBy1Elt/in58xKtxEoQ==",
+    "archiveSha256": "8e32a9c72c84c14f91fde26efbef0b5f347286f3c68b4b7d4b8040ae9e6f42ec",
+    "binarySha256": "d08d392418df53f4e6e88a08909c0e1bccbf9adcead7232df72b6ad6075ec416"
+  },
+  "databaseImage": "postgres:17.6-bookworm@sha256:f3bd19c606e442c3d7bdfa8002e03fe260a1023351e0ea4598032022b68dd6e3",
+  "prefix": "neop-fleet7-baf7e378",
+  "images": [
+    {
+      "app": "asset",
+      "tag": "neop-fleet7-baf7e378-asset-backend:local",
+      "id": "sha256:04c0707e809aaf8f05eb20f4ed9a0f5be48f694669fd533958686a007101a2ab",
+      "os": "linux",
+      "architecture": "arm64"
+    },
+    {
+      "app": "buy",
+      "tag": "neop-fleet7-baf7e378-buy-backend:local",
+      "id": "sha256:c3aff6770b3b51d67ecc2bcd89640968558e9584ae45f9aab2e81b86af97778f",
+      "os": "linux",
+      "architecture": "arm64"
+    },
+    {
+      "app": "clear",
+      "tag": "neop-fleet7-baf7e378-clear-backend:local",
+      "id": "sha256:dfd3fad367840a837e2832698c5edea6da21b6a5dac461417e40026ba2426727",
+      "os": "linux",
+      "architecture": "arm64"
+    },
+    {
+      "app": "deal",
+      "tag": "neop-fleet7-baf7e378-deal-backend:local",
+      "id": "sha256:e111ee4fb4ce29a7db0327b1644153b5f066d9eeac9629db6aa1f44e6fe42fcd",
+      "os": "linux",
+      "architecture": "arm64"
+    },
+    {
+      "app": "desk",
+      "tag": "neop-fleet7-baf7e378-desk-backend:local",
+      "id": "sha256:783fd51aa76274bbcf3e29486e1967ef9f3b346aa8cca2b0fe7093e215e067a1",
+      "os": "linux",
+      "architecture": "arm64"
+    },
+    {
+      "app": "grant",
+      "tag": "neop-fleet7-baf7e378-grant-backend:local",
+      "id": "sha256:547db008c2e3d9f778fcedb261af565012e0836edec89e505a2f96184cbe2462",
+      "os": "linux",
+      "architecture": "arm64"
+    },
+    {
+      "app": "guard",
+      "tag": "neop-fleet7-baf7e378-guard-backend:local",
+      "id": "sha256:bc395739917b4b6e8c9deb5fe85150ac1a76b540fa391e87f70b0d98fd06ec6c",
+      "os": "linux",
+      "architecture": "arm64"
+    },
+    {
+      "app": "hire",
+      "tag": "neop-fleet7-baf7e378-hire-backend:local",
+      "id": "sha256:f1acee35817a4db4c0fc2e8077ca706ac1947c14d1c16e56eea2224c01a635d2",
+      "os": "linux",
+      "architecture": "arm64"
+    },
+    {
+      "app": "pay",
+      "tag": "neop-fleet7-baf7e378-pay-backend:local",
+      "id": "sha256:1bb86b82f7a7d975dd68753217e61cbedd080397b06e1e21b53accc127cd34ae",
+      "os": "linux",
+      "architecture": "arm64"
+    },
+    {
+      "app": "post",
+      "tag": "neop-fleet7-baf7e378-post-backend:local",
+      "id": "sha256:2ef4c62f5a7760d23130619a1d9be16e6e30a22d82e363e40753f1fe876c91a8",
+      "os": "linux",
+      "architecture": "arm64"
+    },
+    {
+      "app": "quote",
+      "tag": "neop-fleet7-baf7e378-quote-backend:local",
+      "id": "sha256:08011ab5314dd2e55d3d833d92d5f14598bce8c5fe2e690396b57da0fa4d2b11",
+      "os": "linux",
+      "architecture": "arm64"
+    },
+    {
+      "app": "reach",
+      "tag": "neop-fleet7-baf7e378-reach-backend:local",
+      "id": "sha256:3b8615f277832692fbd67571b27ccd6ae8674d298b6d91120afca1e6f464b94a",
+      "os": "linux",
+      "architecture": "arm64"
+    },
+    {
+      "app": "renew",
+      "tag": "neop-fleet7-baf7e378-renew-backend:local",
+      "id": "sha256:2480fe35fb4e6ae0bc986efc19d79232fa1e8a662c28f6a07174bc64ce5d4f48",
+      "os": "linux",
+      "architecture": "arm64"
+    },
+    {
+      "app": "roster",
+      "tag": "neop-fleet7-baf7e378-roster-backend:local",
+      "id": "sha256:b23d5f37906b44187db9757ba80dc36e15adca3bf17b9777297ab6db563d4a15",
+      "os": "linux",
+      "architecture": "arm64"
+    },
+    {
+      "app": "shift",
+      "tag": "neop-fleet7-baf7e378-shift-backend:local",
+      "id": "sha256:a1a27313172c84b764594c04f2e32ea9a66acdfcb4e398f3c522ab5b105bba0e",
+      "os": "linux",
+      "architecture": "arm64"
+    },
+    {
+      "app": "sign",
+      "tag": "neop-fleet7-baf7e378-sign-backend:local",
+      "id": "sha256:8fdd0e3fdc3b4eb7837c7a21b237918e3b9acf7a8076f747d3884397f9989b03",
+      "os": "linux",
+      "architecture": "arm64"
+    },
+    {
+      "app": "sync",
+      "tag": "neop-fleet7-baf7e378-sync-backend:local",
+      "id": "sha256:b7616388ef2ae5f0374220d99c08c3cab374c5927ae5851ce0e94ba96c94be4b",
+      "os": "linux",
+      "architecture": "arm64"
+    },
+    {
+      "app": "vet",
+      "tag": "neop-fleet7-baf7e378-vet-backend:local",
+      "id": "sha256:e0e8b7aa68627366d52cec63fabc3b739c3ec9cfb08733cee4c2146fb91e33d8",
+      "os": "linux",
+      "architecture": "arm64"
+    }
+  ],
+  "results": [
+    {
+      "app": "asset",
+      "nonRoot": true,
+      "readOnly": true,
+      "ownAppOnly": true,
+      "noModelLibraries": true,
+      "fixedLoader": true,
+      "sandbox": {
+        "read": "NotCapable",
+        "write": "NotCapable",
+        "env": "NotCapable",
+        "net": "NotCapable",
+        "run": "NotCapable"
+      },
+      "sandboxRpc": true,
+      "health": true,
+      "databaseRoles": [
+        "asset_app",
+        "asset_runner"
+      ],
+      "matrixTokenBoundary": true,
+      "emptyJobBook": true,
+      "schemaDriftRefused": true,
+      "providerKeyRefused": true,
+      "cleanShutdown": true
+    },
+    {
+      "app": "buy",
+      "nonRoot": true,
+      "readOnly": true,
+      "ownAppOnly": true,
+      "noModelLibraries": true,
+      "fixedLoader": true,
+      "sandbox": {
+        "read": "NotCapable",
+        "write": "NotCapable",
+        "env": "NotCapable",
+        "net": "NotCapable",
+        "run": "NotCapable"
+      },
+      "sandboxRpc": true,
+      "health": true,
+      "databaseRoles": [
+        "buy_app",
+        "buy_runner"
+      ],
+      "matrixTokenBoundary": true,
+      "emptyJobBook": true,
+      "schemaDriftRefused": true,
+      "providerKeyRefused": true,
+      "cleanShutdown": true
+    },
+    {
+      "app": "clear",
+      "nonRoot": true,
+      "readOnly": true,
+      "ownAppOnly": true,
+      "noModelLibraries": true,
+      "fixedLoader": true,
+      "sandbox": {
+        "read": "NotCapable",
+        "write": "NotCapable",
+        "env": "NotCapable",
+        "net": "NotCapable",
+        "run": "NotCapable"
+      },
+      "sandboxRpc": true,
+      "health": true,
+      "databaseRoles": [
+        "clear_app",
+        "clear_runner"
+      ],
+      "matrixTokenBoundary": true,
+      "emptyJobBook": true,
+      "schemaDriftRefused": true,
+      "providerKeyRefused": true,
+      "cleanShutdown": true
+    },
+    {
+      "app": "deal",
+      "nonRoot": true,
+      "readOnly": true,
+      "ownAppOnly": true,
+      "noModelLibraries": true,
+      "fixedLoader": true,
+      "sandbox": {
+        "read": "NotCapable",
+        "write": "NotCapable",
+        "env": "NotCapable",
+        "net": "NotCapable",
+        "run": "NotCapable"
+      },
+      "sandboxRpc": true,
+      "health": true,
+      "databaseRoles": [
+        "deal_app",
+        "deal_runner"
+      ],
+      "matrixTokenBoundary": true,
+      "emptyJobBook": true,
+      "schemaDriftRefused": true,
+      "providerKeyRefused": true,
+      "cleanShutdown": true
+    },
+    {
+      "app": "desk",
+      "nonRoot": true,
+      "readOnly": true,
+      "ownAppOnly": true,
+      "noModelLibraries": true,
+      "fixedLoader": true,
+      "sandbox": {
+        "read": "NotCapable",
+        "write": "NotCapable",
+        "env": "NotCapable",
+        "net": "NotCapable",
+        "run": "NotCapable"
+      },
+      "sandboxRpc": true,
+      "health": true,
+      "databaseRoles": [
+        "desk_app",
+        "desk_runner"
+      ],
+      "matrixTokenBoundary": true,
+      "emptyJobBook": true,
+      "schemaDriftRefused": true,
+      "providerKeyRefused": true,
+      "cleanShutdown": true
+    },
+    {
+      "app": "grant",
+      "nonRoot": true,
+      "readOnly": true,
+      "ownAppOnly": true,
+      "noModelLibraries": true,
+      "fixedLoader": true,
+      "sandbox": {
+        "read": "NotCapable",
+        "write": "NotCapable",
+        "env": "NotCapable",
+        "net": "NotCapable",
+        "run": "NotCapable"
+      },
+      "sandboxRpc": true,
+      "health": true,
+      "databaseRoles": [
+        "grant_app",
+        "grant_runner"
+      ],
+      "matrixTokenBoundary": true,
+      "emptyJobBook": true,
+      "schemaDriftRefused": true,
+      "providerKeyRefused": true,
+      "cleanShutdown": true
+    },
+    {
+      "app": "guard",
+      "nonRoot": true,
+      "readOnly": true,
+      "ownAppOnly": true,
+      "noModelLibraries": true,
+      "fixedLoader": true,
+      "sandbox": {
+        "read": "NotCapable",
+        "write": "NotCapable",
+        "env": "NotCapable",
+        "net": "NotCapable",
+        "run": "NotCapable"
+      },
+      "sandboxRpc": true,
+      "health": true,
+      "databaseRoles": [
+        "guard_app",
+        "guard_runner"
+      ],
+      "matrixTokenBoundary": true,
+      "emptyJobBook": true,
+      "schemaDriftRefused": true,
+      "providerKeyRefused": true,
+      "cleanShutdown": true
+    },
+    {
+      "app": "hire",
+      "nonRoot": true,
+      "readOnly": true,
+      "ownAppOnly": true,
+      "noModelLibraries": true,
+      "fixedLoader": true,
+      "sandbox": {
+        "read": "NotCapable",
+        "write": "NotCapable",
+        "env": "NotCapable",
+        "net": "NotCapable",
+        "run": "NotCapable"
+      },
+      "sandboxRpc": true,
+      "health": true,
+      "databaseRoles": [
+        "hire_app",
+        "hire_runner"
+      ],
+      "matrixTokenBoundary": true,
+      "emptyJobBook": true,
+      "schemaDriftRefused": true,
+      "providerKeyRefused": true,
+      "cleanShutdown": true
+    },
+    {
+      "app": "pay",
+      "nonRoot": true,
+      "readOnly": true,
+      "ownAppOnly": true,
+      "noModelLibraries": true,
+      "fixedLoader": true,
+      "sandbox": {
+        "read": "NotCapable",
+        "write": "NotCapable",
+        "env": "NotCapable",
+        "net": "NotCapable",
+        "run": "NotCapable"
+      },
+      "sandboxRpc": true,
+      "health": true,
+      "databaseRoles": [
+        "pay_app",
+        "pay_runner"
+      ],
+      "matrixTokenBoundary": true,
+      "emptyJobBook": true,
+      "schemaDriftRefused": true,
+      "providerKeyRefused": true,
+      "cleanShutdown": true
+    },
+    {
+      "app": "post",
+      "nonRoot": true,
+      "readOnly": true,
+      "ownAppOnly": true,
+      "noModelLibraries": true,
+      "fixedLoader": true,
+      "sandbox": {
+        "read": "NotCapable",
+        "write": "NotCapable",
+        "env": "NotCapable",
+        "net": "NotCapable",
+        "run": "NotCapable"
+      },
+      "sandboxRpc": true,
+      "health": true,
+      "databaseRoles": [
+        "post_app",
+        "post_runner"
+      ],
+      "matrixTokenBoundary": true,
+      "emptyJobBook": true,
+      "schemaDriftRefused": true,
+      "providerKeyRefused": true,
+      "cleanShutdown": true
+    },
+    {
+      "app": "quote",
+      "nonRoot": true,
+      "readOnly": true,
+      "ownAppOnly": true,
+      "noModelLibraries": true,
+      "fixedLoader": true,
+      "sandbox": {
+        "read": "NotCapable",
+        "write": "NotCapable",
+        "env": "NotCapable",
+        "net": "NotCapable",
+        "run": "NotCapable"
+      },
+      "sandboxRpc": true,
+      "health": true,
+      "databaseRoles": [
+        "quote_app",
+        "quote_runner"
+      ],
+      "matrixTokenBoundary": true,
+      "emptyJobBook": true,
+      "schemaDriftRefused": true,
+      "providerKeyRefused": true,
+      "cleanShutdown": true
+    },
+    {
+      "app": "reach",
+      "nonRoot": true,
+      "readOnly": true,
+      "ownAppOnly": true,
+      "noModelLibraries": true,
+      "fixedLoader": true,
+      "sandbox": {
+        "read": "NotCapable",
+        "write": "NotCapable",
+        "env": "NotCapable",
+        "net": "NotCapable",
+        "run": "NotCapable"
+      },
+      "sandboxRpc": true,
+      "health": true,
+      "databaseRoles": [
+        "reach_app",
+        "reach_runner"
+      ],
+      "matrixTokenBoundary": true,
+      "emptyJobBook": true,
+      "schemaDriftRefused": true,
+      "providerKeyRefused": true,
+      "cleanShutdown": true
+    },
+    {
+      "app": "renew",
+      "nonRoot": true,
+      "readOnly": true,
+      "ownAppOnly": true,
+      "noModelLibraries": true,
+      "fixedLoader": true,
+      "sandbox": {
+        "read": "NotCapable",
+        "write": "NotCapable",
+        "env": "NotCapable",
+        "net": "NotCapable",
+        "run": "NotCapable"
+      },
+      "sandboxRpc": true,
+      "health": true,
+      "databaseRoles": [
+        "renew_app",
+        "renew_runner"
+      ],
+      "matrixTokenBoundary": true,
+      "emptyJobBook": true,
+      "schemaDriftRefused": true,
+      "providerKeyRefused": true,
+      "cleanShutdown": true
+    },
+    {
+      "app": "roster",
+      "nonRoot": true,
+      "readOnly": true,
+      "ownAppOnly": true,
+      "noModelLibraries": true,
+      "fixedLoader": true,
+      "sandbox": {
+        "read": "NotCapable",
+        "write": "NotCapable",
+        "env": "NotCapable",
+        "net": "NotCapable",
+        "run": "NotCapable"
+      },
+      "sandboxRpc": true,
+      "health": true,
+      "databaseRoles": [
+        "roster_app",
+        "roster_runner"
+      ],
+      "matrixTokenBoundary": true,
+      "emptyJobBook": true,
+      "schemaDriftRefused": true,
+      "providerKeyRefused": true,
+      "cleanShutdown": true
+    },
+    {
+      "app": "shift",
+      "nonRoot": true,
+      "readOnly": true,
+      "ownAppOnly": true,
+      "noModelLibraries": true,
+      "fixedLoader": true,
+      "sandbox": {
+        "read": "NotCapable",
+        "write": "NotCapable",
+        "env": "NotCapable",
+        "net": "NotCapable",
+        "run": "NotCapable"
+      },
+      "sandboxRpc": true,
+      "health": true,
+      "databaseRoles": [
+        "shift_app",
+        "shift_runner"
+      ],
+      "matrixTokenBoundary": true,
+      "emptyJobBook": true,
+      "schemaDriftRefused": true,
+      "providerKeyRefused": true,
+      "cleanShutdown": true
+    },
+    {
+      "app": "sign",
+      "nonRoot": true,
+      "readOnly": true,
+      "ownAppOnly": true,
+      "noModelLibraries": true,
+      "fixedLoader": true,
+      "sandbox": {
+        "read": "NotCapable",
+        "write": "NotCapable",
+        "env": "NotCapable",
+        "net": "NotCapable",
+        "run": "NotCapable"
+      },
+      "sandboxRpc": true,
+      "health": true,
+      "databaseRoles": [
+        "sign_app",
+        "sign_runner"
+      ],
+      "matrixTokenBoundary": true,
+      "emptyJobBook": true,
+      "schemaDriftRefused": true,
+      "providerKeyRefused": true,
+      "cleanShutdown": true
+    },
+    {
+      "app": "sync",
+      "nonRoot": true,
+      "readOnly": true,
+      "ownAppOnly": true,
+      "noModelLibraries": true,
+      "fixedLoader": true,
+      "sandbox": {
+        "read": "NotCapable",
+        "write": "NotCapable",
+        "env": "NotCapable",
+        "net": "NotCapable",
+        "run": "NotCapable"
+      },
+      "sandboxRpc": true,
+      "health": true,
+      "databaseRoles": [
+        "sync_app",
+        "sync_runner"
+      ],
+      "matrixTokenBoundary": true,
+      "emptyJobBook": true,
+      "schemaDriftRefused": true,
+      "providerKeyRefused": true,
+      "cleanShutdown": true
+    },
+    {
+      "app": "vet",
+      "nonRoot": true,
+      "readOnly": true,
+      "ownAppOnly": true,
+      "noModelLibraries": true,
+      "fixedLoader": true,
+      "sandbox": {
+        "read": "NotCapable",
+        "write": "NotCapable",
+        "env": "NotCapable",
+        "net": "NotCapable",
+        "run": "NotCapable"
+      },
+      "sandboxRpc": true,
+      "health": true,
+      "databaseRoles": [
+        "vet_app",
+        "vet_runner"
+      ],
+      "matrixTokenBoundary": true,
+      "emptyJobBook": true,
+      "schemaDriftRefused": true,
+      "providerKeyRefused": true,
+      "cleanShutdown": true
+    }
+  ],
+  "cleanup": {
+    "removedContainers": 56,
+    "remainingContainers": [],
+    "remainingNetworks": []
+  },
+  "limitations": [
+    "Image IDs are local, not registry digests or signed attestations.",
+    "Linux x64, SBOM/license/vulnerability review and production networking are not certified.",
+    "No real Matrix/model/provider/UI or complete two-image jobs were exercised.",
+    "No business ability, source-parity or migration/privacy gap is closed by this packaging proof."
+  ]
+}

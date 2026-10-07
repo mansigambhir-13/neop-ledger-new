@@ -46,7 +46,7 @@ describe('typed events on the NEOP’s client road (DMs)', () => {
   const running: PresenceClient[] = [];
   const db = () => P.backend.core.runnerPool;
   beforeAll(async () => {
-    P = await bootPilot({ presence: 'client' });
+    P = await bootPilot({ presence: 'client', neuralchat: false });
     expect((await P.api('PUT', `/api/users/${P.admin.id}/chat`, { matrix_user_id: PRIYA })).status).toBe(200);
     expect((await P.api('PUT', `/api/users/${P.member.id}/chat`, { matrix_user_id: RAHUL })).status).toBe(200);
     for (const e of [
@@ -271,7 +271,7 @@ describe('typed events in the NEOP’s own appservice rooms', () => {
   let P: Pilot;
   const db = () => P.backend.core.runnerPool;
   beforeAll(async () => {
-    P = await bootPilot({ presence: 'appservice' });
+    P = await bootPilot({ presence: 'appservice', neuralchat: false });
     for (const e of [
       { app: 'ledger', matrix_id: AGENT, kind: 'bridge', acts_for: P.admin.id },
       { app: 'ledger', matrix_id: MKT, kind: 'bridge' },

@@ -1,0 +1,45 @@
+{
+  "block": "page",
+  "title": "Employees",
+  "description": "Live Wage records. Released means internally authorized, never paid.",
+  "nav": {
+    "label": "Employees",
+    "icon": "table",
+    "order": 2
+  },
+  "children": [
+    {
+      "block": "table",
+      "source": {
+        "ability": "wage.employees.list"
+      },
+      "rows": "/rows",
+      "columns": [
+        {
+          "label": "Source ID",
+          "path": "/source_id"
+        },
+        {
+          "label": "Name",
+          "path": "/name"
+        },
+        {
+          "label": "Compensation",
+          "path": "/comp_type"
+        },
+        {
+          "label": "Currency",
+          "path": "/currency"
+        },
+        {
+          "label": "Rate (minor units)",
+          "path": "/rate_minor"
+        },
+        {
+          "label": "Status",
+          "path": "/status"
+        }
+      ]
+    }
+  ]
+}

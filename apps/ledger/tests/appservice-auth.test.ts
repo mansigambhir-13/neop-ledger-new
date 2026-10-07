@@ -11,7 +11,7 @@ const ROOM = '!ledger-auth:acme.example';
 const PRIYA = '@priya:acme.example';
 const pause = (ms: number) => new Promise((r) => setTimeout(r, ms));
 beforeAll(async () => {
-  P = await bootPilot({ presence: 'appservice' });
+  P = await bootPilot({ presence: 'appservice', neuralchat: false });
   expect((await P.api('PUT', '/api/chat/presence', { app: 'ledger', room_ids: [ROOM] })).status).toBe(200);
   expect((await P.api('PUT', `/api/users/${P.admin.id}/chat`, { matrix_user_id: PRIYA })).status).toBe(200);
 });
@@ -67,8 +67,8 @@ describe('the appservice listener on the NEOP backend', () => {
     expect(P.hs!.sent.length).toBe(sent);
   });
 
-  it('L3 and the gate do not serve the Matrix road', async () => {
-    for (const port of [P.backend.ports.l3, P.backend.ports.gate]) {
+  it('the files listener and the gate do not serve the Matrix road (v3 S9: there is no L3)', async () => {
+    for (const port of [P.backend.ports.files, P.backend.ports.gate]) {
       const r = await fetch(`http://127.0.0.1:${port}/_matrix/app/v1/transactions/1`, { method: 'PUT', headers: { authorization: `Bearer ${MATRIX.hsToken}`, 'content-type': 'application/json' }, body: '{"events":[]}' });
       expect(r.status).toBe(404);
     }

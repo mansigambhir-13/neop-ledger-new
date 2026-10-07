@@ -61,7 +61,7 @@ describe.each(['appservice', 'client'] as const)('NeuralChat speaks Matrix — %
 
   it('an ask in Conversations → one typed task posted by NeuralChat as itself in the app’s room; the job is opened once; note and done land in the conversation and neos.tasks', async () => {
     P.setBrain((v) => (v.calls === 0 ? call('ledger.report.pnl', { from: '2026-08-01', to: '2026-08-31' }) : finish('Net profit for August 2026 came from 8 entries.', 'done', { sources: ['ledger.report.pnl'] })));
-    const opensBefore = (await P.platform.db.query("select count(*)::int n from neos.gateway_ledger where endpoint in ('tasks.open', 'inbox.deliver')")).rows[0].n;
+    expect((await P.platform.db.query("select to_regclass('neos.gateway_ledger') as r")).rows[0].r).toBeNull();
     const r = await P.api('POST', '/api/ask', { text: 'What was our net profit in August 2026?', app: 'ledger' });
     expect(r.status).toBe(200);
     expect(r.body.handed_to).toBe('ledger');
@@ -93,7 +93,6 @@ describe.each(['appservice', 'client'] as const)('NeuralChat speaks Matrix — %
     expect(m.filter((x) => x.kind !== 'step').map((x) => x.kind)).toEqual(['message', 'handoff', 'ack', 'result']);
     expect(m.some((x) => x.kind === 'step' && /^· /.test(x.body)), JSON.stringify({ m, read: (await P.platform.db.query('select type, outcome from neos.neuralchat_events where task_id = $1 order by at', [r.body.task_id])).rows, thread: typed().filter((e) => inThread(e, ev.event_id)).map((e) => [e.type, e.content.step_id]) })).toBe(true);
     expect(m.at(-1)).toMatchObject({ kind: 'result', body: 'Net profit for August 2026 came from 8 entries.', author: 'app:ledger' });
-    expect((await P.platform.db.query("select count(*)::int n from neos.gateway_ledger where endpoint in ('tasks.open', 'inbox.deliver')")).rows[0].n).toBe(opensBefore);
     // Every event NeuralChat read from the thread, once each.
     const read = (await P.platform.db.query('select type, outcome from neos.neuralchat_events where task_id = $1 order by at', [r.body.task_id])).rows;
     expect(read.at(0)).toEqual({ type: 'neos.neop.note', outcome: 'note:ack' });
@@ -181,7 +180,7 @@ describe.each(['appservice', 'client'] as const)('NeuralChat speaks Matrix — %
     expect(r.status).toBe(200);
     const ev = await taskEvent(r.body.task_id);
     const ref = JSON.parse(ev.content.fields.neos_file_1);
-    expect(ref).toMatchObject({ filename: 'bills.csv', content_type: 'text/csv', bytes: Buffer.byteLength(csv), link: expect.stringMatching(/^\/neuralchat\/files\/[0-9a-f-]{36}\/1\?exp=\d+&sig=[0-9a-f]{64}$/) });
+    expect(ref).toMatchObject({ filename: 'bills.csv', content_type: 'text/csv', bytes: Buffer.byteLength(csv), link: expect.stringMatching(/^mxc:\/\//) });
     expect(ref.sha256).toMatch(/^[0-9a-f]{64}$/);
     // No bytes in any event on the road.
     const b64 = Buffer.from(csv).toString('base64');
@@ -197,11 +196,8 @@ describe.each(['appservice', 'client'] as const)('NeuralChat speaks Matrix — %
     expect(seen).toContain('CloudSoft India');
     expect(seen).toMatch(/trust="untrusted"/);
     expect(t.attachments).toBeNull(); // dropped once the app had it
-    const again = await fetch(`${P.platformUrl}${ref.link}`);
-    expect(again.status).toBe(410);
-    // A forged or tampered link is refused.
-    const forged = await fetch(`${P.platformUrl}${ref.link.replace(/sig=[0-9a-f]{4}/, 'sig=0000')}`);
-    expect([403, 410]).toContain(forged.status);
+    // Matrix is the file transport; the platform exposes no signed-file download route.
+    expect(ref.link).not.toContain('/neuralchat/files/');
   });
 
   it('one trace: the task carries the ask’s trace context and the app’s job continues it', async () => {

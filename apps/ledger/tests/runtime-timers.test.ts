@@ -11,7 +11,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { bootstrapFamily, createPool, createTestDatabase, migrate, roleUrl, templateFiles, withCompany } from '@neop/pgkit';
 import { TEMPLATE_INFRA_TABLES, TEMPLATE_MIGRATIONS } from '@neop/template';
 import { LEDGER_ROOT, seedLedger } from '../src/index.ts';
-import { bootPilot, call, finish, type Pilot } from './harness.ts';
+import { appMigrationsBefore, bootPilot, call, finish, type Pilot } from './harness.ts';
 
 let P: Pilot;
 beforeAll(async () => {
@@ -21,30 +21,27 @@ afterAll(async () => P?.close());
 
 const q = async (sql: string, params: unknown[] = []) => (await P.backend.core.runnerPool.query(sql, params)).rows;
 
-async function l3(method: 'GET' | 'POST', p: string, ability: string, body?: unknown, sub = 'platform') {
-  const token = await P.platform.gateway.mint({ aud: 'ledger', sub, company_id: P.company.id, ability, idem_key: crypto.randomUUID() });
-  const res = await fetch(`http://127.0.0.1:${P.backend.ports.l3}${p}`, {
-    method,
-    headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json', 'contract-version': '1' },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
-  return { status: res.status, body: (await res.json()) as any };
+// v3 S9: a schedule is set on the app's own rows by the desk (<app>.set_schedule(), as neos_desk) — here through the
+// platform's API as the admin, who is then the requester of every run. There is no L3 route for it any more.
+async function setSchedule(body: { id?: string; ask: string; rule: unknown; enabled?: boolean }, token = P.admin.token) {
+  return P.api('PUT', '/api/apps/ledger/schedules', body, token);
 }
 
-describe('schedules (L3, platform only)', () => {
-  it('only the platform sets and lists schedules; rules are validated', async () => {
-    const ok = await l3('POST', '/l3/schedules.set', 'schedules.set', { ask: 'Daily cash position', requester: `user:${P.admin.id}`, rule: { every: 'day', at: '09:00' } });
+describe('schedules (set by an admin, on the app’s own rows)', () => {
+  it('only an admin sets and lists schedules; rules are validated', async () => {
+    const ok = await setSchedule({ ask: 'Daily cash position', rule: { every: 'day', at: '09:00' } });
     expect(ok.status).toBe(200);
     expect(ok.body.schedule).toMatchObject({ ask: 'Daily cash position', time_zone: 'Asia/Kolkata', enabled: true });
     expect(new Date(ok.body.schedule.next_run_at).getTime()).toBeGreaterThan(Date.now());
     // 09:00 in Kolkata is 03:30 UTC.
     expect(new Date(ok.body.schedule.next_run_at).toISOString()).toMatch(/T03:30:00\.000Z$/);
-    expect((await l3('POST', '/l3/schedules.set', 'schedules.set', { ask: 'x', requester: `user:${P.admin.id}`, rule: { every: 'week', at: '09:00' } })).status).toBe(400);
-    expect((await l3('POST', '/l3/schedules.set', 'schedules.set', { ask: 'x', requester: `user:${P.admin.id}`, rule: { every: 'day', at: '25:00' } })).status).toBe(400);
-    expect((await l3('POST', '/l3/schedules.set', 'schedules.set', { ask: 'x', requester: `user:${P.admin.id}`, rule: { every: 'day', at: '09:00' } }, 'app:marketing')).status).toBe(403);
-    const off = await l3('POST', '/l3/schedules.set', 'schedules.set', { id: ok.body.schedule.id, ask: 'Daily cash position', requester: `user:${P.admin.id}`, rule: { every: 'day', at: '09:00' }, enabled: false });
+    expect(ok.body.schedule.requester).toBe(`user:${P.admin.id}`);
+    expect((await setSchedule({ ask: 'x', rule: { every: 'week', at: '09:00' } })).status).toBe(400);
+    expect((await setSchedule({ ask: 'x', rule: { every: 'day', at: '25:00' } })).status).toBe(400);
+    expect((await setSchedule({ ask: 'x', rule: { every: 'day', at: '09:00' } }, P.member.token)).status).toBe(403);
+    const off = await setSchedule({ id: ok.body.schedule.id, ask: 'Daily cash position', rule: { every: 'day', at: '09:00' }, enabled: false });
     expect(off.body.schedule).toMatchObject({ enabled: false, next_run_at: null });
-    const list = await l3('GET', '/l3/schedules', 'schedules.list');
+    const list = await P.api('GET', '/api/apps/ledger/schedules');
     expect(list.status).toBe(200);
     expect(list.body.schedules.map((s: any) => s.id)).toContain(ok.body.schedule.id);
   });
@@ -55,7 +52,7 @@ describe('schedules (L3, platform only)', () => {
       if (v.job.includes('Weekly receivables check')) asks.push(v.job);
       return finish('Checked receivables.');
     });
-    const s = (await l3('POST', '/l3/schedules.set', 'schedules.set', { ask: 'Weekly receivables check', requester: `user:${P.admin.id}`, rule: { every: 'week', at: '10:00', weekday: 1 } })).body.schedule;
+    const s = (await setSchedule({ ask: 'Weekly receivables check', rule: { every: 'week', at: '10:00', weekday: 1 } })).body.schedule;
     // Make it due now (database time): the slot is one minute ago.
     const [{ slot }] = await q(`update ledger.schedules set next_run_at = date_trunc('second', now()) - interval '1 minute' where id = $1 returning next_run_at as slot`, [s.id]);
     const runner = P.backend.runner;
@@ -78,7 +75,7 @@ describe('schedules (L3, platform only)', () => {
     await P.waitFor(async () => (await q('select next_run_at > now() as moved from ledger.schedules where id = $1', [s.id]))[0].moved, 'restarted runner advanced it');
     expect(await jobsFor()).toHaveLength(1);
     expect(asks).toHaveLength(1);
-    await l3('POST', '/l3/schedules.set', 'schedules.set', { id: s.id, ask: 'Weekly receivables check', requester: `user:${P.admin.id}`, rule: { every: 'week', at: '10:00', weekday: 1 }, enabled: false });
+    await setSchedule({ id: s.id, ask: 'Weekly receivables check', rule: { every: 'week', at: '10:00', weekday: 1 }, enabled: false });
   });
 
   it('a slot missed by more than its window (an outage) is EXPIRED, never run late', async () => {
@@ -87,7 +84,7 @@ describe('schedules (L3, platform only)', () => {
       if (v.job.includes('Stale morning report')) ran = true;
       return finish('ok');
     });
-    const s = (await l3('POST', '/l3/schedules.set', 'schedules.set', { ask: 'Stale morning report', requester: `user:${P.admin.id}`, rule: { every: 'day', at: '08:00' } })).body.schedule;
+    const s = (await setSchedule({ ask: 'Stale morning report', rule: { every: 'day', at: '08:00' } })).body.schedule;
     await q(`update ledger.schedules set next_run_at = now() - interval '2 hours' where id = $1`, [s.id]);
     const job = await P.waitFor(async () => {
       const j = (await q(`select * from ledger.jobs where source = 'timer' and ask = 'Stale morning report'`))[0];
@@ -101,7 +98,7 @@ describe('schedules (L3, platform only)', () => {
     const ev = await q("select payload from ledger.outbox where event_type = 'task.failed' and payload->>'job_id' = $1", [job.id]);
     expect(ev[0].payload.expired).toBe(true);
     expect((await q('select next_run_at > now() as future from ledger.schedules where id = $1', [s.id]))[0].future).toBe(true);
-    await l3('POST', '/l3/schedules.set', 'schedules.set', { id: s.id, ask: 'Stale morning report', requester: `user:${P.admin.id}`, rule: { every: 'day', at: '08:00' }, enabled: false });
+    await setSchedule({ id: s.id, ask: 'Stale morning report', rule: { every: 'day', at: '08:00' }, enabled: false });
   });
 });
 
@@ -191,9 +188,11 @@ describe('the rolling summary and facts', () => {
     }
     // The fact this job wrote outranks 25 newer unrelated ones.
     expect(wakes[0]).toContain('audit fee quote');
-    // Summaries are memory for the assistant, not steps mirrored to people.
-    const mirrored = await P.platform.db.query("select count(*)::int as n from neos.activity where job_id = $1 and kind = 'summary'", [job_id]);
-    expect(mirrored.rows[0].n).toBe(0);
+    // Summaries are memory for the assistant, not steps mirrored to people: no step.mirror event (what the app's own
+    // presence says in the room or thread) is ever written for one (v3 S9: that is the only mirror there is).
+    const mirrored = await q("select count(*)::int as n from ledger.outbox where event_type = 'step.mirror' and payload->>'job_id' = $1 and payload->>'kind' = 'summary'", [job_id]);
+    expect(mirrored[0].n).toBe(0);
+    expect((await q("select count(*)::int as n from ledger.steps where job_id = $1 and kind = 'summary'", [job_id]))[0].n).toBeGreaterThan(0);
   });
 });
 
@@ -230,6 +229,7 @@ describe('t004 on a populated book', () => {
     const db = await createTestDatabase();
     const CO = '11111111-2222-3333-4444-555555555555';
     const dir = await mkdtemp(path.join(os.tmpdir(), 'neop-t004-'));
+    let beforeDir = '';
     try {
       // The template as it was before t004.
       await cp(TEMPLATE_MIGRATIONS, dir, { recursive: true });
@@ -239,9 +239,13 @@ describe('t004 on a populated book', () => {
       led.migrations = led.migrations.filter((m: any) => m.file < 't004');
       await writeFile(path.join(dir, 'migrate.json'), JSON.stringify(led));
       await bootstrapFamily(db.adminUrl, 'ledger');
-      const run = async (tdir: string) =>
-        migrate({ adminUrl: db.adminUrl, schema: 'ledger', sources: { dir: path.join(LEDGER_ROOT, 'migrations'), prepend: await templateFiles(tdir) }, lintExempt: TEMPLATE_INFRA_TABLES });
-      await run(dir);
+      const run = async (tdir: string, appDir = path.join(LEDGER_ROOT, 'migrations')) =>
+        migrate({ adminUrl: db.adminUrl, schema: 'ledger', sources: { dir: appDir, prepend: await templateFiles(tdir) }, lintExempt: TEMPLATE_INFRA_TABLES });
+      // Ledger 010 was introduced with template t018 and did not exist in the
+      // release whose template stopped before t004. Reconstruct that real old
+      // release instead of combining a historical template with a future app
+      // migration that depends on <app>.installs and declared_reads.
+      await run(dir, (beforeDir = await appMigrationsBefore(path.join(LEDGER_ROOT, 'migrations'), '010')));
       const pool = createPool(roleUrl(db.adminUrl, 'ledger_app'));
       await seedLedger(pool, CO);
       const jobId = await withCompany(pool, CO, async (c) => {
@@ -274,6 +278,8 @@ describe('t004 on a populated book', () => {
       await pool.end();
     } finally {
       await db.drop();
+      await rm(dir, { recursive: true, force: true });
+      if (beforeDir) await rm(beforeDir, { recursive: true, force: true });
     }
   });
 });

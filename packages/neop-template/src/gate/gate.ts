@@ -1,3 +1,4 @@
+import {sqlIdent} from '@neop/pgkit';
 // THE GATE · template-only · identical in every app.
 // Every call the assistant makes lands here, in the backend, behind the job
 // token. The assistant is told what is on; the gate is what enforces it.
@@ -58,7 +59,7 @@ export class Gate {
   private async liveJob(claims: JobTokenClaims, bump: boolean): Promise<JobRow> {
     return this.core.company(claims.company_id, async (c) => {
       const r = await c.query<JobRow>(
-        `update ${this.core.key}.jobs set tool_calls = tool_calls + $3, updated_at = now()
+        `update ${sqlIdent(this.core.key)}.jobs set tool_calls = tool_calls + $3, updated_at = now()
           where id = $1 and claimed_by = $2 and status = 'RUNNING'
           returning *`,
         [claims.sub, claims.sid, bump ? 1 : 0],
@@ -218,6 +219,7 @@ export class Gate {
     // 7. A standing yes, matched here in the app's own schema (<schema>.grants, t010): the proposal is
     // written APPROVED by the grant and its use recorded in one transaction; no platform, no token.
     const grant = await this.core.company(claims.company_id, async (c) => {
+      if (handler.requiresHumanApproval) return null;
       const g = await matchGrant(c, this.core.key, key, m as Measure, tz);
       if (!g) return null;
       await this.core.book.insertProposal(c, {
@@ -280,7 +282,7 @@ export class Gate {
         job_id: claims.sub,
         kind: 'proposal',
         ref_id: p.id,
-        expires_at_sql: `(select expires_at from ${this.core.key}.proposals where id = '${p.id}')`,
+        expires_at_sql: `(select expires_at from ${sqlIdent(this.core.key)}.proposals where id = '${p.id}')`,
       });
       const consumed = await this.core.book.consumeReadyWaits(c, claims.sub);
       await this.core.book.markReported(c, claims.company_id, consumed, `assistant:${claims.sub}`, { next_proposal: p.id });
@@ -321,8 +323,8 @@ export class Gate {
    */
   private async linkSuperseded(c: PoolClient, claims: JobTokenClaims, key: string, replacement: string): Promise<void> {
     const r = await c.query<{ id: string }>(
-      `update ${this.core.key}.proposals set superseded_by = $3, updated_at = now()
-        where id = (select id from ${this.core.key}.proposals
+      `update ${sqlIdent(this.core.key)}.proposals set superseded_by = $3, updated_at = now()
+        where id = (select id from ${sqlIdent(this.core.key)}.proposals
                      where job_id = $1 and ability_key = $2 and status = 'SUPERSEDED' and superseded_by is null and id <> $3
                      order by updated_at desc limit 1)
         returning id`,
@@ -468,7 +470,7 @@ export class Gate {
   async heartbeat(claims: JobTokenClaims): Promise<void> {
     await this.core.company(claims.company_id, async (c) => {
       const r = await c.query(
-        `update ${this.core.key}.jobs set claimed_until = now() + ($3 || ' milliseconds')::interval, heartbeat_at = now()
+        `update ${sqlIdent(this.core.key)}.jobs set claimed_until = now() + ($3 || ' milliseconds')::interval, heartbeat_at = now()
           where id = $1 and claimed_by = $2 and status in ('RUNNING', 'WAITING')`,
         [claims.sub, claims.sid, String(this.core.cfg.timings.claimMs)],
       );
@@ -480,7 +482,7 @@ export class Gate {
 /** The same ability with the same arguments, still open (waiting for a yes) or approved and not yet done. */
 async function openTwin(c: PoolClient, schema: string, key: string, args: unknown): Promise<{ id: string; status: string } | null> {
   const r = await c.query<{ id: string; status: string }>(
-    `select id, status from ${schema}.proposals
+    `select id, status from ${sqlIdent(schema)}.proposals
       where ability_key = $1 and args = $2::jsonb and status in ('PROPOSED', 'APPROVED', 'EXECUTING') and expires_at > now()
       order by created_at desc limit 1`,
     [key, JSON.stringify(args)],

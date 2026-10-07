@@ -68,8 +68,8 @@ describe('LLM proxy', () => {
     const body = JSON.stringify({ model: 'claude-sonnet-5', max_tokens: 10, messages: [{ role: 'user', content: 'hi' }] });
     expect((await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body })).status).toBe(401);
     expect((await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json', 'x-api-key': U.apiKey }, body })).status).toBe(401);
-    const gatewayToken = await P.platform.gateway.mint({ aud: 'ledger', sub: 'platform', company_id: P.company.id, ability: 'tasks.open', idem_key: 'k' });
-    expect((await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json', 'x-api-key': gatewayToken }, body })).status).toBe(401);
+    const platformToken = await P.platform.sign({ company_id: P.company.id }, 'ledger', 'platform', 60);
+    expect((await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json', 'x-api-key': platformToken }, body })).status).toBe(401);
     // v3 (S8): the runner mints its sessions with its own key. A key the proxy was not given, or a runner token
     // claiming another app, is refused; the real runner's token is accepted without any platform call.
     const spend = `${P.platformUrl}/llm/v1/spend`;
@@ -130,9 +130,12 @@ describe('LLM proxy', () => {
       let jobId = '';
       let killed = false;
       let calls = 0;
-      U.setBrain((v) => {
+      U.setBrain(async (v) => {
         calls++;
-        if (v.results.length >= 1 && jobId && !killed) {
+        if (v.results.length >= 1 && !killed) {
+          // Matrix can dispatch the job before /api/ask has returned its id. Hold this fake upstream call until the
+          // caller has the id, then kill the active worker while the proxy still owns and settles the reservation.
+          await P.waitFor(async () => jobId || false, 'job id returned to the caller');
           killed = true;
           P.worker.kill(jobId); // the session dies mid-call: no session.end, the claim runs out
         }

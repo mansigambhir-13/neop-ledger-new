@@ -45,19 +45,19 @@ describe('contract', () => {
   });
 
   it.each(Object.entries(READ_ARGS))('%s returns a result that matches its schema', async (key, args) => {
-    const r = await P.api('POST', `/api/apps/ledger/read/${key}`, args);
+    const r = await P.read(key, args);
     expect(r.status).toBe(200);
     expect(P.backend.core.validators.checkOutput(key, r.body.result)).toBeNull();
   });
 
   it('rejects arguments outside the schema before running anything', async () => {
-    const r = await P.api('POST', '/api/apps/ledger/read/ledger.report.pnl', { from: 'last month' });
+    const r = await P.read('ledger.report.pnl', { from: 'last month' });
     expect(r.status).toBe(400);
   });
 
-  it('serves its manifest to the registry through the gateway', async () => {
-    const r = await P.platform.gateway.call({ caller: 'platform', app: 'ledger', endpoint: 'manifest', company_id: null });
-    expect(r.status).toBe(200);
-    expect(r.body.app).toBe('ledger');
+  it('registers the manifest without keeping an app endpoint', async () => {
+    const r = (await P.platform.db.query("select manifest from neos.apps where key = 'ledger'")).rows[0];
+    expect(r.manifest.app).toBe('ledger');
+    expect((await P.platform.db.query("select 1 from information_schema.columns where table_schema = 'neos' and table_name = 'apps' and column_name = 'l3_url'")).rowCount).toBe(0);
   });
 });

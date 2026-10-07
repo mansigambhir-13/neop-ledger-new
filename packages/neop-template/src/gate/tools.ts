@@ -182,16 +182,18 @@ export function buildTools(
       out.push({
         name: toolName('a2a.answer'),
         key: 'a2a.answer',
-        version: '1',
+        version: '2',
         title: 'Answer another app’s question about a task you handed it',
         description:
-          'When an app you handed a task to asks you something about it, answer here with the task id and the answers (field key → value). Answer only with what the book, your tools or the person gave you; if you do not know, ask the person with job_ask first and relay their answer. The job then waits for that app\'s result again.',
+          'When an app you handed a task to asks you something about it, answer here with the task id, the exact question_wait_id from that question and the answers (field key → value). Never replace a stale question ID with a new one to retry the old answer. Answer only with what the book, your tools or the person gave you; if you do not know, ask the person with job_ask first and relay their answer. The job then waits for that app\'s result again.',
         kind: 'builtin',
         setting: 'on',
         input: {
           type: 'object',
-          required: ['task_id', 'answers'],
-          properties: { task_id: { type: 'string' }, answers: { type: 'object', description: 'field key → short text, number or true/false', additionalProperties: { type: ['string', 'number', 'boolean'] } } },
+          required: ['task_id', 'question_wait_id', 'answers'],
+          properties: { task_id: { type: 'string' },
+            question_wait_id: { type: 'string', minLength: 1, maxLength: 200, description: 'Exact peer wait ID from the question being answered; never inferred from the task ID' },
+            answers: { type: 'object', description: 'field key → short text, number or true/false', additionalProperties: { type: ['string', 'number', 'boolean'] } } },
         },
       });
     }

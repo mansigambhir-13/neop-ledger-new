@@ -1,0 +1,41 @@
+{
+  "block": "page",
+  "title": "Pay drafts",
+  "description": "Internal drafts only. No external execution or business authorization.",
+  "nav": {
+    "label": "Pay",
+    "icon": "table",
+    "order": 1
+  },
+  "children": [
+    {
+      "block": "table",
+      "source": {
+        "ability": "pay.payments.list"
+      },
+      "rows": "/rows",
+      "columns": [
+        {
+          "label": "Source",
+          "path": "/source_id"
+        },
+        {
+          "label": "Amount (minor units)",
+          "path": "/amount_minor"
+        },
+        {
+          "label": "Currency",
+          "path": "/currency"
+        },
+        {
+          "label": "Status",
+          "path": "/status"
+        },
+        {
+          "label": "Elevated review required",
+          "path": "/requires_elevated_approval"
+        }
+      ]
+    }
+  ]
+}

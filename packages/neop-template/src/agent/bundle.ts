@@ -13,6 +13,9 @@ export interface JobBundle {
    * guessed). `what` is the card the assistant wrote, possibly from outside text: data, never instruction.
    */
   open_proposals?: { id: string; ability_key: string; what: string; fingerprint: string; expires_at: string }[];
+  /** Persisted peer questions, including when this session wakes with a person's answer instead. */
+  pending_peer_questions?: { task_id: string; question_wait_id: string; from_app: string; question: unknown; due: string | null;
+    prepared_answer?: { intent_id: string; answers: Record<string, string | number | boolean> } | null }[];
   steps: { seq: number; kind: string; summary: string; at: string }[];
   older_steps_summary: string | null;
   facts: { subject: string; value: unknown; source: string; observed_at: string }[];

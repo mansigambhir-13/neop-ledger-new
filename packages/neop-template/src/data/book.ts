@@ -1,3 +1,4 @@
+import {sqlIdent} from '@neop/pgkit';
 // The record book: the only place the template writes SQL for the standard tables.
 // Every function takes a client that is already inside a transaction; callers
 // decide which role (app with RLS, or runner) and which company.
@@ -143,14 +144,14 @@ export class Book {
     j: { company_id: string; source: JobRow['source']; requester: string; task_id: string | null; ask: string; parent_job_id?: string | null; trace_id?: string | null; on_behalf_of?: string | null; origin?: string | null },
   ): Promise<{ job: JobRow; created: boolean }> {
     const ins = await c.query<JobRow>(
-      `insert into ${this.s}.jobs (company_id, source, requester, task_id, ask, parent_job_id, trace_id, on_behalf_of, origin)
+      `insert into ${sqlIdent(this.s)}.jobs (company_id, source, requester, task_id, ask, parent_job_id, trace_id, on_behalf_of, origin)
        values ($1, $2, $3, $4, $5, $6, $7, $8, $9)
        on conflict (company_id, task_id) where task_id is not null do nothing
        returning *`,
       [j.company_id, j.source, j.requester, j.task_id, j.ask, j.parent_job_id ?? null, j.trace_id ?? null, j.on_behalf_of ?? null, j.origin ?? j.task_id ?? null],
     );
     if (ins.rows[0]) return { job: ins.rows[0], created: true };
-    const existing = await c.query<JobRow>(`select * from ${this.s}.jobs where company_id = $1 and task_id = $2`, [
+    const existing = await c.query<JobRow>(`select * from ${sqlIdent(this.s)}.jobs where company_id = $1 and task_id = $2`, [
       j.company_id,
       j.task_id,
     ]);
@@ -169,15 +170,15 @@ export class Book {
     const summary = `Asked by ${j.requester}: ${j.ask}`.slice(0, 2000);
     const r = await c.query<JobRow & { notified: number }>(
       `with j as (
-         insert into ${this.s}.jobs (company_id, source, requester, task_id, ask, parent_job_id, trace_id, on_behalf_of, origin)
+         insert into ${sqlIdent(this.s)}.jobs (company_id, source, requester, task_id, ask, parent_job_id, trace_id, on_behalf_of, origin)
          values ($1, $2, $3, $4, $5, $6, $7, $10, $11)
          on conflict (company_id, task_id) where task_id is not null do nothing
          returning *),
        st as (
-         insert into ${this.s}.steps (company_id, job_id, seq, kind, summary)
+         insert into ${sqlIdent(this.s)}.steps (company_id, job_id, seq, kind, summary)
          select company_id, id, 1, 'received', $8 from j returning job_id),
        ob as (
-         insert into ${this.s}.outbox (company_id, event_type, payload, dedupe_key)
+         insert into ${sqlIdent(this.s)}.outbox (company_id, event_type, payload, dedupe_key)
          select company_id, 'step.mirror', jsonb_build_object('job_id', id, 'seq', 1, 'kind', 'received', 'summary', left($8, 500)), 'step:' || id || ':1' from j
          union all
          select company_id, 'job.acknowledged', jsonb_build_object('job_id', id, 'task_id', task_id), 'ack:' || id from j
@@ -187,18 +188,18 @@ export class Book {
       [j.company_id, j.source, j.requester, j.task_id, j.ask, j.parent_job_id ?? null, j.trace_id ?? null, summary, this.channel, j.on_behalf_of ?? null, (j.origin ?? j.task_id).slice(0, 500)],
     );
     if (r.rows[0]) return { job: r.rows[0], created: true };
-    const existing = await c.query<JobRow>(`select * from ${this.s}.jobs where company_id = $1 and task_id = $2`, [j.company_id, j.task_id]);
+    const existing = await c.query<JobRow>(`select * from ${sqlIdent(this.s)}.jobs where company_id = $1 and task_id = $2`, [j.company_id, j.task_id]);
     return { job: existing.rows[0]!, created: false };
   }
 
   async getJob(c: PoolClient, id: string, lock = false): Promise<JobRow | null> {
-    const r = await c.query<JobRow>(`select * from ${this.s}.jobs where id = $1${lock ? ' for update' : ''}`, [id]);
+    const r = await c.query<JobRow>(`select * from ${sqlIdent(this.s)}.jobs where id = $1${lock ? ' for update' : ''}`, [id]);
     return r.rows[0] ?? null;
   }
 
   async setJobStatus(c: PoolClient, id: string, status: JobStatus, extra: { result?: unknown; clearClaim?: boolean } = {}): Promise<void> {
     await c.query(
-      `update ${this.s}.jobs set status = $2, updated_at = now(),
+      `update ${sqlIdent(this.s)}.jobs set status = $2, updated_at = now(),
          result = coalesce($3::jsonb, result)
          ${extra.clearClaim ? ', claimed_by = null, claimed_until = null' : ''}
        where id = $1`,
@@ -212,10 +213,10 @@ export class Book {
     s: { company_id: string; job_id: string; kind: StepKind; summary: string; ability_key?: string | null; input_hash?: string | null; output_ref?: unknown; mirror?: boolean },
   ): Promise<number> {
     // Serialise seq allocation per job.
-    await c.query(`select 1 from ${this.s}.jobs where id = $1 for update`, [s.job_id]);
+    await c.query(`select 1 from ${sqlIdent(this.s)}.jobs where id = $1 for update`, [s.job_id]);
     const { rows } = await c.query<{ seq: number }>(
-      `insert into ${this.s}.steps (company_id, job_id, seq, kind, summary, ability_key, input_hash, output_ref)
-       values ($1, $2, (select coalesce(max(seq), 0) + 1 from ${this.s}.steps where job_id = $2), $3, $4, $5, $6, $7)
+      `insert into ${sqlIdent(this.s)}.steps (company_id, job_id, seq, kind, summary, ability_key, input_hash, output_ref)
+       values ($1, $2, (select coalesce(max(seq), 0) + 1 from ${sqlIdent(this.s)}.steps where job_id = $2), $3, $4, $5, $6, $7)
        returning seq`,
       [s.company_id, s.job_id, s.kind, s.summary.slice(0, 2000), s.ability_key ?? null, s.input_hash ?? null, s.output_ref === undefined ? null : JSON.stringify(s.output_ref)],
     );
@@ -228,7 +229,7 @@ export class Book {
 
   async listSteps(c: PoolClient, jobId: string): Promise<StepRow[]> {
     const r = await c.query<StepRow>(
-      `select seq, kind, summary, ability_key, output_ref, created_at from ${this.s}.steps where job_id = $1 order by seq`,
+      `select seq, kind, summary, ability_key, output_ref, created_at from ${sqlIdent(this.s)}.steps where job_id = $1 order by seq`,
       [jobId],
     );
     return r.rows;
@@ -237,7 +238,7 @@ export class Book {
   // ── outbox ──────────────────────────────────────────────────────────────
   async emit(c: PoolClient, companyId: string, type: OutboxEventType, payload: unknown, dedupeKey?: string): Promise<void> {
     await c.query(
-      `insert into ${this.s}.outbox (company_id, event_type, payload, dedupe_key) values ($1, $2, $3, $4)
+      `insert into ${sqlIdent(this.s)}.outbox (company_id, event_type, payload, dedupe_key) values ($1, $2, $3, $4)
        on conflict (dedupe_key) do nothing`,
       [companyId, type, JSON.stringify(payload), dedupeKey ?? null],
     );
@@ -269,7 +270,7 @@ export class Book {
     },
   ): Promise<ProposalRow> {
     const r = await c.query<ProposalRow>(
-      `insert into ${this.s}.proposals
+      `insert into ${sqlIdent(this.s)}.proposals
          (id, company_id, job_id, ability_key, ability_version, args, card, fingerprint, status,
           approved_via, grant_id, decided_by, expires_at, idempotency_key, manifest_version, answered_at)
        values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, now() + ($13 || ' milliseconds')::interval, $14, $15,
@@ -297,7 +298,7 @@ export class Book {
   }
 
   async getProposal(c: PoolClient, id: string, lock = false): Promise<ProposalRow | null> {
-    const r = await c.query<ProposalRow>(`select * from ${this.s}.proposals where id = $1${lock ? ' for update' : ''}`, [id]);
+    const r = await c.query<ProposalRow>(`select * from ${sqlIdent(this.s)}.proposals where id = $1${lock ? ' for update' : ''}`, [id]);
     return r.rows[0] ?? null;
   }
 
@@ -316,7 +317,7 @@ export class Book {
     // t007: when it was carried out, and when a read-back confirmed it (database time; first time only).
     if (stamp.executed) sets.push('executed_at = coalesce(executed_at, now())');
     if (stamp.verified) sets.push('verified_at = coalesce(verified_at, now())');
-    await c.query(`update ${this.s}.proposals set ${sets.join(', ')} where id = $1`, vals);
+    await c.query(`update ${sqlIdent(this.s)}.proposals set ${sets.join(', ')} where id = $1`, vals);
   }
 
   async proposalEvent(
@@ -324,7 +325,7 @@ export class Book {
     e: { company_id: string; proposal_id: string; event: string; actor: string; fingerprint_seen?: string | null; detail?: unknown },
   ): Promise<void> {
     await c.query(
-      `insert into ${this.s}.proposal_events (company_id, proposal_id, event, actor, fingerprint_seen, detail)
+      `insert into ${sqlIdent(this.s)}.proposal_events (company_id, proposal_id, event, actor, fingerprint_seen, detail)
        values ($1, $2, $3, $4, $5, $6)`,
       [e.company_id, e.proposal_id, e.event, e.actor, e.fingerprint_seen ?? null, e.detail === undefined ? null : JSON.stringify(e.detail)],
     );
@@ -338,7 +339,7 @@ export class Book {
     // A timer wait carries what it waits for in `answer` while pending (t004: job.wait_until);
     // an input wait carries its question (t005: job.ask).
     const r = await c.query<WaitRow>(
-      `insert into ${this.s}.waits (company_id, job_id, kind, ref_id, expires_at, answer, question)
+      `insert into ${sqlIdent(this.s)}.waits (company_id, job_id, kind, ref_id, expires_at, answer, question)
        values ($1, $2, $3, $4, coalesce($5::timestamptz, ${w.expires_at_sql ?? 'now()'}), $6, $7) returning *`,
       [w.company_id, w.job_id, w.kind, w.ref_id, w.expires_at ?? null, w.answer === undefined ? null : JSON.stringify(w.answer), w.question ? JSON.stringify(w.question) : null],
     );
@@ -346,14 +347,14 @@ export class Book {
   }
 
   async getWait(c: PoolClient, id: string, lock = false): Promise<WaitRow | null> {
-    const r = await c.query<WaitRow>(`select * from ${this.s}.waits where id = $1${lock ? ' for update' : ''}`, [id]);
+    const r = await c.query<WaitRow>(`select * from ${sqlIdent(this.s)}.waits where id = $1${lock ? ' for update' : ''}`, [id]);
     return r.rows[0] ?? null;
   }
 
   /** Mark a pending wait ready. The only way a job wakes (B2: callers pass terminal outcomes only). */
   async readyWait(c: PoolClient, refId: string, outcome: string, answer: unknown): Promise<boolean> {
     const r = await c.query(
-      `update ${this.s}.waits set status = 'ready', ready_at = now(), outcome = $2, answer = $3
+      `update ${sqlIdent(this.s)}.waits set status = 'ready', ready_at = now(), outcome = $2, answer = $3
        where ref_id = $1 and status = 'pending'`,
       [refId, outcome, JSON.stringify(answer)],
     );
@@ -361,7 +362,7 @@ export class Book {
   }
 
   async openWaits(c: PoolClient, jobId: string): Promise<WaitRow[]> {
-    const r = await c.query<WaitRow>(`select * from ${this.s}.waits where job_id = $1 and status in ('pending', 'ready') order by created_at`, [
+    const r = await c.query<WaitRow>(`select * from ${sqlIdent(this.s)}.waits where job_id = $1 and status in ('pending', 'ready') order by created_at`, [
       jobId,
     ]);
     return r.rows;
@@ -370,7 +371,7 @@ export class Book {
   /** Consume the waits this session was woken for; returns them so the proposal trail can say REPORTED. */
   async consumeReadyWaits(c: PoolClient, jobId: string, except: string | null = null): Promise<WaitRow[]> {
     // `except`: a wait this very call just wrote (a bus hand-off) — an answer that already readied it is still owed.
-    const r = await c.query<WaitRow>(`update ${this.s}.waits set status = 'consumed' where job_id = $1 and status = 'ready' and id is distinct from $2::uuid returning *`, [jobId, except]);
+    const r = await c.query<WaitRow>(`update ${sqlIdent(this.s)}.waits set status = 'consumed' where job_id = $1 and status = 'ready' and id is distinct from $2::uuid returning *`, [jobId, except]);
     return r.rows;
   }
 
@@ -403,7 +404,7 @@ export class Book {
     },
   ): Promise<boolean> {
     const r = await c.query(
-      `insert into ${this.s}.operations (company_id, job_id, caller, ability_key, idempotency_key, outcome, gateway_request_id, detail, trace_id, request_checksum, result_checksum, reason)
+      `insert into ${sqlIdent(this.s)}.operations (company_id, job_id, caller, ability_key, idempotency_key, outcome, gateway_request_id, detail, trace_id, request_checksum, result_checksum, reason)
        values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
        on conflict (company_id, caller, ability_key, idempotency_key) do nothing`,
       [
@@ -438,7 +439,7 @@ export class Book {
   // ── facts ───────────────────────────────────────────────────────────────
   /** `valid_until` (t005): after it the fact is no longer offered to any job; it stays in the book. */
   async addFact(c: PoolClient, f: { company_id: string; job_id: string | null; subject: string; value: unknown; source: string; valid_until?: string | Date | null }): Promise<void> {
-    await c.query(`insert into ${this.s}.facts (company_id, subject, value, source, job_id, valid_until) values ($1, $2, $3, $4, $5, $6)`, [
+    await c.query(`insert into ${sqlIdent(this.s)}.facts (company_id, subject, value, source, job_id, valid_until) values ($1, $2, $3, $4, $5, $6)`, [
       f.company_id,
       f.subject,
       JSON.stringify(f.value),
@@ -458,7 +459,7 @@ export class Book {
       // Answers to a job's questions and files attached to a job belong to THAT job (and its follow-ups): an
       // answer given for one request is never the answer to another (found live: a later job reused an earlier
       // job's `answer:amount_rupees` instead of asking).
-      `select subject, value, source, observed_at, valid_until from ${this.s}.facts
+      `select subject, value, source, observed_at, valid_until from ${sqlIdent(this.s)}.facts
         where (valid_until is null or valid_until > now())
           and (not (subject like 'answer:%' or subject like 'document:%') or job_id = $1 or job_id = $2::uuid)
         order by coalesce(job_id = $1 or job_id = $2::uuid or (length(subject) > 2 and strpos(lower($3), lower(subject)) > 0), false) desc, observed_at desc
@@ -469,7 +470,7 @@ export class Book {
   }
 
   async recentFacts(c: PoolClient, limit = 20): Promise<FactRow[]> {
-    const r = await c.query<FactRow>(`select subject, value, source, observed_at, valid_until from ${this.s}.facts where (valid_until is null or valid_until > now()) and not (subject like 'answer:%' or subject like 'document:%') order by observed_at desc limit $1`, [limit]);
+    const r = await c.query<FactRow>(`select subject, value, source, observed_at, valid_until from ${sqlIdent(this.s)}.facts where (valid_until is null or valid_until > now()) and not (subject like 'answer:%' or subject like 'document:%') order by observed_at desc limit $1`, [limit]);
     return r.rows;
   }
 
@@ -479,7 +480,7 @@ export class Book {
     t: { company_id: string; job_id: string; session_id: string; reason: string; system_prompt: string; messages: unknown[]; bytes: number; truncated: boolean },
   ): Promise<boolean> {
     const r = await c.query(
-      `insert into ${this.s}.transcripts (company_id, job_id, session_id, reason, system_prompt, messages, message_count, bytes, truncated)
+      `insert into ${sqlIdent(this.s)}.transcripts (company_id, job_id, session_id, reason, system_prompt, messages, message_count, bytes, truncated)
        values ($1, $2, $3, $4, $5, $6, $7, $8, $9) on conflict (job_id, session_id) do nothing`,
       [t.company_id, t.job_id, t.session_id, t.reason.slice(0, 500), t.system_prompt, JSON.stringify(t.messages), t.messages.length, t.bytes, t.truncated],
     );
@@ -488,7 +489,7 @@ export class Book {
 
   async transcripts(c: PoolClient, jobId: string): Promise<{ session_id: string; reason: string; system_prompt: string; messages: unknown[]; message_count: number; bytes: number; truncated: boolean; created_at: Date }[]> {
     const r = await c.query(
-      `select session_id, reason, system_prompt, messages, message_count, bytes, truncated, created_at from ${this.s}.transcripts where job_id = $1 order by id`,
+      `select session_id, reason, system_prompt, messages, message_count, bytes, truncated, created_at from ${sqlIdent(this.s)}.transcripts where job_id = $1 order by id`,
       [jobId],
     );
     return r.rows;

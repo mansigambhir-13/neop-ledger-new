@@ -1,0 +1,149 @@
+{
+  "app": "hire",
+  "source_repo": "https://github.com/NEOS-Ecosystem/neos-neop-hire",
+  "source_commit": "be1b1d69f01239899aaa41b9fa8595c0997fcd92",
+  "source_blob": "b9e55f27c5eb787a5ce5ad16bc4caf6adfc541b1",
+  "full_parity": false,
+  "mappings": [
+    {
+      "legacy": "hire.candidates",
+      "evidence": "pinned_upstream",
+      "disposition": "partial_runtime",
+      "target": "hire.candidates.list",
+      "notes": "Persisted internal review slice, not full legacy entity/configuration/workflow parity. Business authorization, provider effects and acceptance remain open."
+    },
+    {
+      "legacy": "hire.candidates.import",
+      "evidence": "pinned_upstream",
+      "disposition": "partial_runtime",
+      "target": "hire.candidates.import",
+      "notes": "Persisted internal review slice, not full legacy entity/configuration/workflow parity. Business authorization, provider effects and acceptance remain open. Checkpoint 11 adds internal-write authority or authenticated immutable draft origin, not a completed business lifecycle."
+    },
+    {
+      "legacy": "hire.chat",
+      "evidence": "pinned_upstream",
+      "disposition": "partial_transport_replacement",
+      "target": "shared Matrix typed task / job flow",
+      "notes": "Shared typed Matrix ingress exercised with a local fake homeserver and scripted assistant; real Matrix/model acceptance remains open."
+    },
+    {
+      "legacy": "hire.config",
+      "evidence": "pinned_upstream",
+      "disposition": "partial_runtime",
+      "target": "hire.settings.get",
+      "notes": "Persisted internal review slice, not full legacy entity/configuration/workflow parity. Business authorization, provider effects and acceptance remain open."
+    },
+    {
+      "legacy": "hire.configure",
+      "evidence": "pinned_upstream",
+      "disposition": "partial_runtime",
+      "target": "hire.settings.update",
+      "notes": "Persisted internal review slice, not full legacy entity/configuration/workflow parity. Business authorization, provider effects and acceptance remain open. Checkpoint 11 adds internal-write authority or authenticated immutable draft origin, not a completed business lifecycle."
+    },
+    {
+      "legacy": "hire.customise",
+      "evidence": "quickbuild_catalog_only",
+      "disposition": "retired_runtime_mutation",
+      "target": null,
+      "notes": "Replace legacy live customization with reviewed signed/pinned registry skills or build-time packages. No runtime code/prompt mutation route is imported."
+    },
+    {
+      "legacy": "hire.customise.apply",
+      "evidence": "quickbuild_catalog_only",
+      "disposition": "retired_runtime_mutation",
+      "target": null,
+      "notes": "Replace legacy live customization with reviewed signed/pinned registry skills or build-time packages. No runtime code/prompt mutation route is imported."
+    },
+    {
+      "legacy": "hire.dashboard",
+      "evidence": "pinned_upstream",
+      "disposition": "pending",
+      "target": null,
+      "notes": "Not exposed by this V3 build; domain port is not a full business workflow."
+    },
+    {
+      "legacy": "hire.deliverables",
+      "evidence": "pinned_upstream",
+      "disposition": "pending",
+      "target": null,
+      "notes": "Not exposed by this V3 build; domain port is not a full business workflow."
+    },
+    {
+      "legacy": "hire.offer.decide",
+      "evidence": "pinned_upstream",
+      "disposition": "pending_authorization",
+      "target": "shared human proposal row + domain authorization policy",
+      "notes": "Internal-write authority and immutable original draft provenance are locally tested (checkpoint 11). Business decisions remain unavailable: original-proposer separation, eligible/elevated entitlements, limits and historical/nonhuman policy still require implementation and review. No agent/actor argument can approve."
+    },
+    {
+      "legacy": "hire.offer.propose",
+      "evidence": "pinned_upstream",
+      "disposition": "partial_runtime",
+      "target": "hire.offer.prepare",
+      "notes": "Persisted internal review slice, not full legacy entity/configuration/workflow parity. Business authorization, provider effects and acceptance remain open. Checkpoint 11 adds internal-write authority or authenticated immutable draft origin, not a completed business lifecycle."
+    },
+    {
+      "legacy": "hire.offer.send",
+      "evidence": "pinned_upstream",
+      "disposition": "pending_provider",
+      "target": null,
+      "notes": "No supplied success flag can mark an external effect complete. Requires approved exact content, provider idempotency and independent read-back."
+    },
+    {
+      "legacy": "hire.offers",
+      "evidence": "pinned_upstream",
+      "disposition": "partial_runtime",
+      "target": "hire.offers.list",
+      "notes": "Persisted internal review slice, not full legacy entity/configuration/workflow parity. Business authorization, provider effects and acceptance remain open."
+    },
+    {
+      "legacy": "hire.prompt",
+      "evidence": "quickbuild_catalog_only",
+      "disposition": "retired_runtime_mutation",
+      "target": null,
+      "notes": "Replace legacy live customization with reviewed signed/pinned registry skills or build-time packages. No runtime code/prompt mutation route is imported."
+    },
+    {
+      "legacy": "hire.prompt.set",
+      "evidence": "quickbuild_catalog_only",
+      "disposition": "retired_runtime_mutation",
+      "target": null,
+      "notes": "Replace legacy live customization with reviewed signed/pinned registry skills or build-time packages. No runtime code/prompt mutation route is imported."
+    },
+    {
+      "legacy": "hire.skill.delete",
+      "evidence": "quickbuild_catalog_only",
+      "disposition": "retired_runtime_mutation",
+      "target": null,
+      "notes": "Replace legacy live customization with reviewed signed/pinned registry skills or build-time packages. No runtime code/prompt mutation route is imported."
+    },
+    {
+      "legacy": "hire.skill.set",
+      "evidence": "quickbuild_catalog_only",
+      "disposition": "retired_runtime_mutation",
+      "target": null,
+      "notes": "Replace legacy live customization with reviewed signed/pinned registry skills or build-time packages. No runtime code/prompt mutation route is imported."
+    },
+    {
+      "legacy": "hire.skills",
+      "evidence": "quickbuild_catalog_only",
+      "disposition": "retired_runtime_mutation",
+      "target": null,
+      "notes": "Replace legacy live customization with reviewed signed/pinned registry skills or build-time packages. No runtime code/prompt mutation route is imported."
+    },
+    {
+      "legacy": "hire.template.apply",
+      "evidence": "quickbuild_catalog_only",
+      "disposition": "retired_runtime_mutation",
+      "target": null,
+      "notes": "Replace legacy live customization with reviewed signed/pinned registry skills or build-time packages. No runtime code/prompt mutation route is imported."
+    },
+    {
+      "legacy": "hire.templates",
+      "evidence": "quickbuild_catalog_only",
+      "disposition": "retired_runtime_mutation",
+      "target": null,
+      "notes": "Replace legacy live customization with reviewed signed/pinned registry skills or build-time packages. No runtime code/prompt mutation route is imported."
+    }
+  ]
+}

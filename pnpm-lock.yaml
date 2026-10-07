@@ -8,22 +8,85 @@ importers:
 
   .:
     dependencies:
+      '@neop/asset':
+        specifier: workspace:*
+        version: link:apps/asset
+      '@neop/clear':
+        specifier: workspace:*
+        version: link:apps/clear
+      '@neop/deal':
+        specifier: workspace:*
+        version: link:apps/deal
+      '@neop/desk':
+        specifier: workspace:*
+        version: link:apps/desk
+      '@neop/grant':
+        specifier: workspace:*
+        version: link:apps/grant
+      '@neop/guard':
+        specifier: workspace:*
+        version: link:apps/guard
+      '@neop/hire':
+        specifier: workspace:*
+        version: link:apps/hire
+      '@neop/post':
+        specifier: workspace:*
+        version: link:apps/post
+      '@neop/quote':
+        specifier: workspace:*
+        version: link:apps/quote
+      '@neop/reach':
+        specifier: workspace:*
+        version: link:apps/reach
+      '@neop/roster':
+        specifier: workspace:*
+        version: link:apps/roster
+      '@neop/shift':
+        specifier: workspace:*
+        version: link:apps/shift
+      '@neop/sign':
+        specifier: workspace:*
+        version: link:apps/sign
+      '@neop/sync':
+        specifier: workspace:*
+        version: link:apps/sync
+      '@neop/vet':
+        specifier: workspace:*
+        version: link:apps/vet
+      '@neop/buy':
+        specifier: workspace:*
+        version: link:apps/buy
+      '@neop/domain-values':
+        specifier: workspace:*
+        version: link:packages/domain-values
       '@neop/ledger':
         specifier: workspace:*
         version: link:apps/ledger
       '@neop/marketing':
         specifier: workspace:*
         version: link:apps/marketing
+      '@neop/pay':
+        specifier: workspace:*
+        version: link:apps/pay
       '@neop/pgkit':
         specifier: workspace:*
         version: link:packages/pgkit
       '@neop/platform':
         specifier: workspace:*
         version: link:packages/platform
+      '@neop/renew':
+        specifier: workspace:*
+        version: link:apps/renew
       '@neop/template':
         specifier: workspace:*
         version: link:packages/neop-template
+      '@neop/wage':
+        specifier: workspace:*
+        version: link:apps/wage
     devDependencies:
+      '@neop/testkit':
+        specifier: workspace:*
+        version: link:packages/testkit
       '@types/node':
         specifier: ^24.0.0
         version: 24.13.6
@@ -42,6 +105,310 @@ importers:
       yaml:
         specifier: ^2.9.1
         version: 2.9.1
+
+  apps/asset:
+    dependencies:
+      '@neop/contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
+      '@neop/domain-values':
+        specifier: workspace:*
+        version: link:../../packages/domain-values
+      '@neop/pgkit':
+        specifier: workspace:*
+        version: link:../../packages/pgkit
+      '@neop/template':
+        specifier: workspace:*
+        version: link:../../packages/neop-template
+    devDependencies:
+      '@neop/testkit':
+        specifier: workspace:*
+        version: link:../../packages/testkit
+
+  apps/clear:
+    dependencies:
+      '@neop/contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
+      '@neop/domain-values':
+        specifier: workspace:*
+        version: link:../../packages/domain-values
+      '@neop/pgkit':
+        specifier: workspace:*
+        version: link:../../packages/pgkit
+      '@neop/template':
+        specifier: workspace:*
+        version: link:../../packages/neop-template
+    devDependencies:
+      '@neop/testkit':
+        specifier: workspace:*
+        version: link:../../packages/testkit
+
+  apps/deal:
+    dependencies:
+      '@neop/contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
+      '@neop/domain-values':
+        specifier: workspace:*
+        version: link:../../packages/domain-values
+      '@neop/pgkit':
+        specifier: workspace:*
+        version: link:../../packages/pgkit
+      '@neop/template':
+        specifier: workspace:*
+        version: link:../../packages/neop-template
+    devDependencies:
+      '@neop/testkit':
+        specifier: workspace:*
+        version: link:../../packages/testkit
+
+  apps/desk:
+    dependencies:
+      '@neop/contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
+      '@neop/domain-values':
+        specifier: workspace:*
+        version: link:../../packages/domain-values
+      '@neop/pgkit':
+        specifier: workspace:*
+        version: link:../../packages/pgkit
+      '@neop/template':
+        specifier: workspace:*
+        version: link:../../packages/neop-template
+    devDependencies:
+      '@neop/testkit':
+        specifier: workspace:*
+        version: link:../../packages/testkit
+
+  apps/grant:
+    dependencies:
+      '@neop/contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
+      '@neop/domain-values':
+        specifier: workspace:*
+        version: link:../../packages/domain-values
+      '@neop/pgkit':
+        specifier: workspace:*
+        version: link:../../packages/pgkit
+      '@neop/template':
+        specifier: workspace:*
+        version: link:../../packages/neop-template
+    devDependencies:
+      '@neop/testkit':
+        specifier: workspace:*
+        version: link:../../packages/testkit
+
+  apps/guard:
+    dependencies:
+      '@neop/contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
+      '@neop/domain-values':
+        specifier: workspace:*
+        version: link:../../packages/domain-values
+      '@neop/pgkit':
+        specifier: workspace:*
+        version: link:../../packages/pgkit
+      '@neop/template':
+        specifier: workspace:*
+        version: link:../../packages/neop-template
+    devDependencies:
+      '@neop/testkit':
+        specifier: workspace:*
+        version: link:../../packages/testkit
+
+  apps/hire:
+    dependencies:
+      '@neop/contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
+      '@neop/domain-values':
+        specifier: workspace:*
+        version: link:../../packages/domain-values
+      '@neop/pgkit':
+        specifier: workspace:*
+        version: link:../../packages/pgkit
+      '@neop/template':
+        specifier: workspace:*
+        version: link:../../packages/neop-template
+    devDependencies:
+      '@neop/testkit':
+        specifier: workspace:*
+        version: link:../../packages/testkit
+
+  apps/post:
+    dependencies:
+      '@neop/contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
+      '@neop/domain-values':
+        specifier: workspace:*
+        version: link:../../packages/domain-values
+      '@neop/pgkit':
+        specifier: workspace:*
+        version: link:../../packages/pgkit
+      '@neop/template':
+        specifier: workspace:*
+        version: link:../../packages/neop-template
+    devDependencies:
+      '@neop/testkit':
+        specifier: workspace:*
+        version: link:../../packages/testkit
+
+  apps/quote:
+    dependencies:
+      '@neop/contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
+      '@neop/domain-values':
+        specifier: workspace:*
+        version: link:../../packages/domain-values
+      '@neop/pgkit':
+        specifier: workspace:*
+        version: link:../../packages/pgkit
+      '@neop/template':
+        specifier: workspace:*
+        version: link:../../packages/neop-template
+    devDependencies:
+      '@neop/testkit':
+        specifier: workspace:*
+        version: link:../../packages/testkit
+
+  apps/reach:
+    dependencies:
+      '@neop/contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
+      '@neop/domain-values':
+        specifier: workspace:*
+        version: link:../../packages/domain-values
+      '@neop/pgkit':
+        specifier: workspace:*
+        version: link:../../packages/pgkit
+      '@neop/template':
+        specifier: workspace:*
+        version: link:../../packages/neop-template
+    devDependencies:
+      '@neop/testkit':
+        specifier: workspace:*
+        version: link:../../packages/testkit
+
+  apps/roster:
+    dependencies:
+      '@neop/contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
+      '@neop/domain-values':
+        specifier: workspace:*
+        version: link:../../packages/domain-values
+      '@neop/pgkit':
+        specifier: workspace:*
+        version: link:../../packages/pgkit
+      '@neop/template':
+        specifier: workspace:*
+        version: link:../../packages/neop-template
+    devDependencies:
+      '@neop/testkit':
+        specifier: workspace:*
+        version: link:../../packages/testkit
+
+  apps/shift:
+    dependencies:
+      '@neop/contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
+      '@neop/domain-values':
+        specifier: workspace:*
+        version: link:../../packages/domain-values
+      '@neop/pgkit':
+        specifier: workspace:*
+        version: link:../../packages/pgkit
+      '@neop/template':
+        specifier: workspace:*
+        version: link:../../packages/neop-template
+    devDependencies:
+      '@neop/testkit':
+        specifier: workspace:*
+        version: link:../../packages/testkit
+
+  apps/sign:
+    dependencies:
+      '@neop/contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
+      '@neop/domain-values':
+        specifier: workspace:*
+        version: link:../../packages/domain-values
+      '@neop/pgkit':
+        specifier: workspace:*
+        version: link:../../packages/pgkit
+      '@neop/template':
+        specifier: workspace:*
+        version: link:../../packages/neop-template
+    devDependencies:
+      '@neop/testkit':
+        specifier: workspace:*
+        version: link:../../packages/testkit
+
+  apps/sync:
+    dependencies:
+      '@neop/contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
+      '@neop/domain-values':
+        specifier: workspace:*
+        version: link:../../packages/domain-values
+      '@neop/pgkit':
+        specifier: workspace:*
+        version: link:../../packages/pgkit
+      '@neop/template':
+        specifier: workspace:*
+        version: link:../../packages/neop-template
+    devDependencies:
+      '@neop/testkit':
+        specifier: workspace:*
+        version: link:../../packages/testkit
+
+  apps/vet:
+    dependencies:
+      '@neop/contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
+      '@neop/domain-values':
+        specifier: workspace:*
+        version: link:../../packages/domain-values
+      '@neop/pgkit':
+        specifier: workspace:*
+        version: link:../../packages/pgkit
+      '@neop/template':
+        specifier: workspace:*
+        version: link:../../packages/neop-template
+    devDependencies:
+      '@neop/testkit':
+        specifier: workspace:*
+        version: link:../../packages/testkit
+
+  apps/buy:
+    dependencies:
+      '@neop/contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
+      '@neop/domain-values':
+        specifier: workspace:*
+        version: link:../../packages/domain-values
+      '@neop/pgkit':
+        specifier: workspace:*
+        version: link:../../packages/pgkit
+      '@neop/template':
+        specifier: workspace:*
+        version: link:../../packages/neop-template
+    devDependencies:
+      '@neop/testkit':
+        specifier: workspace:*
+        version: link:../../packages/testkit
 
   apps/ledger:
     dependencies:
@@ -99,7 +466,63 @@ importers:
         specifier: workspace:*
         version: link:../../packages/testkit
 
+  apps/pay:
+    dependencies:
+      '@neop/contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
+      '@neop/domain-values':
+        specifier: workspace:*
+        version: link:../../packages/domain-values
+      '@neop/pgkit':
+        specifier: workspace:*
+        version: link:../../packages/pgkit
+      '@neop/template':
+        specifier: workspace:*
+        version: link:../../packages/neop-template
+    devDependencies:
+      '@neop/testkit':
+        specifier: workspace:*
+        version: link:../../packages/testkit
+
+  apps/renew:
+    dependencies:
+      '@neop/contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
+      '@neop/domain-values':
+        specifier: workspace:*
+        version: link:../../packages/domain-values
+      '@neop/pgkit':
+        specifier: workspace:*
+        version: link:../../packages/pgkit
+      '@neop/template':
+        specifier: workspace:*
+        version: link:../../packages/neop-template
+    devDependencies:
+      '@neop/testkit':
+        specifier: workspace:*
+        version: link:../../packages/testkit
+
+  apps/wage:
+    dependencies:
+      '@neop/contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
+      '@neop/pgkit':
+        specifier: workspace:*
+        version: link:../../packages/pgkit
+      '@neop/template':
+        specifier: workspace:*
+        version: link:../../packages/neop-template
+    devDependencies:
+      '@neop/testkit':
+        specifier: workspace:*
+        version: link:../../packages/testkit
+
   packages/contracts: {}
+
+  packages/domain-values: {}
 
   packages/neop-template:
     dependencies:

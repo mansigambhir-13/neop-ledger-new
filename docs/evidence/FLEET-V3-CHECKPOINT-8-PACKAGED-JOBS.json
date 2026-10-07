@@ -1,0 +1,950 @@
+{
+  "date": "2026-10-01",
+  "sourceBaseCommit": "0b5a439a2295fff3a2e438dde167f4d85c804a09",
+  "scope": "Same ninety persisted internal-draft assertions through both exact Linux ARM64 images; real gate/runner/SDK/metered proxy/database, scripted Matrix/upstream model; not full business or live acceptance.",
+  "production_ready": false,
+  "fullSuite": {
+    "files": 164,
+    "passed": 1423,
+    "failed": 0,
+    "skipped": 2,
+    "durationSeconds": 398.17
+  },
+  "packagedJobs": {
+    "files": 1,
+    "passed": 90,
+    "failed": 0,
+    "skipped": 0,
+    "durationSeconds": 366.44,
+    "distinctAdditionalTests": 0
+  },
+  "newPolicyTests": 10,
+  "fixtureSummary": {
+    "prefix": "neop-fleet8-2ce3a5d9",
+    "sourceBindings": {
+      "agent": 43,
+      "backend": 327
+    },
+    "apps": 18,
+    "networkCanariesPerApp": 6,
+    "starts": 72,
+    "stops": 72,
+    "remainingContainers": [],
+    "remainingNetworks": [],
+    "cleanupSucceeded": true
+  },
+  "reports": {
+    "fleet-v3-checkpoint-8-tests.json": {
+      "path": "/Users/mansi.gambhir/Documents/Codex/2026-09-28/lo/work/fleet-v3-checkpoint-8-tests.json",
+      "sha256": "edbd7275595b24edfa971e370304a83eafdb4cbf10cafacc1bd14907dbdd0f1d"
+    },
+    "fleet-packaged-jobs-8-all-tests.json": {
+      "path": "/Users/mansi.gambhir/Documents/Codex/2026-09-28/lo/work/fleet-packaged-jobs-8-all-tests.json",
+      "sha256": "5a966f18b070f2b58f259cf0a632b382856bd7dc427f1a6362160bdd3ee73798"
+    },
+    "fleet-packaged-jobs-8-all-fixtures.json": {
+      "path": "/Users/mansi.gambhir/Documents/Codex/2026-09-28/lo/work/fleet-packaged-jobs-8-all-fixtures.json",
+      "sha256": "faba3ae2a5ec4e9176d194d056c2e30f0f90c50058e68bdb792e77418d3e66aa"
+    }
+  },
+  "sourceSha256": {
+    "scripts/fleet/testing/process.ts": "3fead15a6bd626dbd0925a6ba0d5bdc0f1cc743a58c5f458ed7822a6d6b244e7",
+    "scripts/fleet/testing/image-policy.ts": "a91f0c046e3999aeb575d3e04561fff36a1405c1956d99faf177e580e2ba7ce3",
+    "scripts/fleet/testing/packaged-jobs.ts": "510567aa8bb9e5e8b2978768c0aa7ef66a965851019e4afb092833e283ffa1f5",
+    "scripts/fleet/testing/job-cases.ts": "b9ca802f9fc9a9209b09552110c225d80d83375aa3a8a0c8051704ec4a8e7958",
+    "scripts/fleet/tests/runtime-jobs.test.ts": "460f935472bee083bba447c52c1adb33d7fb81eff58060037e50c49a5e11edbf",
+    "scripts/fleet/tests/image-policy.test.ts": "a145fcbe59d078613179cea3ec15b217539853e50bfc911dd8c99c73da454f9d"
+  },
+  "imageEvidence": [
+    {
+      "path": "docs/evidence/FLEET-V3-CHECKPOINT-5-IMAGES.json",
+      "sha256": "ef717844589ffd180fc50288339a66c91b21947432f5d392c15081fd09848add"
+    },
+    {
+      "path": "docs/evidence/FLEET-V3-CHECKPOINT-7-BACKENDS.json",
+      "sha256": "3fb01b7e1318b56c330cb9163c8ee7d6bbd09e8f9457b0685f6171f668b73035"
+    }
+  ],
+  "scenarios": [
+    {
+      "id": 1,
+      "name": "ignores unknown senders/wrong companies/rooms, then completes a real empty read once despite redelivery"
+    },
+    {
+      "id": 2,
+      "name": "requires an exact human approval for import and recovers the pending job after a real backend crash"
+    },
+    {
+      "id": 3,
+      "name": "persists the app-specific draft through its gate and refuses document-supplied authority fields"
+    },
+    {
+      "id": 4,
+      "name": "a human rejection survives a fresh assistant process and leaves the draft unchanged"
+    },
+    {
+      "id": 5,
+      "name": "cancels only the approved exact draft and does not duplicate effects or completion on replay"
+    }
+  ],
+  "apps": [
+    {
+      "app": "asset",
+      "images": {
+        "agent": "sha256:2e0ab0ff747c6ac5156278ec007f5d0000a8d134581d8ea2c414574a8c37acd7",
+        "backend": "sha256:04c0707e809aaf8f05eb20f4ed9a0f5be48f694669fd533958686a007101a2ab"
+      },
+      "passed": 5,
+      "cases": [
+        {
+          "scenario": 1,
+          "status": "passed",
+          "durationMs": 803.3573329999999
+        },
+        {
+          "scenario": 2,
+          "status": "passed",
+          "durationMs": 2666.3412500000013
+        },
+        {
+          "scenario": 3,
+          "status": "passed",
+          "durationMs": 1500.5609170000025
+        },
+        {
+          "scenario": 4,
+          "status": "passed",
+          "durationMs": 2025.4300000000003
+        },
+        {
+          "scenario": 5,
+          "status": "passed",
+          "durationMs": 1015.7301669999979
+        }
+      ],
+      "boundary": {
+        "app": "asset",
+        "gate": true,
+        "model": true,
+        "files": false,
+        "matrixIngress": false,
+        "database": false,
+        "hostDatabasePort": false
+      },
+      "waitingBackendCrashRecovered": true,
+      "assistantReplacedBeforeRejection": true,
+      "normalStops": 3
+    },
+    {
+      "app": "buy",
+      "images": {
+        "agent": "sha256:fbc952de0c1fdecf325f98104efa6d398a5913ac0434a9faed1661e01ab0ebcc",
+        "backend": "sha256:c3aff6770b3b51d67ecc2bcd89640968558e9584ae45f9aab2e81b86af97778f"
+      },
+      "passed": 5,
+      "cases": [
+        {
+          "scenario": 1,
+          "status": "passed",
+          "durationMs": 754.8216250000041
+        },
+        {
+          "scenario": 2,
+          "status": "passed",
+          "durationMs": 3748.5547920000026
+        },
+        {
+          "scenario": 3,
+          "status": "passed",
+          "durationMs": 1463.6517920000042
+        },
+        {
+          "scenario": 4,
+          "status": "passed",
+          "durationMs": 3011.1532920000027
+        },
+        {
+          "scenario": 5,
+          "status": "passed",
+          "durationMs": 1103.7525830000013
+        }
+      ],
+      "boundary": {
+        "app": "buy",
+        "gate": true,
+        "model": true,
+        "files": false,
+        "matrixIngress": false,
+        "database": false,
+        "hostDatabasePort": false
+      },
+      "waitingBackendCrashRecovered": true,
+      "assistantReplacedBeforeRejection": true,
+      "normalStops": 3
+    },
+    {
+      "app": "clear",
+      "images": {
+        "agent": "sha256:23fc2262b804c7d371fbb5198fee49d15945709af1b070fc855feec267591f5c",
+        "backend": "sha256:dfd3fad367840a837e2832698c5edea6da21b6a5dac461417e40026ba2426727"
+      },
+      "passed": 5,
+      "cases": [
+        {
+          "scenario": 1,
+          "status": "passed",
+          "durationMs": 565.9987499999988
+        },
+        {
+          "scenario": 2,
+          "status": "passed",
+          "durationMs": 5339.4411670000045
+        },
+        {
+          "scenario": 3,
+          "status": "passed",
+          "durationMs": 1464.0724999999948
+        },
+        {
+          "scenario": 4,
+          "status": "passed",
+          "durationMs": 3517.001540999998
+        },
+        {
+          "scenario": 5,
+          "status": "passed",
+          "durationMs": 1089.2153749999998
+        }
+      ],
+      "boundary": {
+        "app": "clear",
+        "gate": true,
+        "model": true,
+        "files": false,
+        "matrixIngress": false,
+        "database": false,
+        "hostDatabasePort": false
+      },
+      "waitingBackendCrashRecovered": true,
+      "assistantReplacedBeforeRejection": true,
+      "normalStops": 3
+    },
+    {
+      "app": "deal",
+      "images": {
+        "agent": "sha256:1f49fe06fddaa951dcb5758c113edcfed2b6fefd816fae3b87867240a27183d9",
+        "backend": "sha256:e111ee4fb4ce29a7db0327b1644153b5f066d9eeac9629db6aa1f44e6fe42fcd"
+      },
+      "passed": 5,
+      "cases": [
+        {
+          "scenario": 1,
+          "status": "passed",
+          "durationMs": 1057.5229580000014
+        },
+        {
+          "scenario": 2,
+          "status": "passed",
+          "durationMs": 4803.447166999991
+        },
+        {
+          "scenario": 3,
+          "status": "passed",
+          "durationMs": 1453.931540999998
+        },
+        {
+          "scenario": 4,
+          "status": "passed",
+          "durationMs": 3503.446874999994
+        },
+        {
+          "scenario": 5,
+          "status": "passed",
+          "durationMs": 1060.6905840000109
+        }
+      ],
+      "boundary": {
+        "app": "deal",
+        "gate": true,
+        "model": true,
+        "files": false,
+        "matrixIngress": false,
+        "database": false,
+        "hostDatabasePort": false
+      },
+      "waitingBackendCrashRecovered": true,
+      "assistantReplacedBeforeRejection": true,
+      "normalStops": 3
+    },
+    {
+      "app": "desk",
+      "images": {
+        "agent": "sha256:27cb1bd319205a560768be3efc4fa842f4af9ee41b3b21bf54842834a7cb64a3",
+        "backend": "sha256:783fd51aa76274bbcf3e29486e1967ef9f3b346aa8cca2b0fe7093e215e067a1"
+      },
+      "passed": 5,
+      "cases": [
+        {
+          "scenario": 1,
+          "status": "passed",
+          "durationMs": 975.3952500000014
+        },
+        {
+          "scenario": 2,
+          "status": "passed",
+          "durationMs": 5214.034291999997
+        },
+        {
+          "scenario": 3,
+          "status": "passed",
+          "durationMs": 1474.5857079999987
+        },
+        {
+          "scenario": 4,
+          "status": "passed",
+          "durationMs": 3016.5588750000024
+        },
+        {
+          "scenario": 5,
+          "status": "passed",
+          "durationMs": 988.194875000001
+        }
+      ],
+      "boundary": {
+        "app": "desk",
+        "gate": true,
+        "model": true,
+        "files": false,
+        "matrixIngress": false,
+        "database": false,
+        "hostDatabasePort": false
+      },
+      "waitingBackendCrashRecovered": true,
+      "assistantReplacedBeforeRejection": true,
+      "normalStops": 3
+    },
+    {
+      "app": "grant",
+      "images": {
+        "agent": "sha256:83b36f0889fdcbceaef6f5a1107c6fd3b422f63d388f119d5d72491a48de4e5a",
+        "backend": "sha256:547db008c2e3d9f778fcedb261af565012e0836edec89e505a2f96184cbe2462"
+      },
+      "passed": 5,
+      "cases": [
+        {
+          "scenario": 1,
+          "status": "passed",
+          "durationMs": 645.3918330000015
+        },
+        {
+          "scenario": 2,
+          "status": "passed",
+          "durationMs": 4372.917708000008
+        },
+        {
+          "scenario": 3,
+          "status": "passed",
+          "durationMs": 1477.4350419999973
+        },
+        {
+          "scenario": 4,
+          "status": "passed",
+          "durationMs": 3035.883375000005
+        },
+        {
+          "scenario": 5,
+          "status": "passed",
+          "durationMs": 1029.9817499999917
+        }
+      ],
+      "boundary": {
+        "app": "grant",
+        "gate": true,
+        "model": true,
+        "files": false,
+        "matrixIngress": false,
+        "database": false,
+        "hostDatabasePort": false
+      },
+      "waitingBackendCrashRecovered": true,
+      "assistantReplacedBeforeRejection": true,
+      "normalStops": 3
+    },
+    {
+      "app": "guard",
+      "images": {
+        "agent": "sha256:47bf8662751186f9373cf8c360bbac168d7dfa2ef90e4932bd9a25b109b65ee8",
+        "backend": "sha256:bc395739917b4b6e8c9deb5fe85150ac1a76b540fa391e87f70b0d98fd06ec6c"
+      },
+      "passed": 5,
+      "cases": [
+        {
+          "scenario": 1,
+          "status": "passed",
+          "durationMs": 706.2302499999932
+        },
+        {
+          "scenario": 2,
+          "status": "passed",
+          "durationMs": 4011.388209000026
+        },
+        {
+          "scenario": 3,
+          "status": "passed",
+          "durationMs": 1480.8105840000208
+        },
+        {
+          "scenario": 4,
+          "status": "passed",
+          "durationMs": 2984.77674999999
+        },
+        {
+          "scenario": 5,
+          "status": "passed",
+          "durationMs": 1049.098417000001
+        }
+      ],
+      "boundary": {
+        "app": "guard",
+        "gate": true,
+        "model": true,
+        "files": false,
+        "matrixIngress": false,
+        "database": false,
+        "hostDatabasePort": false
+      },
+      "waitingBackendCrashRecovered": true,
+      "assistantReplacedBeforeRejection": true,
+      "normalStops": 3
+    },
+    {
+      "app": "hire",
+      "images": {
+        "agent": "sha256:8d9cd2ac687444a978e18ec4991766f85be9581575e5e7f540c4aea4f6886bc9",
+        "backend": "sha256:f1acee35817a4db4c0fc2e8077ca706ac1947c14d1c16e56eea2224c01a635d2"
+      },
+      "passed": 5,
+      "cases": [
+        {
+          "scenario": 1,
+          "status": "passed",
+          "durationMs": 733.1060830000206
+        },
+        {
+          "scenario": 2,
+          "status": "passed",
+          "durationMs": 5384.019250000012
+        },
+        {
+          "scenario": 3,
+          "status": "passed",
+          "durationMs": 1466.6936249999853
+        },
+        {
+          "scenario": 4,
+          "status": "passed",
+          "durationMs": 5532.242875000025
+        },
+        {
+          "scenario": 5,
+          "status": "passed",
+          "durationMs": 1058.662457999977
+        }
+      ],
+      "boundary": {
+        "app": "hire",
+        "gate": true,
+        "model": true,
+        "files": false,
+        "matrixIngress": false,
+        "database": false,
+        "hostDatabasePort": false
+      },
+      "waitingBackendCrashRecovered": true,
+      "assistantReplacedBeforeRejection": true,
+      "normalStops": 3
+    },
+    {
+      "app": "pay",
+      "images": {
+        "agent": "sha256:61f2caaf237a0ff075251d8eae364048f42e7131e41bc1959942c17c37c39cc9",
+        "backend": "sha256:1bb86b82f7a7d975dd68753217e61cbedd080397b06e1e21b53accc127cd34ae"
+      },
+      "passed": 5,
+      "cases": [
+        {
+          "scenario": 1,
+          "status": "passed",
+          "durationMs": 1117.2937920000113
+        },
+        {
+          "scenario": 2,
+          "status": "passed",
+          "durationMs": 7327.352917000011
+        },
+        {
+          "scenario": 3,
+          "status": "passed",
+          "durationMs": 1498.0048330000136
+        },
+        {
+          "scenario": 4,
+          "status": "passed",
+          "durationMs": 2999.7556249999907
+        },
+        {
+          "scenario": 5,
+          "status": "passed",
+          "durationMs": 1038.132500000007
+        }
+      ],
+      "boundary": {
+        "app": "pay",
+        "gate": true,
+        "model": true,
+        "files": false,
+        "matrixIngress": false,
+        "database": false,
+        "hostDatabasePort": false
+      },
+      "waitingBackendCrashRecovered": true,
+      "assistantReplacedBeforeRejection": true,
+      "normalStops": 3
+    },
+    {
+      "app": "post",
+      "images": {
+        "agent": "sha256:0998f45f14a2b35b33baec754e3fab8756666d4af90639c9c4c18e7a778880e9",
+        "backend": "sha256:2ef4c62f5a7760d23130619a1d9be16e6e30a22d82e363e40753f1fe876c91a8"
+      },
+      "passed": 5,
+      "cases": [
+        {
+          "scenario": 1,
+          "status": "passed",
+          "durationMs": 753.0729580000043
+        },
+        {
+          "scenario": 2,
+          "status": "passed",
+          "durationMs": 4492.481582999986
+        },
+        {
+          "scenario": 3,
+          "status": "passed",
+          "durationMs": 1470.925292
+        },
+        {
+          "scenario": 4,
+          "status": "passed",
+          "durationMs": 3015.5632089999854
+        },
+        {
+          "scenario": 5,
+          "status": "passed",
+          "durationMs": 1033.2126669999852
+        }
+      ],
+      "boundary": {
+        "app": "post",
+        "gate": true,
+        "model": true,
+        "files": false,
+        "matrixIngress": false,
+        "database": false,
+        "hostDatabasePort": false
+      },
+      "waitingBackendCrashRecovered": true,
+      "assistantReplacedBeforeRejection": true,
+      "normalStops": 3
+    },
+    {
+      "app": "quote",
+      "images": {
+        "agent": "sha256:53a696a315e28f9caee346f8ec1e7b37065d91c416969879ca2614b2d1d8b22c",
+        "backend": "sha256:08011ab5314dd2e55d3d833d92d5f14598bce8c5fe2e690396b57da0fa4d2b11"
+      },
+      "passed": 5,
+      "cases": [
+        {
+          "scenario": 1,
+          "status": "passed",
+          "durationMs": 666.8990420000046
+        },
+        {
+          "scenario": 2,
+          "status": "passed",
+          "durationMs": 4432.253666000004
+        },
+        {
+          "scenario": 3,
+          "status": "passed",
+          "durationMs": 1488.6558330000262
+        },
+        {
+          "scenario": 4,
+          "status": "passed",
+          "durationMs": 3482.550042000017
+        },
+        {
+          "scenario": 5,
+          "status": "passed",
+          "durationMs": 1030.8972919999796
+        }
+      ],
+      "boundary": {
+        "app": "quote",
+        "gate": true,
+        "model": true,
+        "files": false,
+        "matrixIngress": false,
+        "database": false,
+        "hostDatabasePort": false
+      },
+      "waitingBackendCrashRecovered": true,
+      "assistantReplacedBeforeRejection": true,
+      "normalStops": 3
+    },
+    {
+      "app": "reach",
+      "images": {
+        "agent": "sha256:97c521df6f1fa94cb4487fb58c15cfe98acd608c80c43b42646e949334c253f4",
+        "backend": "sha256:3b8615f277832692fbd67571b27ccd6ae8674d298b6d91120afca1e6f464b94a"
+      },
+      "passed": 5,
+      "cases": [
+        {
+          "scenario": 1,
+          "status": "passed",
+          "durationMs": 741.1342920000025
+        },
+        {
+          "scenario": 2,
+          "status": "passed",
+          "durationMs": 4871.181000000011
+        },
+        {
+          "scenario": 3,
+          "status": "passed",
+          "durationMs": 1472.3384169999918
+        },
+        {
+          "scenario": 4,
+          "status": "passed",
+          "durationMs": 2528.327457999985
+        },
+        {
+          "scenario": 5,
+          "status": "passed",
+          "durationMs": 1025.2690409999923
+        }
+      ],
+      "boundary": {
+        "app": "reach",
+        "gate": true,
+        "model": true,
+        "files": false,
+        "matrixIngress": false,
+        "database": false,
+        "hostDatabasePort": false
+      },
+      "waitingBackendCrashRecovered": true,
+      "assistantReplacedBeforeRejection": true,
+      "normalStops": 3
+    },
+    {
+      "app": "renew",
+      "images": {
+        "agent": "sha256:a8dff5400c24f3b4bc4fa47fed37808602d3ac8183b1eba42de196e1ead51c3c",
+        "backend": "sha256:2480fe35fb4e6ae0bc986efc19d79232fa1e8a662c28f6a07174bc64ce5d4f48"
+      },
+      "passed": 5,
+      "cases": [
+        {
+          "scenario": 1,
+          "status": "passed",
+          "durationMs": 622.8248329999915
+        },
+        {
+          "scenario": 2,
+          "status": "passed",
+          "durationMs": 4749.126625000004
+        },
+        {
+          "scenario": 3,
+          "status": "passed",
+          "durationMs": 1473.859792000003
+        },
+        {
+          "scenario": 4,
+          "status": "passed",
+          "durationMs": 3010.421540999989
+        },
+        {
+          "scenario": 5,
+          "status": "passed",
+          "durationMs": 1036.3824170000153
+        }
+      ],
+      "boundary": {
+        "app": "renew",
+        "gate": true,
+        "model": true,
+        "files": false,
+        "matrixIngress": false,
+        "database": false,
+        "hostDatabasePort": false
+      },
+      "waitingBackendCrashRecovered": true,
+      "assistantReplacedBeforeRejection": true,
+      "normalStops": 3
+    },
+    {
+      "app": "roster",
+      "images": {
+        "agent": "sha256:6a3bb700b550066237aa58f4024168076f018b181f9f5367fd55936361e2cb4a",
+        "backend": "sha256:b23d5f37906b44187db9757ba80dc36e15adca3bf17b9777297ab6db563d4a15"
+      },
+      "passed": 5,
+      "cases": [
+        {
+          "scenario": 1,
+          "status": "passed",
+          "durationMs": 800.1792920000153
+        },
+        {
+          "scenario": 2,
+          "status": "passed",
+          "durationMs": 5813.979374999995
+        },
+        {
+          "scenario": 3,
+          "status": "passed",
+          "durationMs": 1451.34954200004
+        },
+        {
+          "scenario": 4,
+          "status": "passed",
+          "durationMs": 3511.551709000021
+        },
+        {
+          "scenario": 5,
+          "status": "passed",
+          "durationMs": 1038.4486669999897
+        }
+      ],
+      "boundary": {
+        "app": "roster",
+        "gate": true,
+        "model": true,
+        "files": false,
+        "matrixIngress": false,
+        "database": false,
+        "hostDatabasePort": false
+      },
+      "waitingBackendCrashRecovered": true,
+      "assistantReplacedBeforeRejection": true,
+      "normalStops": 3
+    },
+    {
+      "app": "shift",
+      "images": {
+        "agent": "sha256:6e2b71251ee66ea9a070e7d4d7b07f190bf0c920de47357ac0f0769be4bad843",
+        "backend": "sha256:a1a27313172c84b764594c04f2e32ea9a66acdfcb4e398f3c522ab5b105bba0e"
+      },
+      "passed": 5,
+      "cases": [
+        {
+          "scenario": 1,
+          "status": "passed",
+          "durationMs": 729.7054580000113
+        },
+        {
+          "scenario": 2,
+          "status": "passed",
+          "durationMs": 4193.793833000003
+        },
+        {
+          "scenario": 3,
+          "status": "passed",
+          "durationMs": 1431.0403749999823
+        },
+        {
+          "scenario": 4,
+          "status": "passed",
+          "durationMs": 3495.8469999999506
+        },
+        {
+          "scenario": 5,
+          "status": "passed",
+          "durationMs": 1045.6653329999535
+        }
+      ],
+      "boundary": {
+        "app": "shift",
+        "gate": true,
+        "model": true,
+        "files": false,
+        "matrixIngress": false,
+        "database": false,
+        "hostDatabasePort": false
+      },
+      "waitingBackendCrashRecovered": true,
+      "assistantReplacedBeforeRejection": true,
+      "normalStops": 3
+    },
+    {
+      "app": "sign",
+      "images": {
+        "agent": "sha256:723e37474283485485645c685e378a5e6cf22ecceee386c89caa61979cae8171",
+        "backend": "sha256:8fdd0e3fdc3b4eb7837c7a21b237918e3b9acf7a8076f747d3884397f9989b03"
+      },
+      "passed": 5,
+      "cases": [
+        {
+          "scenario": 1,
+          "status": "passed",
+          "durationMs": 715.7353340000263
+        },
+        {
+          "scenario": 2,
+          "status": "passed",
+          "durationMs": 4473.136667000013
+        },
+        {
+          "scenario": 3,
+          "status": "passed",
+          "durationMs": 1470.6890830000048
+        },
+        {
+          "scenario": 4,
+          "status": "passed",
+          "durationMs": 3517.667417000048
+        },
+        {
+          "scenario": 5,
+          "status": "passed",
+          "durationMs": 1021.8745839999756
+        }
+      ],
+      "boundary": {
+        "app": "sign",
+        "gate": true,
+        "model": true,
+        "files": false,
+        "matrixIngress": false,
+        "database": false,
+        "hostDatabasePort": false
+      },
+      "waitingBackendCrashRecovered": true,
+      "assistantReplacedBeforeRejection": true,
+      "normalStops": 3
+    },
+    {
+      "app": "sync",
+      "images": {
+        "agent": "sha256:ffb930735bc7c0617d289f465b8a98dc5e3545e558c15bdddaf132b7c348ed75",
+        "backend": "sha256:b7616388ef2ae5f0374220d99c08c3cab374c5927ae5851ce0e94ba96c94be4b"
+      },
+      "passed": 5,
+      "cases": [
+        {
+          "scenario": 1,
+          "status": "passed",
+          "durationMs": 743.8862499999814
+        },
+        {
+          "scenario": 2,
+          "status": "passed",
+          "durationMs": 4952.152666000009
+        },
+        {
+          "scenario": 3,
+          "status": "passed",
+          "durationMs": 1538.5174169999664
+        },
+        {
+          "scenario": 4,
+          "status": "passed",
+          "durationMs": 3008.604624999978
+        },
+        {
+          "scenario": 5,
+          "status": "passed",
+          "durationMs": 1057.9043749999837
+        }
+      ],
+      "boundary": {
+        "app": "sync",
+        "gate": true,
+        "model": true,
+        "files": false,
+        "matrixIngress": false,
+        "database": false,
+        "hostDatabasePort": false
+      },
+      "waitingBackendCrashRecovered": true,
+      "assistantReplacedBeforeRejection": true,
+      "normalStops": 3
+    },
+    {
+      "app": "vet",
+      "images": {
+        "agent": "sha256:5e1494dbc61f589d498ea281ded3ed8c6218cc03a356d31475573e1dac2ea218",
+        "backend": "sha256:e0e8b7aa68627366d52cec63fabc3b739c3ec9cfb08733cee4c2146fb91e33d8"
+      },
+      "passed": 5,
+      "cases": [
+        {
+          "scenario": 1,
+          "status": "passed",
+          "durationMs": 790.6053330000141
+        },
+        {
+          "scenario": 2,
+          "status": "passed",
+          "durationMs": 4671.687957999995
+        },
+        {
+          "scenario": 3,
+          "status": "passed",
+          "durationMs": 1516.0235419999808
+        },
+        {
+          "scenario": 4,
+          "status": "passed",
+          "durationMs": 2998.6646670000046
+        },
+        {
+          "scenario": 5,
+          "status": "passed",
+          "durationMs": 1009.0497500000056
+        }
+      ],
+      "boundary": {
+        "app": "vet",
+        "gate": true,
+        "model": true,
+        "files": false,
+        "matrixIngress": false,
+        "database": false,
+        "hostDatabasePort": false
+      },
+      "waitingBackendCrashRecovered": true,
+      "assistantReplacedBeforeRejection": true,
+      "normalStops": 3
+    }
+  ],
+  "priorAttempt": {
+    "outcome": "Timed out in initial artifact preflight before fixture allocation; no successful scenario. Read-only preflight moved before timed lifecycle hooks; timeouts/assertions unchanged. Subsequent selected Asset run and complete Docker run passed.",
+    "testReport": "/Users/mansi.gambhir/Documents/Codex/2026-09-28/lo/work/fleet-packaged-jobs-8-first-tests.json",
+    "fixtureReport": "/Users/mansi.gambhir/Documents/Codex/2026-09-28/lo/work/fleet-packaged-jobs-8-first-fixtures.json"
+  },
+  "limits": [
+    "Internal draft workflows only; business authorization/provider execution/source parity remain incomplete.",
+    "Waiting-state recovery only; active-session/in-flight-effect/concurrency/outage/load coverage remains.",
+    "Six initial network canaries are not production host/metadata/general-egress certification.",
+    "Local image IDs are not registry digests or signed manifest-bound release attestations.",
+    "Two ordinary conditional skips remain real-S3 and PostgreSQL dump/restore prerequisites."
+  ]
+}

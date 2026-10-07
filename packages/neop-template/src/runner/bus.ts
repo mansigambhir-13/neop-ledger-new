@@ -1,3 +1,4 @@
+import {sqlIdent, withCompany, type PoolClient} from '@neop/pgkit';
 // THE RUNNER ON THE BUS · NEOP to NEOP in the company's bus room (#neop-bus-<co>) — v3 §9 "Talking to other NEOPs",
 // §10 "Borrowing one ability from another app"; V3 migration stage S6. Template-only. Every app of a company is in
 // the one bus room as its own Matrix name (its presence, S4); a thread there is one piece of work between two apps:
@@ -23,9 +24,9 @@
 // orders: they reach a model only inside the untrusted fence, and no NEOP's event ever counts as a person's.
 
 import { clip } from '../presence/cards.ts';
-import { keyTxnId, shortType, typedContent, type TypedBodies, type TypedEventType } from '../presence/events.ts';
+import { claimInbound, RetryableInboundError, validateTypedBody, threadRootOf, keyTxnId, shortType, typedContent, type TypedBodies, type TypedEventType } from '../presence/events.ts';
 import type { Identity, Who } from '../presence/identity.ts';
-import { openJob } from '../capabilities/platform/tasks.open.ts';
+import { openJob } from '../capabilities/jobs.open.ts';
 import type { Core } from '../core.ts';
 import type { JobRow, ProposalRow } from '../data/book.ts';
 import { Gate } from '../gate/gate.ts';
@@ -52,7 +53,8 @@ export interface BusRoad {
     peer: BusPeer,
     o: { kind: 'task' | 'call'; task_id: string; job_id: string; on_behalf_of: string; text: string; lineage: string[]; ability?: string; args?: Record<string, unknown> },
   ): Promise<string>;
-  answer(companyId: string, where: { room: string; peer: string; root: string }, o: { key: string; wait_id: string; answers: Record<string, string | number | boolean> }): Promise<void>;
+  answerAccount(companyId: string): Promise<string>;
+  answer(companyId: string, where: { room: string; peer: string; root: string }, o: { key: string; wait_id: string; answers: Record<string, string | number | boolean>; account?: string }): Promise<void>;
   /** The runner's hook: a borrowed write this app serves is carried with no model. True when it took the job. */
   takeJob(job: JobRow): Promise<boolean>;
 }
@@ -147,7 +149,7 @@ export class Bus implements BusRoad {
 
   /** One typed event in the bus room, once per key, addressed (m.mentions) to the peer. Returns its event id. */
   private async say<T extends TypedEventType>(road: Road, room: string, peer: string, key: string, type: T, body: TypedBodies[T], fallback: string, root: string | null, x: { job_id?: string | null } = {}): Promise<string> {
-    const had = (await this.db.query<{ event_id: string | null }>(`select event_id from ${this.s}.outbound_events where account = $1 and room_id = $2 and key = $3`, [road.account, room, key])).rows[0];
+    const had = (await this.db.query<{ event_id: string | null }>(`select event_id from ${sqlIdent(this.s)}.outbound_events where account = $1 and room_id = $2 and key = $3`, [road.account, room, key])).rows[0];
     if (had?.event_id) return had.event_id;
     const content = { ...typedContent(type, body, clip(fallback), root), 'm.mentions': { user_ids: [peer] } };
     const ev = await road.sendEvent(room, type, content, keyTxnId(key));
@@ -194,9 +196,16 @@ export class Bus implements BusRoad {
     );
   }
 
-  async answer(companyId: string, where: { room: string; peer: string; root: string }, o: { key: string; wait_id: string; answers: Record<string, string | number | boolean>; result?: Record<string, unknown> }): Promise<void> {
+  async answerAccount(companyId: string): Promise<string> {
+    const road = await this.roadFor(companyId);
+    if (!road || road.companyId !== companyId) throw new BusError('no_bus', `${this.core.key} has no voice in the bus room here`);
+    return road.account;
+  }
+
+  async answer(companyId: string, where: { room: string; peer: string; root: string }, o: { key: string; wait_id: string; answers: Record<string, string | number | boolean>; result?: Record<string, unknown>; account?: string }): Promise<void> {
     const road = await this.roadFor(companyId);
     if (!road) throw new BusError('no_bus', `${this.core.key} has no voice in the bus room here`);
+    if (road.companyId !== companyId || (o.account !== undefined && o.account !== road.account)) throw new BusError('answer_route_changed', 'the prepared sending identity changed; nothing was sent');
     const fallback = o.result ? `${this.core.manifest.name} answers.` : `${this.core.manifest.name} answers: ${Object.entries(o.answers).map(([k, v]) => `${k}: ${String(v)}`).join('; ')}`;
     await this.say(road, where.room, where.peer, o.key, 'neos.neop.answer', { wait_id: o.wait_id, answers: o.answers, ...(o.result ? { result: o.result } : {}) }, fallback, where.root);
   }
@@ -221,17 +230,17 @@ export class Bus implements BusRoad {
         return this.onTask(road, ev, who, body as TypedBodies['neos.neop.task']);
       case 'neos.neop.ask': {
         const b = body as TypedBodies['neos.neop.ask'];
-        return b.call ? this.onCall(road, ev, who, b) : this.onQuestion(ev, b, root);
+        return b.call ? this.onCall(road, ev, who, b) : (await this.receiveUpdate(road, ev, who)) ?? this.quiet(ev, 'not_ours');
       }
       case 'neos.neop.answer': {
         const b = body as TypedBodies['neos.neop.answer'];
         const mine = await this.outRow(`id::text = $1 and kind = 'call'`, [b.wait_id], ev.sender);
-        if (mine) return this.onCallAnswer(ev, mine, b, root);
+        if (mine) return (await this.receiveUpdate(road, ev, who)) ?? this.quiet(ev, 'not_ours');
         // Otherwise: an answer to a question this app's job asked in a thread it took (inbound's own rules apply).
         return this.inbound.onAnswer(road, ev, who, b, root);
       }
       case 'neos.neop.done':
-        return this.onDone(ev, body as TypedBodies['neos.neop.done'], root);
+        return (await this.receiveUpdate(road, ev, who)) ?? this.quiet(ev, 'not_ours');
       default:
         await this.inbound.setIn(ev.event_id, `typed:info:${shortType(ev.type as TypedEventType)}`, { detail: { class: who.cls, body } });
         return `typed:info:${shortType(ev.type as TypedEventType)}`;
@@ -239,7 +248,7 @@ export class Bus implements BusRoad {
   }
 
   private async outRow(where: string, params: unknown[], sender: string): Promise<ThreadRow | null> {
-    const r = await this.db.query<ThreadRow>(`select * from ${this.s}.bus_threads where direction = 'out' and peer = $${params.length + 1} and ${where} limit 1`, [...params, sender]);
+    const r = await this.db.query<ThreadRow>(`select * from ${sqlIdent(this.s)}.bus_threads where direction = 'out' and peer = $${params.length + 1} and ${where} limit 1`, [...params, sender]);
     return r.rows[0] ?? null;
   }
 
@@ -289,7 +298,7 @@ export class Bus implements BusRoad {
     if (!person) return refuse('no_person', `${b.on_behalf_of} is not a person linked to this company on NEOS`);
     // The thread first (the runner may take the job the moment it exists): its root is the correlation.
     await this.db.query(
-      `insert into ${this.s}.bus_threads (company_id, direction, kind, room_id, root_event_id, peer, peer_app, task_id, lineage, depth, status)
+      `insert into ${sqlIdent(this.s)}.bus_threads (company_id, direction, kind, room_id, root_event_id, peer, peer_app, task_id, lineage, depth, status)
        values ($1, 'in', 'task', $2, $3, $4, $5, $6, $7, $8, 'open') on conflict (root_event_id) do nothing`,
       [road.companyId, ev.room_id, ev.event_id, ev.sender, peerApp, b.task_id, JSON.stringify(lineage), depth],
     );
@@ -297,7 +306,7 @@ export class Bus implements BusRoad {
     await this.inbound.setIn(ev.event_id, null, { typed_task_id: b.task_id, detail: { class: who.cls, task_id: b.task_id, from_app: peerApp, lineage, depth } });
     const job = await this.inbound.open(road, ev.event_id, ev.room_id, person.id, `${b.text}${fields}`, 'typed:task_opened', { requester: `app:${ev.sender}`, source: 'a2a' });
     if (!job) return 'typed:not_installed';
-    await this.db.query(`update ${this.s}.bus_threads set job_id = $2, updated_at = now() where root_event_id = $1`, [ev.event_id, job]);
+    await this.db.query(`update ${sqlIdent(this.s)}.bus_threads set job_id = $2, updated_at = now() where root_event_id = $1`, [ev.event_id, job]);
     return 'typed:task_opened';
   }
 
@@ -358,7 +367,7 @@ export class Bus implements BusRoad {
           reason: `a read served to ${peerApp} over the bus room (no model)`,
         });
         await c.query(
-          `insert into ${this.s}.bus_threads (company_id, direction, kind, room_id, root_event_id, peer, peer_app, wait_id, ability, args, status, result)
+          `insert into ${sqlIdent(this.s)}.bus_threads (company_id, direction, kind, room_id, root_event_id, peer, peer_app, wait_id, ability, args, status, result)
            values ($1, 'in', 'call', $2, $3, $4, $5, $6, $7, $8, 'done', $9) on conflict (root_event_id) do nothing`,
           [co, ev.room_id, ev.event_id, ev.sender, peerApp, b.wait_id, call.ability, JSON.stringify(call.args), JSON.stringify({ served: true })],
         );
@@ -371,7 +380,7 @@ export class Bus implements BusRoad {
     // job the moment it exists, and finds it by its origin (this event).
     const person = call.on_behalf_of ? await this.identity.person(co, call.on_behalf_of) : null;
     await this.db.query(
-      `insert into ${this.s}.bus_threads (company_id, direction, kind, room_id, root_event_id, peer, peer_app, wait_id, ability, args, status)
+      `insert into ${sqlIdent(this.s)}.bus_threads (company_id, direction, kind, room_id, root_event_id, peer, peer_app, wait_id, ability, args, status)
        values ($1, 'in', 'call', $2, $3, $4, $5, $6, $7, $8, 'open') on conflict (root_event_id) do nothing`,
       [co, ev.room_id, ev.event_id, ev.sender, peerApp, b.wait_id, call.ability, JSON.stringify(call.args)],
     );
@@ -383,7 +392,7 @@ export class Bus implements BusRoad {
       on_behalf_of: person ? `user:${person.id}` : null,
       origin: ev.event_id,
     });
-    await this.db.query(`update ${this.s}.bus_threads set job_id = $2, updated_at = now() where root_event_id = $1`, [ev.event_id, job_id]);
+    await this.db.query(`update ${sqlIdent(this.s)}.bus_threads set job_id = $2, updated_at = now() where root_event_id = $1`, [ev.event_id, job_id]);
     await this.inbound.setIn(ev.event_id, 'typed:call_opened', { job_id, detail: { class: who.cls, from_app: peerApp, ability: call.ability } });
     return 'typed:call_opened';
   }
@@ -396,7 +405,7 @@ export class Bus implements BusRoad {
    */
   async takeJob(job: JobRow): Promise<boolean> {
     if (!job.origin) return false;
-    const row = (await this.db.query<ThreadRow>(`select * from ${this.s}.bus_threads where direction = 'in' and kind = 'call' and root_event_id = $1`, [job.origin])).rows[0];
+    const row = (await this.db.query<ThreadRow>(`select * from ${sqlIdent(this.s)}.bus_threads where direction = 'in' and kind = 'call' and root_event_id = $1`, [job.origin])).rows[0];
     if (!row || !row.ability) return false;
     const co = job.company_id;
     const sid = job.claimed_by!;
@@ -421,8 +430,8 @@ export class Bus implements BusRoad {
         const r = await this.gate.call(claims, row.ability, setting === 'ask_first' && resolved.meta.kind === 'write' ? { ...(row.args ?? {}), card } : (row.args ?? {}));
         if (r.status === 'proposed') {
           // A person decides (desk, or this app's own room); the runner wakes this job when the proposal ends.
-          await this.db.query(`update ${this.s}.bus_threads set result = $2, updated_at = now() where id = $1`, [row.id, JSON.stringify({ proposal_id: r.proposal_id })]);
-          await this.db.query(`update ${this.s}.jobs set claimed_by = null, claimed_until = null where id = $1 and claimed_by = $2`, [job.id, sid]);
+          await this.db.query(`update ${sqlIdent(this.s)}.bus_threads set result = $2, updated_at = now() where id = $1`, [row.id, JSON.stringify({ proposal_id: r.proposal_id })]);
+          await this.db.query(`update ${sqlIdent(this.s)}.jobs set claimed_by = null, claimed_until = null where id = $1 and claimed_by = $2`, [job.id, sid]);
           this.log('borrowed write proposed; a person decides', { job: job.id, proposal: r.proposal_id, from: row.peer_app });
           return true;
         }
@@ -444,7 +453,7 @@ export class Bus implements BusRoad {
       : `Not carried out for ${row.peer_app}: ${String((result.refused as any)?.message ?? result.status ?? 'refused')}. ${row.peer_app} was told.`;
     const fin = await this.gate.call(claims, 'job.finish', { outcome: ok ? 'done' : 'failed', summary, could_not: ok ? [] : [`${row.ability} for ${row.peer_app}`] });
     if (fin.status !== 'ok') this.log('borrowed write job could not finish', { job: job.id, fin });
-    await this.db.query(`update ${this.s}.bus_threads set status = $2, result = $3, updated_at = now() where id = $1`, [row.id, ok ? 'done' : 'failed', JSON.stringify(result)]);
+    await this.db.query(`update ${sqlIdent(this.s)}.bus_threads set status = $2, result = $3, updated_at = now() where id = $1`, [row.id, ok ? 'done' : 'failed', JSON.stringify(result)]);
     return true;
   }
 
@@ -453,88 +462,110 @@ export class Bus implements BusRoad {
    * Wake the asking job with what came back: the pending a2a wait of this thread becomes ready (with the answer as
    * data); a job that is not waiting on it (it asked its person first) gets a ready wait of its own.
    */
-  private async wake(row: ThreadRow, outcome: string, answer: Record<string, unknown>, step: string, op?: { ability_key: string; outcome: string; request: unknown; result: unknown; reason: string }): Promise<void> {
-    await this.core.company(row.company_id, async (c) => {
-      const readied = await c.query(`update ${this.s}.waits set status = 'ready', ready_at = now(), outcome = $2, answer = $3 where ref_id = $1 and kind = 'a2a_task' and status = 'pending'`, [row.id, outcome, JSON.stringify(answer)]);
-      if (!readied.rowCount && row.job_id) {
-        const live = await c.query(`select 1 from ${this.s}.jobs where id = $1 and status in ('RECEIVED', 'RUNNING', 'WAITING')`, [row.job_id]);
-        if (live.rowCount) {
-          await c.query(
-            `insert into ${this.s}.waits (company_id, job_id, kind, ref_id, status, outcome, answer, ready_at, expires_at) values ($1, $2, 'a2a_task', $3, 'ready', $4, $5, now(), now() + interval '24 hours')`,
-            [row.company_id, row.job_id, row.id, outcome, JSON.stringify(answer)],
-          );
+  /** Caller holds the job lock; the terminal reply also holds its thread lock. */
+  private async wakeIn(c: PoolClient, row: ThreadRow, outcome: string, answer: Record<string, unknown>, step: string, op?: { ability_key: string; outcome: string; request: unknown; result: unknown; reason: string }): Promise<void> {
+    const readied = await c.query(`update ${sqlIdent(this.s)}.waits set status = 'ready', ready_at = now(), outcome = $2, answer = $3 where ref_id = $1 and company_id = $4 and job_id = $5 and kind = 'a2a_task' and status = 'pending'`, [row.id, outcome, JSON.stringify(answer), row.company_id, row.job_id]);
+    if (!readied.rowCount && row.job_id) {
+      const live = await c.query(`select 1 from ${sqlIdent(this.s)}.jobs where id = $1 and status in ('RECEIVED', 'RUNNING', 'WAITING')`, [row.job_id]);
+      if (live.rowCount) {
+        await c.query(
+          `insert into ${sqlIdent(this.s)}.waits (company_id, job_id, kind, ref_id, status, outcome, answer, ready_at, expires_at) values ($1, $2, 'a2a_task', $3, 'ready', $4, $5, now(), now() + interval '24 hours')`,
+          [row.company_id, row.job_id, row.id, outcome, JSON.stringify(answer)],
+        );
+      }
+    }
+    if (op && row.job_id) {
+      await this.core.book.recordOperation(c, {
+        company_id: row.company_id,
+        job_id: row.job_id,
+        caller: `assistant:${row.job_id}`,
+        ability_key: op.ability_key,
+        idempotency_key: `bus:${row.id}`,
+        outcome: op.outcome,
+        request: op.request,
+        result: op.result,
+        reason: op.reason,
+      });
+    }
+    if (row.job_id) {
+      await this.core.book.addStep(c, { company_id: row.company_id, job_id: row.job_id, kind: 'system', summary: step, ...(row.ability ? { ability_key: row.ability } : {}) });
+      await this.core.book.notify(c, `wait:${row.job_id}`);
+    }
+  }
+
+  /**
+   * Atomic questions and terminal replies on the appservice bus. Null delegates other events to the existing
+   * inbound path. Sender/room identity is resolved by Presence; body validation is the same typed contract.
+   * No network operation or model call runs in this transaction.
+   */
+  async receiveUpdate(road: Road, ev: TypedIn, who: Who): Promise<string | null> {
+    if (who.cls !== 'neop' || (ev.type !== 'neos.neop.done' && ev.type !== 'neos.neop.answer' && ev.type !== 'neos.neop.ask')) return null;
+    const v = validateTypedBody(ev.type, ev.content);
+    if (!v.ok) return null; // The ordinary inbound path records invalid events without retrying poison data.
+    const isTask = ev.type === 'neos.neop.done', isQuestion = ev.type === 'neos.neop.ask';
+    const q = v.body as TypedBodies['neos.neop.ask'];
+    if (isQuestion && q.call) return null; // Incoming borrowed calls are not replies to our outgoing task.
+    const root = threadRootOf(ev.content);
+    const b = v.body as TypedBodies['neos.neop.done'] & TypedBodies['neos.neop.answer'];
+    try {
+      const found = (await this.db.query<ThreadRow>(
+        `select * from ${sqlIdent(this.s)}.bus_threads where company_id=$1 and room_id=$2 and peer=$3
+         and direction='out' and ${isQuestion ? "root_event_id=$4 and kind='task'" : isTask ? "task_id=$4 and kind='task'" : "id::text=$4 and kind='call'"} limit 1`,
+        [road.companyId, ev.room_id, ev.sender, isQuestion ? root : isTask ? b.task_id : b.wait_id])).rows[0];
+      if (!isTask && !isQuestion && !found) return null; // May be an answer to this app's own input question.
+      return await withCompany(this.db, road.companyId, async c => {
+        // An uncommitted receipt cannot cause a concurrent delivery to acknowledge failed work.
+        if (!await claimInbound(c, this.s, { event_id: ev.event_id, company_id: road.companyId,
+          account: road.account, room_id: ev.room_id, road: 'appservice', sender: ev.sender,
+          sender_class: who.cls, person_id: null, type: ev.type }, 'typed:received')) return 'duplicate';
+        const record = async (outcome: string, detail: Record<string, unknown> = {}) => {
+          const code = `typed:bus:${outcome}`;
+          await this.inbound.setIn(ev.event_id, code, { job_id: found?.job_id, detail: { type: ev.type, ...detail } }, c);
+          return code;
+        };
+        if (!found?.job_id) return record('not_ours');
+        // Canonical order: job -> thread -> waits -> operations/steps. Cancellation starts with the same job.
+        const job = await this.core.book.getJob(c, found.job_id, true);
+        if (!job || job.company_id !== road.companyId) return record('not_ours');
+        const row = (await c.query<ThreadRow>(`select * from ${sqlIdent(this.s)}.bus_threads
+          where id=$1 and company_id=$2 and room_id=$3 and peer=$4 and direction='out' for update`,
+          [found.id, road.companyId, ev.room_id, ev.sender])).rows[0];
+        if (!row || row.job_id !== found.job_id) return record('not_ours');
+        if (root && row.root_event_id && root !== row.root_event_id) return record('thread_mismatch', { task_id: row.id, thread: root });
+        if (row.status !== 'open' && row.status !== 'sending') return record('stale', { task_id: row.id, status: row.status });
+        if (!['RECEIVED', 'RUNNING', 'WAITING'].includes(job.status)) return record('stale_job', { task_id: row.id, status: job.status });
+        if (isQuestion) {
+          // A peer's wait ID identifies one question, even if it resends it under a new Matrix event ID.
+          // Keep the accepted identity in the receipt: a2a.answer clears row.question, not this history.
+          const seen = row.question?.wait_id === q.wait_id || (await c.query(
+            `select 1 from ${sqlIdent(this.s)}.inbound_events where company_id=$1 and job_id=$2
+             and outcome='typed:bus:question' and detail->>'task_id'=$3 and detail->>'question_wait_id'=$4 limit 1`,
+            [road.companyId, row.job_id, row.id, q.wait_id])).rowCount;
+          if (seen) return record('duplicate_question', { task_id: row.id, question_wait_id: q.wait_id });
+          const question = { wait_id: q.wait_id, job_id: q.job_id, question: q.question, due: q.due };
+          await c.query(`update ${sqlIdent(this.s)}.bus_threads set question=$2,updated_at=now() where id=$1`,
+            [row.id, JSON.stringify(question)]);
+          await this.wakeIn(c, row, 'NEEDS_INPUT', { task_id: row.id, status: 'NEEDS_INPUT',
+            from_app: row.peer_app, question_wait_id: q.wait_id, question: q.question, due: q.due },
+            `${row.peer_app} asked a question about task ${row.id.slice(0, 8)}; this job answers it (a2a.answer) or asks its person first.`);
+          return record('question', { task_id: row.id, from_app: row.peer_app, question_wait_id: q.wait_id });
         }
-      }
-      if (op && row.job_id) {
-        await this.core.book.recordOperation(c, {
-          company_id: row.company_id,
-          job_id: row.job_id,
-          caller: `assistant:${row.job_id}`,
-          ability_key: op.ability_key,
-          idempotency_key: `bus:${row.id}`,
-          outcome: op.outcome,
-          request: op.request,
-          result: op.result,
-          reason: op.reason,
-        });
-      }
-      if (row.job_id) {
-        await this.core.book.addStep(c, { company_id: row.company_id, job_id: row.job_id, kind: 'system', summary: step, ...(row.ability ? { ability_key: row.ability } : {}) });
-        await this.core.book.notify(c, `wait:${row.job_id}`);
-      }
-    });
-  }
-
-  /** The callee's question about a task this app handed it (a typed ask in that thread, no call). */
-  private async onQuestion(ev: TypedIn, b: TypedBodies['neos.neop.ask'], root: string | null): Promise<string> {
-    const row = root ? await this.outRow(`root_event_id = $1 and kind = 'task'`, [root], ev.sender) : null;
-    if (!row) return this.quiet(ev, 'not_ours');
-    if (row.status !== 'open') return this.quiet(ev, 'stale', { task_id: row.id, status: row.status });
-    const question = { wait_id: b.wait_id, job_id: b.job_id, question: b.question, due: b.due };
-    await this.db.query(`update ${this.s}.bus_threads set question = $2, updated_at = now() where id = $1`, [row.id, JSON.stringify(question)]);
-    await this.wake(row, 'NEEDS_INPUT', { task_id: row.id, status: 'NEEDS_INPUT', from_app: row.peer_app, question: b.question, due: b.due }, `${row.peer_app} asked a question about task ${row.id.slice(0, 8)}; this job answers it (a2a.answer) or asks its person first.`);
-    await this.inbound.setIn(ev.event_id, 'typed:bus:question', { job_id: row.job_id, detail: { task_id: row.id, from_app: row.peer_app } });
-    return 'typed:bus:question';
-  }
-
-  /** The result of a task this app handed over (a typed done, with THIS app's task id). */
-  private async onDone(ev: TypedIn, b: TypedBodies['neos.neop.done'], root: string | null): Promise<string> {
-    const row = await this.outRow(`task_id = $1 and kind = 'task'`, [b.task_id], ev.sender);
-    if (!row) return this.quiet(ev, 'not_ours');
-    if (root && row.root_event_id && root !== row.root_event_id) return this.quiet(ev, 'thread_mismatch', { task_id: row.id, thread: root });
-    if (row.status !== 'open' && row.status !== 'sending') return this.quiet(ev, 'stale', { task_id: row.id, status: row.status });
-    const r = (b.result ?? {}) as Record<string, unknown>;
-    const status = r.outcome === 'done' ? 'COMPLETED' : r.refused ? 'REFUSED' : 'FAILED';
-    const result = { ...r, could_not: b.could_not };
-    await this.db.query(`update ${this.s}.bus_threads set status = $2, result = $3, question = null, updated_at = now() where id = $1`, [row.id, status === 'COMPLETED' ? 'done' : status === 'REFUSED' ? 'refused' : 'failed', JSON.stringify(result)]);
-    await this.wake(row, status, { task_id: row.id, status, from_app: row.peer_app, result }, `${row.peer_app} answered task ${row.id.slice(0, 8)}: ${status}`, {
-      ability_key: `task:${row.peer_app}`,
-      outcome: status,
-      request: { task_id: row.id },
-      result,
-      reason: `a task handed to ${row.peer_app} over the bus room`,
-    });
-    await this.inbound.setIn(ev.event_id, 'typed:bus:done', { job_id: row.job_id, detail: { task_id: row.id, from_app: row.peer_app, status } });
-    return 'typed:bus:done';
-  }
-
-  /** The owner's answer to an ability this app borrowed (typed answer to the thread's own wait id). */
-  private async onCallAnswer(ev: TypedIn, row: ThreadRow, b: TypedBodies['neos.neop.answer'], root: string | null): Promise<string> {
-    if (root && row.root_event_id && root !== row.root_event_id) return this.quiet(ev, 'thread_mismatch', { task_id: row.id, thread: root });
-    if (row.status !== 'open' && row.status !== 'sending') return this.quiet(ev, 'stale', { task_id: row.id, status: row.status });
-    const r = (b.result ?? {}) as Record<string, unknown>;
-    const refused = !!r.refused;
-    const status = refused ? 'REFUSED' : typeof r.status === 'string' && r.status !== 'DONE' ? r.status : 'COMPLETED';
-    // The owner's schema is not trusted to say it: the output is data; only its shape is checked by the model's reading.
-    await this.db.query(`update ${this.s}.bus_threads set status = $2, result = $3, updated_at = now() where id = $1`, [row.id, status === 'COMPLETED' ? 'done' : refused ? 'refused' : 'failed', JSON.stringify(r)]);
-    await this.wake(row, status, { task_id: row.id, status, from_app: row.peer_app, result: r }, `Asked ${row.peer_app}: ${row.ability} — ${status}`, {
-      ability_key: `borrow:${row.peer_app}:${row.ability}`,
-      outcome: refused ? 'refused' : 'answered',
-      request: row.args ?? {},
-      result: r,
-      reason: `borrowed from ${row.peer_app} over the bus room`,
-    });
-    await this.inbound.setIn(ev.event_id, 'typed:bus:answered', { job_id: row.job_id, detail: { task_id: row.id, from_app: row.peer_app, status } });
-    return 'typed:bus:answered';
+        const r = (b.result ?? {}) as Record<string, unknown>, refused = !!r.refused;
+        const status = isTask
+          ? r.outcome === 'done' ? 'COMPLETED' : refused ? 'REFUSED' : 'FAILED'
+          : refused ? 'REFUSED' : typeof r.status === 'string' && r.status !== 'DONE' ? r.status : 'COMPLETED';
+        const result = isTask ? { ...r, could_not: b.could_not } : r;
+        await c.query(`update ${sqlIdent(this.s)}.bus_threads set status=$2, result=$3, question=null, updated_at=now() where id=$1`,
+          [row.id, status === 'COMPLETED' ? 'done' : refused ? 'refused' : 'failed', JSON.stringify(result)]);
+        await this.wakeIn(c, row, status, { task_id: row.id, status, from_app: row.peer_app, result },
+          isTask ? `${row.peer_app} answered task ${row.id.slice(0, 8)}: ${status}` : `Asked ${row.peer_app}: ${row.ability} — ${status}`, {
+            ability_key: isTask ? `task:${row.peer_app}` : `borrow:${row.peer_app}:${row.ability}`,
+            outcome: isTask ? status : refused ? 'refused' : 'answered',
+            request: isTask ? { task_id: row.id } : row.args ?? {}, result,
+            reason: isTask ? `a task handed to ${row.peer_app} over the bus room` : `borrowed from ${row.peer_app} over the bus room`,
+          });
+        return record(isTask ? 'done' : 'answered', { task_id: row.id, from_app: row.peer_app, status });
+      });
+    } catch (e) { throw new RetryableInboundError(e); }
   }
 }

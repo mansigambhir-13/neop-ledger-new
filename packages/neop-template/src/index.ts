@@ -2,6 +2,7 @@ export * from './types.ts';
 export * from './app.ts';
 export { Core } from './core.ts';
 export { Book } from './data/book.ts';
+export { checkHumanAuthority } from './data/human-authority.ts';
 export type { JobRow, ProposalRow, WaitRow, StepRow } from './data/book.ts';
 export { DoorError } from './doors/errors.ts';
 export type { EmailMessage, SentRecord } from './doors/email.ts';
@@ -28,12 +29,15 @@ export { Runner } from './runner/runner.ts';
 export { ApprovedPath, APPROVED_GRANT_GRACE } from './runner/waits.ts';
 export { ExecError, executeProposal, type ExecBy } from './capabilities/execute.ts';
 export { FileDoor, MemoryDoorJournal, PgDoorJournal, GSP_DEFAULT_PATHS, resetGspSessions, sameFigures, type DoorJournal, type GspCredential } from './doors/index.ts';
-export { neosV1App, neosV1Compile, neosV1Descriptor, strictSchema, capabilityId, NEOS_V1_CONTRACT, type NeosV1Config } from './l3/neos-v1.ts';
+export { filesApp } from './files/listener.ts';
+export { openJob, type OpenJobInput } from './capabilities/jobs.open.ts';
+export { answerWait } from './capabilities/waits.answer.ts';
 export { SchemaMismatchError, type SchemaDrift } from '@neop/pgkit';
 export {
   Presence,
   presenceConfigFromEnv,
   PresenceClient,
+  MatrixClientHttp,
   AppserviceTransport,
   appserviceRoutes,
   Identity as PresenceIdentity,
@@ -63,4 +67,4 @@ export {
   type BusRoad,
 } from './presence/index.ts';
 export { A2A_MAX_DEPTH } from './gate/a2a.ts';
-export { v3RoomPowerLevels, V3_ROOM_LEVELS } from '@neop/contracts';
+export { roomProblems, roomStateView, v3RoomPowerLevels, V3_ROOM_LEVELS } from '@neop/contracts';

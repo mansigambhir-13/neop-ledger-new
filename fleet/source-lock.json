@@ -1,0 +1,1036 @@
+{
+  "schema_version": 1,
+  "captured_at": "2026-09-30T06:51:00.441Z",
+  "purpose": "Read-only legacy evidence; never imported or executed by the V3 runtime. Business behavior is subject to V3 security and owner review.",
+  "apps": [
+    {
+      "app": "asset",
+      "repo": "https://github.com/NEOS-Ecosystem/neos-neop-asset",
+      "commit": "742f6e2dc2c7bc5dd32ef4647d15367625d6ce0c",
+      "files": [
+        {
+          "path": "db/neops-asset-schema.sql",
+          "blob_sha": "538239350a4adf5fc493b1f4f105f41e3ceafdd0",
+          "sha256": "119bd30b3748a7e5fcc767813fa69099eea6dbbaf505b232383d7e9c86a54c3b",
+          "local": "reference/upstream/asset/db/neops-asset-schema.sql"
+        },
+        {
+          "path": "neops/asset/actions.mjs",
+          "blob_sha": "18f70c02a95ad826818ab982a3c6d5b9c6c76477",
+          "sha256": "28b5e68d503702f4ae04092a86137ef54e257038977796de3030c67f359535e3",
+          "local": "reference/upstream/asset/neops/asset/actions.mjs"
+        },
+        {
+          "path": "neops/asset/capabilities.mjs",
+          "blob_sha": "074ca4ffa994fc2af321bad36fee116df746449c",
+          "sha256": "0e21c63edc577c03f0b188027006ec6d6917897b7fb21425c65625054e781029",
+          "local": "reference/upstream/asset/neops/asset/capabilities.mjs"
+        },
+        {
+          "path": "neops/asset/manifest.mjs",
+          "blob_sha": "4db87a74b1ec79aa0487d658f99465ea755608ce",
+          "sha256": "b417abb95422a244b59ff759488c7ae32397dc80b0173464da4676b6cf833c46",
+          "local": "reference/upstream/asset/neops/asset/manifest.mjs"
+        },
+        {
+          "path": "test/asset-request-floor.test.mjs",
+          "blob_sha": "2b4573fb65e830e30c5d890c04f4a32b5f50c59b",
+          "sha256": "43647d7a43fe49a4f1974bb5a25fbffdecff64eaa3395ac6c2e4d248f09fd29c",
+          "local": "reference/upstream/asset/test/asset-request-floor.test.mjs"
+        },
+        {
+          "path": "test/asset-runtime.test.mjs",
+          "blob_sha": "47cf26e91864b2c48c798081bc5f4e3524460e1a",
+          "sha256": "64618d259b2351675b077d6ffc6bc1d62f5570d4231ebf58c222980a04c36a4f",
+          "local": "reference/upstream/asset/test/asset-runtime.test.mjs"
+        }
+      ],
+      "capabilities": [
+        "asset.configure",
+        "asset.people.import",
+        "asset.request.propose",
+        "asset.request.decide",
+        "asset.request.provision",
+        "asset.dashboard",
+        "asset.requests",
+        "asset.people",
+        "asset.deliverables",
+        "asset.config",
+        "asset.chat"
+      ],
+      "tree_sha": "74a9e1799486bf3b5f87e7accf4d50ce0f23e613"
+    },
+    {
+      "app": "buy",
+      "repo": "https://github.com/NEOS-Ecosystem/neos-neop-buy",
+      "commit": "37c7f6d92e9502e2c887a6afabb9dd3abca885f2",
+      "files": [
+        {
+          "path": "db/neops-buy-schema.sql",
+          "blob_sha": "b0bf97d247356cb751878de9284ef1736df44e00",
+          "sha256": "e924cfff8b15455d7e660c9a0c8bd74dd815e3941718f695b7354c55ada7e69b",
+          "local": "reference/upstream/buy/db/neops-buy-schema.sql"
+        },
+        {
+          "path": "neops/buy/actions.mjs",
+          "blob_sha": "8e5e45d84e24483ab371e9040a55e7e3245c1c0e",
+          "sha256": "05db5d56cd125448a013704d7e79378e469467b7dfa95a4a206a16bb67368cb5",
+          "local": "reference/upstream/buy/neops/buy/actions.mjs"
+        },
+        {
+          "path": "neops/buy/capabilities.mjs",
+          "blob_sha": "c81493bb8cd6423c4b57cc3e62713f73effb86cb",
+          "sha256": "3daef7f7102630bcea8252b585ab0e7103c1ff50c3bd3d38d742b3d831f9096b",
+          "local": "reference/upstream/buy/neops/buy/capabilities.mjs"
+        },
+        {
+          "path": "neops/buy/manifest.mjs",
+          "blob_sha": "008d74e90faba27b88f3845911b2eea9d13c4094",
+          "sha256": "0e306337143d6bde9d9aaf1b2d01a9f8e55f3ef8348e8339ee4310fe391cd07a",
+          "local": "reference/upstream/buy/neops/buy/manifest.mjs"
+        },
+        {
+          "path": "test/buy-po-floor.test.mjs",
+          "blob_sha": "ca5cfde718fc5c60720113a5e79aff5a2c8b1a52",
+          "sha256": "23c7652328b8ddedc4babc057c920974ac15193972356e5051508554641c6940",
+          "local": "reference/upstream/buy/test/buy-po-floor.test.mjs"
+        },
+        {
+          "path": "test/buy-runtime.test.mjs",
+          "blob_sha": "33b29f93c30df0b4a8cbed21698437a5cc41d1b3",
+          "sha256": "145994b73b267eef0d60a64224cb1bcf2db0d85376eb20258b316da389e06f70",
+          "local": "reference/upstream/buy/test/buy-runtime.test.mjs"
+        }
+      ],
+      "capabilities": [
+        "buy.configure",
+        "buy.vendors.import",
+        "buy.po.propose",
+        "buy.po.decide",
+        "buy.po.place",
+        "buy.dashboard",
+        "buy.orders",
+        "buy.vendors",
+        "buy.deliverables",
+        "buy.config",
+        "buy.chat"
+      ],
+      "tree_sha": "d58409f38870acf5e9214bcd5acddbe91d15f3e5"
+    },
+    {
+      "app": "clear",
+      "repo": "https://github.com/NEOS-Ecosystem/neos-neop-clear",
+      "commit": "c9e06bfcc851ce5e5d7ed09e7e8515fb90db5aca",
+      "files": [
+        {
+          "path": "db/neops-clear-schema.sql",
+          "blob_sha": "6a5ecc8d54252834d4346a38b17c7604db78ce99",
+          "sha256": "e69ff14a04aadcdb34675ccbc63896c868f7c6e899451cf40aac4124e48b2a84",
+          "local": "reference/upstream/clear/db/neops-clear-schema.sql"
+        },
+        {
+          "path": "neops/clear/actions.mjs",
+          "blob_sha": "296a2315b9a644a08360ef948b67379e29b76961",
+          "sha256": "f320abc8fd19a8d9363b1fc5ed4f04bdb4c31ca81c358fd1ab4f032745b3ee53",
+          "local": "reference/upstream/clear/neops/clear/actions.mjs"
+        },
+        {
+          "path": "neops/clear/capabilities.mjs",
+          "blob_sha": "e7fe8528dc393a4f09d7f4a0c358c74af091571a",
+          "sha256": "0c411545df92b2d1ab110e42596fab712551fb1a779467abc967b21a0e7c3dce",
+          "local": "reference/upstream/clear/neops/clear/capabilities.mjs"
+        },
+        {
+          "path": "neops/clear/manifest.mjs",
+          "blob_sha": "84da8a302fca29c8c0339ea4b17fc6854a800c6c",
+          "sha256": "7b6e95cf6ea340472df5ff992b2043b72efcf3fb4266c8f26975716d62fb5872",
+          "local": "reference/upstream/clear/neops/clear/manifest.mjs"
+        },
+        {
+          "path": "test/clear-kyc-floor.test.mjs",
+          "blob_sha": "34b81a63dc8067aed2999398c7ba7b46bcbfbb39",
+          "sha256": "5659ce6d39c34f578065931441b35396bcac9e5a7dddcdfe2d025b94b29a1f8c",
+          "local": "reference/upstream/clear/test/clear-kyc-floor.test.mjs"
+        },
+        {
+          "path": "test/clear-runtime.test.mjs",
+          "blob_sha": "b6ccbe65d3f8e0d8c36f16da3e1227fade5bb873",
+          "sha256": "6aeae10a802e9a56f660c0c83dac7d67e0fb4a5b984096f75924166fb500bb63",
+          "local": "reference/upstream/clear/test/clear-runtime.test.mjs"
+        }
+      ],
+      "capabilities": [
+        "clear.configure",
+        "clear.subjects.import",
+        "clear.screen",
+        "clear.case.decide",
+        "clear.sar.decide",
+        "clear.submit",
+        "clear.dashboard",
+        "clear.deliverables",
+        "clear.config",
+        "clear.case.reopen",
+        "clear.subjects",
+        "clear.cases",
+        "clear.filings",
+        "clear.chat"
+      ],
+      "tree_sha": "43c8e95f6f2eba4061a1e28a77bee5d7e734b5ad"
+    },
+    {
+      "app": "deal",
+      "repo": "https://github.com/NEOS-Ecosystem/neos-neop-deal",
+      "commit": "bbd99647a46520748a1ce81ccbbfc97b783843ef",
+      "files": [
+        {
+          "path": "db/neops-deal-schema.sql",
+          "blob_sha": "8139ebffabe921dd33a444eb102dd2a3d3fd2705",
+          "sha256": "dc70fb5ae5f9069c5d764abc052e7b69dda9c03a73b5d7d40df53dc1869d5d50",
+          "local": "reference/upstream/deal/db/neops-deal-schema.sql"
+        },
+        {
+          "path": "neops/deal/actions.mjs",
+          "blob_sha": "429a5d3dc4d8bb04e31082ec540f79ec8327cfd9",
+          "sha256": "3216a2956568c0d5ca464311f31ed8d5ee4c3c53d0a4bed52b41075b4291169a",
+          "local": "reference/upstream/deal/neops/deal/actions.mjs"
+        },
+        {
+          "path": "neops/deal/capabilities.mjs",
+          "blob_sha": "39aea287ecda6e831dae3548bfd51c01bbfd3816",
+          "sha256": "f46bf416f01b0289b9fbaccafc24a5cf92f70472728909a19afce3997e1c213b",
+          "local": "reference/upstream/deal/neops/deal/capabilities.mjs"
+        },
+        {
+          "path": "neops/deal/manifest.mjs",
+          "blob_sha": "d202111ce29a2920eaa9a024a1eb86c8728ef5d2",
+          "sha256": "7681bbdfd2ec3a2ed7250a588ccc8598354b9d7c31419b89d2661d5c70226e3f",
+          "local": "reference/upstream/deal/neops/deal/manifest.mjs"
+        },
+        {
+          "path": "test/deal-discount-floor.test.mjs",
+          "blob_sha": "97e2c5555c5a92b2b603b3bbb7f3a2305944ae16",
+          "sha256": "f3063c46592f9821e19df35b665606e5c4f74b5b864f1da2882d684b6fbaf943",
+          "local": "reference/upstream/deal/test/deal-discount-floor.test.mjs"
+        },
+        {
+          "path": "test/deal-runtime.test.mjs",
+          "blob_sha": "1fed4006fd7b12dd48377318a00457f6fdd11ee0",
+          "sha256": "7d4c39c1e3641aa3eeae34431449a2cb9aef9e22f5fb02e932095df6da05f770",
+          "local": "reference/upstream/deal/test/deal-runtime.test.mjs"
+        }
+      ],
+      "capabilities": [
+        "deal.configure",
+        "deal.opportunities.import",
+        "deal.quote.propose",
+        "deal.quote.decide",
+        "deal.quote.send",
+        "deal.dashboard",
+        "deal.quotes",
+        "deal.opportunities",
+        "deal.deliverables",
+        "deal.config",
+        "deal.chat"
+      ],
+      "tree_sha": "ac90c2cdc0ef394362d745f905421780598e0e93"
+    },
+    {
+      "app": "desk",
+      "repo": "https://github.com/NEOS-Ecosystem/neos-neop-desk",
+      "commit": "869faa5ad0261e9d3239173e422746e40fe71c21",
+      "files": [
+        {
+          "path": "db/neops-desk-schema.sql",
+          "blob_sha": "b0c3b0033b3c1eef306d4160705902ceea8fd8c1",
+          "sha256": "5815227bf43b7902b4533fe15ef3e27c69fe36fd09e926cc7f19b57c4ca55883",
+          "local": "reference/upstream/desk/db/neops-desk-schema.sql"
+        },
+        {
+          "path": "neops/desk/actions.mjs",
+          "blob_sha": "88c1587a8abda5f0c00aff36b3e6a604f16e1852",
+          "sha256": "d0d3a3ad9b3c230415326be2b658834a78cdb413d862d89607f9794cfb0d3c27",
+          "local": "reference/upstream/desk/neops/desk/actions.mjs"
+        },
+        {
+          "path": "neops/desk/capabilities.mjs",
+          "blob_sha": "6a4bd0ab26175268bffe96afe4a90ceecbc90e68",
+          "sha256": "8a1be5ad58cf2bc4101494d894f8feacf347d7cf713b049f2ad7ad2528f4bcdf",
+          "local": "reference/upstream/desk/neops/desk/capabilities.mjs"
+        },
+        {
+          "path": "neops/desk/manifest.mjs",
+          "blob_sha": "789df7a49a7476123fa4f57192bd223aa880bfcf",
+          "sha256": "d6c9f7d6bfe3027083f3bafbe1347d5a3e26973ea3fb2043b88528178bdec6c2",
+          "local": "reference/upstream/desk/neops/desk/manifest.mjs"
+        },
+        {
+          "path": "test/desk-refund-floor.test.mjs",
+          "blob_sha": "da2c256171b21bb3ef3072df4d7a74cc6d2ebdfb",
+          "sha256": "d3e787a5a04634e7dee4b287d53f67cf7ebf061b9d6e38f8f2b99fd80636594e",
+          "local": "reference/upstream/desk/test/desk-refund-floor.test.mjs"
+        },
+        {
+          "path": "test/desk-runtime.test.mjs",
+          "blob_sha": "d310760a1bbcc3b432176d10b60b6b7f8cb800c0",
+          "sha256": "5d1d4280a57204d8bdf0ba344d3386c27fee4d78c2f2da0624a35aa67a821c65",
+          "local": "reference/upstream/desk/test/desk-runtime.test.mjs"
+        }
+      ],
+      "capabilities": [
+        "desk.configure",
+        "desk.tickets.import",
+        "desk.propose_refund",
+        "desk.refund.decide",
+        "desk.issue",
+        "desk.dashboard",
+        "desk.refunds",
+        "desk.tickets",
+        "desk.deliverables",
+        "desk.config",
+        "desk.chat"
+      ],
+      "tree_sha": "eb0f646cde8288b54e154edddf4fa60783d8a1f8"
+    },
+    {
+      "app": "grant",
+      "repo": "https://github.com/NEOS-Ecosystem/neos-neop-grant",
+      "commit": "76f6ba4515b9d64fcdd505e937b9c0b180adb9f7",
+      "files": [
+        {
+          "path": "db/neops-grant-schema.sql",
+          "blob_sha": "1b52385e09b47bb13e64867e38ddf8097540bfac",
+          "sha256": "502d6b6369e9194f0c0e681eb349b82fca0481e3858e36042afe7ff86cb573b9",
+          "local": "reference/upstream/grant/db/neops-grant-schema.sql"
+        },
+        {
+          "path": "neops/grant/actions.mjs",
+          "blob_sha": "d5baea34a080ca7afbaab48defc98136c1b6cbfa",
+          "sha256": "3a8beee94070c8bc97788ca6fba0ad45afb9f20562700db57db9200fb483c261",
+          "local": "reference/upstream/grant/neops/grant/actions.mjs"
+        },
+        {
+          "path": "neops/grant/capabilities.mjs",
+          "blob_sha": "b9c5cd09dbad8776c14873fc7090d761f87192a5",
+          "sha256": "88a04aed6343fe168e876870eab1ea75648fb8c1eb9730a732927cfea59719b0",
+          "local": "reference/upstream/grant/neops/grant/capabilities.mjs"
+        },
+        {
+          "path": "neops/grant/manifest.mjs",
+          "blob_sha": "62a6884f3dd8dc28ea239dd86c09e023663d517f",
+          "sha256": "6d55e340d107bd717e30506f57bdcba5717da12e51f9f23b7bb7993a71bc789d",
+          "local": "reference/upstream/grant/neops/grant/manifest.mjs"
+        },
+        {
+          "path": "test/grant-access-floor.test.mjs",
+          "blob_sha": "81ca25a3a07af5ffe04fab29870f31a1a2992de4",
+          "sha256": "9d57753210ec38d6e799493ea2612d54b5ce207d245763b2d51bd0cfbacdb953",
+          "local": "reference/upstream/grant/test/grant-access-floor.test.mjs"
+        },
+        {
+          "path": "test/grant-runtime.test.mjs",
+          "blob_sha": "c8c7cb0287eca416fcf9bc145d827dfa26770d4c",
+          "sha256": "f9c9dc44c678fa6f039c83cdd2b79b1fc3b9b25f6ff81f201ea925c90301e5f9",
+          "local": "reference/upstream/grant/test/grant-runtime.test.mjs"
+        }
+      ],
+      "capabilities": [
+        "grant.configure",
+        "grant.requestors.import",
+        "grant.access.propose",
+        "grant.access.decide",
+        "grant.access.provision",
+        "grant.dashboard",
+        "grant.requests",
+        "grant.requestors",
+        "grant.deliverables",
+        "grant.config",
+        "grant.chat"
+      ],
+      "tree_sha": "dafd9f40994bd24a0e53aa82b38d5dc63d913d6b"
+    },
+    {
+      "app": "guard",
+      "repo": "https://github.com/NEOS-Ecosystem/neos-neop-guard",
+      "commit": "86854d94bae7b38bd8cdbe071e303e5c4c3bd93f",
+      "files": [
+        {
+          "path": "db/neops-guard-schema.sql",
+          "blob_sha": "b1ca2ed972dfb2063255d9e2e57d4819da4ab4f0",
+          "sha256": "17117ab9e09a10f61513a9c57818192eac614c32754bf2e61a2fa43dae78de47",
+          "local": "reference/upstream/guard/db/neops-guard-schema.sql"
+        },
+        {
+          "path": "neops/guard/actions.mjs",
+          "blob_sha": "edcbfb9ddfdfd76abfce8ce6e35697b363bc815e",
+          "sha256": "db927a0da20a43a2a5175f98bf1aa6731b731aeb5109bfbd29627f3494d59fdd",
+          "local": "reference/upstream/guard/neops/guard/actions.mjs"
+        },
+        {
+          "path": "neops/guard/capabilities.mjs",
+          "blob_sha": "23fc0ea16ac0823c62da21b9bd7a4b58da77c0cd",
+          "sha256": "6c88eaf0715c2e4e100ba2fc1530e472bf5df58b9351697cd608dd2c035541c7",
+          "local": "reference/upstream/guard/neops/guard/capabilities.mjs"
+        },
+        {
+          "path": "neops/guard/manifest.mjs",
+          "blob_sha": "c995b2ec27ac9394d8479072924d705c0adaff90",
+          "sha256": "880ce3aeb335516cde50fa28edd0877d230c2defd67459ec91ec4776db03c931",
+          "local": "reference/upstream/guard/neops/guard/manifest.mjs"
+        },
+        {
+          "path": "test/guard-response-floor.test.mjs",
+          "blob_sha": "633f4caa5034f4af7fea441b3c5fdb7461e70215",
+          "sha256": "35d066c2326ce7597b08b41331f6069aae2933252dd0fceb84302e0fb690db39",
+          "local": "reference/upstream/guard/test/guard-response-floor.test.mjs"
+        },
+        {
+          "path": "test/guard-runtime.test.mjs",
+          "blob_sha": "afdaf08a477f5dbe2a1a7807f768c11013b1516d",
+          "sha256": "03f26450dfc090715e0201eeb2e3e5fe1655fd04acd27bf56d52d59493d61150",
+          "local": "reference/upstream/guard/test/guard-runtime.test.mjs"
+        }
+      ],
+      "capabilities": [
+        "guard.configure",
+        "guard.assets.import",
+        "guard.response.propose",
+        "guard.response.decide",
+        "guard.response.execute",
+        "guard.dashboard",
+        "guard.incidents",
+        "guard.assets",
+        "guard.deliverables",
+        "guard.config",
+        "guard.chat"
+      ],
+      "tree_sha": "9702909c2c27c67ab86e47245881d7607d7fb052"
+    },
+    {
+      "app": "hire",
+      "repo": "https://github.com/NEOS-Ecosystem/neos-neop-hire",
+      "commit": "be1b1d69f01239899aaa41b9fa8595c0997fcd92",
+      "files": [
+        {
+          "path": "db/neops-hire-schema.sql",
+          "blob_sha": "00812d7b782216f7429f06f3abe4e2434807b1c4",
+          "sha256": "7053f48b17eb7bddbb9841883e117b8c91d16da30b269ab6a3612262b86fec2c",
+          "local": "reference/upstream/hire/db/neops-hire-schema.sql"
+        },
+        {
+          "path": "neops/hire/actions.mjs",
+          "blob_sha": "554549afd288d782d4af88ad36bd231ad11ed13f",
+          "sha256": "b1a71fc548224fc16e5a045da202e814aaec848aa7c0117dae9af02e82aad379",
+          "local": "reference/upstream/hire/neops/hire/actions.mjs"
+        },
+        {
+          "path": "neops/hire/capabilities.mjs",
+          "blob_sha": "b9e55f27c5eb787a5ce5ad16bc4caf6adfc541b1",
+          "sha256": "adf8e0be2e5dda6b070b18be828a98ad62a53758c3ecf4cb853b025752d6d3f8",
+          "local": "reference/upstream/hire/neops/hire/capabilities.mjs"
+        },
+        {
+          "path": "neops/hire/manifest.mjs",
+          "blob_sha": "704aef64bfb405956118e426585bf83afdd4e79c",
+          "sha256": "713aa482800eedd220f1bd7f2bc068733c9e66fb5e05b028c1b8a4f5a549cf13",
+          "local": "reference/upstream/hire/neops/hire/manifest.mjs"
+        },
+        {
+          "path": "test/hire-offer-floor.test.mjs",
+          "blob_sha": "65c78cb55ca9f3e839df59922536c61113f32e89",
+          "sha256": "8f3116df915bf68f669474b3a52a9ae22107c60fe9bf6974ee288ce786edf496",
+          "local": "reference/upstream/hire/test/hire-offer-floor.test.mjs"
+        },
+        {
+          "path": "test/hire-runtime.test.mjs",
+          "blob_sha": "6d33aa45b7bcbe037be0490a32de1448eef63960",
+          "sha256": "defc99e87bbd4696cfc6126d6de3fbf42469b88486ef1c726956411087bd7aac",
+          "local": "reference/upstream/hire/test/hire-runtime.test.mjs"
+        }
+      ],
+      "capabilities": [
+        "hire.configure",
+        "hire.candidates.import",
+        "hire.offer.propose",
+        "hire.offer.decide",
+        "hire.offer.send",
+        "hire.dashboard",
+        "hire.offers",
+        "hire.candidates",
+        "hire.deliverables",
+        "hire.config",
+        "hire.chat"
+      ],
+      "tree_sha": "3fc8ed7166ef1aea1d409c39bac582d33cabbe86"
+    },
+    {
+      "app": "pay",
+      "repo": "https://github.com/NEOS-Ecosystem/neos-neop-pay",
+      "commit": "2f7e0bb743f1abce4b41f84be453525998b1b76d",
+      "files": [
+        {
+          "path": "db/neops-pay-schema.sql",
+          "blob_sha": "45337860ae0dbfe8b739c352e216a7a163dc4334",
+          "sha256": "889a254e8e285ffc0759f9581a434a0829c54283db2995940b21ee008ccb030b",
+          "local": "reference/upstream/pay/db/neops-pay-schema.sql"
+        },
+        {
+          "path": "neops/pay/actions.mjs",
+          "blob_sha": "ac802b95b5f69f84055cc2e03acf42ff7c3cebaf",
+          "sha256": "b36acd0814358d06a813a1425e80bc719d4adc5d87ba6aa4ffffe8e48a7f221b",
+          "local": "reference/upstream/pay/neops/pay/actions.mjs"
+        },
+        {
+          "path": "neops/pay/capabilities.mjs",
+          "blob_sha": "9208c3142466c573bbb084406c28e1d39783d965",
+          "sha256": "7b47161601e348d0fb914a479aea0b02c438199529c964051b5055802633f3dd",
+          "local": "reference/upstream/pay/neops/pay/capabilities.mjs"
+        },
+        {
+          "path": "neops/pay/manifest.mjs",
+          "blob_sha": "214afe2c941d787151eb844537d620c7686d7237",
+          "sha256": "e20922bce1b439ca3f36ab4aa176775bcf31cb7cf4ad77348208a3ab137d8eb9",
+          "local": "reference/upstream/pay/neops/pay/manifest.mjs"
+        },
+        {
+          "path": "test/pay-payment-floor.test.mjs",
+          "blob_sha": "88d4bfc4147f9a0a1a96e8418d222189a81f4cc1",
+          "sha256": "996c18daf3b5f7dad25b66c616f0251652caa63fdf043df8e093f639b4cfb2c9",
+          "local": "reference/upstream/pay/test/pay-payment-floor.test.mjs"
+        },
+        {
+          "path": "test/pay-runtime.test.mjs",
+          "blob_sha": "c16b55a190278e11c797ab300bf5724affef0cd1",
+          "sha256": "d2be294dd6052b97f9920b5ae1cfc4d39500056fd74225dcaeaa150bc6a72c7a",
+          "local": "reference/upstream/pay/test/pay-runtime.test.mjs"
+        }
+      ],
+      "capabilities": [
+        "pay.configure",
+        "pay.payees.import",
+        "pay.payment.propose",
+        "pay.payment.decide",
+        "pay.payment.disburse",
+        "pay.dashboard",
+        "pay.payments",
+        "pay.payees",
+        "pay.deliverables",
+        "pay.config",
+        "pay.chat"
+      ],
+      "tree_sha": "8f390a38435864800e2412e175c4f8de62600967"
+    },
+    {
+      "app": "post",
+      "repo": "https://github.com/NEOS-Ecosystem/neos-neop-post",
+      "commit": "e16b9ca570b977dcc941f95cb74fa73a08cbcdee",
+      "files": [
+        {
+          "path": "db/neops-post-schema.sql",
+          "blob_sha": "f2ca06ce899eea01988601c7a04caf49f6ae66f3",
+          "sha256": "89ed4dd17db37c96ba7c711a9e971d5d4550269e1c52499d64b370d8abebe2c1",
+          "local": "reference/upstream/post/db/neops-post-schema.sql"
+        },
+        {
+          "path": "neops/post/actions.mjs",
+          "blob_sha": "fd692505c45f0422016bd3cd931007caa720cff4",
+          "sha256": "e38bbf664fd356b2391974700b6f4f8d9473373bff8b9f71ccbf110e37453785",
+          "local": "reference/upstream/post/neops/post/actions.mjs"
+        },
+        {
+          "path": "neops/post/capabilities.mjs",
+          "blob_sha": "3998b8b0da1782126293b3c45663e065edca262e",
+          "sha256": "bfc5315645149442e8d0d4bec019f768cf4ca6d2fcd7f87b345a409fe91e23e3",
+          "local": "reference/upstream/post/neops/post/capabilities.mjs"
+        },
+        {
+          "path": "neops/post/manifest.mjs",
+          "blob_sha": "302f05865f156285db568fe90ed50d41363f5ccb",
+          "sha256": "f1657fd011312ccd811d7d8b20345ad707931eb60723d560913c3909aa6d1f68",
+          "local": "reference/upstream/post/neops/post/manifest.mjs"
+        },
+        {
+          "path": "test/post-publish-floor.test.mjs",
+          "blob_sha": "a14555ef913004e686fe0fbfaee7c2589bbfec41",
+          "sha256": "cfc5abd94bfcf95d412fd3c58e220b1de1bbf5f77d46aca86d34cbbe3feb8f76",
+          "local": "reference/upstream/post/test/post-publish-floor.test.mjs"
+        },
+        {
+          "path": "test/post-runtime.test.mjs",
+          "blob_sha": "0804140599f97ec058098872afe4b727bac71223",
+          "sha256": "65e4df78aa7565c6b1c935b9e809e92b0dad6f2fc77119233201c1c370769535",
+          "local": "reference/upstream/post/test/post-runtime.test.mjs"
+        }
+      ],
+      "capabilities": [
+        "post.configure",
+        "post.channels.import",
+        "post.content.propose",
+        "post.content.decide",
+        "post.content.publish",
+        "post.dashboard",
+        "post.posts",
+        "post.channels",
+        "post.deliverables",
+        "post.config",
+        "post.chat"
+      ],
+      "tree_sha": "e6f99d80b790ee9fdce71d1b7e683de38f0d7c1a"
+    },
+    {
+      "app": "quote",
+      "repo": "https://github.com/NEOS-Ecosystem/neos-neop-quote",
+      "commit": "232d3d777896ad56bcb662760a41956087b021be",
+      "files": [
+        {
+          "path": "db/neops-quote-schema.sql",
+          "blob_sha": "79ee4041f5d280de4d76a5bd0ef704bccd98f5e1",
+          "sha256": "8611f07186ecc0b884190a0fef77a703d5d9359568fea87041575f5829cf18bd",
+          "local": "reference/upstream/quote/db/neops-quote-schema.sql"
+        },
+        {
+          "path": "neops/quote/actions.mjs",
+          "blob_sha": "dafdaa86c0b19632258e14b7755f7ee442d83694",
+          "sha256": "e3f7d074508445f260d12b95267e81236ad1df86a7d2262f34abbccfba41a601",
+          "local": "reference/upstream/quote/neops/quote/actions.mjs"
+        },
+        {
+          "path": "neops/quote/capabilities.mjs",
+          "blob_sha": "1d31762dd172c116caa6101744ca002cdedb6478",
+          "sha256": "e806f9076ef008771b95b6c64334930842a128af33fcea7885043d2cbfe5b4d2",
+          "local": "reference/upstream/quote/neops/quote/capabilities.mjs"
+        },
+        {
+          "path": "neops/quote/manifest.mjs",
+          "blob_sha": "dec60747ca79bb4127b8ac8ffc1a7cb9361fb467",
+          "sha256": "c2b9a87729ce124fd6016487e8b016929ad091e46189fdcc649427d25c25d412",
+          "local": "reference/upstream/quote/neops/quote/manifest.mjs"
+        },
+        {
+          "path": "test/quote-deal-floor.test.mjs",
+          "blob_sha": "bf182af4cccab6c41675368a528943ecb12aad46",
+          "sha256": "0a2405444865dff08b928f9fb163df39ac9c24b80b83012f40a95699611a2804",
+          "local": "reference/upstream/quote/test/quote-deal-floor.test.mjs"
+        },
+        {
+          "path": "test/quote-runtime.test.mjs",
+          "blob_sha": "63d14cf6199fb9eaa7365b04b22193abdd9c4729",
+          "sha256": "84dd1cc8557d54a260f7028e56c1878b6662ce4174bc5decd3548b0d906e1d9c",
+          "local": "reference/upstream/quote/test/quote-runtime.test.mjs"
+        }
+      ],
+      "capabilities": [
+        "quote.configure",
+        "quote.accounts.import",
+        "quote.deal.propose",
+        "quote.deal.decide",
+        "quote.deal.issue",
+        "quote.dashboard",
+        "quote.quotes",
+        "quote.accounts",
+        "quote.deliverables",
+        "quote.config",
+        "quote.chat"
+      ],
+      "tree_sha": "904de19f68ad9a85f7f89f45fbe2bc37090ec14b"
+    },
+    {
+      "app": "reach",
+      "repo": "https://github.com/NEOS-Ecosystem/neos-neop-reach",
+      "commit": "115140553512ffd7e3b86b30e011b910d8154ab5",
+      "files": [
+        {
+          "path": "db/neops-reach-schema.sql",
+          "blob_sha": "142baed027303502c1f0f42911f8f25c0aa89732",
+          "sha256": "3046993af392cce78aed29fcb413950d40da9432863948adf9410682ce0e523a",
+          "local": "reference/upstream/reach/db/neops-reach-schema.sql"
+        },
+        {
+          "path": "neops/reach/actions.mjs",
+          "blob_sha": "83484d3b23881cd828cd7d3a88e6f703b7d12214",
+          "sha256": "973f6f639580064893cb15ab5a886dfa338ecb3580fae6742db648284856f759",
+          "local": "reference/upstream/reach/neops/reach/actions.mjs"
+        },
+        {
+          "path": "neops/reach/capabilities.mjs",
+          "blob_sha": "ff4db0076947365ddf761ac73d9de75c3255504f",
+          "sha256": "8ca91672911fa41f67a14648a2bd88745844efe5cf992cb28903fa06bea4db0b",
+          "local": "reference/upstream/reach/neops/reach/capabilities.mjs"
+        },
+        {
+          "path": "neops/reach/manifest.mjs",
+          "blob_sha": "4413354b58de14a46a2cd6ae20b1bd0dcbbc7001",
+          "sha256": "c2755d64b89dbb0e73284cbc753ff25d34eaecff7cbc8d55d9d3f5c1f86e7f3c",
+          "local": "reference/upstream/reach/neops/reach/manifest.mjs"
+        },
+        {
+          "path": "test/reach-runtime.test.mjs",
+          "blob_sha": "e9a55a674ff20b8b0d5baa2430f008c69e73f313",
+          "sha256": "e39c7c925d5e4ae67df8250bd8beb2a43948e3e049f3b137b10f0c2dc1c9e972",
+          "local": "reference/upstream/reach/test/reach-runtime.test.mjs"
+        },
+        {
+          "path": "test/reach-send-floor.test.mjs",
+          "blob_sha": "fd8d8db0300a5aaeda9bdc8d1f01e692599b550b",
+          "sha256": "ac3b57c10d1248672ebfbe4458cd604ef3a91693df100853e185bf5f0268b352",
+          "local": "reference/upstream/reach/test/reach-send-floor.test.mjs"
+        }
+      ],
+      "capabilities": [
+        "reach.configure",
+        "reach.audiences.import",
+        "reach.draft",
+        "reach.campaign.decide",
+        "reach.dispatch",
+        "reach.dashboard",
+        "reach.campaigns",
+        "reach.audiences",
+        "reach.deliverables",
+        "reach.config",
+        "reach.chat"
+      ],
+      "tree_sha": "8736c4d8a621475b655b88ddd26c3c60885e3c88"
+    },
+    {
+      "app": "renew",
+      "repo": "https://github.com/NEOS-Ecosystem/neos-neop-renew",
+      "commit": "c517ae92e3a4fcf14632f76dfeadf309091350b2",
+      "files": [
+        {
+          "path": "db/neops-renew-schema.sql",
+          "blob_sha": "8c5a139da50ee449d3f43cf557108a59455af844",
+          "sha256": "3f7ecdbf3d87c094669be3ca812c09abc81279554fe17d2438790d8e1ce14b8a",
+          "local": "reference/upstream/renew/db/neops-renew-schema.sql"
+        },
+        {
+          "path": "neops/renew/actions.mjs",
+          "blob_sha": "97f040f5a70990545d0491073e133dd028776f41",
+          "sha256": "6c8e8a3093620303cbaa85a679f08167cfd3efd6e92d1f15c90264391c4628f8",
+          "local": "reference/upstream/renew/neops/renew/actions.mjs"
+        },
+        {
+          "path": "neops/renew/capabilities.mjs",
+          "blob_sha": "e4439f634ed8e76761cf63c57af3954d34399fef",
+          "sha256": "cd277f75f993057e5d7a435d7047d7ff775c9c107d85dcd35cb56e91fe68c52c",
+          "local": "reference/upstream/renew/neops/renew/capabilities.mjs"
+        },
+        {
+          "path": "neops/renew/manifest.mjs",
+          "blob_sha": "6895e78fd545bfc8bbd23e961ca7b29fcfaf50f0",
+          "sha256": "1f73a700d8afe5c95a6a74c5c8354f0a90381f5028a9631908641ad3d7db9582",
+          "local": "reference/upstream/renew/neops/renew/manifest.mjs"
+        },
+        {
+          "path": "test/renew-renewal-floor.test.mjs",
+          "blob_sha": "df3dbd7b8954510cb473a960b10ce2f9d29c4de4",
+          "sha256": "41559cda06facfe8ebd51532d1966747af7ff650921dab6d6b9fb277b50fb8ab",
+          "local": "reference/upstream/renew/test/renew-renewal-floor.test.mjs"
+        },
+        {
+          "path": "test/renew-runtime.test.mjs",
+          "blob_sha": "b3f4bcf86940c4e6367873c64acc79e45da21e72",
+          "sha256": "6a5f49301b4c7c73f34f5b5d0ff39482e2bc6f9a299eaebfa9f5b647f1eec92a",
+          "local": "reference/upstream/renew/test/renew-runtime.test.mjs"
+        }
+      ],
+      "capabilities": [
+        "renew.configure",
+        "renew.vendors.import",
+        "renew.renewal.propose",
+        "renew.renewal.decide",
+        "renew.renewal.execute",
+        "renew.dashboard",
+        "renew.renewals",
+        "renew.vendors",
+        "renew.deliverables",
+        "renew.config",
+        "renew.chat"
+      ],
+      "tree_sha": "1edd6a4868917d26e808f0e9cdc4e32f610cbf50"
+    },
+    {
+      "app": "roster",
+      "repo": "https://github.com/NEOS-Ecosystem/neos-neop-roster",
+      "commit": "6541756069def918dfbcb46653d0ed78d968244e",
+      "files": [
+        {
+          "path": "db/neops-roster-schema.sql",
+          "blob_sha": "7fb201554c02a84fa3ed3437712e96febe1be94e",
+          "sha256": "396c488dc9c5b22a3659bb125528788fdba83eab89346d441db14b6fcf0993e2",
+          "local": "reference/upstream/roster/db/neops-roster-schema.sql"
+        },
+        {
+          "path": "neops/roster/actions.mjs",
+          "blob_sha": "e469030588ce3022b5d854c83167613d6d141495",
+          "sha256": "260003f086696c0870008ecb84467eab035d9fb816bede55d36b4a328c6e52f6",
+          "local": "reference/upstream/roster/neops/roster/actions.mjs"
+        },
+        {
+          "path": "neops/roster/capabilities.mjs",
+          "blob_sha": "c693d0c5569d0b0425075e271f1690cfe1543345",
+          "sha256": "73ae09651881a77c706b15ccf97931e7554786e88d93ec5dbc6f10941dba194f",
+          "local": "reference/upstream/roster/neops/roster/capabilities.mjs"
+        },
+        {
+          "path": "neops/roster/manifest.mjs",
+          "blob_sha": "9d6db3538021671281cb5cb9fc692fc15f8ee869",
+          "sha256": "c8a7de838dd6d3a1af3e2a0811ad56fbe8053611627a7afe3e161d211fa3c518",
+          "local": "reference/upstream/roster/neops/roster/manifest.mjs"
+        },
+        {
+          "path": "test/roster-leave-floor.test.mjs",
+          "blob_sha": "e28072bf67227ed7feb3b7b466d558b7fe9ec77a",
+          "sha256": "bd27e06f43d05fe4eded2c6f9ac1e9ed6775b86ad24da845ad55d010538372c8",
+          "local": "reference/upstream/roster/test/roster-leave-floor.test.mjs"
+        },
+        {
+          "path": "test/roster-runtime.test.mjs",
+          "blob_sha": "4d6ab41b0d7e8241aa85222393d80cbc1d8b3289",
+          "sha256": "a2a1549d235f12f9b490659038f78657214d5ecf3921b894053be28f8ad48a6c",
+          "local": "reference/upstream/roster/test/roster-runtime.test.mjs"
+        }
+      ],
+      "capabilities": [
+        "roster.configure",
+        "roster.employees.import",
+        "roster.leave.propose",
+        "roster.leave.decide",
+        "roster.leave.book",
+        "roster.dashboard",
+        "roster.requests",
+        "roster.employees",
+        "roster.deliverables",
+        "roster.config",
+        "roster.chat"
+      ],
+      "tree_sha": "15ed3e57fe250b700e2612c72e929df53399d6d2"
+    },
+    {
+      "app": "shift",
+      "repo": "https://github.com/NEOS-Ecosystem/neos-neop-shift",
+      "commit": "4d35ddd2f3edda0ce17de5816bc2b690367e4875",
+      "files": [
+        {
+          "path": "db/neops-shift-schema.sql",
+          "blob_sha": "1a433444d32da7acfb244a33f14b173f2f099f0b",
+          "sha256": "e5599dbafa44c3320d34b33deb6e62a776df1611155c549f43dee931d432b189",
+          "local": "reference/upstream/shift/db/neops-shift-schema.sql"
+        },
+        {
+          "path": "neops/shift/actions.mjs",
+          "blob_sha": "c9bd07b89754f5caab117aa9fb512cbf20de337a",
+          "sha256": "d435d60de8e4afd571ab25e338986f443b2a8db49d100710d3ec079db07021a4",
+          "local": "reference/upstream/shift/neops/shift/actions.mjs"
+        },
+        {
+          "path": "neops/shift/capabilities.mjs",
+          "blob_sha": "d6dc94d06f2466daa63f520be90558b6e500b567",
+          "sha256": "43cd4192af5eb096492aabea54bf2c496db0a9e6eeff7b59e310db3a24d650e2",
+          "local": "reference/upstream/shift/neops/shift/capabilities.mjs"
+        },
+        {
+          "path": "neops/shift/manifest.mjs",
+          "blob_sha": "7becd77bdbdc75e4fb312c135890f761b1f6eb97",
+          "sha256": "2059db5dee4b465a1ea713d1a4e712120e3234b8e5b9382d5f058a0b4122135a",
+          "local": "reference/upstream/shift/neops/shift/manifest.mjs"
+        },
+        {
+          "path": "test/shift-change-floor.test.mjs",
+          "blob_sha": "5289ba03e726bdc9a91e5d848acdd3896af6c9ad",
+          "sha256": "7d15bea98f803dffd8930a44e5ad3906eb221b39104dc52810ac17969647865b",
+          "local": "reference/upstream/shift/test/shift-change-floor.test.mjs"
+        },
+        {
+          "path": "test/shift-runtime.test.mjs",
+          "blob_sha": "66aca17600261a715a0744f2be9b67dc1c40eb84",
+          "sha256": "42ae10ee4bcdbd85350693680903091272e45be20daf82f0db9e0185b28389c0",
+          "local": "reference/upstream/shift/test/shift-runtime.test.mjs"
+        }
+      ],
+      "capabilities": [
+        "shift.configure",
+        "shift.services.import",
+        "shift.change.propose",
+        "shift.change.decide",
+        "shift.change.apply",
+        "shift.dashboard",
+        "shift.changes",
+        "shift.services",
+        "shift.deliverables",
+        "shift.config",
+        "shift.chat"
+      ],
+      "tree_sha": "069477185a50fc6a388255bcb0fde4ca23c6c2c3"
+    },
+    {
+      "app": "sign",
+      "repo": "https://github.com/NEOS-Ecosystem/neos-neop-sign",
+      "commit": "3d06c5b934e10c80ebf1f9814a3e13480b30b611",
+      "files": [
+        {
+          "path": "db/neops-sign-schema.sql",
+          "blob_sha": "d953b77c73a0f522b6645e59c4519042285e2385",
+          "sha256": "742351b0c44168584b703be12c4873534cd1e4790d8a55d3a1b452c3ed87b91e",
+          "local": "reference/upstream/sign/db/neops-sign-schema.sql"
+        },
+        {
+          "path": "neops/sign/actions.mjs",
+          "blob_sha": "81d99a1514845d77df00334122a89955a21a1489",
+          "sha256": "71e4a1d7c53289387312e4c7be8463aa53e3ef021501c0451d63f2a2b7875cd9",
+          "local": "reference/upstream/sign/neops/sign/actions.mjs"
+        },
+        {
+          "path": "neops/sign/capabilities.mjs",
+          "blob_sha": "1571780042faf62ea36f683b0af2c2e512200c9e",
+          "sha256": "04c0a630915de40a15b261acd2137436874bfd82418022044ea3c95dbbea4b38",
+          "local": "reference/upstream/sign/neops/sign/capabilities.mjs"
+        },
+        {
+          "path": "neops/sign/manifest.mjs",
+          "blob_sha": "f5edc3d9819c865164934ed52a078bde3873d4c7",
+          "sha256": "e6a132eccdc87a0763a00741167ea5bf04a619ab80a67580a1124aa74b4578d2",
+          "local": "reference/upstream/sign/neops/sign/manifest.mjs"
+        },
+        {
+          "path": "test/sign-contract-floor.test.mjs",
+          "blob_sha": "924b25be05b125462016ace7620f1dcb256af54f",
+          "sha256": "9d18e40777ec3ebd60cc042ab8fe024aed1a66af62d5cfc4e9a32e179e9436ab",
+          "local": "reference/upstream/sign/test/sign-contract-floor.test.mjs"
+        },
+        {
+          "path": "test/sign-runtime.test.mjs",
+          "blob_sha": "40799e0fddb8551b25bb111271714cffb32e9d8b",
+          "sha256": "0f2f7be9d2a2b1740ae1c465f5e987cb6892bd88dadcac07144db157082729a0",
+          "local": "reference/upstream/sign/test/sign-runtime.test.mjs"
+        }
+      ],
+      "capabilities": [
+        "sign.configure",
+        "sign.counterparties.import",
+        "sign.contract.propose",
+        "sign.contract.decide",
+        "sign.contract.execute",
+        "sign.dashboard",
+        "sign.contracts",
+        "sign.counterparties",
+        "sign.deliverables",
+        "sign.config",
+        "sign.chat"
+      ],
+      "tree_sha": "df70608dadf7e38b0fc9f6416478e84ba57c71e2"
+    },
+    {
+      "app": "sync",
+      "repo": "https://github.com/NEOS-Ecosystem/neos-neop-sync",
+      "commit": "8b4db5ba1557e10acb143c6315b29fcf0d4b6198",
+      "files": [
+        {
+          "path": "db/neops-sync-schema.sql",
+          "blob_sha": "9020958e4216eb322265c23e705b6b334778ed0a",
+          "sha256": "14335c70e966a6703c123d1da047b079d827b2448741e4eccbb8a92664b3851d",
+          "local": "reference/upstream/sync/db/neops-sync-schema.sql"
+        },
+        {
+          "path": "neops/sync/actions.mjs",
+          "blob_sha": "70a32c6a4f27a960ec8757846073ec00ec1b2fd8",
+          "sha256": "41ad118d8de1b8bc7ff5a1c01cc19d915a27268e4d16e6689dcd3f83077518c9",
+          "local": "reference/upstream/sync/neops/sync/actions.mjs"
+        },
+        {
+          "path": "neops/sync/capabilities.mjs",
+          "blob_sha": "7ff4408309fbce648ac36bee25e3937b99ee7751",
+          "sha256": "c1fb1a143140fbe7872fe2b325d9d488053594b9e2fd17629fd4233c37b12ef2",
+          "local": "reference/upstream/sync/neops/sync/capabilities.mjs"
+        },
+        {
+          "path": "neops/sync/manifest.mjs",
+          "blob_sha": "afbb2b8e77cc8619981ca23097fc553bb9e02a15",
+          "sha256": "999d204cf6cd0c77f6d3c2b7bc40666a02644635adb9b02109eee0e7fa39d3d6",
+          "local": "reference/upstream/sync/neops/sync/manifest.mjs"
+        },
+        {
+          "path": "test/sync-export-floor.test.mjs",
+          "blob_sha": "9a5fccffd728f746ea50c971dc6082b5256c3615",
+          "sha256": "b28b9c43d1a84bb6bebf9c1cb2c469e2f4c3e02425cedfdd306a8b956960de7e",
+          "local": "reference/upstream/sync/test/sync-export-floor.test.mjs"
+        },
+        {
+          "path": "test/sync-runtime.test.mjs",
+          "blob_sha": "fd18f215dabfbba5b05eb26a3b15b7f9fc6c4265",
+          "sha256": "7d639f9aa7c37f5610721d73695f0b2ba0accdcc858d7465e9ee1590e2f9867d",
+          "local": "reference/upstream/sync/test/sync-runtime.test.mjs"
+        }
+      ],
+      "capabilities": [
+        "sync.configure",
+        "sync.datasets.import",
+        "sync.export.propose",
+        "sync.export.decide",
+        "sync.export.deliver",
+        "sync.dashboard",
+        "sync.exports",
+        "sync.datasets",
+        "sync.deliverables",
+        "sync.config",
+        "sync.chat"
+      ],
+      "tree_sha": "4e1a2d1ff039bb08758e3ea30be3b0374f827de6"
+    },
+    {
+      "app": "vet",
+      "repo": "https://github.com/NEOS-Ecosystem/neos-neop-vet",
+      "commit": "647e9dde9914c3b14260ce328735b1f739c80f84",
+      "files": [
+        {
+          "path": "db/neops-vet-schema.sql",
+          "blob_sha": "0cbbe2ca9f80ea9e9c7dbf1819118c52cc26cc29",
+          "sha256": "2aefcd00d18c0fb5026d36808c7105b752754556658168f063b62c2ee8af762f",
+          "local": "reference/upstream/vet/db/neops-vet-schema.sql"
+        },
+        {
+          "path": "neops/vet/actions.mjs",
+          "blob_sha": "632312ba9e46ef793372e56cca8d8239594acb96",
+          "sha256": "4c92fcb7d92135b31c2a8c50e56950e148f57160f5bd7f00984f5273b387514f",
+          "local": "reference/upstream/vet/neops/vet/actions.mjs"
+        },
+        {
+          "path": "neops/vet/capabilities.mjs",
+          "blob_sha": "ccda9a1ca902239b00a51f05f351257da54c69fd",
+          "sha256": "0fd096ba1bb42bd6a4b2885fadab101f82010c7d86f4df97fd268923aeda740f",
+          "local": "reference/upstream/vet/neops/vet/capabilities.mjs"
+        },
+        {
+          "path": "neops/vet/manifest.mjs",
+          "blob_sha": "01d3e62a4cd69850d2aad877d70309fef348583f",
+          "sha256": "7d9c27988d27fddceaf75f666a7805354a1d20dd0da9b810635925ef493ef10b",
+          "local": "reference/upstream/vet/neops/vet/manifest.mjs"
+        },
+        {
+          "path": "test/vet-onboarding-floor.test.mjs",
+          "blob_sha": "ed74e5075d4765effeee13dea7fdf82f879cf864",
+          "sha256": "c37e41030b6c3f7882ac6ced25fc5a4fecc4c0af52d4c6240c2bb5b0f994db64",
+          "local": "reference/upstream/vet/test/vet-onboarding-floor.test.mjs"
+        },
+        {
+          "path": "test/vet-runtime.test.mjs",
+          "blob_sha": "56d43400a1dfe97f169000015d6c14213c78bf5b",
+          "sha256": "964f89560583b2533309b83027b75d2d982b1beb4584ba20c3a4b1b31a58c552",
+          "local": "reference/upstream/vet/test/vet-runtime.test.mjs"
+        }
+      ],
+      "capabilities": [
+        "vet.configure",
+        "vet.suppliers.import",
+        "vet.onboarding.propose",
+        "vet.onboarding.decide",
+        "vet.onboarding.activate",
+        "vet.dashboard",
+        "vet.onboardings",
+        "vet.suppliers",
+        "vet.deliverables",
+        "vet.config",
+        "vet.chat"
+      ],
+      "tree_sha": "f2774e2b0d4c5c72227cc4a09ca80129f91ff8c0"
+    }
+  ]
+}

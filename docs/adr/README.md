@@ -1,8 +1,9 @@
 # Architecture decisions — review pack
 
-All ADRs are **Proposed** and implemented as described; the code and tests are the
-evidence. Accepting one means the team commits to it. Rejecting one means opening a
-change, and the listed tests say what would move.
+ADRs 0001–0013 are **Proposed** and implemented as described; the code and tests are
+the evidence. Later ADRs carry their status in the table and their own status line.
+Accepting one means the team commits to it. Rejecting one means opening a change,
+and the listed tests say what would move.
 
 | ADR | Decision | Evidence | Reviewer |
 | --- | --- | --- | --- |
@@ -19,5 +20,8 @@ change, and the listed tests say what would move.
 | 0011 | Template migration stream | migration.test | ☐ |
 | 0012 | Door journal and bounded send recovery | providers.test | ☐ |
 | 0013 | Registry holds skills and packages; abilities and doors stay in manifests | registry.test, governance.test | ☐ |
+| 0032 | Pin upstream template; adopt through a compatibility boundary | template-alignment.test, per-app gate evidence | Accepted for planning; runtime gates remain open |
+
+Later fleet rebuild decisions continue the numbering. ADR-0032 is accepted only for alignment planning: it pins the external template and requires controlled compatibility adoption, while explicitly forbidding direct template synchronization over this monorepo. It does not approve runtime, migration or production changes.
 
 To accept one, change its status line to `Accepted — <name>, <date>` and tick the row.

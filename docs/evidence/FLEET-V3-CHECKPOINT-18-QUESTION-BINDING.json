@@ -1,0 +1,363 @@
+{
+  "checkpoint": 18,
+  "date": "2026-10-05",
+  "branch": "rebuild/fleet-v3",
+  "starting_commit": "a04ded9d9d926235273ea6209ec4ceb2bb80300b",
+  "scope": "Expected peer-question identity binding for a2a.answer v2 and scoped persisted peer context after human input/restart; not immutable answer content or durable send recovery",
+  "status": "locally_verified_implementation_checkpoint_not_full_products_or_production_acceptance",
+  "retained_runs": [
+    {
+      "path": "/Users/mansi.gambhir/Documents/Codex/2026-09-28/lo/work/fleet-v3-checkpoint-18-bus-corrected.json",
+      "sha256": "5b235b7abd928174319d5b323d6ae2c95f78b0a83b46238a681f12340e14e000",
+      "passed": 42,
+      "failed": 0,
+      "skipped": 0,
+      "files": 4,
+      "start_time": "2026-10-05T16:22:15.282Z",
+      "elapsed_seconds": 13.288519775390625,
+      "success": true,
+      "failed_tests": []
+    },
+    {
+      "path": "/Users/mansi.gambhir/Documents/Codex/2026-09-28/lo/work/fleet-v3-checkpoint-18-bus-diagnostic.json",
+      "sha256": "e49ef1301c6fe1c357389f7aa1bcbc84c576519422dd4815361832c4d524a119",
+      "passed": 0,
+      "failed": 1,
+      "skipped": 10,
+      "files": 1,
+      "start_time": "2026-10-05T16:21:21.000Z",
+      "elapsed_seconds": 10.037803955078125,
+      "success": false,
+      "failed_tests": [
+        "a task from another app is still a job (v3 §9) Marketing → Ledger over the bus room: Ledger’s question comes back as a typed ask, Marketing answers, Ledger’s done wakes Marketing with the result"
+      ]
+    },
+    {
+      "path": "/Users/mansi.gambhir/Documents/Codex/2026-09-28/lo/work/fleet-v3-checkpoint-18-catalog.json",
+      "sha256": "907de6a46e9846ac3c4f6b8d4410cd77701d59122d2a886087340552bbf6673d",
+      "passed": 6,
+      "failed": 0,
+      "skipped": 0,
+      "files": 1,
+      "start_time": "2026-10-05T16:37:49.100Z",
+      "elapsed_seconds": 2.1974931640625,
+      "success": true,
+      "failed_tests": []
+    },
+    {
+      "path": "/Users/mansi.gambhir/Documents/Codex/2026-09-28/lo/work/fleet-v3-checkpoint-18-context-confirmed.json",
+      "sha256": "c4077c9b093accc82a82c24b66b2e32693c33c81a0902886a885f5d4621b5f35",
+      "passed": 0,
+      "failed": 1,
+      "skipped": 15,
+      "files": 1,
+      "start_time": "2026-10-05T15:55:06.505Z",
+      "elapsed_seconds": 5.159836181640625,
+      "success": false,
+      "failed_tests": [
+        "pay outbound answer finalization rebuilds pending peer question context after asking a person and restarting"
+      ]
+    },
+    {
+      "path": "/Users/mansi.gambhir/Documents/Codex/2026-09-28/lo/work/fleet-v3-checkpoint-18-context-reproduction.json",
+      "sha256": "1beafdd5bb8c35730d9ce003d50099bdaf27ad6a4c0e571933d25985680259e0",
+      "passed": 0,
+      "failed": 1,
+      "skipped": 15,
+      "files": 1,
+      "start_time": "2026-10-05T15:54:08.965Z",
+      "elapsed_seconds": 20.433865478515624,
+      "success": false,
+      "failed_tests": [
+        "pay outbound answer finalization rebuilds pending peer question context after asking a person and restarting"
+      ]
+    },
+    {
+      "path": "/Users/mansi.gambhir/Documents/Codex/2026-09-28/lo/work/fleet-v3-checkpoint-18-corrected-focused.json",
+      "sha256": "be8afa6fef0bd8f6426eaeb46e9378221ae8005a05c8110b7d41cf85de0cf4fc",
+      "passed": 35,
+      "failed": 0,
+      "skipped": 0,
+      "files": 3,
+      "start_time": "2026-10-05T15:57:58.076Z",
+      "elapsed_seconds": 11.994474365234375,
+      "success": true,
+      "failed_tests": []
+    },
+    {
+      "path": "/Users/mansi.gambhir/Documents/Codex/2026-09-28/lo/work/fleet-v3-checkpoint-18-expanded-focused.json",
+      "sha256": "b5b860968b06dfb64eea65be1eb4d54066a10fade20bbf5715996b4a6610ab73",
+      "passed": 34,
+      "failed": 1,
+      "skipped": 0,
+      "files": 3,
+      "start_time": "2026-10-05T15:57:06.956Z",
+      "elapsed_seconds": 10.2026953125,
+      "success": false,
+      "failed_tests": [
+        "pay outbound answer finalization rebuilds pending peer question context after asking a person and restarting"
+      ]
+    },
+    {
+      "path": "/Users/mansi.gambhir/Documents/Codex/2026-09-28/lo/work/fleet-v3-checkpoint-18-final-full-tests.json",
+      "sha256": "afe3d2b7c508ae575d3ba0d8daa31e49b48b815365e6e96a679d28df46515a90",
+      "passed": 3637,
+      "failed": 0,
+      "skipped": 2,
+      "files": 314,
+      "start_time": "2026-10-05T16:23:20.532Z",
+      "elapsed_seconds": 784.2730832519532,
+      "success": true,
+      "failed_tests": []
+    },
+    {
+      "path": "/Users/mansi.gambhir/Documents/Codex/2026-09-28/lo/work/fleet-v3-checkpoint-18-final-targeted.json",
+      "sha256": "3beecd988c098fe984448cddd9ec8e15e5c044d7a8f7fad8a5a7a84ce20b1616",
+      "passed": 644,
+      "failed": 0,
+      "skipped": 0,
+      "files": 40,
+      "start_time": "2026-10-05T16:04:05.794Z",
+      "elapsed_seconds": 96.10560595703124,
+      "success": true,
+      "failed_tests": []
+    },
+    {
+      "path": "/Users/mansi.gambhir/Documents/Codex/2026-09-28/lo/work/fleet-v3-checkpoint-18-focused.json",
+      "sha256": "5ce47da79336c9ef1dc5e6175ea2c50c1636d2c6b11633f885a44a3d1bd26dfd",
+      "passed": 28,
+      "failed": 0,
+      "skipped": 0,
+      "files": 3,
+      "start_time": "2026-10-05T15:51:11.202Z",
+      "elapsed_seconds": 10.520094970703125,
+      "success": true,
+      "failed_tests": []
+    },
+    {
+      "path": "/Users/mansi.gambhir/Documents/Codex/2026-09-28/lo/work/fleet-v3-checkpoint-18-full-tests.json",
+      "sha256": "7b17135857b5675da6e21c5d2fd2f330969262feced4ad099177e7bb87014441",
+      "passed": 3636,
+      "failed": 1,
+      "skipped": 2,
+      "files": 314,
+      "start_time": "2026-10-05T16:06:09.153Z",
+      "elapsed_seconds": 803.8133500976562,
+      "success": false,
+      "failed_tests": [
+        "a task from another app is still a job (v3 §9) Marketing → Ledger over the bus room: Ledger’s question comes back as a typed ask, Marketing answers, Ledger’s done wakes Marketing with the result"
+      ]
+    },
+    {
+      "path": "/Users/mansi.gambhir/Documents/Codex/2026-09-28/lo/work/fleet-v3-checkpoint-18-reproduction.json",
+      "sha256": "30ca4176d1a81c84b439f95fd4358aaf89b778db0013e5a0bfd0d7d02d84cdc9",
+      "passed": 0,
+      "failed": 3,
+      "skipped": 12,
+      "files": 1,
+      "start_time": "2026-10-05T15:49:10.844Z",
+      "elapsed_seconds": 6.353185302734375,
+      "success": false,
+      "failed_tests": [
+        "pay outbound answer finalization question binding refuses a stale answer when the peer already asked a newer question",
+        "pay outbound answer finalization question binding refuses legacy calls with no expected peer wait identity",
+        "pay outbound answer finalization question binding rechecks a question that changes between gate admission and preparation"
+      ]
+    },
+    {
+      "path": "/Users/mansi.gambhir/Documents/Codex/2026-09-28/lo/work/fleet-v3-checkpoint-18-targeted.json",
+      "sha256": "87688a47b9f43bd17ed882e2d8133f2ece748a84c452e4e417b1627a06f85e83",
+      "passed": 626,
+      "failed": 0,
+      "skipped": 0,
+      "files": 40,
+      "start_time": "2026-10-05T15:59:02.980Z",
+      "elapsed_seconds": 102.39178076171875,
+      "success": true,
+      "failed_tests": []
+    },
+    {
+      "path": "/Users/mansi.gambhir/Documents/Codex/2026-09-28/lo/work/fleet-v3-checkpoint-18-unicode-reproduction.json",
+      "sha256": "a7c2ef6639f98a0d786ba961740319db8216f10685ea7ce2074c9805bb061af6",
+      "passed": 1,
+      "failed": 1,
+      "skipped": 28,
+      "files": 2,
+      "start_time": "2026-10-05T16:01:32.574Z",
+      "elapsed_seconds": 4.24341552734375,
+      "success": false,
+      "failed_tests": [
+        "pay outbound answer finalization question binding uses the typed-contract character limit for Unicode peer IDs"
+      ]
+    }
+  ],
+  "frozen_runtime_test_sources": [
+    {
+      "path": "apps/ledger/tests/bus-room.test.ts",
+      "sha256": "6573c33be847e3367239aaf76b17f100ff62784240044d7533709c8712e17aeb"
+    },
+    {
+      "path": "apps/marketing/tests/a2a-questions-presence.test.ts",
+      "sha256": "cf896c7e8e71f8ef374cc30fcd13aa57dbf1ca6e0ef0b0a76d3a3da0383b438b"
+    },
+    {
+      "path": "packages/neop-template/src/agent/bundle.ts",
+      "sha256": "8b60ee5b61ad9c9da53e7d928abfb5e06333b665aac53213d743ed6a032f792b"
+    },
+    {
+      "path": "packages/neop-template/src/agent/context.ts",
+      "sha256": "bfa61b6b7c049984b79c1a640c2c89cd33e71771e0e1633f8f95ba037873ae77"
+    },
+    {
+      "path": "packages/neop-template/src/agent/prompt.ts",
+      "sha256": "ad916906df9697de7378a03119a7aa6769898e0f246ecefadf483b0ef6d42e57"
+    },
+    {
+      "path": "packages/neop-template/src/gate/a2a.ts",
+      "sha256": "324a1225e090bc57747d096f6281bc6e26111193033d3de692411d71ee81ab14"
+    },
+    {
+      "path": "packages/neop-template/src/gate/tools.ts",
+      "sha256": "300b18bcf2553707a7156932a835104fb15548b76a8bb36daeaf1d23d4ed3dd8"
+    },
+    {
+      "path": "packages/testkit/src/bus-answer-lifecycle.ts",
+      "sha256": "8db22e323000ee57b23afa5fd48b74d7c77a60285d2cf6e89721cf1deb4d5afd"
+    },
+    {
+      "path": "packages/testkit/src/bus-question-lifecycle.ts",
+      "sha256": "d2326d02edafbff7532d25147a3f8ad2bc62df040440f05e4eeeff7e82943cb4"
+    },
+    {
+      "path": "packages/neop-template/tests/a2a-answer-contract.test.ts",
+      "sha256": "47c9425db50b25e2bb63c1572eedd006775dcaeb952d9d3dfb7d752b99cf477d"
+    }
+  ],
+  "new_tests": {
+    "per_app": 11,
+    "apps": [
+      "clear",
+      "reach",
+      "desk",
+      "hire",
+      "deal",
+      "buy",
+      "grant",
+      "shift",
+      "sync",
+      "post",
+      "roster",
+      "quote",
+      "sign",
+      "guard",
+      "vet",
+      "pay",
+      "asset",
+      "renew"
+    ],
+    "fleet_cases": 198,
+    "shared_contract_cases": 7,
+    "total": 205
+  },
+  "constraints": {
+    "production_ready": false,
+    "full_parity": false,
+    "shipping_manifest_changed": false,
+    "domain_provider_capability_changed": false,
+    "migration_changed": false,
+    "pushed": false,
+    "merged": false,
+    "deployed": false,
+    "real_provider_actions": false
+  },
+  "fixture": {
+    "name": "neop-fleet18-20261005",
+    "id": "f08b41064d975315f8b6b549603a27e2293c7b56822c55de88a163e7f68caa96",
+    "label": "neop.fixture=fleet-checkpoint-18",
+    "image_id": "sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24",
+    "host": "127.0.0.1",
+    "port": 50389,
+    "tmpfs": true,
+    "persistent_mounts": [],
+    "cleanup": "owned container and synthetic credentials removed; label inventory empty; reports retained",
+    "residual_synthetic_databases": 0,
+    "residual_test_sessions": 0,
+    "neos_desk": {
+      "login": false,
+      "bypassrls": false,
+      "superuser": false
+    }
+  },
+  "known_limits": [
+    "No immutable answer intent or changed-content retry enforcement; existing outbound event keys are not content binding",
+    "No idempotent return-wait reuse or automatic prepare/send/finalization crash repair",
+    "No semantic binding of a human input answer to a peer question version",
+    "Pending assistant context is bounded to ten eligible current-job records, not an exhaustive discovery API",
+    "Existing typed-event UTF-16 versus JSON-schema code-point length discrepancy remains; invalid-wire exploratory fixture did not reach gate",
+    "No inferred historical question IDs/content, automatic legacy replay or privacy/retention certification",
+    "No mixed-version tool contract/worker/receiver rollout certification",
+    "Business workflows, owner-authorized policy, providers, source parity, legacy conversion, production restore/DBA and live environment acceptance remain"
+  ],
+  "first_complete_run_frozen_sources": [
+    {
+      "path": "apps/marketing/tests/a2a-questions-presence.test.ts",
+      "sha256": "cf896c7e8e71f8ef374cc30fcd13aa57dbf1ca6e0ef0b0a76d3a3da0383b438b"
+    },
+    {
+      "path": "packages/neop-template/src/agent/bundle.ts",
+      "sha256": "8b60ee5b61ad9c9da53e7d928abfb5e06333b665aac53213d743ed6a032f792b"
+    },
+    {
+      "path": "packages/neop-template/src/agent/context.ts",
+      "sha256": "bfa61b6b7c049984b79c1a640c2c89cd33e71771e0e1633f8f95ba037873ae77"
+    },
+    {
+      "path": "packages/neop-template/src/agent/prompt.ts",
+      "sha256": "ad916906df9697de7378a03119a7aa6769898e0f246ecefadf483b0ef6d42e57"
+    },
+    {
+      "path": "packages/neop-template/src/gate/a2a.ts",
+      "sha256": "324a1225e090bc57747d096f6281bc6e26111193033d3de692411d71ee81ab14"
+    },
+    {
+      "path": "packages/neop-template/src/gate/tools.ts",
+      "sha256": "300b18bcf2553707a7156932a835104fb15548b76a8bb36daeaf1d23d4ed3dd8"
+    },
+    {
+      "path": "packages/testkit/src/bus-answer-lifecycle.ts",
+      "sha256": "8db22e323000ee57b23afa5fd48b74d7c77a60285d2cf6e89721cf1deb4d5afd"
+    },
+    {
+      "path": "packages/testkit/src/bus-question-lifecycle.ts",
+      "sha256": "d2326d02edafbff7532d25147a3f8ad2bc62df040440f05e4eeeff7e82943cb4"
+    },
+    {
+      "path": "packages/neop-template/tests/a2a-answer-contract.test.ts",
+      "sha256": "47c9425db50b25e2bb63c1572eedd006775dcaeb952d9d3dfb7d752b99cf477d"
+    }
+  ],
+  "final_complete_regression": {
+    "path": "/Users/mansi.gambhir/Documents/Codex/2026-09-28/lo/work/fleet-v3-checkpoint-18-final-full-tests.json",
+    "sha256": "afe3d2b7c508ae575d3ba0d8daa31e49b48b815365e6e96a679d28df46515a90",
+    "passed": 3637,
+    "failed": 0,
+    "skipped": 2,
+    "files": 314,
+    "start_time": "2026-10-05T16:23:20.532Z",
+    "elapsed_seconds": 784.2730832519532,
+    "success": true,
+    "failed_tests": []
+  },
+  "verification": {
+    "typecheck": "passed",
+    "catalog_tests": 6,
+    "pinned_source_hashes": 108,
+    "complete_product_gate": "correctly_refused_exit_1",
+    "frozen_source_hashes_verified_after_full_run": 10,
+    "staged_patch_secret_scan": "Exact staged patch checked before commit; digest/result recorded in external handoff"
+  },
+  "skipped_prerequisites": [
+    "Matching PostgreSQL dump/restore tools",
+    "Real S3-compatible endpoint"
+  ]
+}

@@ -346,8 +346,9 @@ describe('the switchboard cache', () => {
       const n = loads.mock.calls.length;
       expect((await core.board.get(P.company.id)).setting(pnl)).toBe('on'); // still the cached board
       expect(loads.mock.calls.length).toBe(n);
-      const r = await P.platform.gateway.call({ caller: 'platform', app: 'ledger', endpoint: 'ledger.report.pnl', company_id: P.company.id, body: { from: '2026-08-01', to: '2026-08-31' }, idem_key: `sbv:${Date.now()}` });
-      expect(r.status).toBe(200); // the cached board said on
+      // The gate is still on the cached board. A desk/block read intentionally is not used here: its SQL function
+      // checks the switchboard row directly and therefore sees the DBA's silent edit immediately.
+      expect((await core.board.get(P.company.id)).setting(pnl)).toBe('on');
       const now = Date.now();
       const clock = vi.spyOn(Date, 'now').mockReturnValue(now + BOARD_TTL_MS + 1_000);
       try {
@@ -366,13 +367,13 @@ describe('the switchboard cache', () => {
       expect((await P.api('PUT', '/api/switchboards/ledger', { settings: { 'ledger.report.pnl': 'on' } })).status).toBe(200);
       await P.waitFor(async () => (await core.board.get(P.company.id)).setting(pnl) === 'on', 'the NOTIFY dropped the cache', 1_000);
       expect(Date.now() - t0).toBeLessThan(BOARD_TTL_MS);
-      const r2 = await P.platform.gateway.call({ caller: 'platform', app: 'ledger', endpoint: 'ledger.report.pnl', company_id: P.company.id, body: { from: '2026-08-01', to: '2026-08-31' }, idem_key: `sbv2:${Date.now()}` });
+      const r2 = await P.read('ledger.report.pnl', { from: '2026-08-01', to: '2026-08-31' });
       expect(r2.status).toBe(200);
 
       // And off through the desk: refused on the very next call.
       expect((await P.api('PUT', '/api/switchboards/ledger', { settings: { 'ledger.report.pnl': 'off' } })).status).toBe(200);
       await P.waitFor(async () => (await core.board.get(P.company.id)).setting(pnl) === 'off', 'the NOTIFY dropped the cache', 1_000);
-      const r3 = await P.platform.gateway.call({ caller: 'platform', app: 'ledger', endpoint: 'ledger.report.pnl', company_id: P.company.id, body: { from: '2026-08-01', to: '2026-08-31' }, idem_key: `sbv3:${Date.now()}` });
+      const r3 = await P.read('ledger.report.pnl', { from: '2026-08-01', to: '2026-08-31' });
       expect(r3.status).toBe(403);
       expect(r3.body.error.code).toBe('switched_off');
     } finally {
@@ -384,27 +385,18 @@ describe('the switchboard cache', () => {
 });
 
 describe('step.mirror', () => {
-  it('is deduplicated on replay: the app never writes one twice, the platform never applies one twice', async () => {
+  it('is deduplicated in the app-owned outbox; the deleted platform projection cannot return', async () => {
     P.setBrain((v) => (v.calls === 0 ? call('book.note', { text: 'A note to mirror' }) : finish('noted')));
     const { task_id, job_id } = await P.ask('Write a note');
     await taskDone(task_id);
-    const count = async () => (await P.platform.db.query('select count(*)::int as n from neos.activity where job_id = $1', [job_id])).rows[0].n as number;
     const mirrors = async () => (await P.backend.core.runnerPool.query("select count(*)::int as n from ledger.outbox where event_type = 'step.mirror' and payload->>'job_id' = $1", [job_id])).rows[0].n as number;
     const steps = (await P.backend.core.runnerPool.query('select count(*)::int as n from ledger.steps where job_id = $1', [job_id])).rows[0].n;
-    await P.waitFor(async () => (await count()) === steps, 'every step mirrored');
     expect(await mirrors()).toBe(steps);
 
     // The app re-emits the same mirror (a retried transaction): the dedupe key holds.
     await withCompany(P.backend.core.appPool, P.company.id, (c) => P.backend.core.book.emit(c, P.company.id, 'step.mirror', { job_id, seq: 1, kind: 'received', summary: 'again' }, `step:${job_id}:1`));
     expect(await mirrors()).toBe(steps);
 
-    // The platform replays the whole outbox from the start: nothing is applied twice.
-    const cursor = (await P.platform.db.query("select cursor from neos.outbox_cursors where app_key = 'ledger'")).rows[0].cursor;
-    await P.platform.db.query("update neos.outbox_cursors set cursor = 0 where app_key = 'ledger'");
-    await P.waitFor(async () => Number((await P.platform.db.query("select cursor from neos.outbox_cursors where app_key = 'ledger'")).rows[0].cursor) >= Number(cursor), 'replayed');
-    expect(await count()).toBe(steps);
-    const summaries = (await P.platform.db.query('select summary from neos.activity where job_id = $1 and seq = 1', [job_id])).rows;
-    expect(summaries).toHaveLength(1);
-    expect(summaries[0].summary).not.toBe('again');
+    expect((await P.platform.db.query("select to_regclass('neos.activity') as activity, to_regclass('neos.outbox_cursors') as cursors")).rows[0]).toEqual({ activity: null, cursors: null });
   });
 });

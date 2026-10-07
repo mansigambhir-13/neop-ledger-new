@@ -1,0 +1,46 @@
+{
+  "captured_at": "2026-09-30",
+  "source": "/Users/mansi.gambhir/Documents/Quick Build ",
+  "snapshot": "reference/quickbuild",
+  "base_commit": "25279c17bededf3c8fe13b1f06834962c54a65e7",
+  "snapshot_files": 2456,
+  "snapshot_bytes": 23217811,
+  "excluded": [
+    "Git metadata",
+    "agent worktrees/state",
+    "node_modules",
+    "dist/build/coverage",
+    ".env files other than .env.example",
+    "neop-env*",
+    "private keys",
+    "secret-named files",
+    "zip archives",
+    "databases",
+    "logs",
+    "spreadsheets",
+    "customer sample packs",
+    "non-example app config files"
+  ],
+  "inputs": [
+    {
+      "path": "docs/notes/NEOPS-CATALOG.md",
+      "sha256": "832c9bce8ef71a4702b1794b08ce9acdd786f5dad5aeaaa00e8ca5143460e52a"
+    },
+    {
+      "path": "neop-run-guides/WAGE-RUN-GUIDE.md",
+      "sha256": "21e3e3f02a1b25f2cc917b0b8a69a5f3886682db544ddbadb508c710ba5d0268"
+    },
+    {
+      "path": "apps/wage/neop.mjs",
+      "sha256": "f729d6252f6ed0107d1a2c51899ce24b1c2a5695d7e01ea3c1777ae15f0135f2"
+    },
+    {
+      "path": "apps/_shared/runtime.mjs",
+      "sha256": "171a012d97f7855f899f4cbbc3c0a7d3022d1c7f4990a124b0ffeb9966473ca7"
+    }
+  ],
+  "wage_upstream": {
+    "repository": "https://github.com/NEOS-Ecosystem/neos-neop-wage",
+    "capabilities_git_blob": "65caa0f7b74eae889a4810ccb102e8dce27c6b6b"
+  }
+}

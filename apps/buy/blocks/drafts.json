@@ -1,0 +1,41 @@
+{
+  "block": "page",
+  "title": "Buy drafts",
+  "description": "Internal drafts only. No external execution or business authorization.",
+  "nav": {
+    "label": "Buy",
+    "icon": "table",
+    "order": 1
+  },
+  "children": [
+    {
+      "block": "table",
+      "source": {
+        "ability": "buy.orders.list"
+      },
+      "rows": "/rows",
+      "columns": [
+        {
+          "label": "Source",
+          "path": "/source_id"
+        },
+        {
+          "label": "Amount (minor units)",
+          "path": "/amount_minor"
+        },
+        {
+          "label": "Currency",
+          "path": "/currency"
+        },
+        {
+          "label": "Status",
+          "path": "/status"
+        },
+        {
+          "label": "Elevated review required",
+          "path": "/requires_elevated_approval"
+        }
+      ]
+    }
+  ]
+}

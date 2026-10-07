@@ -29,7 +29,6 @@ it('a yes never wakes the job before the effect is done, and survives a crash be
   });
   const { task_id, job_id } = await P.ask('Send the August pack to the CFO');
   const card = await P.waitFor(async () => {
-    await P.platform.outboxTick();
     return (await P.desk()).find((c) => c.job_id === job_id && c.status === 'PENDING');
   }, 'card');
 
@@ -53,7 +52,6 @@ it('a yes never wakes the job before the effect is done, and survives a crash be
   await P.waitFor(async () => (await P.desk()).find((c) => c.id === card.id).status === 'EXECUTED', 'executed');
   expect(await readdir(P.mailDir)).toHaveLength(1);
   await P.waitFor(async () => {
-    await P.platform.outboxTick();
     return (await P.task(task_id)).task.status === 'COMPLETED';
   }, 'completed');
   expect(wakes).toHaveLength(1);

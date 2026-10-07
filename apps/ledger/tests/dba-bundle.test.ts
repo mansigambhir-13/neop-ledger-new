@@ -50,11 +50,11 @@ describe('the DBA bundle', () => {
     expect(stdout).not.toContain('{{schema}}');
     expect(stdout).toContain('create role ledger_runner login bypassrls');
     expect(stdout).toContain("alter role ledger_app set search_path = 'ledger'");
-    expect(stdout).toContain('create function ledger.answer_proposal(');
+    expect(stdout).toContain('create function "ledger".answer_proposal(');
     // v3 S7: the packages installed into Ledger's build — their files are in the set above, their roles here.
     expect(stdout).toContain('installed by `neos install` from nep-gst@2.0.0');
     expect(stdout).toContain('create role ledger_nep_gst login nobypassrls');
-    expect(stdout).toContain('grant select, insert, update on ledger.nep_gst_returns to ledger_nep_gst;');
+    expect(stdout).toContain('grant select, insert, update on "ledger".nep_gst_returns to ledger_nep_gst;');
   });
 
   it('applied to an empty database it yields the same schema_migrations, tables and columns as migrate', async () => {

@@ -1,3 +1,4 @@
+import {sqlIdent} from '@neop/pgkit';
 // PRESENCE · the typed events, thread helpers and dedupe (v3 §8, §13 `events.ts`).
 // The seven types, their JSON Schemas, the sender-class rule and the thread helpers are the shared contract in
 // @neop/contracts (matrix-events.ts) — the same code the platform's roads used; this file adds what the NEOP
@@ -5,7 +6,12 @@
 // ids, so Matrix's redelivery never opens a job twice and a resend is never a second message.
 
 import { createHash } from 'node:crypto';
-import type { Pool } from '@neop/pgkit';
+import type { Pool, PoolClient } from '@neop/pgkit';
+
+/** A durable inbound transaction failed: the homeserver must retry, not acknowledge lost work. */
+export class RetryableInboundError extends Error {
+  constructor(cause: unknown) { super('durable inbound update was not committed', { cause }); }
+}
 
 export {
   isTypedEventType,
@@ -56,9 +62,9 @@ export interface InboundClaim {
  * Record an inbound event once (the dedupe on event_id, v3 §8 "Matrix will redeliver"). True the first time;
  * false for a redelivery — the caller then does nothing at all (no job, no reply).
  */
-export async function claimInbound(pool: Pool, schema: string, ev: InboundClaim, outcome = 'received'): Promise<boolean> {
+export async function claimInbound(pool: Pool | PoolClient, schema: string, ev: InboundClaim, outcome = 'received'): Promise<boolean> {
   const r = await pool.query(
-    `insert into ${schema}.inbound_events (event_id, company_id, account, room_id, road, sender, sender_class, person_id, type, outcome)
+    `insert into ${sqlIdent(schema)}.inbound_events (event_id, company_id, account, room_id, road, sender, sender_class, person_id, type, outcome)
      values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) on conflict (event_id) do nothing`,
     [ev.event_id, ev.company_id, ev.account, ev.room_id, ev.road, ev.sender, ev.sender_class, ev.person_id, ev.type, outcome],
   );

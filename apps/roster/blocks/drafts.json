@@ -1,0 +1,45 @@
+{
+  "block": "page",
+  "title": "Roster drafts",
+  "description": "Internal review only; not business approval or external completion.",
+  "nav": {
+    "label": "Roster",
+    "icon": "table",
+    "order": 1
+  },
+  "children": [
+    {
+      "block": "table",
+      "source": {
+        "ability": "roster.requests.list"
+      },
+      "rows": "/rows",
+      "columns": [
+        {
+          "label": "source id",
+          "path": "/source_id"
+        },
+        {
+          "label": "type",
+          "path": "/type"
+        },
+        {
+          "label": "half days",
+          "path": "/half_days"
+        },
+        {
+          "label": "notes",
+          "path": "/notes"
+        },
+        {
+          "label": "status",
+          "path": "/status"
+        },
+        {
+          "label": "requires elevated approval",
+          "path": "/requires_elevated_approval"
+        }
+      ]
+    }
+  ]
+}

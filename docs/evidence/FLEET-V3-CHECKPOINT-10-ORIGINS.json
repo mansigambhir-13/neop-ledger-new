@@ -1,0 +1,530 @@
+{
+  "checkpoint": 10,
+  "date": "2026-10-01",
+  "branch": "rebuild/fleet-v3",
+  "starting_commit": "9a6be519a7de8d928745b55ff08076db390381e4",
+  "scope": "Immutable job/original-human/nonhuman provenance for new Pay/Buy/Renew internal drafts; not business approval or provider dispatch",
+  "full_regression": {
+    "path": "/Users/mansi.gambhir/Documents/Codex/2026-09-28/lo/work/fleet-v3-checkpoint-10-tests.json",
+    "sha256": "38a564325b2da745eece53c9abab4e799c79a2d1f47f59e55ad4a76e60bd4082",
+    "passed": 1540,
+    "failed": 0,
+    "skipped": 2,
+    "files": 172,
+    "success": true,
+    "start_time": "2026-10-01T11:21:04.034Z",
+    "duration_seconds": 373.27
+  },
+  "targeted": {
+    "path": "/Users/mansi.gambhir/Documents/Codex/2026-09-28/lo/work/fleet-origins-10-targeted.json",
+    "sha256": "a1358955a9c51a4233dad29ad48c9739c0df69162b4e36f4c72628a194b9512d",
+    "passed": 197,
+    "failed": 0,
+    "skipped": 0,
+    "files": 17,
+    "success": true,
+    "start_time": "2026-10-01T11:19:47.930Z",
+    "duration_seconds": 37,
+    "overlaps_full_regression": true
+  },
+  "new_distinct_tests": 60,
+  "apps": [
+    {
+      "app": "pay",
+      "manifest_version": "0.3.0",
+      "origin_tests": [
+        {
+          "name": "pay immutable creating-job origin captures the linked human and exact draft hash through the real job path",
+          "status": "passed"
+        },
+        {
+          "name": "pay immutable creating-job origin uses the represented-person mirror only when no Matrix link exists",
+          "status": "passed"
+        },
+        {
+          "name": "pay immutable creating-job origin records synthetic machine-only job metadata without inventing a human",
+          "status": "passed"
+        },
+        {
+          "name": "pay immutable creating-job origin refuses revoked identity without a draft or receipt",
+          "status": "passed"
+        },
+        {
+          "name": "pay immutable creating-job origin refuses missing identity without a draft or receipt",
+          "status": "passed"
+        },
+        {
+          "name": "pay immutable creating-job origin refuses conflicting identity without a draft or receipt",
+          "status": "passed"
+        },
+        {
+          "name": "pay immutable creating-job origin refuses malformed identity without a draft or receipt",
+          "status": "passed"
+        },
+        {
+          "name": "pay immutable creating-job origin refuses a missing creating-job context",
+          "status": "passed"
+        },
+        {
+          "name": "pay immutable creating-job origin refuses a foreign creating-job context",
+          "status": "passed"
+        },
+        {
+          "name": "pay immutable creating-job origin refuses a inactive creating-job context",
+          "status": "passed"
+        },
+        {
+          "name": "pay immutable creating-job origin does not accept a model-supplied proposer, job reference or origin basis",
+          "status": "passed"
+        },
+        {
+          "name": "pay immutable creating-job origin does not rewrite the original human when job attribution or identity links later change",
+          "status": "passed"
+        },
+        {
+          "name": "pay immutable creating-job origin denies direct app origin insert/update/delete and tenant reads; owner updates remain immutable",
+          "status": "passed"
+        },
+        {
+          "name": "pay immutable creating-job origin preserves provenance through cancellation rather than replacing it with the canceller",
+          "status": "passed"
+        },
+        {
+          "name": "pay immutable creating-job origin requires job context even for a raw app-role draft insert and clears transaction-local context",
+          "status": "passed"
+        },
+        {
+          "name": "pay immutable creating-job origin rolls back draft, origin and receipt together when the transaction fails before commit",
+          "status": "passed"
+        },
+        {
+          "name": "pay immutable creating-job origin holds the job attribution lock through the draft transaction commit",
+          "status": "passed"
+        },
+        {
+          "name": "pay immutable creating-job origin holds the person attribution lock through the draft transaction commit",
+          "status": "passed"
+        },
+        {
+          "name": "pay immutable creating-job origin declares origin personal-data linkage without pretending erasure is implemented",
+          "status": "passed"
+        }
+      ],
+      "production_ready": false
+    },
+    {
+      "app": "buy",
+      "manifest_version": "0.3.0",
+      "origin_tests": [
+        {
+          "name": "buy immutable creating-job origin captures the linked human and exact draft hash through the real job path",
+          "status": "passed"
+        },
+        {
+          "name": "buy immutable creating-job origin uses the represented-person mirror only when no Matrix link exists",
+          "status": "passed"
+        },
+        {
+          "name": "buy immutable creating-job origin records synthetic machine-only job metadata without inventing a human",
+          "status": "passed"
+        },
+        {
+          "name": "buy immutable creating-job origin refuses revoked identity without a draft or receipt",
+          "status": "passed"
+        },
+        {
+          "name": "buy immutable creating-job origin refuses missing identity without a draft or receipt",
+          "status": "passed"
+        },
+        {
+          "name": "buy immutable creating-job origin refuses conflicting identity without a draft or receipt",
+          "status": "passed"
+        },
+        {
+          "name": "buy immutable creating-job origin refuses malformed identity without a draft or receipt",
+          "status": "passed"
+        },
+        {
+          "name": "buy immutable creating-job origin refuses a missing creating-job context",
+          "status": "passed"
+        },
+        {
+          "name": "buy immutable creating-job origin refuses a foreign creating-job context",
+          "status": "passed"
+        },
+        {
+          "name": "buy immutable creating-job origin refuses a inactive creating-job context",
+          "status": "passed"
+        },
+        {
+          "name": "buy immutable creating-job origin does not accept a model-supplied proposer, job reference or origin basis",
+          "status": "passed"
+        },
+        {
+          "name": "buy immutable creating-job origin does not rewrite the original human when job attribution or identity links later change",
+          "status": "passed"
+        },
+        {
+          "name": "buy immutable creating-job origin denies direct app origin insert/update/delete and tenant reads; owner updates remain immutable",
+          "status": "passed"
+        },
+        {
+          "name": "buy immutable creating-job origin preserves provenance through cancellation rather than replacing it with the canceller",
+          "status": "passed"
+        },
+        {
+          "name": "buy immutable creating-job origin requires job context even for a raw app-role draft insert and clears transaction-local context",
+          "status": "passed"
+        },
+        {
+          "name": "buy immutable creating-job origin rolls back draft, origin and receipt together when the transaction fails before commit",
+          "status": "passed"
+        },
+        {
+          "name": "buy immutable creating-job origin holds the job attribution lock through the draft transaction commit",
+          "status": "passed"
+        },
+        {
+          "name": "buy immutable creating-job origin holds the person attribution lock through the draft transaction commit",
+          "status": "passed"
+        },
+        {
+          "name": "buy immutable creating-job origin declares origin personal-data linkage without pretending erasure is implemented",
+          "status": "passed"
+        }
+      ],
+      "production_ready": false
+    },
+    {
+      "app": "renew",
+      "manifest_version": "0.3.0",
+      "origin_tests": [
+        {
+          "name": "renew immutable creating-job origin captures the linked human and exact draft hash through the real job path",
+          "status": "passed"
+        },
+        {
+          "name": "renew immutable creating-job origin uses the represented-person mirror only when no Matrix link exists",
+          "status": "passed"
+        },
+        {
+          "name": "renew immutable creating-job origin records synthetic machine-only job metadata without inventing a human",
+          "status": "passed"
+        },
+        {
+          "name": "renew immutable creating-job origin refuses revoked identity without a draft or receipt",
+          "status": "passed"
+        },
+        {
+          "name": "renew immutable creating-job origin refuses missing identity without a draft or receipt",
+          "status": "passed"
+        },
+        {
+          "name": "renew immutable creating-job origin refuses conflicting identity without a draft or receipt",
+          "status": "passed"
+        },
+        {
+          "name": "renew immutable creating-job origin refuses malformed identity without a draft or receipt",
+          "status": "passed"
+        },
+        {
+          "name": "renew immutable creating-job origin refuses a missing creating-job context",
+          "status": "passed"
+        },
+        {
+          "name": "renew immutable creating-job origin refuses a foreign creating-job context",
+          "status": "passed"
+        },
+        {
+          "name": "renew immutable creating-job origin refuses a inactive creating-job context",
+          "status": "passed"
+        },
+        {
+          "name": "renew immutable creating-job origin does not accept a model-supplied proposer, job reference or origin basis",
+          "status": "passed"
+        },
+        {
+          "name": "renew immutable creating-job origin does not rewrite the original human when job attribution or identity links later change",
+          "status": "passed"
+        },
+        {
+          "name": "renew immutable creating-job origin denies direct app origin insert/update/delete and tenant reads; owner updates remain immutable",
+          "status": "passed"
+        },
+        {
+          "name": "renew immutable creating-job origin preserves provenance through cancellation rather than replacing it with the canceller",
+          "status": "passed"
+        },
+        {
+          "name": "renew immutable creating-job origin requires job context even for a raw app-role draft insert and clears transaction-local context",
+          "status": "passed"
+        },
+        {
+          "name": "renew immutable creating-job origin rolls back draft, origin and receipt together when the transaction fails before commit",
+          "status": "passed"
+        },
+        {
+          "name": "renew immutable creating-job origin holds the job attribution lock through the draft transaction commit",
+          "status": "passed"
+        },
+        {
+          "name": "renew immutable creating-job origin holds the person attribution lock through the draft transaction commit",
+          "status": "passed"
+        },
+        {
+          "name": "renew immutable creating-job origin declares origin personal-data linkage without pretending erasure is implemented",
+          "status": "passed"
+        }
+      ],
+      "production_ready": false
+    }
+  ],
+  "readiness": [
+    {
+      "app": "asset",
+      "partial": 13,
+      "pending": 5,
+      "production_ready": false
+    },
+    {
+      "app": "buy",
+      "partial": 14,
+      "pending": 4,
+      "production_ready": false
+    },
+    {
+      "app": "clear",
+      "partial": 13,
+      "pending": 5,
+      "production_ready": false
+    },
+    {
+      "app": "deal",
+      "partial": 13,
+      "pending": 5,
+      "production_ready": false
+    },
+    {
+      "app": "desk",
+      "partial": 13,
+      "pending": 5,
+      "production_ready": false
+    },
+    {
+      "app": "grant",
+      "partial": 13,
+      "pending": 5,
+      "production_ready": false
+    },
+    {
+      "app": "guard",
+      "partial": 13,
+      "pending": 5,
+      "production_ready": false
+    },
+    {
+      "app": "hire",
+      "partial": 13,
+      "pending": 5,
+      "production_ready": false
+    },
+    {
+      "app": "pay",
+      "partial": 14,
+      "pending": 4,
+      "production_ready": false
+    },
+    {
+      "app": "post",
+      "partial": 13,
+      "pending": 5,
+      "production_ready": false
+    },
+    {
+      "app": "quote",
+      "partial": 13,
+      "pending": 5,
+      "production_ready": false
+    },
+    {
+      "app": "reach",
+      "partial": 13,
+      "pending": 5,
+      "production_ready": false
+    },
+    {
+      "app": "renew",
+      "partial": 14,
+      "pending": 4,
+      "production_ready": false
+    },
+    {
+      "app": "roster",
+      "partial": 13,
+      "pending": 5,
+      "production_ready": false
+    },
+    {
+      "app": "shift",
+      "partial": 13,
+      "pending": 5,
+      "production_ready": false
+    },
+    {
+      "app": "sign",
+      "partial": 13,
+      "pending": 5,
+      "production_ready": false
+    },
+    {
+      "app": "sync",
+      "partial": 13,
+      "pending": 5,
+      "production_ready": false
+    },
+    {
+      "app": "vet",
+      "partial": 13,
+      "pending": 5,
+      "production_ready": false
+    }
+  ],
+  "typescript": "pass",
+  "pinned_source_snapshots_verified": 108,
+  "completion_gate": {
+    "exit_code": 1,
+    "expected_refusal": true,
+    "production_ready": []
+  },
+  "migration": {
+    "shared": "t021_draft_origin.sql",
+    "per_app": "004_draft_origins.sql",
+    "populated_synthetic_apps": [
+      "pay",
+      "buy",
+      "renew"
+    ],
+    "passed": 3,
+    "historical_humans_inferred": false,
+    "production_data_restore": false,
+    "dba_approved": false
+  },
+  "limitations": [
+    "Machine-only classification uses deliberately seeded synthetic job metadata, not live agent transport acceptance.",
+    "Identity mirrors and authenticated backend job context remain trust boundaries.",
+    "No new business approval, original-proposer separation decision policy, provider interface or release certification.",
+    "Old image and DBA bundle evidence is historical; refresh required."
+  ],
+  "changed_source_bindings": [
+    {
+      "path": "apps/buy/manifest.json",
+      "sha256": "3e110b3a999ddb8bf96256dc654284f820e09b450ec980bbfdbbda1e2e6fcd6a"
+    },
+    {
+      "path": "apps/buy/migrations/004_draft_origins.sql",
+      "sha256": "0bed60bed44261f1ee027b13b35b426619fac3a366cb59fcccd49de9e83ae760"
+    },
+    {
+      "path": "apps/buy/migrations/migrate.json",
+      "sha256": "681007613a54d795e8a1d300b53d1418b130dadfca645fd73a89ebc84c7ad588"
+    },
+    {
+      "path": "apps/buy/src/capabilities/index.ts",
+      "sha256": "80632b8c8384851feaf3c50d87db3882e11868dd52e0fa1ead88de81a0285517"
+    },
+    {
+      "path": "apps/buy/tests/origins.test.ts",
+      "sha256": "aab840293d1171d027e42b7da245a67426ee90dd6b034f336ab6e43bc212ff5d"
+    },
+    {
+      "path": "apps/grant/tests/dba-bundle.test.ts",
+      "sha256": "464336f182e38170c7bbcd90319f48a24009c9a06ee6d50aaa2e7e4f45d8299e"
+    },
+    {
+      "path": "apps/ledger/tests/approved-path.test.ts",
+      "sha256": "64be6b3266ee70851991fee7b6749883626e30f9bc9bba2195a2a51ad755e5ad"
+    },
+    {
+      "path": "apps/ledger/tests/board-db.test.ts",
+      "sha256": "cfe4151cbcfbcd8b949fa4fca51e0e7a3d5d055bb2b926c5590cf91cb0b2957b"
+    },
+    {
+      "path": "apps/ledger/tests/desk-functions.test.ts",
+      "sha256": "43eb2a4108d7d714de2574a2e4ba9c83a448bd6c234e523e28754930056d8135"
+    },
+    {
+      "path": "apps/ledger/tests/migration.test.ts",
+      "sha256": "14ea26d25d853c87fce4d9628f3a13c5eb8b7690c1058301e3ca89431f01e6db"
+    },
+    {
+      "path": "apps/ledger/tests/v3-conformance.test.ts",
+      "sha256": "e06345483135d4170d9c845b2010b6e3b215b199910220411877f5b15520d52c"
+    },
+    {
+      "path": "apps/pay/manifest.json",
+      "sha256": "934fb5a983e47855a2fb827ce90473d6c035ee45889330a21ae5c60ec6f3bc66"
+    },
+    {
+      "path": "apps/pay/migrations/004_draft_origins.sql",
+      "sha256": "9dcdb54b284a47ac5ffd47f5492544ce0c3d91dc17a6d504b767cb1cc36af17c"
+    },
+    {
+      "path": "apps/pay/migrations/migrate.json",
+      "sha256": "d6146d26681953ba0970c3ef76687320d1e24d683fcc216759f63ac75748889c"
+    },
+    {
+      "path": "apps/pay/src/capabilities/index.ts",
+      "sha256": "7a263bf3795ca3cc25aae72f57852b69f7c4e911457a0f2a87a34f2c10d0eabb"
+    },
+    {
+      "path": "apps/pay/tests/origins.test.ts",
+      "sha256": "5c5f71465c7c228e068f8182b2aab828234fca917efd89dea9a42402b2631b56"
+    },
+    {
+      "path": "apps/renew/manifest.json",
+      "sha256": "3d7ad5c702c567fe1e05c1f553f8392c0c648f42cb2a8cbcee4d287fd4188684"
+    },
+    {
+      "path": "apps/renew/migrations/004_draft_origins.sql",
+      "sha256": "e0ed9be9518e74f5dd2bd92917428f339e85204e9f8fc1246e0f194ef600b45b"
+    },
+    {
+      "path": "apps/renew/migrations/migrate.json",
+      "sha256": "8ea19a70e62395d58ff1acfa01bb4e4167ebe40cc900f3dc4babe44830c8a6d1"
+    },
+    {
+      "path": "apps/renew/src/capabilities/index.ts",
+      "sha256": "3141a4f98a5c62127cb6b86dfac2b8a0732fd9f7b589bbc1ed182a1295c0d0b1"
+    },
+    {
+      "path": "apps/renew/tests/origins.test.ts",
+      "sha256": "25bca22de965fe4c1d418383e1418bd4b794a5fba2f0a88b0f324f71d6dec7da"
+    },
+    {
+      "path": "packages/neop-template/migrations/migrate.json",
+      "sha256": "d85092d58521edb1afcda2cab829cf877ddd9e8bc11c9e2ab1f96996ea1e44aa"
+    },
+    {
+      "path": "packages/neop-template/migrations/t021_draft_origin.sql",
+      "sha256": "fd8d8f70c10f598a38262beb9e2b68c4ca7077051f95fa79d2d83043400f204c"
+    },
+    {
+      "path": "packages/testkit/src/draft-origins.ts",
+      "sha256": "7564c4284a2cadccd6934188a3ed03bb55ab3a14d93268196fa64aa7637690f1"
+    },
+    {
+      "path": "packages/testkit/src/draft-slice.ts",
+      "sha256": "57d9c6dbb0a624f7918d3b5988dab2c6089ac3906589461425eb0ae4b9abe5aa"
+    },
+    {
+      "path": "packages/testkit/src/index.ts",
+      "sha256": "7e62a59bd2cf6bfe3d99e7867299f2d543ba2afc87a905b6bd6b4d07f307c928"
+    },
+    {
+      "path": "scripts/fleet/tests/finance-origin-migration.test.ts",
+      "sha256": "5fa83e469dacb63bf47562769e17d2926dec53489295a64b53fa354c5ae81814"
+    }
+  ],
+  "provider_dispatch": false,
+  "production_ready": false
+}

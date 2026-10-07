@@ -1,120 +1,16 @@
-// Platform gaps the audit found: a2a results (a 404 is retried, a give-up is loud),
-// a2a hand-offs in the desk activity feed (C6), switchboard changes that reach an
-// app while it is away (NOTIFY, v3 S1), and standing yeses (company-month limits, recipients,
-// self-suspension on FAILED/UNKNOWN).
+// Standing yeses: company-month limits, recipient restrictions, and self-suspension on FAILED/UNKNOWN.
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { withCompany } from '@neop/pgkit';
 import { matchGrant, recordGrantUse } from '@neop/template';
-import { marketingApp, seedMarketing } from '@neop/marketing';
-import { bootPilot, ledgerUnderTest, toolName, type BrainView, type Pilot } from './harness.ts';
+import { bootPilot, type Pilot } from './harness.ts';
 
 let P: Pilot;
 beforeAll(async () => {
-  P = await bootPilot({ apps: [await ledgerUnderTest(), { def: await marketingApp(), seed: seedMarketing }] });
+  P = await bootPilot();
 });
 afterAll(async () => P?.close());
 
-const t = (key: string, args: unknown = {}) => ({ tool: toolName(key), args });
-const finish = (summary: string, outcome = 'done') => t('job.finish', { outcome, summary });
-const isMarketing = (v: BrainView) => v.tools.includes(toolName('marketing.campaigns.list'));
-
-describe('a2a results and the activity feed', () => {
-  it('a tasks.result 404 is retried with backoff until the host takes it; the hand-off shows in the desk activity feed', async () => {
-    expect((await P.api('POST', '/api/acl', { caller_app: 'marketing', target_app: 'ledger', ability_key: 'tasks.open' })).status).toBe(200);
-    // The host answers 404 twice (as it does while its wait is not yet recorded), then accepts.
-    let refused = 0;
-    const real = P.platform.gateway.fetchImpl;
-    P.platform.gateway.fetchImpl = (async (url: any, init: any) => {
-      if (String(url).endsWith('/l3/tasks.result') && refused < 2) {
-        refused++;
-        return new Response(JSON.stringify({ error: { code: 'not_found', message: 'no job waits on that task' } }), { status: 404, headers: { 'content-type': 'application/json' } });
-      }
-      return real(url, init);
-    }) as typeof fetch;
-    try {
-      P.setBrain((v) => {
-        if (isMarketing(v)) {
-          if (v.job.includes('answered the task')) return finish('Ledger answered.');
-          return v.calls === 0 ? t('a2a.request', { app: 'ledger', ask: 'What is the trial balance at 30 September?' }) : { text: 'waiting' };
-        }
-        return finish('Trial balance read: it balances.');
-      });
-      const r = await P.ask('Ask Ledger for the trial balance', undefined, 'marketing');
-      const done = await P.waitFor(async () => {
-        const x = await P.task(r.task_id);
-        return x.task.status === 'COMPLETED' && x;
-      }, 'host woke with the result', 30_000);
-      expect(done.task.result.summary).toBe('Ledger answered.');
-      expect(refused).toBe(2);
-      const child = (await P.platform.db.query("select * from neos.tasks where parent_task_id = $1 and requester = 'app:marketing'", [r.task_id])).rows[0];
-      expect(child.status).toBe('COMPLETED');
-      expect(child.result_attempts).toBe(2);
-      expect(child.result_delivered_at).not.toBeNull();
-      expect(child.result_failed_at).toBeNull();
-
-      // C6: the hand-off is mirrored into the desk activity feed, under the host's job.
-      const feed = (await P.api('GET', '/api/activity?kind=a2a')).body.activity;
-      const row = feed.find((a: any) => a.job_id === r.job_id);
-      expect(row).toMatchObject({ app_key: 'marketing', kind: 'a2a' });
-      expect(row.summary).toContain('asked Ledger');
-      expect(row.summary).toContain('trial balance');
-      // …and in the task's own record.
-      expect((await P.task(r.task_id)).activity.map((a: any) => a.kind)).toContain('a2a');
-    } finally {
-      P.platform.gateway.fetchImpl = real;
-    }
-  }, 60_000);
-
-  it('a result nobody takes is given up after the bounded window: the task fails and the audit says why', async () => {
-    const timings = (P.platform.opts.timings ??= {});
-    const was = timings.a2aResultGiveUpMs;
-    timings.a2aResultGiveUpMs = 2_500;
-    try {
-      const id = (
-        await P.platform.db.query(
-          `insert into neos.tasks (company_id, app_key, requester, ask, status, result, lineage) values ($1, 'ledger', 'app:marketing', 'orphan', 'COMPLETED', $2, '["marketing"]') returning id`,
-          [P.company.id, JSON.stringify({ outcome: 'done', summary: 'nobody waits for this' })],
-        )
-      ).rows[0].id;
-      const failed = await P.waitFor(async () => (await P.platform.db.query("select * from neos.tasks where id = $1 and status = 'FAILED'", [id])).rows[0], 'given up', 20_000);
-      expect(failed.result_failed_at).not.toBeNull();
-      expect(failed.result_attempts).toBeGreaterThanOrEqual(2); // retried, not dropped on the first 404
-      expect(failed.last_error).toMatch(/could not be delivered to marketing/);
-      const audit = (await P.platform.db.query("select outcome, detail from neos.audit where action = 'a2a.result_undeliverable' and detail->>'task_id' = $1", [id])).rows;
-      expect(audit).toHaveLength(1);
-      expect(audit[0].detail.error).toMatch(/404/);
-    } finally {
-      timings.a2aResultGiveUpMs = was;
-    }
-  }, 30_000);
-});
-
-describe('switchboard changes reach the gate from the database (v3 S1)', () => {
-  it('a switch-off reaches the gate even while its L3 is unreachable: the NOTIFY needs no push, and nothing is owed', async () => {
-    const ledger = P.backends.ledger!;
-    const cashFlow = ledger.core.ability('ledger.report.cash_flow')!;
-    const url = (await P.platform.db.query("select l3_url from neos.apps where key = 'ledger'")).rows[0].l3_url;
-    const before = (await ledger.core.board.get(P.company.id)).version; // the gate's cache is warm
-    expect((await ledger.core.board.get(P.company.id)).setting(cashFlow)).toBe('on');
-    await P.platform.db.query("update neos.apps set l3_url = 'http://127.0.0.1:9' where key = 'ledger'");
-    try {
-      const t0 = Date.now();
-      const r = await P.api('PUT', '/api/switchboards/ledger', { settings: { 'ledger.report.cash_flow': 'off' } });
-      expect(r.status).toBe(200);
-      const version = r.body.version;
-      expect(version).toBeGreaterThan(before);
-      // No cache lag and no retries: the app's own switchboard told its gate.
-      await P.waitFor(async () => (await ledger.core.board.get(P.company.id)).version === version, 'the gate dropped its cached board', 1_000);
-      expect(Date.now() - t0).toBeLessThan(2_000);
-      expect((await ledger.core.board.get(P.company.id)).setting(cashFlow)).toBe('off');
-      expect((await P.platform.db.query("select 1 from neos.app_notifications where app_key = 'ledger' and company_id = $1", [P.company.id])).rowCount).toBe(0);
-    } finally {
-      await P.platform.db.query("update neos.apps set l3_url = $1 where key = 'ledger'", [url]);
-    }
-    await P.api('PUT', '/api/switchboards/ledger', { settings: { 'ledger.report.cash_flow': 'on' } });
-  }, 30_000);
-});
 
 describe('standing yeses (grants) — matched in the app’s own schema', () => {
   const core = () => P.backends.ledger!.core;

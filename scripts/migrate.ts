@@ -7,8 +7,8 @@
 // D2 dedicated-DB tier: NEOS_ADMIN_URL_<APP> (or _FILE) sends that app's family (roles, schema,
 // package migrations) to its own cluster; every other app stays on NEOS_ADMIN_URL.
 import { readFileSync } from 'node:fs';
-import { adminUrlFromEnv, roleUrl } from '@neop/pgkit';
-import { backfillBoards, drainApprovals, migratePlatform, Platform, generateSigningKeys } from '@neop/platform';
+import { adminUrlFromEnv } from '@neop/pgkit';
+import { migratePlatform } from '@neop/platform';
 import { migrateApp } from '@neop/template';
 
 const admin = adminUrlFromEnv();
@@ -18,10 +18,32 @@ const appAdmin = (app: string): string => {
   return file ? readFileSync(file, 'utf8').trim() : (process.env[k] ?? admin);
 };
 const log = (m: string) => console.log(m);
-await migratePlatform(admin, log);
+// 025 is the destructive S9 contraction. The normal deploy path remains
+// expand-only until the populated-data proof and explicit cutover command are
+// green; this prevents an ordinary migration run from dropping legacy tables.
+await migratePlatform(admin, log, { through: '024' });
 const loaders: Record<string, () => Promise<Parameters<typeof migrateApp>[1]>> = {
   ledger: async () => (await import('@neop/ledger')).ledgerApp(),
   marketing: async () => (await import('@neop/marketing')).marketingApp(),
+  wage: async () => (await import('@neop/wage')).wageApp(),
+  pay: async () => (await import('@neop/pay')).payApp(),
+  buy: async () => (await import('@neop/buy')).buyApp(),
+  renew: async () => (await import('@neop/renew')).renewApp(),
+  deal: async () => (await import('@neop/deal')).dealApp(),
+  quote: async () => (await import('@neop/quote')).quoteApp(),
+  hire: async () => (await import('@neop/hire')).hireApp(),
+  desk: async () => (await import('@neop/desk')).deskApp(),
+  reach: async () => (await import('@neop/reach')).reachApp(),
+  roster: async () => (await import('@neop/roster')).rosterApp(),
+  grant: async () => (await import('@neop/grant')).grantApp(),
+  shift: async () => (await import('@neop/shift')).shiftApp(),
+  sync: async () => (await import('@neop/sync')).syncApp(),
+  post: async () => (await import('@neop/post')).postApp(),
+  sign: async () => (await import('@neop/sign')).signApp(),
+  guard: async () => (await import('@neop/guard')).guardApp(),
+  vet: async () => (await import('@neop/vet')).vetApp(),
+  asset: async () => (await import('@neop/asset')).assetApp(),
+  clear: async () => (await import('@neop/clear')).clearApp(),
 };
 for (const name of (process.env.NEOS_APPS ?? 'ledger').split(',').map((s) => s.trim()).filter(Boolean)) {
   const load = loaders[name];
@@ -29,19 +51,4 @@ for (const name of (process.env.NEOS_APPS ?? 'ledger').split(',').map((s) => s.t
   if (appAdmin(name) !== admin) log(`[${name}] dedicated cluster ${new URL(appAdmin(name)).host}`);
   await migrateApp(appAdmin(name), await load(), log);
 }
-
-const platform = new Platform({ dbUrl: roleUrl(admin, 'neos_app'), keys: await generateSigningKeys() });
-await platform.ensureRegistry();
-// v3 S7: no package migrations of their own — `neos install` appended them to each app's numbered set, so they
-// ran above with the app's migrations (and migrateApp gave each installed package its role and its tables).
-// v3 S1 (t010): the data half — what the platform held (installs, boards, grants) into each app's own schema,
-// in the same window (idempotent; scripts/v3/backfill-boards.ts runs it on its own).
-const filled = await backfillBoards(platform.db, { log: (m, e) => log(`[boards] ${m} ${e ? JSON.stringify(e) : ''}`) });
-log(`[boards] ${filled.length} install(s) checked, ${filled.filter((r) => r.install === 'written' || r.board === 'written' || r.grants > 0).length} written`);
-// v3 S2 (t011 + platform 020): the retired approvals worker's work in hand, answered through each app's
-// answer_proposal() (idempotent; scripts/v3/drain-approvals.ts runs it on its own).
-const drained = await drainApprovals(platform.db, { log: (m, e) => log(`[approvals] ${m} ${e ? JSON.stringify(e) : ''}`) });
-log(`[approvals] ${drained.length} in hand, ${drained.filter((r) => r.result === 'answered').length} handed over, ${drained.filter((r) => r.result === 'already').length} already held`);
-if (drained.some((r) => r.result === 'error' || r.result === 'no_schema')) process.exitCode = 1;
-await platform.stop();
-log('migrations complete');
+log('expand migrations complete through platform 024; S9 contract 025 was not applied');

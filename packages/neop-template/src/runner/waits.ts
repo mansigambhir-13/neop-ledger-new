@@ -1,3 +1,4 @@
+import {sqlIdent} from '@neop/pgkit';
 // THE APPROVED PATH IN THE RUNNER · v3 §5–§7 (V3-MIGRATION-PLAN S2).
 // A person's yes lands on the proposal row through <schema>.answer_proposal() (desk or their own room) and
 // the row says APPROVED. Nothing else is sent anywhere: this loop notices it (the 'approved:<id>' NOTIFY is a
@@ -124,7 +125,7 @@ export class ApprovedPath {
     try {
       await lock.query('begin');
       const { rows } = await lock.query<{ id: string; company_id: string; status: string }>(
-        `select id, company_id, status from ${this.s}.proposals
+        `select id, company_id, status from ${sqlIdent(this.s)}.proposals
           where (status = 'EXECUTING'
                  or (status = 'APPROVED' and (approved_via is distinct from 'grant' or updated_at < now() - interval '${APPROVED_GRANT_GRACE}')))
             and id <> all ($1::uuid[])
@@ -155,7 +156,7 @@ export class ApprovedPath {
   private async carryOut(c: Claimed): Promise<void> {
     // The effect continues the job's trace (the person's ask → … → the yes → the door).
     const parent = await this.core.runnerPool
-      .query<{ trace_id: string | null }>(`select j.trace_id from ${this.s}.proposals p join ${this.s}.jobs j on j.id = p.job_id where p.id = $1`, [c.id])
+      .query<{ trace_id: string | null }>(`select j.trace_id from ${sqlIdent(this.s)}.proposals p join ${sqlIdent(this.s)}.jobs j on j.id = p.job_id where p.id = $1`, [c.id])
       .then((r) => r.rows[0]?.trace_id ?? null)
       .catch(() => null);
     const span = this.core.tracer.start('runner.approved', parent, { 'neop.proposal': c.id, 'neop.was': c.status });

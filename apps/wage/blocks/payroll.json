@@ -1,0 +1,41 @@
+{
+  "block": "page",
+  "title": "Payroll",
+  "description": "Live Wage records. Released means internally authorized, never paid.",
+  "nav": {
+    "label": "Payroll",
+    "icon": "table",
+    "order": 1
+  },
+  "children": [
+    {
+      "block": "table",
+      "source": {
+        "ability": "wage.payroll.list"
+      },
+      "rows": "/rows",
+      "columns": [
+        {
+          "label": "Period",
+          "path": "/period"
+        },
+        {
+          "label": "Currency",
+          "path": "/currency"
+        },
+        {
+          "label": "Headcount",
+          "path": "/headcount"
+        },
+        {
+          "label": "Net (minor units)",
+          "path": "/net_minor"
+        },
+        {
+          "label": "Status",
+          "path": "/status"
+        }
+      ]
+    }
+  ]
+}

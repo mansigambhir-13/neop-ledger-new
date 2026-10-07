@@ -16,6 +16,7 @@ import { TEMPLATE_INFRA_TABLES, TEMPLATE_MIGRATIONS } from '@neop/template';
 import { LEDGER_ROOT, seedLedger } from '../src/index.ts';
 import { cardTextOf, goAheadOf, numbersIn, numbersNotOn, PRESENCE_REPLY_DEADLINE_MS, type PresenceClient } from '@neop/template';
 import { bootPilot, call, fakeClientHomeserver, finish, type FakeClientHomeserver, type Pilot } from './harness.ts';
+import { appMigrationsBefore } from '@neop/testkit';
 
 const ME = '@ledger:hs.test';
 const AGENT = '@reasoning_agent:hs.test'; // relays for Priya (admin)
@@ -29,9 +30,18 @@ const pause = (ms: number) => new Promise((r) => setTimeout(r, ms));
 let P: Pilot;
 const running: PresenceClient[] = [];
 const db = () => P.backend.core.runnerPool;
+const diagnosticLog: { at: string; message: string; fields: Record<string, unknown> }[] = [];
 
 beforeAll(async () => {
-  P = await bootPilot({ presence: 'client' });
+  P = await bootPilot({ presence: 'client', neuralchat: false, backendConfig: () => ({
+    log(message, extra = {}) {
+      // Only synthetic identifiers/status, never tokens, connection strings or model payloads.
+      const fields = Object.fromEntries(Object.entries(extra).filter(([key]) =>
+        ['event', 'room', 'job', 'job_id', 'session', 'session_id', 'outcome', 'fixed', 'status', 'reason'].includes(key)));
+      diagnosticLog.push({ at: new Date().toISOString(), message, fields });
+      if (diagnosticLog.length > 200) diagnosticLog.shift();
+    },
+  }) });
   expect((await P.api('PUT', `/api/users/${P.admin.id}/chat`, { matrix_user_id: PRIYA })).status).toBe(200);
   for (const e of [
     { app: 'ledger', matrix_id: PRIYA, kind: 'person' },
@@ -63,6 +73,26 @@ const jobs = async () => (await db().query('select count(*)::int as n from ledge
 const proposal = async (id: string) => (await db().query('select status, decided_by, feedback, answered_at from ledger.proposals where id = $1', [id])).rows[0];
 const executions = async (key: string) => (await db().query("select count(*)::int as n from ledger.operations where ability_key = $1 and outcome = 'DONE'", [key])).rows[0].n as number;
 const withdraw = (id: string) => db().query("update ledger.proposals set status = 'WITHDRAWN' where id = $1 and status = 'PROPOSED'", [id]);
+
+/** Failure-only evidence for the intermittent bridge refusal; no wait, retry or success-path query. */
+async function refusalDiagnostic(hs: FakeClientHomeserver, room: string, event: string, job: string, card: string) {
+  const rows = async (sql: string, args: unknown[] = []) => {
+    try { return (await db().query(sql, args)).rows; }
+    catch (e) { return [{ diagnostic_error: (e as Error).name }]; }
+  };
+  return JSON.stringify({
+    observed_at: new Date().toISOString(), room, event, job, card,
+    notices: hs.notices(room), log: diagnosticLog,
+    inbound: await rows('select event_id,at,outcome,job_id,proposal_id,reply_status,reply_due_at,reply_text,reply_event_id,detail from ledger.inbound_events where room_id=$1 order by at', [room]),
+    outbound: await rows('select key,event_id,job_id,proposal_id,wait_id,fingerprint_shown,at from ledger.outbound_events where room_id=$1 order by id', [room]),
+    jobs: await rows('select id,status,claimed_by,claimed_until,heartbeat_at,attempts,tool_calls,result from ledger.jobs where id=$1 or id in (select job_id from ledger.inbound_events where room_id=$2)', [job, room]),
+    proposal: await rows('select id,job_id,status,fingerprint,created_at,expires_at from ledger.proposals where id=$1', [card]),
+    steps: await rows('select job_id,seq,kind,summary,output_ref,created_at from ledger.steps where job_id=$1 or job_id in (select job_id from ledger.inbound_events where room_id=$2) order by job_id,seq', [job, room]),
+    sessions: await rows('select job_id,session_id,reason,message_count,created_at from ledger.transcripts where job_id=$1 or job_id in (select job_id from ledger.inbound_events where room_id=$2)', [job, room]),
+    activity: await rows('select pid,usename,state,wait_event_type,wait_event,xact_start,query_start from pg_stat_activity where datname=current_database()'),
+    locks: await rows('select l.pid,l.locktype,l.mode,l.granted,l.relation::regclass::text from pg_locks l join pg_stat_activity a on a.pid=l.pid where a.datname=current_database()'),
+  });
+}
 
 const DONE = 'Recorded the ₹500.00 office-supplies expense in the books.';
 /** The job proposes an expense (a card) and, once woken by the answer, finishes with DONE. */
@@ -167,9 +197,11 @@ describe('a bridge’s go-ahead is never a yes (NeuralChat-shaped: plain message
     const dm = await dmWith(hs, AGENT2);
     const { proposal: prop, card, id8 } = await propose(hs, dm, AGENT2, 'printer paper');
     const before = await jobs();
-    hs.say(dm, AGENT2, text('Approved — apply it.', replyTo(prop)));
+    const go = hs.say(dm, AGENT2, text('Approved — apply it.', replyTo(prop)));
     const r = await notices(hs, dm, 2, 'the refusal');
-    expect(r[1]!.content.body).toContain(`Please approve #${id8} on your desk.`);
+    const expected = `Please approve #${id8} on your desk.`;
+    const diagnostic = String(r[1]!.content.body).includes(expected) ? undefined : await refusalDiagnostic(hs, dm, go.event_id, card.job_id, card.id);
+    expect(r[1]!.content.body, diagnostic).toContain(expected);
     await pause(300);
     expect((await proposal(card.id)).status).toBe('PROPOSED');
     expect(await jobs()).toBe(before);
@@ -246,6 +278,7 @@ describe('a person the bridge relays for need not have a Matrix id (found in the
     const tdb = await createTestDatabase();
     const CO = '11111111-2222-3333-4444-555555555555';
     const tdir = await mkdtemp(path.join(os.tmpdir(), 'neop-t017-'));
+    let beforeDir = '';
     try {
       await migratePlatform(tdb.adminUrl);
       await cp(TEMPLATE_MIGRATIONS, tdir, { recursive: true });
@@ -254,8 +287,8 @@ describe('a person the bridge relays for need not have a Matrix id (found in the
       tled.migrations = tled.migrations.filter((m: any) => m.file < 't017');
       await writeFile(path.join(tdir, 'migrate.json'), JSON.stringify(tled));
       await bootstrapFamily(tdb.adminUrl, 'ledger');
-      const run = async (dir: string) => migrate({ adminUrl: tdb.adminUrl, schema: 'ledger', sources: { dir: path.join(LEDGER_ROOT, 'migrations'), prepend: await templateFiles(dir) }, lintExempt: TEMPLATE_INFRA_TABLES });
-      await run(tdir);
+      const run = async (dir: string, appDir = path.join(LEDGER_ROOT, 'migrations')) => migrate({ adminUrl: tdb.adminUrl, schema: 'ledger', sources: { dir: appDir, prepend: await templateFiles(dir) }, lintExempt: TEMPLATE_INFRA_TABLES });
+      await run(tdir, (beforeDir = await appMigrationsBefore(path.join(LEDGER_ROOT, 'migrations'), '010')));
       const pool = createPool(roleUrl(tdb.adminUrl, 'ledger_app'));
       const admin = new pg.Client({ connectionString: tdb.adminUrl });
       await admin.connect();
@@ -281,6 +314,7 @@ describe('a person the bridge relays for need not have a Matrix id (found in the
     } finally {
       await tdb.drop();
       await rm(tdir, { recursive: true, force: true });
+      if (beforeDir) await rm(beforeDir, { recursive: true, force: true });
     }
   });
 });

@@ -181,7 +181,7 @@ export class Registry {
       throw new PlatformError(403, 'unsigned', 'a package must carry its author key and signature');
     }
     if (authorKey && !verifyAuthorSig(authorKey, ch, author?.sig)) {
-      await this.p.gateway.audit({ company_id: null, actor: publishedBy, action: 'registry.publish_refused', outcome: 'bad_author_sig', detail: { key: e.key, version: e.version, content_hash: ch } });
+      await this.p.audit({ company_id: null, actor: publishedBy, action: 'registry.publish_refused', outcome: 'bad_author_sig', detail: { key: e.key, version: e.version, content_hash: ch } });
       throw new PlatformError(403, 'bad_author_sig', `the author signature does not verify over ${ch}`);
     }
     return tx(this.p.db, async (c) => {

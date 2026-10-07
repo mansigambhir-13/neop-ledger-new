@@ -1,0 +1,475 @@
+{
+  "at": "2026-10-01T04:44:27.939Z",
+  "prefix": "neop-fleet5-60a1eafe",
+  "lockfileSha256": "4ffcd6b9d1ba37306f6c52373d382e988bb4a4b91cad199c81723b555e186343",
+  "generatorSha256": "8ce35e3f83681f4fda378dcfe89fe3bb8ff05c4c54a3a6c6a93d946023d072f6",
+  "images": [
+    {
+      "app": "asset",
+      "tag": "neop-fleet5-60a1eafe-asset-agent:local",
+      "id": "sha256:2e0ab0ff747c6ac5156278ec007f5d0000a8d134581d8ea2c414574a8c37acd7",
+      "os": "linux",
+      "architecture": "arm64"
+    },
+    {
+      "app": "buy",
+      "tag": "neop-fleet5-60a1eafe-buy-agent:local",
+      "id": "sha256:fbc952de0c1fdecf325f98104efa6d398a5913ac0434a9faed1661e01ab0ebcc",
+      "os": "linux",
+      "architecture": "arm64"
+    },
+    {
+      "app": "clear",
+      "tag": "neop-fleet5-60a1eafe-clear-agent:local",
+      "id": "sha256:23fc2262b804c7d371fbb5198fee49d15945709af1b070fc855feec267591f5c",
+      "os": "linux",
+      "architecture": "arm64"
+    },
+    {
+      "app": "deal",
+      "tag": "neop-fleet5-60a1eafe-deal-agent:local",
+      "id": "sha256:1f49fe06fddaa951dcb5758c113edcfed2b6fefd816fae3b87867240a27183d9",
+      "os": "linux",
+      "architecture": "arm64"
+    },
+    {
+      "app": "desk",
+      "tag": "neop-fleet5-60a1eafe-desk-agent:local",
+      "id": "sha256:27cb1bd319205a560768be3efc4fa842f4af9ee41b3b21bf54842834a7cb64a3",
+      "os": "linux",
+      "architecture": "arm64"
+    },
+    {
+      "app": "grant",
+      "tag": "neop-fleet5-60a1eafe-grant-agent:local",
+      "id": "sha256:83b36f0889fdcbceaef6f5a1107c6fd3b422f63d388f119d5d72491a48de4e5a",
+      "os": "linux",
+      "architecture": "arm64"
+    },
+    {
+      "app": "guard",
+      "tag": "neop-fleet5-60a1eafe-guard-agent:local",
+      "id": "sha256:47bf8662751186f9373cf8c360bbac168d7dfa2ef90e4932bd9a25b109b65ee8",
+      "os": "linux",
+      "architecture": "arm64"
+    },
+    {
+      "app": "hire",
+      "tag": "neop-fleet5-60a1eafe-hire-agent:local",
+      "id": "sha256:8d9cd2ac687444a978e18ec4991766f85be9581575e5e7f540c4aea4f6886bc9",
+      "os": "linux",
+      "architecture": "arm64"
+    },
+    {
+      "app": "pay",
+      "tag": "neop-fleet5-60a1eafe-pay-agent:local",
+      "id": "sha256:61f2caaf237a0ff075251d8eae364048f42e7131e41bc1959942c17c37c39cc9",
+      "os": "linux",
+      "architecture": "arm64"
+    },
+    {
+      "app": "post",
+      "tag": "neop-fleet5-60a1eafe-post-agent:local",
+      "id": "sha256:0998f45f14a2b35b33baec754e3fab8756666d4af90639c9c4c18e7a778880e9",
+      "os": "linux",
+      "architecture": "arm64"
+    },
+    {
+      "app": "quote",
+      "tag": "neop-fleet5-60a1eafe-quote-agent:local",
+      "id": "sha256:53a696a315e28f9caee346f8ec1e7b37065d91c416969879ca2614b2d1d8b22c",
+      "os": "linux",
+      "architecture": "arm64"
+    },
+    {
+      "app": "reach",
+      "tag": "neop-fleet5-60a1eafe-reach-agent:local",
+      "id": "sha256:97c521df6f1fa94cb4487fb58c15cfe98acd608c80c43b42646e949334c253f4",
+      "os": "linux",
+      "architecture": "arm64"
+    },
+    {
+      "app": "renew",
+      "tag": "neop-fleet5-60a1eafe-renew-agent:local",
+      "id": "sha256:a8dff5400c24f3b4bc4fa47fed37808602d3ac8183b1eba42de196e1ead51c3c",
+      "os": "linux",
+      "architecture": "arm64"
+    },
+    {
+      "app": "roster",
+      "tag": "neop-fleet5-60a1eafe-roster-agent:local",
+      "id": "sha256:6a3bb700b550066237aa58f4024168076f018b181f9f5367fd55936361e2cb4a",
+      "os": "linux",
+      "architecture": "arm64"
+    },
+    {
+      "app": "shift",
+      "tag": "neop-fleet5-60a1eafe-shift-agent:local",
+      "id": "sha256:6e2b71251ee66ea9a070e7d4d7b07f190bf0c920de47357ac0f0769be4bad843",
+      "os": "linux",
+      "architecture": "arm64"
+    },
+    {
+      "app": "sign",
+      "tag": "neop-fleet5-60a1eafe-sign-agent:local",
+      "id": "sha256:723e37474283485485645c685e378a5e6cf22ecceee386c89caa61979cae8171",
+      "os": "linux",
+      "architecture": "arm64"
+    },
+    {
+      "app": "sync",
+      "tag": "neop-fleet5-60a1eafe-sync-agent:local",
+      "id": "sha256:ffb930735bc7c0617d289f465b8a98dc5e3545e558c15bdddaf132b7c348ed75",
+      "os": "linux",
+      "architecture": "arm64"
+    },
+    {
+      "app": "vet",
+      "tag": "neop-fleet5-60a1eafe-vet-agent:local",
+      "id": "sha256:5e1494dbc61f589d498ea281ded3ed8c6218cc03a356d31475573e1dac2ea218",
+      "os": "linux",
+      "architecture": "arm64"
+    }
+  ],
+  "results": [
+    {
+      "app": "asset",
+      "nonRoot": true,
+      "readOnly": true,
+      "noCredentialMount": true,
+      "databaseLibrariesAbsent": true,
+      "injectedCredentialRefused": true,
+      "network": {
+        "ownGate": true,
+        "fixtureModel": true,
+        "foreignDatabase": false,
+        "peerWorker": false
+      },
+      "fixtureSession": "finished",
+      "modelRequests": 1,
+      "cleanShutdown": true
+    },
+    {
+      "app": "buy",
+      "nonRoot": true,
+      "readOnly": true,
+      "noCredentialMount": true,
+      "databaseLibrariesAbsent": true,
+      "injectedCredentialRefused": true,
+      "network": {
+        "ownGate": true,
+        "fixtureModel": true,
+        "foreignDatabase": false,
+        "peerWorker": false
+      },
+      "fixtureSession": "finished",
+      "modelRequests": 1,
+      "cleanShutdown": true
+    },
+    {
+      "app": "clear",
+      "nonRoot": true,
+      "readOnly": true,
+      "noCredentialMount": true,
+      "databaseLibrariesAbsent": true,
+      "injectedCredentialRefused": true,
+      "network": {
+        "ownGate": true,
+        "fixtureModel": true,
+        "foreignDatabase": false,
+        "peerWorker": false
+      },
+      "fixtureSession": "finished",
+      "modelRequests": 1,
+      "cleanShutdown": true
+    },
+    {
+      "app": "deal",
+      "nonRoot": true,
+      "readOnly": true,
+      "noCredentialMount": true,
+      "databaseLibrariesAbsent": true,
+      "injectedCredentialRefused": true,
+      "network": {
+        "ownGate": true,
+        "fixtureModel": true,
+        "foreignDatabase": false,
+        "peerWorker": false
+      },
+      "fixtureSession": "finished",
+      "modelRequests": 1,
+      "cleanShutdown": true
+    },
+    {
+      "app": "desk",
+      "nonRoot": true,
+      "readOnly": true,
+      "noCredentialMount": true,
+      "databaseLibrariesAbsent": true,
+      "injectedCredentialRefused": true,
+      "network": {
+        "ownGate": true,
+        "fixtureModel": true,
+        "foreignDatabase": false,
+        "peerWorker": false
+      },
+      "fixtureSession": "finished",
+      "modelRequests": 1,
+      "cleanShutdown": true
+    },
+    {
+      "app": "grant",
+      "nonRoot": true,
+      "readOnly": true,
+      "noCredentialMount": true,
+      "databaseLibrariesAbsent": true,
+      "injectedCredentialRefused": true,
+      "network": {
+        "ownGate": true,
+        "fixtureModel": true,
+        "foreignDatabase": false,
+        "peerWorker": false
+      },
+      "fixtureSession": "finished",
+      "modelRequests": 1,
+      "cleanShutdown": true
+    },
+    {
+      "app": "guard",
+      "nonRoot": true,
+      "readOnly": true,
+      "noCredentialMount": true,
+      "databaseLibrariesAbsent": true,
+      "injectedCredentialRefused": true,
+      "network": {
+        "ownGate": true,
+        "fixtureModel": true,
+        "foreignDatabase": false,
+        "peerWorker": false
+      },
+      "fixtureSession": "finished",
+      "modelRequests": 1,
+      "cleanShutdown": true
+    },
+    {
+      "app": "hire",
+      "nonRoot": true,
+      "readOnly": true,
+      "noCredentialMount": true,
+      "databaseLibrariesAbsent": true,
+      "injectedCredentialRefused": true,
+      "network": {
+        "ownGate": true,
+        "fixtureModel": true,
+        "foreignDatabase": false,
+        "peerWorker": false
+      },
+      "fixtureSession": "finished",
+      "modelRequests": 1,
+      "cleanShutdown": true
+    },
+    {
+      "app": "pay",
+      "nonRoot": true,
+      "readOnly": true,
+      "noCredentialMount": true,
+      "databaseLibrariesAbsent": true,
+      "injectedCredentialRefused": true,
+      "network": {
+        "ownGate": true,
+        "fixtureModel": true,
+        "foreignDatabase": false,
+        "peerWorker": false
+      },
+      "fixtureSession": "finished",
+      "modelRequests": 1,
+      "cleanShutdown": true
+    },
+    {
+      "app": "post",
+      "nonRoot": true,
+      "readOnly": true,
+      "noCredentialMount": true,
+      "databaseLibrariesAbsent": true,
+      "injectedCredentialRefused": true,
+      "network": {
+        "ownGate": true,
+        "fixtureModel": true,
+        "foreignDatabase": false,
+        "peerWorker": false
+      },
+      "fixtureSession": "finished",
+      "modelRequests": 1,
+      "cleanShutdown": true
+    },
+    {
+      "app": "quote",
+      "nonRoot": true,
+      "readOnly": true,
+      "noCredentialMount": true,
+      "databaseLibrariesAbsent": true,
+      "injectedCredentialRefused": true,
+      "network": {
+        "ownGate": true,
+        "fixtureModel": true,
+        "foreignDatabase": false,
+        "peerWorker": false
+      },
+      "fixtureSession": "finished",
+      "modelRequests": 1,
+      "cleanShutdown": true
+    },
+    {
+      "app": "reach",
+      "nonRoot": true,
+      "readOnly": true,
+      "noCredentialMount": true,
+      "databaseLibrariesAbsent": true,
+      "injectedCredentialRefused": true,
+      "network": {
+        "ownGate": true,
+        "fixtureModel": true,
+        "foreignDatabase": false,
+        "peerWorker": false
+      },
+      "fixtureSession": "finished",
+      "modelRequests": 1,
+      "cleanShutdown": true
+    },
+    {
+      "app": "renew",
+      "nonRoot": true,
+      "readOnly": true,
+      "noCredentialMount": true,
+      "databaseLibrariesAbsent": true,
+      "injectedCredentialRefused": true,
+      "network": {
+        "ownGate": true,
+        "fixtureModel": true,
+        "foreignDatabase": false,
+        "peerWorker": false
+      },
+      "fixtureSession": "finished",
+      "modelRequests": 1,
+      "cleanShutdown": true
+    },
+    {
+      "app": "roster",
+      "nonRoot": true,
+      "readOnly": true,
+      "noCredentialMount": true,
+      "databaseLibrariesAbsent": true,
+      "injectedCredentialRefused": true,
+      "network": {
+        "ownGate": true,
+        "fixtureModel": true,
+        "foreignDatabase": false,
+        "peerWorker": false
+      },
+      "fixtureSession": "finished",
+      "modelRequests": 1,
+      "cleanShutdown": true
+    },
+    {
+      "app": "shift",
+      "nonRoot": true,
+      "readOnly": true,
+      "noCredentialMount": true,
+      "databaseLibrariesAbsent": true,
+      "injectedCredentialRefused": true,
+      "network": {
+        "ownGate": true,
+        "fixtureModel": true,
+        "foreignDatabase": false,
+        "peerWorker": false
+      },
+      "fixtureSession": "finished",
+      "modelRequests": 1,
+      "cleanShutdown": true
+    },
+    {
+      "app": "sign",
+      "nonRoot": true,
+      "readOnly": true,
+      "noCredentialMount": true,
+      "databaseLibrariesAbsent": true,
+      "injectedCredentialRefused": true,
+      "network": {
+        "ownGate": true,
+        "fixtureModel": true,
+        "foreignDatabase": false,
+        "peerWorker": false
+      },
+      "fixtureSession": "finished",
+      "modelRequests": 1,
+      "cleanShutdown": true
+    },
+    {
+      "app": "sync",
+      "nonRoot": true,
+      "readOnly": true,
+      "noCredentialMount": true,
+      "databaseLibrariesAbsent": true,
+      "injectedCredentialRefused": true,
+      "network": {
+        "ownGate": true,
+        "fixtureModel": true,
+        "foreignDatabase": false,
+        "peerWorker": false
+      },
+      "fixtureSession": "finished",
+      "modelRequests": 1,
+      "cleanShutdown": true
+    },
+    {
+      "app": "vet",
+      "nonRoot": true,
+      "readOnly": true,
+      "noCredentialMount": true,
+      "databaseLibrariesAbsent": true,
+      "injectedCredentialRefused": true,
+      "network": {
+        "ownGate": true,
+        "fixtureModel": true,
+        "foreignDatabase": false,
+        "peerWorker": false
+      },
+      "fixtureSession": "finished",
+      "modelRequests": 1,
+      "cleanShutdown": true
+    }
+  ],
+  "cleanup": [
+    {
+      "kind": "container",
+      "name": "neop-fleet5-60a1eafe-peer",
+      "removed": true
+    },
+    {
+      "kind": "container",
+      "name": "neop-fleet5-60a1eafe-database",
+      "removed": true
+    },
+    {
+      "kind": "network",
+      "name": "neop-fleet5-60a1eafe-forbidden",
+      "removed": true
+    }
+  ],
+  "production_ready": false,
+  "success": true,
+  "remainingContainers": [],
+  "remainingNetworks": [],
+  "sourceBaseCommit": "c758642fb56425ef87f0d00341fc94a3f11d2db5",
+  "artifactManifestSha256": "d0dbba4d696a1ca20b1fe04d63110229577325ef0f24d2824fb28abd6914aff1",
+  "harnessSha256": "134a4d1b56395988cb8a2fea29262da1bf2b1b147dd81a89bf0ec611aeee39fe",
+  "fixtureSha256": "88d791e070deb3c32908a2c014579933e314dff92a296b54a4e0b3783fd037ed",
+  "dockerfileSha256": "e1f40333e6d2cac388838e1898f63f969baece7b4bcf0ee86348899bb6a9d65d",
+  "scope": "Local assistant packaging and fixture wire-protocol checks only; not backend/business/production acceptance.",
+  "limitations": [
+    "Linux ARM64 only; no AMD64 or other-provider certification.",
+    "Canaries are local Docker network probes, not production/host/metadata egress certification.",
+    "Image IDs are local, not registry digests or release attestations.",
+    "No real payments, messages, signatures, access changes, exports or filings."
+  ]
+}

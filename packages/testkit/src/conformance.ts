@@ -1,3 +1,4 @@
+import {sqlIdent} from '@neop/pgkit';
 // The bar every app cut from the template must pass (R14). The template owns
 // these tests; an app supplies only fixtures. The platform registers an app on
 // green, not on promises.
@@ -28,7 +29,12 @@ export function conformance(f: ConformanceFixture): void {
   });
   afterAll(async () => P?.close());
 
-  const read = (k: string, args: unknown, token?: string) => P.api('POST', `/api/apps/${key}/read/${k}`, args, token);
+  // V3 has no platform-to-NEOP read API. Exercise every ability at the
+  // NEOP's own gate/handler boundary; screen reads have a separate
+  // conformance bar that proves the DBA-reviewed block_read SQL path returns
+  // the same answer. Keeping those two surfaces distinct also proves an
+  // assistant-only read is not accidentally exposed to the desk.
+  const read = (k: string, args: unknown, company?: string) => P.read(k, args, { app: key, company });
 
   describe('conformance: contract', () => {
     it('declares every handler and only declared handlers; reads are never ask-first', () => {
@@ -69,7 +75,7 @@ export function conformance(f: ConformanceFixture): void {
       const bu = await P.platform.createUser(B.id, { name: 'B', email: 'b@other.example', role: 'admin' });
       await P.platform.installApp(B.id, key);
       for (const [k, args] of Object.entries(f.reads)) {
-        const r = await read(k, args, bu.token);
+        const r = await read(k, args, B.id);
         expect(r.status).toBe(200);
         expect(r.body.result.empty, k).toBe(true);
       }
@@ -108,26 +114,36 @@ export function conformance(f: ConformanceFixture): void {
       const t = await P.ask(`conformance: ${f.gatedWrite.key}`, undefined, key);
       const card = await P.waitFor(async () => (await P.desk()).find((c) => c.task_id === t.task_id && c.status === 'PENDING'), 'card');
       expect(card.ability_key).toBe(f.gatedWrite.key);
-      const ops0 = (await P.backend.core.runnerPool.query(`select count(*)::int as n from ${key}.operations where ability_key = $1`, [f.gatedWrite.key])).rows[0].n;
+      const ops0 = (await P.backend.core.runnerPool.query(`select count(*)::int as n from ${sqlIdent(key)}.operations where ability_key = $1`, [f.gatedWrite.key])).rows[0].n;
       expect(ops0).toBe(0);
       await P.api('POST', `/api/desk/${card.id}/answer`, { decision: 'yes', fingerprint_seen: card.fingerprint });
       await P.waitFor(async () => (await P.task(t.task_id)).task.status === 'COMPLETED', 'completed');
       expect(woken).toContain('is now DONE');
-      const ops = (await P.backend.core.runnerPool.query(`select count(*)::int as n from ${key}.operations where ability_key = $1`, [f.gatedWrite.key])).rows[0].n;
+      const ops = (await P.backend.core.runnerPool.query(`select count(*)::int as n from ${sqlIdent(key)}.operations where ability_key = $1`, [f.gatedWrite.key])).rows[0].n;
       expect(ops).toBe(1);
-      const trail = (await P.backend.core.runnerPool.query(`select event from ${key}.proposal_events where proposal_id = $1 order by id`, [card.proposal_id])).rows.map((r) => r.event);
+      const trail = (await P.backend.core.runnerPool.query(`select event from ${sqlIdent(key)}.proposal_events where proposal_id = $1 order by id`, [card.proposal_id])).rows.map((r) => r.event);
       expect(trail).toEqual(['proposed', 'answered:yes', 'executing', 'executed:DONE', 'resumed', 'reported']);
     });
   });
 
   describe('conformance: inbound auth and job tokens', () => {
-    it('refuses unsigned L3 calls and gate calls without a job token', async () => {
-      const l3 = await fetch(`http://127.0.0.1:${P.backend.ports.l3}/l3/tasks.open`, {
+    it('opens no job over HTTP: no L3, an appservice push needs the hs_token, the gate needs a job token (v3 S9)', async () => {
+      // v3 S9: there is no L3 — a task is a typed Matrix event. The files listener serves no task route at all …
+      const files = await fetch(`http://127.0.0.1:${P.backend.ports.files}/l3/tasks.open`, {
         method: 'POST',
         headers: { 'content-type': 'application/json', 'contract-version': '1' },
         body: JSON.stringify({ task_id: randomUUID(), ask: 'x', requester: 'user:x' }),
       });
-      expect(l3.status).toBe(401);
+      expect(files.status).toBe(404);
+      // … and the appservice listener refuses a push without the homeserver's token (M_FORBIDDEN), opening nothing.
+      if (P.backend.ports.appservice) {
+        const push = await fetch(`http://127.0.0.1:${P.backend.ports.appservice}/_matrix/app/v1/transactions/x${randomUUID()}`, {
+          method: 'PUT',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ events: [{ type: 'neos.neop.task', event_id: `$${randomUUID()}`, room_id: '!x:y', sender: '@someone:y', content: { task_id: randomUUID(), company: 'x', on_behalf_of: '@a:y', text: 'x' } }] }),
+        });
+        expect(push.status).toBe(403);
+      }
       const gate = await fetch(`http://127.0.0.1:${P.backend.ports.gate}/gate/call`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },

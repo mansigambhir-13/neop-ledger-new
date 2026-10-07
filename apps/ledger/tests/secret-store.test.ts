@@ -9,12 +9,12 @@ import { chmod, mkdir, mkdtemp, readdir, rm, stat, writeFile } from 'node:fs/pro
 import os from 'node:os';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { createPool } from '@neop/pgkit';
 import { fakeResend, toolName, type FakeProvider } from '@neop/testkit';
 import { doorSecretPaths, FileSecretStore, MemorySecretStore } from '@neop/template';
-import { vaultAad, VaultCipher } from '@neop/platform';
 import { bootPilot, type Pilot } from './harness.ts';
 import { LEDGER_ROOT } from '../src/index.ts';
-import { exportDoorSecrets } from '../../../scripts/v3/export-door-secrets.ts';
+import { exportDoorSecrets, vaultAad, VaultCipher } from '../../../scripts/v3/export-door-secrets.ts';
 import { restoreDoors, sealDoors, writeDoorSecret } from '../../../scripts/v3/door-secrets.ts';
 
 const ROOT = path.join(LEDGER_ROOT, '../..');
@@ -198,13 +198,14 @@ describe('moving to the store, and backing it up', () => {
     const keys = VaultCipher.generate();
     const cipher = new VaultCipher(keys);
     const co = await P.platform.createCompany('Moving Co');
+    const legacy = createPool(P.adminUrl, 1);
     const seal = (app: string, door: string, v: Record<string, unknown>) =>
-      P.platform.db.query('insert into neos.vault_secrets (company_id, app_key, door, secret) values ($1, $2, $3, $4)', [co.id, app, door, JSON.stringify(cipher.seal(v, vaultAad(co.id, app, door)))]);
+      legacy.query('insert into neos_s9_archive.vault_secrets (company_id, app_key, door, secret) values ($1, $2, $3, $4)', [co.id, app, door, JSON.stringify(cipher.seal(v, vaultAad(co.id, app, door)))]);
     await seal('*', 'email', { provider: 'resend', api_key: 'sk-shared-MOVE-1' });
     await seal('ledger', 'email', { provider: 'resend', api_key: 'sk-ledger-MOVE-2' });
     // A row copied into another slot does not open (AAD): skipped, never written.
-    const row = (await P.platform.db.query("select secret from neos.vault_secrets where company_id = $1 and app_key = 'ledger'", [co.id])).rows[0];
-    await P.platform.db.query("insert into neos.vault_secrets (company_id, app_key, door, secret) values ($1, 'marketing', 'email', $2)", [co.id, JSON.stringify(row.secret)]);
+    const row = (await legacy.query("select secret from neos_s9_archive.vault_secrets where company_id = $1 and app_key = 'ledger'", [co.id])).rows[0];
+    await legacy.query("insert into neos_s9_archive.vault_secrets (company_id, app_key, door, secret) values ($1, 'marketing', 'email', $2)", [co.id, JSON.stringify(row.secret)]);
     const target = await box('export');
     let out = '';
     let code = 0;
@@ -213,7 +214,11 @@ describe('moving to the store, and backing it up', () => {
         cwd: ROOT,
         encoding: 'utf8',
         stdio: 'pipe',
-        env: { ...process.env, NEOS_DB_URL: P.adminUrl, NEOS_VAULT_KEYS: JSON.stringify(keys) },
+        // The CLI prefers the DBA URL (and *_FILE overrides); never inherit the test-cluster
+        // bootstrap database instead of this pilot's populated archive or an operator's key file.
+        env: { ...process.env, NEOS_ADMIN_URL: P.adminUrl, NEOS_ADMIN_URL_FILE: undefined,
+          NEOS_DB_URL: P.adminUrl, NEOS_DB_URL_FILE: undefined,
+          NEOS_VAULT_KEYS: JSON.stringify(keys), NEOS_VAULT_KEYS_FILE: undefined },
       });
     } catch (e: any) {
       out = String(e.stdout ?? '') + String(e.stderr ?? '');
@@ -233,8 +238,9 @@ describe('moving to the store, and backing it up', () => {
     expect(await wage.get(co.id, 'email')).toEqual({ provider: 'resend', api_key: 'sk-shared-MOVE-1' });
     for (const rel of [`${co.id}/email.json`, `${co.id}/ledger/email.json`]) expect((await stat(path.join(target, rel))).mode & 0o777).toBe(0o600);
     // Re-running keeps what is there (the store may be newer) unless --overwrite.
-    const again = await exportDoorSecrets({ db: P.platform.db, cipher, target, company: co.id });
+    const again = await exportDoorSecrets({ db: legacy, cipher, target, company: co.id });
     expect(again.filter((r) => r.result === 'kept')).toHaveLength(2);
+    await legacy.end();
   });
 
   it('the nightly backup seals the store; restore gives the same files back, 0600; the wrong key opens nothing', async () => {

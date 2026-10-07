@@ -170,11 +170,14 @@ describe('package uninstall', () => {
 });
 
 describe('who may ask Ledger, and the audit trail', () => {
-  it('lists permission rows and installed apps (admins only)', async () => {
-    const r = await admin('GET', '/api/acl?app=ledger');
+  it('lists Matrix allowlist rows (admins only)', async () => {
+    const mxid = '@validation_relay:hs.test';
+    expect((await admin('PUT', '/api/chat/allowlist', { app: 'ledger', matrix_id: mxid, kind: 'bridge' })).status).toBe(200);
+    const r = await admin('GET', '/api/chat/allowlist?app=ledger');
     expect(r.status).toBe(200);
-    expect(r.body.installed_apps.map((a: any) => a.key)).toContain('ledger');
-    expect((await member('GET', '/api/acl')).status).toBe(403);
+    expect(r.body.entries).toContainEqual(expect.objectContaining({ app: 'ledger', matrix_id: mxid, kind: 'bridge' }));
+    expect((await member('GET', '/api/chat/allowlist?app=ledger')).status).toBe(403);
+    expect((await admin('DELETE', `/api/chat/allowlist/ledger/${encodeURIComponent(mxid)}`)).status).toBe(200);
   });
 
   it('the audit trail pages, filters, and names the people', async () => {

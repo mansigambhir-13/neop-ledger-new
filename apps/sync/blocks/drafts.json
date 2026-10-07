@@ -1,0 +1,45 @@
+{
+  "block": "page",
+  "title": "Sync drafts",
+  "description": "Internal review only; not business approval or external completion.",
+  "nav": {
+    "label": "Sync",
+    "icon": "table",
+    "order": 1
+  },
+  "children": [
+    {
+      "block": "table",
+      "source": {
+        "ability": "sync.exports.list"
+      },
+      "rows": "/rows",
+      "columns": [
+        {
+          "label": "source id",
+          "path": "/source_id"
+        },
+        {
+          "label": "destination",
+          "path": "/destination"
+        },
+        {
+          "label": "sensitivity",
+          "path": "/sensitivity"
+        },
+        {
+          "label": "notes",
+          "path": "/notes"
+        },
+        {
+          "label": "status",
+          "path": "/status"
+        },
+        {
+          "label": "requires elevated approval",
+          "path": "/requires_elevated_approval"
+        }
+      ]
+    }
+  ]
+}

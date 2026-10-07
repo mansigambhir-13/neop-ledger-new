@@ -25,23 +25,24 @@ run() {
   echo "== $svc"
   docker compose "${args[@]}" exec -T "$svc" tsx scripts/netprobe.ts "$@"
 }
-# The assistant: only its own backend's gate and the LLM proxy. No database, platform, vault, egress proxy or internet.
-run ledger-agent required open:ledger-gate:4102 open:ledger-backend:4102 closed:ledger-l3:4101 open:llm-proxy:4200 closed:postgres:5432 closed:pgbouncer:6432 closed:platform:4000 closed:ledger-backend:4101 closed:egress-proxy:3128 closed:1.1.1.1:443 "proxy-refused:$ALLOWED" || fail=1
-# The desk (test profile): only the platform. No database, no app backend, no agent.
-run web optional open:platform:4000 closed:postgres:5432 closed:pgbouncer:6432 closed:ledger-backend:4101 closed:ledger-agent:4103 || fail=1
-# The app backend: its database (pooled and direct), the platform, its agent; providers only via the egress proxy.
-run ledger-backend required open:pgbouncer:6432 open:postgres:5432 open:platform:4000 open:ledger-agent:4103 open:egress-proxy:3128 closed:1.1.1.1:443 "proxy-open:$ALLOWED" "proxy-refused:$DENIED" || fail=1
+# The assistant: only its own backend's gate and the LLM proxy. No database, platform, files, egress proxy or internet.
+run ledger-agent required open:ledger-gate:4102 open:ledger-backend:4102 closed:ledger-files:4101 open:llm-proxy:4200 closed:postgres:5432 closed:pgbouncer:6432 closed:platform:4000 closed:egress-proxy:3128 closed:1.1.1.1:443 "proxy-refused:$ALLOWED" || fail=1
+# The desk (test profile): only the platform. No database, signed-file listener or agent.
+run web optional open:platform:4000 closed:postgres:5432 closed:pgbouncer:6432 closed:ledger-files:4101 closed:ledger-agent:4103 || fail=1
+# The app backend: its database and agent; Matrix and door providers only via the egress proxy. It has no platform URL
+# or platform credential (the static topology test enforces this; the shared database transport is not an API road).
+run ledger-backend required open:pgbouncer:6432 open:postgres:5432 open:ledger-agent:4103 open:egress-proxy:3128 closed:1.1.1.1:443 "proxy-open:$ALLOWED" "proxy-refused:$DENIED" || fail=1
 # v3 S4 · NEOP presence (compose.chat.yml, NEOP_PRESENCE=appservice|client): the backend may reach the homeserver on
 # the chat network (and the homeserver its appservice listener, 4104). Checked when a local synapse runs; an external
 # homeserver is reached through egress-proxy like any allowed host (deploy.sh adds it to NEOS_EGRESS_EXTRA).
 if [[ "$running" == *" synapse "* ]]; then
   run ledger-backend required open:synapse:8008 || fail=1
 fi
-# The LLM proxy: the platform's JWKS and the provider (via the egress proxy only); never an app backend.
-run llm-proxy required open:platform:4000 open:egress-proxy:3128 closed:ledger-backend:4101 closed:ledger-agent:4103 closed:1.1.1.1:443 "proxy-open:$ALLOWED" "proxy-refused:$DENIED" || fail=1
-# The platform: app L3s and the database; never the agents or the egress proxy.
-run platform required open:ledger-l3:4101 open:pgbouncer:6432 closed:ledger-agent:4103 closed:egress-proxy:3128 || fail=1
-# Nightly backups: the db network only (admin URL). No app L3, agent, egress proxy or internet. (The platform
+# The LLM proxy: its database and provider (via the egress proxy only); never app files or the agent.
+run llm-proxy required open:pgbouncer:6432 open:egress-proxy:3128 closed:ledger-files:4101 closed:ledger-agent:4103 closed:1.1.1.1:443 "proxy-open:$ALLOWED" "proxy-refused:$DENIED" || fail=1
+# The platform: its database and external Matrix via the proxy; never app files or agents.
+run platform required open:pgbouncer:6432 open:egress-proxy:3128 closed:ledger-files:4101 closed:ledger-agent:4103 closed:1.1.1.1:443 "proxy-open:$ALLOWED" "proxy-refused:$DENIED" || fail=1
+# Nightly backups: the db network only (admin URL). No app files, agent, egress proxy or internet. (The platform
 # also sits on db — it reaches PgBouncer — so its authenticated port answers here, as it does for migrate.)
-run backup required open:postgres:5432 closed:ledger-l3:4101 closed:ledger-agent:4103 closed:egress-proxy:3128 closed:1.1.1.1:443 || fail=1
+run backup required open:postgres:5432 closed:ledger-files:4101 closed:ledger-agent:4103 closed:egress-proxy:3128 closed:1.1.1.1:443 || fail=1
 [ $fail = 0 ] && echo "network policy holds" || { echo "NETWORK POLICY VIOLATED"; exit 1; }

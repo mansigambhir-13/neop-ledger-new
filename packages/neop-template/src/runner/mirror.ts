@@ -1,3 +1,4 @@
+import {sqlIdent} from '@neop/pgkit';
 // THE RUNNER'S MOUTH · short notes to the room, one per step, never twice (v3 §3 step 9, §8, §13 `mirror.ts`;
 // V3 migration stage S4). Template-only. It reads this app's own outbox (per company, its own cursor in
 // <schema>.presence_mirror — the platform keeps its own) and says what the book says:
@@ -88,18 +89,18 @@ export class Mirror {
     // The first pass for a company starts at the outbox's end — history from before presence is never said — except
     // for jobs already opened from Matrix (their whole story is owed to their room/thread).
     await this.db.query(
-      `insert into ${this.s}.presence_mirror (company_id, cursor)
+      `insert into ${sqlIdent(this.s)}.presence_mirror (company_id, cursor)
        select $1, least(coalesce(m.first - 1, m.last), m.last) from (
-         select (select coalesce(max(id), 0) from ${this.s}.outbox where company_id = $1) as last,
-                (select min(o.id) from ${this.s}.outbox o
-                   join ${this.s}.jobs j on j.company_id = o.company_id and j.id::text = o.payload->>'job_id'
-                   join ${this.s}.inbound_events e on e.event_id = j.origin
+         select (select coalesce(max(id), 0) from ${sqlIdent(this.s)}.outbox where company_id = $1) as last,
+                (select min(o.id) from ${sqlIdent(this.s)}.outbox o
+                   join ${sqlIdent(this.s)}.jobs j on j.company_id = o.company_id and j.id::text = o.payload->>'job_id'
+                   join ${sqlIdent(this.s)}.inbound_events e on e.event_id = j.origin
                   where o.company_id = $1) as first) m
        on conflict (company_id) do nothing`,
       [companyId],
     );
-    const cursor = Number((await this.db.query<{ cursor: string }>(`select cursor from ${this.s}.presence_mirror where company_id = $1`, [companyId])).rows[0]?.cursor ?? 0);
-    const { rows } = await this.db.query<OutboxRow>(`select id, company_id, event_type, payload from ${this.s}.outbox where company_id = $1 and id > $2 order by id limit 100`, [companyId, cursor]);
+    const cursor = Number((await this.db.query<{ cursor: string }>(`select cursor from ${sqlIdent(this.s)}.presence_mirror where company_id = $1`, [companyId])).rows[0]?.cursor ?? 0);
+    const { rows } = await this.db.query<OutboxRow>(`select id, company_id, event_type, payload from ${sqlIdent(this.s)}.outbox where company_id = $1 and id > $2 order by id limit 100`, [companyId, cursor]);
     let done = 0;
     for (const e of rows) {
       try {
@@ -116,7 +117,7 @@ export class Mirror {
         this.tries.delete(k);
         this.core.log('presence: mirror gave up on an event (the book keeps it; the room does not hear it)', { outbox: e.id, type: e.event_type, e: String((err as Error)?.message ?? err).slice(0, 200) });
       }
-      await this.db.query(`update ${this.s}.presence_mirror set cursor = $2, updated_at = now() where company_id = $1 and cursor < $2`, [companyId, e.id]);
+      await this.db.query(`update ${sqlIdent(this.s)}.presence_mirror set cursor = $2, updated_at = now() where company_id = $1 and cursor < $2`, [companyId, e.id]);
       done++;
     }
     return done;
@@ -129,7 +130,7 @@ export class Mirror {
     // the inbound record learns its job id.
     const r = (
       await this.db.query<Origin & { type: string }>(
-        `select e.account, e.room_id, e.road, e.type, e.event_id, e.typed_task_id from ${this.s}.jobs j join ${this.s}.inbound_events e on e.event_id = j.origin where j.id = $1`,
+        `select e.account, e.room_id, e.road, e.type, e.event_id, e.typed_task_id from ${sqlIdent(this.s)}.jobs j join ${sqlIdent(this.s)}.inbound_events e on e.event_id = j.origin where j.id = $1`,
         [jobId],
       )
     ).rows[0];
@@ -138,7 +139,7 @@ export class Mirror {
 
   private async jobOf(p: any): Promise<string | null> {
     if (typeof p?.job_id === 'string') return p.job_id;
-    if (typeof p?.proposal_id === 'string') return (await this.db.query<{ job_id: string }>(`select job_id from ${this.s}.proposals where id = $1`, [p.proposal_id])).rows[0]?.job_id ?? null;
+    if (typeof p?.proposal_id === 'string') return (await this.db.query<{ job_id: string }>(`select job_id from ${sqlIdent(this.s)}.proposals where id = $1`, [p.proposal_id])).rows[0]?.job_id ?? null;
     return null;
   }
 

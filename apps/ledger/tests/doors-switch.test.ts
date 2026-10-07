@@ -103,12 +103,12 @@ describe('a door whose floor is off', () => {
   it('a company cannot switch it on; the backend refuses it; a floor is on or off', async () => {
     const m = (await P.platform.db.query("select manifest from neos.apps where key = 'ledger'")).rows[0].manifest;
     const base = { ...m, app: 'doorfloor', name: 'Door floor', abilities: [], uses: [], skills: [], packages: [], blocks: [], personal_data: undefined };
-    await expect(P.platform.registerApp({ key: 'doorfloor', l3_url: 'http://x', manifest: { ...base, doors: [{ key: 'post', scopes: [], floor: 'ask_first' as any }] }, service_secret: 's' })).rejects.toMatchObject({ code: 'bad_door_floor' });
+    await expect(P.platform.registerApp({ key: 'doorfloor', manifest: { ...base, doors: [{ key: 'post', scopes: [], floor: 'ask_first' as any }] }, service_secret: 's' })).rejects.toMatchObject({ code: 'bad_door_floor' });
     // Every NEOP has its own schema (v3 §11), where its switchboard lives (t010): the template's tables for this one.
     const none = await mkdtemp(path.join(os.tmpdir(), 'neop-doorfloor-'));
     await bootstrapFamily(P.adminUrl, 'doorfloor');
     await migrate({ adminUrl: P.adminUrl, schema: 'doorfloor', sources: { dir: none, prepend: await templateFiles(TEMPLATE_MIGRATIONS) }, lintExempt: TEMPLATE_INFRA_TABLES });
-    await P.platform.registerApp({ key: 'doorfloor', l3_url: 'http://x', manifest: { ...base, doors: [{ key: 'post', scopes: [], floor: 'off' }, { key: 'sms', scopes: [] }] }, service_secret: 's' });
+    await P.platform.registerApp({ key: 'doorfloor', manifest: { ...base, doors: [{ key: 'post', scopes: [], floor: 'off' }, { key: 'sms', scopes: [] }] }, service_secret: 's' });
     await P.platform.installApp(P.company.id, 'doorfloor');
     const r = await P.api('PUT', '/api/switchboards/doorfloor', { settings: { 'door:post': 'on' } });
     expect(r.body.error.code).toBe('cannot_loosen');

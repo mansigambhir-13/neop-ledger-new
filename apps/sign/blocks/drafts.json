@@ -1,0 +1,45 @@
+{
+  "block": "page",
+  "title": "Sign drafts",
+  "description": "Internal review only; not business approval or external completion.",
+  "nav": {
+    "label": "Sign",
+    "icon": "table",
+    "order": 1
+  },
+  "children": [
+    {
+      "block": "table",
+      "source": {
+        "ability": "sign.contracts.list"
+      },
+      "rows": "/rows",
+      "columns": [
+        {
+          "label": "source id",
+          "path": "/source_id"
+        },
+        {
+          "label": "title",
+          "path": "/title"
+        },
+        {
+          "label": "risk",
+          "path": "/risk"
+        },
+        {
+          "label": "notes",
+          "path": "/notes"
+        },
+        {
+          "label": "status",
+          "path": "/status"
+        },
+        {
+          "label": "requires elevated approval",
+          "path": "/requires_elevated_approval"
+        }
+      ]
+    }
+  ]
+}

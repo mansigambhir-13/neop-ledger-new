@@ -1,0 +1,690 @@
+{
+  "checkpoint": 14,
+  "date": "2026-10-05",
+  "branch": "rebuild/fleet-v3",
+  "starting_commit": "e802c32a442ee1b8ce04502f66be76d61ccf38b9",
+  "baseline_tree": "5627e03f0911968b4a1b7028503d65eee51ccecc",
+  "scope": "Verification-only: clean isolated checkpoint-13 regression plus persisted timer recovery tests for eighteen apps; no runtime, business workflow, migration or provider changes",
+  "status": "locally_verified_test_checkpoint_not_full_products_or_production_acceptance",
+  "full_regression": {
+    "path": "/Users/mansi.gambhir/Documents/Codex/2026-09-28/lo/work/fleet-v3-checkpoint-14-final-tests.json",
+    "sha256": "ecf54178e1b2955f4dde173658226d04e00392f67b436b3384ec5a6a7b047974",
+    "passed": 2712,
+    "failed": 0,
+    "skipped": 2,
+    "files": 259,
+    "success": true,
+    "start_time": "2026-10-05T11:14:43.929Z",
+    "elapsed_seconds": 501.298064453125,
+    "new_cases": [
+      {
+        "path": "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/asset/tests/timer-lifecycle.test.ts",
+        "passed": 6,
+        "other": 0
+      },
+      {
+        "path": "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/buy/tests/timer-lifecycle.test.ts",
+        "passed": 6,
+        "other": 0
+      },
+      {
+        "path": "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/clear/tests/timer-lifecycle.test.ts",
+        "passed": 6,
+        "other": 0
+      },
+      {
+        "path": "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/desk/tests/timer-lifecycle.test.ts",
+        "passed": 6,
+        "other": 0
+      },
+      {
+        "path": "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/deal/tests/timer-lifecycle.test.ts",
+        "passed": 6,
+        "other": 0
+      },
+      {
+        "path": "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/grant/tests/timer-lifecycle.test.ts",
+        "passed": 6,
+        "other": 0
+      },
+      {
+        "path": "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/guard/tests/timer-lifecycle.test.ts",
+        "passed": 6,
+        "other": 0
+      },
+      {
+        "path": "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/hire/tests/timer-lifecycle.test.ts",
+        "passed": 6,
+        "other": 0
+      },
+      {
+        "path": "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/post/tests/timer-lifecycle.test.ts",
+        "passed": 6,
+        "other": 0
+      },
+      {
+        "path": "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/renew/tests/timer-lifecycle.test.ts",
+        "passed": 6,
+        "other": 0
+      },
+      {
+        "path": "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/pay/tests/timer-lifecycle.test.ts",
+        "passed": 6,
+        "other": 0
+      },
+      {
+        "path": "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/reach/tests/timer-lifecycle.test.ts",
+        "passed": 6,
+        "other": 0
+      },
+      {
+        "path": "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/quote/tests/timer-lifecycle.test.ts",
+        "passed": 6,
+        "other": 0
+      },
+      {
+        "path": "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/shift/tests/timer-lifecycle.test.ts",
+        "passed": 6,
+        "other": 0
+      },
+      {
+        "path": "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/roster/tests/timer-lifecycle.test.ts",
+        "passed": 6,
+        "other": 0
+      },
+      {
+        "path": "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/sync/tests/timer-lifecycle.test.ts",
+        "passed": 6,
+        "other": 0
+      },
+      {
+        "path": "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/sign/tests/timer-lifecycle.test.ts",
+        "passed": 6,
+        "other": 0
+      },
+      {
+        "path": "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/vet/tests/timer-lifecycle.test.ts",
+        "passed": 6,
+        "other": 0
+      }
+    ],
+    "skipped_cases": [
+      {
+        "path": "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/ledger/tests/backup.test.ts",
+        "title": "nightly: per-schema pg_dump + per-company exports with retention; one schema restores alone"
+      },
+      {
+        "path": "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/packages/neop-template/tests/document-store.test.ts",
+        "title": "S3 (Signature V4) round-trips through a real S3-compatible server"
+      }
+    ],
+    "cli_duration_seconds": 501.31
+  },
+  "clean_baseline": {
+    "path": "/Users/mansi.gambhir/Documents/Codex/2026-09-28/lo/work/fleet-v3-checkpoint-14-complete-tests.json",
+    "sha256": "1a460f96a13a3d2eed72e534ec4b21aa68ef40c1b32b7ff9cc9ef208348c1bf9",
+    "passed": 2604,
+    "failed": 0,
+    "skipped": 2,
+    "files": 241,
+    "success": true,
+    "start_time": "2026-10-05T11:02:58.153Z",
+    "elapsed_seconds": 449.0911271972656,
+    "new_cases": [],
+    "cli_duration_seconds": 449.1
+  },
+  "focused": [
+    {
+      "path": "/Users/mansi.gambhir/Documents/Codex/2026-09-28/lo/work/fleet-v3-checkpoint-14-timer-focused.json",
+      "sha256": "f60a2084e6ef6d9a738fedef575cb983f04cf285a1e7b070d196ebaf6756cf84",
+      "passed": 12,
+      "failed": 0,
+      "skipped": 0,
+      "files": 2,
+      "success": true,
+      "start_time": "2026-10-05T11:12:44.879Z",
+      "elapsed_seconds": 4.805205810546875,
+      "new_cases": [
+        {
+          "path": "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/grant/tests/timer-lifecycle.test.ts",
+          "passed": 6,
+          "other": 0
+        },
+        {
+          "path": "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/pay/tests/timer-lifecycle.test.ts",
+          "passed": 6,
+          "other": 0
+        }
+      ],
+      "cli_duration_seconds": 4.83
+    },
+    {
+      "path": "/Users/mansi.gambhir/Documents/Codex/2026-09-28/lo/work/fleet-v3-checkpoint-14-timer-fleet.json",
+      "sha256": "0caf5291179aa71e5c5dd0a5ffa0ac94457b5fd20be90dd9eb020340b482c253",
+      "passed": 135,
+      "failed": 0,
+      "skipped": 0,
+      "files": 22,
+      "success": true,
+      "start_time": "2026-10-05T11:13:50.286Z",
+      "elapsed_seconds": 27.21556494140625,
+      "new_cases": [
+        {
+          "path": "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/buy/tests/timer-lifecycle.test.ts",
+          "passed": 6,
+          "other": 0
+        },
+        {
+          "path": "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/clear/tests/timer-lifecycle.test.ts",
+          "passed": 6,
+          "other": 0
+        },
+        {
+          "path": "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/deal/tests/timer-lifecycle.test.ts",
+          "passed": 6,
+          "other": 0
+        },
+        {
+          "path": "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/asset/tests/timer-lifecycle.test.ts",
+          "passed": 6,
+          "other": 0
+        },
+        {
+          "path": "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/grant/tests/timer-lifecycle.test.ts",
+          "passed": 6,
+          "other": 0
+        },
+        {
+          "path": "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/guard/tests/timer-lifecycle.test.ts",
+          "passed": 6,
+          "other": 0
+        },
+        {
+          "path": "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/hire/tests/timer-lifecycle.test.ts",
+          "passed": 6,
+          "other": 0
+        },
+        {
+          "path": "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/desk/tests/timer-lifecycle.test.ts",
+          "passed": 6,
+          "other": 0
+        },
+        {
+          "path": "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/pay/tests/timer-lifecycle.test.ts",
+          "passed": 6,
+          "other": 0
+        },
+        {
+          "path": "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/renew/tests/timer-lifecycle.test.ts",
+          "passed": 6,
+          "other": 0
+        },
+        {
+          "path": "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/reach/tests/timer-lifecycle.test.ts",
+          "passed": 6,
+          "other": 0
+        },
+        {
+          "path": "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/post/tests/timer-lifecycle.test.ts",
+          "passed": 6,
+          "other": 0
+        },
+        {
+          "path": "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/roster/tests/timer-lifecycle.test.ts",
+          "passed": 6,
+          "other": 0
+        },
+        {
+          "path": "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/quote/tests/timer-lifecycle.test.ts",
+          "passed": 6,
+          "other": 0
+        },
+        {
+          "path": "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/sign/tests/timer-lifecycle.test.ts",
+          "passed": 6,
+          "other": 0
+        },
+        {
+          "path": "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/shift/tests/timer-lifecycle.test.ts",
+          "passed": 6,
+          "other": 0
+        },
+        {
+          "path": "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/sync/tests/timer-lifecycle.test.ts",
+          "passed": 6,
+          "other": 0
+        },
+        {
+          "path": "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/vet/tests/timer-lifecycle.test.ts",
+          "passed": 6,
+          "other": 0
+        }
+      ],
+      "cli_duration_seconds": 27.25
+    }
+  ],
+  "history": [
+    {
+      "path": "/Users/mansi.gambhir/Documents/Codex/2026-09-28/lo/work/fleet-v3-checkpoint-14-baseline-tests.json",
+      "sha256": "07a6683305c41da4e730223d960af62e8ae5f522773c54f4b82214ba41121b57",
+      "passed": 2561,
+      "failed": 5,
+      "skipped": 40,
+      "files": 241,
+      "success": false,
+      "start_time": "2026-10-05T10:31:17.003Z",
+      "elapsed_seconds": 1793.810548095703,
+      "failed_suites": [
+        {
+          "path": "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/hire/tests/authority.test.ts",
+          "message": "Hook timed out in 60000ms.\nIf this is a long-running hook, pass a timeout value as the last argument or configure it globally with \"hookTimeout\".",
+          "unexecuted": 18
+        },
+        {
+          "path": "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/roster/tests/authority.test.ts",
+          "message": "Hook timed out in 60000ms.\nIf this is a long-running hook, pass a timeout value as the last argument or configure it globally with \"hookTimeout\".",
+          "unexecuted": 18
+        },
+        {
+          "path": "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/scripts/fleet/tests/fleet-isolation.test.ts",
+          "message": "Hook timed out in 60000ms.\nIf this is a long-running hook, pass a timeout value as the last argument or configure it globally with \"hookTimeout\".",
+          "unexecuted": 2
+        }
+      ],
+      "failed_cases": [
+        {
+          "path": "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/pay/tests/approval-lifecycle.test.ts",
+          "title": "pay approval waiting lifecycle refuses 'change' after expiry while blocked on the 'proposal' lock, rolling back answer evidence",
+          "duration_ms": 10735.947208999998,
+          "message": "AssertionError: expected [ …(2) ] to have a length of 1 but got 2"
+        },
+        {
+          "path": "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/pay/tests/authority.test.ts",
+          "title": "pay transaction-time human authority refuses self-approval when four-eyes was enabled after the answer",
+          "duration_ms": 939144.2816669999,
+          "message": "Error: STACK_TRACE_ERROR"
+        },
+        {
+          "path": "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/pay/tests/authority.test.ts",
+          "title": "pay transaction-time human authority rechecks switch-off even after the runner performed its earlier checks",
+          "duration_ms": 18209.14345799992,
+          "message": "Error: timed out waiting for authority card"
+        },
+        {
+          "path": "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/pay/tests/input-lifecycle.test.ts",
+          "title": "pay input waiting lifecycle refuses an answer when cancellation commits while the answer waits for the job lock",
+          "duration_ms": 939143.203875,
+          "message": "Error: STACK_TRACE_ERROR"
+        },
+        {
+          "path": "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/pay/tests/input-lifecycle.test.ts",
+          "title": "pay input waiting lifecycle serializes with the real cancellation function without a job/wait lock inversion",
+          "duration_ms": 18556.562624999904,
+          "message": "Error: timed out waiting for quiescent runner before controlled locks"
+        }
+      ],
+      "cli_duration_seconds": 1793.83,
+      "unexecuted_setup_cases": 38,
+      "existing_conditional_skips": 2,
+      "interpretation": "Failed retained run; environmental sleep observed but not proof of every failure cause. Pay wake-count failure predates sleep."
+    },
+    {
+      "path": "/Users/mansi.gambhir/Documents/Codex/2026-09-28/lo/work/fleet-v3-checkpoint-14-failed-files-rerun.json",
+      "sha256": "5fc95006d826656c6d597294b10e19457da0fffc7d544f557eec2a19dee1b020",
+      "passed": 83,
+      "failed": 0,
+      "skipped": 0,
+      "files": 6,
+      "success": true,
+      "start_time": "2026-10-05T11:01:53.340Z",
+      "elapsed_seconds": 30.632072265625,
+      "failed_suites": [],
+      "failed_cases": [],
+      "cli_duration_seconds": 30.69,
+      "interpretation": "Six affected files passed unchanged. Does not establish original intermittent wake-count failure cause or repair."
+    }
+  ],
+  "host_interruption": {
+    "source": "Read-only pmset -g log",
+    "sleep_utc": "2026-10-05T10:41:39Z",
+    "wake_utc": "2026-10-05T10:57:17Z",
+    "elapsed_seconds": 938,
+    "reason": "Low Power Sleep; battery 1%, resumed on AC at 7%",
+    "timing_tests_durations_ms": [
+      939144.2816669999,
+      939143.203875
+    ],
+    "setup_hook_start_times_established": false,
+    "all_failures_attributed_to_sleep": false,
+    "subsequent_runs": "Process-scoped caffeinate -i; not permanent power configuration or protection from every suspension"
+  },
+  "open_diagnostics": [
+    "Pay change-after-expiry/proposal-lock wake count 2 rather than 1 before sleep; original wake/session/lease evidence unavailable; later unchanged passes do not prove repair",
+    "Checkpoint 12 intermittent Ledger presence refusal-message failure remains unconfirmed"
+  ],
+  "new_distinct_tests": 108,
+  "focused_counts_are_not_additive": true,
+  "apps": [
+    {
+      "app": "clear",
+      "partial": 15,
+      "pending": 3,
+      "total": 18,
+      "production_ready": false,
+      "full_parity": false,
+      "doors": 0,
+      "timer_lifecycle_tests_passed": 6,
+      "unfulfilled_requirements": 18
+    },
+    {
+      "app": "reach",
+      "partial": 15,
+      "pending": 3,
+      "total": 18,
+      "production_ready": false,
+      "full_parity": false,
+      "doors": 0,
+      "timer_lifecycle_tests_passed": 6,
+      "unfulfilled_requirements": 18
+    },
+    {
+      "app": "desk",
+      "partial": 15,
+      "pending": 3,
+      "total": 18,
+      "production_ready": false,
+      "full_parity": false,
+      "doors": 0,
+      "timer_lifecycle_tests_passed": 6,
+      "unfulfilled_requirements": 18
+    },
+    {
+      "app": "hire",
+      "partial": 15,
+      "pending": 3,
+      "total": 18,
+      "production_ready": false,
+      "full_parity": false,
+      "doors": 0,
+      "timer_lifecycle_tests_passed": 6,
+      "unfulfilled_requirements": 18
+    },
+    {
+      "app": "deal",
+      "partial": 15,
+      "pending": 3,
+      "total": 18,
+      "production_ready": false,
+      "full_parity": false,
+      "doors": 0,
+      "timer_lifecycle_tests_passed": 6,
+      "unfulfilled_requirements": 18
+    },
+    {
+      "app": "buy",
+      "partial": 15,
+      "pending": 3,
+      "total": 18,
+      "production_ready": false,
+      "full_parity": false,
+      "doors": 0,
+      "timer_lifecycle_tests_passed": 6,
+      "unfulfilled_requirements": 18
+    },
+    {
+      "app": "grant",
+      "partial": 15,
+      "pending": 3,
+      "total": 18,
+      "production_ready": false,
+      "full_parity": false,
+      "doors": 0,
+      "timer_lifecycle_tests_passed": 6,
+      "unfulfilled_requirements": 18
+    },
+    {
+      "app": "shift",
+      "partial": 15,
+      "pending": 3,
+      "total": 18,
+      "production_ready": false,
+      "full_parity": false,
+      "doors": 0,
+      "timer_lifecycle_tests_passed": 6,
+      "unfulfilled_requirements": 18
+    },
+    {
+      "app": "sync",
+      "partial": 15,
+      "pending": 3,
+      "total": 18,
+      "production_ready": false,
+      "full_parity": false,
+      "doors": 0,
+      "timer_lifecycle_tests_passed": 6,
+      "unfulfilled_requirements": 18
+    },
+    {
+      "app": "post",
+      "partial": 15,
+      "pending": 3,
+      "total": 18,
+      "production_ready": false,
+      "full_parity": false,
+      "doors": 0,
+      "timer_lifecycle_tests_passed": 6,
+      "unfulfilled_requirements": 18
+    },
+    {
+      "app": "roster",
+      "partial": 15,
+      "pending": 3,
+      "total": 18,
+      "production_ready": false,
+      "full_parity": false,
+      "doors": 0,
+      "timer_lifecycle_tests_passed": 6,
+      "unfulfilled_requirements": 18
+    },
+    {
+      "app": "quote",
+      "partial": 15,
+      "pending": 3,
+      "total": 18,
+      "production_ready": false,
+      "full_parity": false,
+      "doors": 0,
+      "timer_lifecycle_tests_passed": 6,
+      "unfulfilled_requirements": 18
+    },
+    {
+      "app": "sign",
+      "partial": 15,
+      "pending": 3,
+      "total": 18,
+      "production_ready": false,
+      "full_parity": false,
+      "doors": 0,
+      "timer_lifecycle_tests_passed": 6,
+      "unfulfilled_requirements": 18
+    },
+    {
+      "app": "guard",
+      "partial": 15,
+      "pending": 3,
+      "total": 18,
+      "production_ready": false,
+      "full_parity": false,
+      "doors": 0,
+      "timer_lifecycle_tests_passed": 6,
+      "unfulfilled_requirements": 18
+    },
+    {
+      "app": "vet",
+      "partial": 15,
+      "pending": 3,
+      "total": 18,
+      "production_ready": false,
+      "full_parity": false,
+      "doors": 0,
+      "timer_lifecycle_tests_passed": 6,
+      "unfulfilled_requirements": 18
+    },
+    {
+      "app": "pay",
+      "partial": 15,
+      "pending": 3,
+      "total": 18,
+      "production_ready": false,
+      "full_parity": false,
+      "doors": 0,
+      "timer_lifecycle_tests_passed": 6,
+      "unfulfilled_requirements": 18
+    },
+    {
+      "app": "asset",
+      "partial": 15,
+      "pending": 3,
+      "total": 18,
+      "production_ready": false,
+      "full_parity": false,
+      "doors": 0,
+      "timer_lifecycle_tests_passed": 6,
+      "unfulfilled_requirements": 18
+    },
+    {
+      "app": "renew",
+      "partial": 15,
+      "pending": 3,
+      "total": 18,
+      "production_ready": false,
+      "full_parity": false,
+      "doors": 0,
+      "timer_lifecycle_tests_passed": 6,
+      "unfulfilled_requirements": 18
+    }
+  ],
+  "checks": {
+    "typescript": "pass after new tests and again during final verification",
+    "catalog": "6/6 pass; 1.79 seconds",
+    "pinned_source_snapshots": 108,
+    "completion_gate_expected_exit_code": 1,
+    "production_ready_apps": [],
+    "runtime_sources_changed": false,
+    "applied_sql_migrations_changed": false,
+    "source_parity_files_changed": false,
+    "manifests_changed": false,
+    "dependencies_changed": false,
+    "source_bindings_frozen_before_final_full_run": 20
+  },
+  "fixture": {
+    "container_name": "neop-fleet14-20261005",
+    "container_id": "3560e1cdca60013fd0bff7ef3729e765c94c186c650c55507428364d24519ec7",
+    "image": "postgres:17-alpine",
+    "image_id": "sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24",
+    "server_version": "PostgreSQL 17.11 aarch64 Alpine",
+    "binding": "127.0.0.1:52946",
+    "storage": "tmpfs; no persistent mounts",
+    "residual_pilot_databases_before_cleanup": 3,
+    "active_pilot_sessions_before_cleanup": 0,
+    "desk_role_before_cleanup": {
+      "rolcanlogin": false,
+      "rolbypassrls": false,
+      "rolsuper": false
+    },
+    "stopped_and_removed": true,
+    "recoverable": false,
+    "production_data_used": false,
+    "shared_cluster_changed": false
+  },
+  "release_constraints": [
+    "All eighteen remain incomplete business products with partial source parity",
+    "Business owner roles/limits/self-approval/historical/nonhuman policies remain required; provider dispatch absent",
+    "Current-source image/DBA bundle refresh remains required",
+    "Coordinate t023 and corrected input-expiry worker rollout; mixed-version rolling compatibility is not certified",
+    "Dependency/a2a, mixed-wait cancellation, in-flight/multi-host recovery, privacy/legacy conversion and live/team acceptance remain open"
+  ],
+  "next_step": "Reproduce and implement a bounded dependency/a2a expiry, cancellation, late/duplicate-result or recovery slice; preserve open intermittent diagnostics and do not repeat finished timer tests as new functionality",
+  "source_bindings": [
+    {
+      "path": "packages/testkit/src/index.ts",
+      "sha256": "7a005170d1c0f57a1fe73802e013817f8ddd261cd3e34f3d07142cf6749a2080"
+    },
+    {
+      "path": "packages/testkit/src/timer-lifecycle.ts",
+      "sha256": "6538df2d4e9ee971f48304bd66b4840eec7689ea02c7a6f5e5ff2f9731696654"
+    },
+    {
+      "path": "apps/clear/tests/timer-lifecycle.test.ts",
+      "sha256": "2936e5de94415ca518adcf1da38cf828e234aba302f46258f6ec0696eaabe404"
+    },
+    {
+      "path": "apps/reach/tests/timer-lifecycle.test.ts",
+      "sha256": "e0b90afdc213dc6a650e9db7ca47278184e38a803a12102f42acbc699ac11f21"
+    },
+    {
+      "path": "apps/desk/tests/timer-lifecycle.test.ts",
+      "sha256": "d0aa67e7e6634f94a43916a4f4df552dc046d6c38a6468a32d5d7dd5e92c89ca"
+    },
+    {
+      "path": "apps/hire/tests/timer-lifecycle.test.ts",
+      "sha256": "a31e6046a1342bee04b5824105e8a09c7b9fe115c373906890be57c0422e3376"
+    },
+    {
+      "path": "apps/deal/tests/timer-lifecycle.test.ts",
+      "sha256": "f8682a829b6f559453c36f30cddd1e4502033ab8f43b2cd7ec5b03033569ff48"
+    },
+    {
+      "path": "apps/buy/tests/timer-lifecycle.test.ts",
+      "sha256": "fee84c52c7c33c942886c576268ac3350bdaf9bca6a96f1a7b1a03f7cb8ac903"
+    },
+    {
+      "path": "apps/grant/tests/timer-lifecycle.test.ts",
+      "sha256": "e96ac2e9230663b7d9cdeda66df2802dfd55e77d68e5542ae9642e0893b92a0c"
+    },
+    {
+      "path": "apps/shift/tests/timer-lifecycle.test.ts",
+      "sha256": "7fc3a2103d662b208c2eaebdeb391401b32a0f732c38bd3189a8740ad39137da"
+    },
+    {
+      "path": "apps/sync/tests/timer-lifecycle.test.ts",
+      "sha256": "e6c61cd811b765ee39de8833044f47415b9d7600461d774056e28488f3645840"
+    },
+    {
+      "path": "apps/post/tests/timer-lifecycle.test.ts",
+      "sha256": "8018a0237fe5ec8368353d6552ed3e1644acdff6dfd57c7f783af586a095fcd7"
+    },
+    {
+      "path": "apps/roster/tests/timer-lifecycle.test.ts",
+      "sha256": "66c3e73f7ce3d2bbf098e61cd7f66ba42eb75d87b38d80af6fad6b742132e0fc"
+    },
+    {
+      "path": "apps/quote/tests/timer-lifecycle.test.ts",
+      "sha256": "0d213ff0ba1758ec76f47af5df869b6fcad642b1fb937a50b51b627015edfb67"
+    },
+    {
+      "path": "apps/sign/tests/timer-lifecycle.test.ts",
+      "sha256": "0b3c4a88e7a3d537830d2e8777bb653440de817053cd6ebe0538ae3efc77b340"
+    },
+    {
+      "path": "apps/guard/tests/timer-lifecycle.test.ts",
+      "sha256": "1f0fa19531a9cd8f1246f3ed57ef01c9f53c16bf2f8a3d70cd4b275a96b7e685"
+    },
+    {
+      "path": "apps/vet/tests/timer-lifecycle.test.ts",
+      "sha256": "d19db9658f726370d7e07fa7694ad0b431c0bb0bb62ca302014b8e56b236166c"
+    },
+    {
+      "path": "apps/pay/tests/timer-lifecycle.test.ts",
+      "sha256": "1fb67f63305b01d1cf65250b2cd23bf3b9a66c15c51bc0ef39a8bcdbee6b2fd5"
+    },
+    {
+      "path": "apps/asset/tests/timer-lifecycle.test.ts",
+      "sha256": "0829b352fce2a3e194db6cb3065f8900ad67d4c8ea74b714758394656d6f9a7f"
+    },
+    {
+      "path": "apps/renew/tests/timer-lifecycle.test.ts",
+      "sha256": "55e2da682f09a1c3d27364a868324dbbc4229d9a9cea524c557551cb24ef0fa6"
+    }
+  ]
+}

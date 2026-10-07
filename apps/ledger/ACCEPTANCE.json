@@ -1,0 +1,151 @@
+{
+  "app": "ledger",
+  "production_ready": false,
+  "assessment": "Implementation checkpoint, not a release attestation. All statuses are scoped; no group is fully certified.",
+  "requirements": [
+    {
+      "id": "transport.matrix",
+      "status": "baseline_not_reassessed",
+      "evidence": [
+        "docs/V3-MIGRATION-PLAN.md"
+      ],
+      "remaining": "Per-app typed ingress, sender, correlation, redelivery and real homeserver acceptance."
+    },
+    {
+      "id": "identity.company",
+      "status": "baseline_not_reassessed",
+      "evidence": [
+        "docs/V3-MIGRATION-PLAN.md"
+      ],
+      "remaining": "Sender spoofing, wrong company/room, unknown sender, agent approval and membership-race tests."
+    },
+    {
+      "id": "jobs.durable",
+      "status": "baseline_not_reassessed",
+      "evidence": [
+        "docs/V3-MIGRATION-PLAN.md"
+      ],
+      "remaining": "Kill/restart, outbox dedupe, heartbeat, thread correlation and job-token tests."
+    },
+    {
+      "id": "switchboard.enforced",
+      "status": "baseline_not_reassessed",
+      "evidence": [
+        "docs/V3-MIGRATION-PLAN.md"
+      ],
+      "remaining": "Off-on both SQL/assistant paths, mid-job changes, cap/recipient and rule-boundary tests."
+    },
+    {
+      "id": "approval.exact_content",
+      "status": "baseline_not_reassessed",
+      "evidence": [
+        "docs/V3-MIGRATION-PLAN.md"
+      ],
+      "remaining": "Stale/replay/expiry/reject/supersede/withdraw tests and real UI acceptance."
+    },
+    {
+      "id": "approval.authority",
+      "status": "baseline_not_reassessed",
+      "evidence": [
+        "docs/V3-MIGRATION-PLAN.md"
+      ],
+      "remaining": "Bind verified Matrix/Desk human to proposer and permission records, deny self/unknown/ineligible approvers at execution."
+    },
+    {
+      "id": "runner.effect_once",
+      "status": "baseline_not_reassessed",
+      "evidence": [
+        "docs/V3-MIGRATION-PLAN.md"
+      ],
+      "remaining": "Concurrent runners, crash between effect and receipt, uncertain provider reconciliation, grant suspension and wake-order tests."
+    },
+    {
+      "id": "waiting.lifecycle",
+      "status": "baseline_not_reassessed",
+      "evidence": [
+        "docs/V3-MIGRATION-PLAN.md"
+      ],
+      "remaining": "Lost notification, delayed answer, expiry, double claim, wrong sender/thread and dependency failure tests."
+    },
+    {
+      "id": "database.boundary",
+      "status": "baseline_not_reassessed",
+      "evidence": [
+        "docs/V3-MIGRATION-PLAN.md"
+      ],
+      "remaining": "Cross-schema/tenant/DDL/role escape tests with populated data and DBA grants review."
+    },
+    {
+      "id": "database.migrations",
+      "status": "baseline_not_reassessed",
+      "evidence": [
+        "docs/V3-MIGRATION-PLAN.md"
+      ],
+      "remaining": "Legacy restore-to-V3 transformation plus app boot mismatch and backup restore; DBA-reviewed bundle."
+    },
+    {
+      "id": "values.domain",
+      "status": "baseline_not_reassessed",
+      "evidence": [
+        "docs/V3-MIGRATION-PLAN.md"
+      ],
+      "remaining": "Boundary/rounding/state domain tests plus SQL constraint and source parity evidence."
+    },
+    {
+      "id": "privacy.retention",
+      "status": "baseline_not_reassessed",
+      "evidence": [
+        "docs/V3-MIGRATION-PLAN.md"
+      ],
+      "remaining": "Reviewed data map, retention decision, erasure/export tests, object ACL and restore tests."
+    },
+    {
+      "id": "sharing.registry",
+      "status": "baseline_not_reassessed",
+      "evidence": [
+        "docs/V3-MIGRATION-PLAN.md"
+      ],
+      "remaining": "Signature/hash/dependency/retirement/injection tests; no runtime row-to-code or document-to-skill path."
+    },
+    {
+      "id": "doors.credentials",
+      "status": "baseline_not_reassessed",
+      "evidence": [
+        "docs/V3-MIGRATION-PLAN.md"
+      ],
+      "remaining": "Provider-specific idempotency/read-back, scoped credentials, off/revoke and live sandbox certification."
+    },
+    {
+      "id": "assistant.isolation",
+      "status": "baseline_not_reassessed",
+      "evidence": [
+        "docs/V3-MIGRATION-PLAN.md"
+      ],
+      "remaining": "Build inspection and actual network boundary probes for each app image."
+    },
+    {
+      "id": "honesty.ui",
+      "status": "baseline_not_reassessed",
+      "evidence": [
+        "docs/V3-MIGRATION-PLAN.md"
+      ],
+      "remaining": "Read schema contracts, actual NEOS UI rendering, all failure/unknown/partial-output cases."
+    },
+    {
+      "id": "source.parity",
+      "status": "baseline_not_reassessed",
+      "evidence": [
+        "docs/V3-MIGRATION-PLAN.md"
+      ],
+      "remaining": "Pinned source and scenario-by-scenario review; domain owners sign off full workflow."
+    },
+    {
+      "id": "release.acceptance",
+      "status": "baseline_not_reassessed",
+      "evidence": [
+        "docs/V3-MIGRATION-PLAN.md"
+      ],
+      "remaining": "Manifest-bound clean-commit attestation, Matrix/model/mailbox/door/UI/load/recovery and operational owner sign-offs."
+    }
+  ]
+}

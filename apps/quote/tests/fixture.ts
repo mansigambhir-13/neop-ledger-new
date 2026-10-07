@@ -1,0 +1,2 @@
+// Synthetic domain inputs, never production data or a business-policy approval.
+export const fixture={"id":"quote","master":"accounts","table":"quotes","noun":"deal","fk":"account_id","sample":{"amount_minor":12345,"currency":"INR","band":"exceptional","notes":null},"settings":{"currency":"INR"},"expected":{"requires_elevated_approval":true},"invalid":{"band":"invalid"},"mutation":{"amount_minor":12346}};

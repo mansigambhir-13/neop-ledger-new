@@ -5,7 +5,7 @@
 
 import { canonicalize, sha256Tagged, type Manifest } from '@neop/contracts';
 
-/** The plan's thirteen template tests, plus the shared testkit conformance suite. */
+/** The V3 template bar, plus the shared testkit conformance suite. */
 export const REQUIRED_SUITES = [
   'contract',
   'proposal',
@@ -17,7 +17,13 @@ export const REQUIRED_SUITES = [
   'migration',
   'tenant',
   'wake-order',
-  'inbound-auth',
+  // Matrix is the only ingress in V3. Together these replace the deleted
+  // gateway-token inbound-auth suite: appservice token/room binding, sender
+  // classes, redelivery idempotency, and typed-event authorization.
+  'appservice-auth',
+  'presence-sender',
+  'presence-dedupe',
+  'presence-typed',
   'jobtoken',
   'network',
   'conformance',

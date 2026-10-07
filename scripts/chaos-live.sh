@@ -28,8 +28,9 @@ dc ps --status running --services | grep -qx fakes || { echo "the chaos overlay 
 
 if [ -z "${CHAOS_TOKEN:-}" ]; then
   OPS=(run --rm --no-deps -T -e NEOS_DB_URL_FILE=/run/secrets/neos_app_url -e NEOP_SERVICE_SECRET_FILE=/run/secrets/ledger_service_secret
-       -v "$PWD/$SECRETS/ledger_service_secret:/run/secrets/ledger_service_secret:ro" platform tsx scripts/ops.ts)
-  dc "${OPS[@]}" register-app ledger http://ledger-l3:4101 >/dev/null
+       -v "$PWD/$SECRETS/ledger_service_secret:/run/secrets/ledger_service_secret:ro"
+       -v "$PWD/deploy/attestations/ledger.json:/tmp/conformance.json:ro" platform tsx scripts/ops.ts)
+  dc "${OPS[@]}" register-app ledger --conformance /tmp/conformance.json >/dev/null
   CO=$(dc "${OPS[@]}" create-company "Chaos Traders $(date +%s)" Asia/Kolkata | json .id)
   export CHAOS_TOKEN=$(dc "${OPS[@]}" create-user "$CO" Chaos "chaos-$CO@example.test" admin | json .token)
   dc "${OPS[@]}" install "$CO" ledger >/dev/null

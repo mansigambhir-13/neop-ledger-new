@@ -1,0 +1,149 @@
+{
+  "app": "buy",
+  "source_repo": "https://github.com/NEOS-Ecosystem/neos-neop-buy",
+  "source_commit": "37c7f6d92e9502e2c887a6afabb9dd3abca885f2",
+  "source_blob": "c81493bb8cd6423c4b57cc3e62713f73effb86cb",
+  "full_parity": false,
+  "mappings": [
+    {
+      "legacy": "buy.chat",
+      "evidence": "pinned_upstream",
+      "disposition": "partial_transport_replacement",
+      "target": "shared Matrix typed task / job flow",
+      "notes": "Shared typed Matrix ingress exercised with a local fake homeserver and scripted assistant; real Matrix/model acceptance remains open."
+    },
+    {
+      "legacy": "buy.config",
+      "evidence": "pinned_upstream",
+      "disposition": "partial_runtime",
+      "target": "buy.settings.get",
+      "notes": "Persisted internal review slice, not full legacy entity/configuration/workflow parity. Business authorization, provider effects and acceptance remain open."
+    },
+    {
+      "legacy": "buy.configure",
+      "evidence": "pinned_upstream",
+      "disposition": "partial_runtime",
+      "target": "buy.settings.update",
+      "notes": "Persisted internal review slice, not full legacy entity/configuration/workflow parity. Business authorization, provider effects and acceptance remain open."
+    },
+    {
+      "legacy": "buy.customise",
+      "evidence": "quickbuild_catalog_only",
+      "disposition": "retired_runtime_mutation",
+      "target": null,
+      "notes": "Replace legacy live customization with reviewed signed/pinned registry skills or build-time packages. No runtime code/prompt mutation route is imported."
+    },
+    {
+      "legacy": "buy.customise.apply",
+      "evidence": "quickbuild_catalog_only",
+      "disposition": "retired_runtime_mutation",
+      "target": null,
+      "notes": "Replace legacy live customization with reviewed signed/pinned registry skills or build-time packages. No runtime code/prompt mutation route is imported."
+    },
+    {
+      "legacy": "buy.dashboard",
+      "evidence": "pinned_upstream",
+      "disposition": "pending",
+      "target": null,
+      "notes": "Not exposed by this V3 build; domain port is not a full business workflow."
+    },
+    {
+      "legacy": "buy.deliverables",
+      "evidence": "pinned_upstream",
+      "disposition": "pending",
+      "target": null,
+      "notes": "Not exposed by this V3 build; domain port is not a full business workflow."
+    },
+    {
+      "legacy": "buy.orders",
+      "evidence": "pinned_upstream",
+      "disposition": "partial_runtime",
+      "target": "buy.orders.list",
+      "notes": "Persisted internal review slice, not full legacy entity/configuration/workflow parity. Business authorization, provider effects and acceptance remain open."
+    },
+    {
+      "legacy": "buy.po.decide",
+      "evidence": "pinned_upstream",
+      "disposition": "pending_authorization",
+      "target": "shared human proposal row + domain authorization policy",
+      "notes": "No actor argument or agent approval route. Checkpoint 9 hardens existing internal settings/import/cancel approvals. Checkpoint 10 captures immutable creating-job/original human provenance for new drafts, distinguishing represented people and nonhuman requests; older drafts remain unattributed. Original-proposer separation in business approval, elevated entitlements and full business authorization remain unavailable."
+    },
+    {
+      "legacy": "buy.po.place",
+      "evidence": "pinned_upstream",
+      "disposition": "pending_provider",
+      "target": null,
+      "notes": "No supplied success flag can mark an external effect complete. Requires approved exact content, provider idempotency and independent read-back."
+    },
+    {
+      "legacy": "buy.po.propose",
+      "evidence": "pinned_upstream",
+      "disposition": "partial_runtime",
+      "target": "buy.po.prepare",
+      "notes": "Persisted internal review slice, not full legacy entity/configuration/workflow parity. Business authorization, provider effects and acceptance remain open."
+    },
+    {
+      "legacy": "buy.prompt",
+      "evidence": "quickbuild_catalog_only",
+      "disposition": "retired_runtime_mutation",
+      "target": null,
+      "notes": "Replace legacy live customization with reviewed signed/pinned registry skills or build-time packages. No runtime code/prompt mutation route is imported."
+    },
+    {
+      "legacy": "buy.prompt.set",
+      "evidence": "quickbuild_catalog_only",
+      "disposition": "retired_runtime_mutation",
+      "target": null,
+      "notes": "Replace legacy live customization with reviewed signed/pinned registry skills or build-time packages. No runtime code/prompt mutation route is imported."
+    },
+    {
+      "legacy": "buy.skill.delete",
+      "evidence": "quickbuild_catalog_only",
+      "disposition": "retired_runtime_mutation",
+      "target": null,
+      "notes": "Replace legacy live customization with reviewed signed/pinned registry skills or build-time packages. No runtime code/prompt mutation route is imported."
+    },
+    {
+      "legacy": "buy.skill.set",
+      "evidence": "quickbuild_catalog_only",
+      "disposition": "retired_runtime_mutation",
+      "target": null,
+      "notes": "Replace legacy live customization with reviewed signed/pinned registry skills or build-time packages. No runtime code/prompt mutation route is imported."
+    },
+    {
+      "legacy": "buy.skills",
+      "evidence": "quickbuild_catalog_only",
+      "disposition": "retired_runtime_mutation",
+      "target": null,
+      "notes": "Replace legacy live customization with reviewed signed/pinned registry skills or build-time packages. No runtime code/prompt mutation route is imported."
+    },
+    {
+      "legacy": "buy.template.apply",
+      "evidence": "quickbuild_catalog_only",
+      "disposition": "retired_runtime_mutation",
+      "target": null,
+      "notes": "Replace legacy live customization with reviewed signed/pinned registry skills or build-time packages. No runtime code/prompt mutation route is imported."
+    },
+    {
+      "legacy": "buy.templates",
+      "evidence": "quickbuild_catalog_only",
+      "disposition": "retired_runtime_mutation",
+      "target": null,
+      "notes": "Replace legacy live customization with reviewed signed/pinned registry skills or build-time packages. No runtime code/prompt mutation route is imported."
+    },
+    {
+      "legacy": "buy.vendors",
+      "evidence": "pinned_upstream",
+      "disposition": "partial_runtime",
+      "target": "buy.vendors.list",
+      "notes": "Persisted internal review slice, not full legacy entity/configuration/workflow parity. Business authorization, provider effects and acceptance remain open."
+    },
+    {
+      "legacy": "buy.vendors.import",
+      "evidence": "pinned_upstream",
+      "disposition": "partial_runtime",
+      "target": "buy.vendors.import",
+      "notes": "Persisted internal review slice, not full legacy entity/configuration/workflow parity. Business authorization, provider effects and acceptance remain open."
+    }
+  ]
+}

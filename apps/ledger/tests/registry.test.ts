@@ -17,14 +17,27 @@ import { marketingApp, seedMarketing } from '@neop/marketing';
 import { roleUrl } from '@neop/pgkit';
 import { contentHash } from '@neop/platform';
 import { buildPackage, type PackageBundle } from '@neop/template';
-import { bootPilot, ledgerUnderTest, type Pilot } from './harness.ts';
+import { roomsSetup } from '../../../scripts/rooms-setup.ts';
+import { bootPilot, ledgerUnderTest, MATRIX, type Pilot } from './harness.ts';
 import { LEDGER_ROOT } from '../src/index.ts';
 
 const ROOT = path.resolve(LEDGER_ROOT, '../..');
 const GST_DIR = path.join(ROOT, 'registry/nep-gst');
+const REGISTRY_SECRET = 'registry-test-secret'.padEnd(40, 'x');
 let P: Pilot;
 beforeAll(async () => {
   P = await bootPilot({ apps: [await ledgerUnderTest(), { def: await marketingApp(), seed: seedMarketing }] });
+  const bus = await roomsSetup({
+    neosUrl: P.platformUrl,
+    adminToken: P.admin.token,
+    homeserverUrl: P.hs!.url,
+    company: 'acmetraders',
+    apps: ['ledger', 'marketing'].map((app) => ({ app, asToken: MATRIX.asToken })),
+  });
+  await P.waitFor(
+    async () => ['ledger', 'marketing'].every((app) => P.hs!.joined.some((j) => j.room === bus.bus_room_id && j.user === P.neopUsers[app])),
+    'registry test apps in the bus room',
+  );
 });
 afterAll(async () => P?.close());
 
@@ -142,8 +155,8 @@ describe('packages', () => {
     expect(results[0]).toMatch(/"outcome": "DONE"/);
     expect(results[1]).toMatch(/not_possible/);
     expect((await P.desk()).filter((c) => c.task_id === r.task_id)).toHaveLength(0);
-    const vat = (await P.api('POST', '/api/apps/ledger/read/ledger.report.vat_summary', { from: '2026-09-01', to: '2026-09-30' })).body.result;
-    const listed = (await P.api('POST', '/api/apps/ledger/read/gst.returns.list', { period: '2026-09' })).body.result.returns;
+    const vat = (await P.read('ledger.report.vat_summary', { from: '2026-09-01', to: '2026-09-30' })).body.result;
+    const listed = (await P.read('gst.returns.list', { period: '2026-09' })).body.result.returns;
     expect(listed).toHaveLength(1);
     expect(listed[0]).toMatchObject({ period: '2026-09', status: 'draft', output_tax_minor: vat.output_tax_minor, input_tax_minor: vat.input_tax_minor });
   });
@@ -151,7 +164,7 @@ describe('packages', () => {
   it('a package cannot reach the network, files, env, processes or other tables; and a runaway call is killed', async () => {
     await publishPackage(P, probeBundle());
     await installAndMigrate(P, 'ledger', 'nep-probe');
-    const r = await P.api('POST', '/api/apps/ledger/read/probe.try', {});
+    const r = await P.read('probe.try');
     expect(r.status).toBe(200);
     const res = r.body.result;
     expect(res.net).toBe('NotCapable');
@@ -162,10 +175,10 @@ describe('packages', () => {
     expect(res.foreign_table).not.toBe('OPEN');
     expect(res.door_off_path).not.toBe('OPEN');
     const t0 = Date.now();
-    const spin = await P.api('POST', '/api/apps/ledger/read/probe.spin', {});
+    const spin = await P.read('probe.spin');
     expect(spin.status).toBe(500);
     expect(Date.now() - t0).toBeLessThan(10_000);
-    const again = await P.api('POST', '/api/apps/ledger/read/probe.try', {}); // restarted, still works
+    const again = await P.read('probe.try'); // restarted, still works
     expect(again.body.result.net).toBe('NotCapable');
   });
 
@@ -203,11 +216,11 @@ describe('packages', () => {
     await chmod(file, 0o644);
     const raw = await readFile(file, 'utf8');
     await writeFile(file, raw.replace("'probe.try'", "'probe.try' ").replace('OPEN', 'OPEN!'));
-    const r = await P.api('POST', '/api/apps/ledger/read/probe.try', {});
+    const r = await P.read('probe.try');
     expect(r.status).not.toBe(200);
     await writeFile(file, raw); // restore for later tests
     await chmod(file, 0o444);
-    expect((await P.api('POST', '/api/apps/ledger/read/probe.try', {})).status).toBe(200);
+    expect((await P.read('probe.try')).status).toBe(200);
   });
 
   it('install runs the package’s self-test in the sandbox after its migrations; what it wrote is rolled back', async () => {
@@ -219,7 +232,7 @@ describe('packages', () => {
     await admin.connect();
     const left = await admin.query('select count(*)::int as n from ledger.nep_stock__items').finally(() => admin.end());
     expect(left.rows[0].n).toBe(0); // the self-test's row never persisted (it ran in a scratch copy of the host)
-    const r = await P.api('POST', '/api/apps/ledger/read/stock.count', {});
+    const r = await P.read('stock.count');
     expect(r.body.result.n).toBe(0);
   });
 
@@ -242,7 +255,7 @@ describe('packages', () => {
     await expect(installAndRebuild(P, 'ledger', 'nep-stock@1.1.0')).rejects.toThrow(/self-test failed/);
     expect(P.backend.core.packages.lock.packages.find((x) => x.key === 'nep-stock')?.version).toBe('1.0.0');
     expect((await P.platform.db.query("select 1 from pg_tables where schemaname = 'ledger' and tablename = 'nep_stock__moves'")).rowCount).toBe(0);
-    expect((await P.api('POST', '/api/apps/ledger/read/stock.count', {})).status).toBe(200);
+    expect((await P.read('stock.count')).status).toBe(200);
   });
 
   it('removing a package keeps its tables; dropping them is a contract migration in the host’s own set, refused without one', async () => {
@@ -250,7 +263,7 @@ describe('packages', () => {
     const removed = await removeAndRebuild(P, 'ledger', 'nep-stock');
     expect(removed.kept_migrations).toEqual([expect.stringMatching(/^\d{3}_nep_stock__001_items\.sql$/)]);
     expect((await P.platform.db.query("select 1 from pg_tables where schemaname = 'ledger' and tablename = 'nep_stock__items'")).rowCount).toBe(1);
-    expect((await P.api('POST', '/api/apps/ledger/read/stock.count', {})).status).not.toBe(200);
+    expect((await P.read('stock.count')).status).not.toBe(200);
     // …and the app team drops the table in its own next migration, which the expand/contract rule holds to a contract step.
     const def = P.defs.ledger!;
     const dir = def.migrationsDir;
@@ -273,7 +286,7 @@ describe('packages', () => {
     expect((await P.api('POST', '/api/registry/retire', { key: 'nep-probe', version: '1.0.0' }, P.operator.token)).body.error.code).toBe('pinned');
     expect((await P.api('POST', '/api/registry/deprecate', { key: 'nep-probe', version: '1.0.0' }, P.operator.token)).status).toBe(200);
     // Deprecated: still served to those who pin it, still not retirable inside the 30 days.
-    expect((await P.api('POST', '/api/apps/ledger/read/probe.try', {})).status).toBe(200);
+    expect((await P.read('probe.try')).status).toBe(200);
     expect((await P.api('POST', '/api/registry/retire', { key: 'nep-probe', version: '1.0.0' }, P.operator.token)).body.error.code).toBe('pinned');
     await P.platform.db.query("update neos.registry_entries set deprecated_at = now() - interval '31 days' where key = 'nep-probe' and version = '1.0.0'");
     expect((await P.api('POST', '/api/registry/retire', { key: 'nep-probe', version: '1.0.0' }, P.operator.token)).status).toBe(200);
@@ -287,7 +300,7 @@ describe('borrowed skills', () => {
   const registry = (args: string[], env: Record<string, string> = {}) =>
     run(path.join(ROOT, 'node_modules/.bin/tsx'), [path.join(ROOT, 'scripts/registry.ts'), ...args], {
       cwd: ROOT,
-      env: { ...process.env, NEOS_PLATFORM_URL: P.platformUrl, NEOP_APP_KEY: 'ledger', NEOP_SERVICE_SECRET: P.backends.ledger!.core.cfg.serviceSecret, NEOP_AUTHOR_KEY_FILE: path.join(keyDir, 'ledger.key.jwk'), ...env },
+      env: { ...process.env, NEOS_PLATFORM_URL: P.platformUrl, NEOP_APP_KEY: 'ledger', NEOP_SERVICE_SECRET: REGISTRY_SECRET, NEOP_AUTHOR_KEY_FILE: path.join(keyDir, 'ledger.key.jwk'), ...env },
     });
   const skillDir = async (version: string, requires: string[], body = '# Accounts check\nBefore planning spend by account, list Ledger’s accounts and use their real codes.') => {
     const d = path.join(keyDir, `skill-${version}`);
@@ -301,8 +314,7 @@ describe('borrowed skills', () => {
     keyDir = await mkdtemp(path.join(os.tmpdir(), 'neop-author-'));
     await registry(['keygen', path.join(keyDir, 'ledger')]);
     const b = P.backends.ledger!;
-    const url = (await P.platform.db.query("select l3_url from neos.apps where key = 'ledger'")).rows[0].l3_url;
-    await P.platform.registerApp({ key: 'ledger', l3_url: url, manifest: b.core.manifest, service_secret: b.core.cfg.serviceSecret, blocks: (await ledgerUnderTest()).def.blocks, author_public_key: JSON.parse(await readFile(path.join(keyDir, 'ledger.pub.jwk'), 'utf8')) });
+    await P.platform.registerApp({ key: 'ledger', manifest: b.core.manifest, service_secret: REGISTRY_SECRET, blocks: (await ledgerUnderTest()).def.blocks, author_public_key: JSON.parse(await readFile(path.join(keyDir, 'ledger.pub.jwk'), 'utf8')) });
   });
 
   it('an author signature is required and checked: another key, or an app with no author key, is refused', async () => {
@@ -324,6 +336,10 @@ describe('borrowed skills', () => {
     P.setBrain((v) => {
       tools = v.tools;
       system = v.system;
+      if (v.job.includes('answered the task you handed it')) {
+        answer = v.job;
+        return finish('ok');
+      }
       if (v.calls === 0 && v.tools.includes(toolName('ledger.accounts.list'))) return t('ledger.accounts.list', { as_of: '2026-09-30' });
       answer = v.results[0]?.text ?? '';
       return finish('ok');
@@ -343,16 +359,16 @@ describe('borrowed skills', () => {
     expect((await P.api('POST', '/api/registry/installs', { host_app: 'marketing', entry_key: 'ledger/accounts-check' })).status).toBe(410);
     const pinned = await installAndRebuild(P, 'marketing', 'ledger/accounts-check@1.0.0');
     expect(pinned).toMatchObject({ kind: 'skill', version: '1.0.0' });
-    // …and until a person grants the borrowed read, the skill greys out: pinned is not switched on.
+    // …and until an admin switches the borrower's own line on, the skill greys out: a pin is not permission.
     expect(await boardSkill()).toMatchObject({ loads: false, missing: ['ledger.accounts.list'] });
     const before = await P.ask('Plan the Diwali spend by account', undefined, 'marketing');
     await P.waitFor(async () => (await P.task(before.task_id)).task.status === 'COMPLETED', 'before the grant', 60_000);
     expect(system).not.toContain('Accounts check');
     expect(tools).not.toContain(toolName('ledger.accounts.list'));
-    // A member cannot grant it; the admin can — and the next job has it, with no cache cleared by hand.
-    const grant = { caller_app: 'marketing', target_app: 'ledger', ability_key: 'ledger.accounts.list' };
-    expect((await P.api('POST', '/api/acl', grant, P.member.token)).status).toBe(403);
-    expect((await P.api('POST', '/api/acl', grant)).status).toBe(200);
+    // There is no platform ACL in V3. A member cannot change Marketing's switchboard; the admin can — and the next
+    // job has the borrowed line, with the bus room's membership/power levels providing the app-to-app permission.
+    expect((await P.api('PUT', '/api/switchboards/marketing', { settings: { 'ledger.accounts.list': 'on' } }, P.member.token)).status).toBe(403);
+    expect((await P.api('PUT', '/api/switchboards/marketing', { settings: { 'ledger.accounts.list': 'on' } })).status).toBe(200);
     const task = await P.ask('Plan the Diwali spend by account', undefined, 'marketing');
     await P.waitFor(async () => (await P.task(task.task_id)).task.status === 'COMPLETED', 'first use', 60_000);
     expect(Date.now() - started).toBeLessThan(120_000);
@@ -360,25 +376,25 @@ describe('borrowed skills', () => {
     expect(system).toContain('From ledger v1.0.0 (reviewed by NEOS)');
     expect(tools).toContain(toolName('ledger.accounts.list'));
     expect(answer).toContain('trust="untrusted"'); // the borrowed read really went to Ledger
-    const acl = await P.platform.db.query("select 1 from neos.acl where caller_app = 'marketing' and target_app = 'ledger' and ability_key = 'ledger.accounts.list'");
-    expect(acl.rowCount).toBe(1);
+    const line = await P.backends.marketing!.core.runnerPool.query("select setting from marketing.switchboard where company_id = $1 and line = 'ledger.accounts.list'", [P.company.id]);
+    expect(line.rows[0]?.setting).toBe('on');
     // The board shows the requirement as borrowed from Ledger and switched on — the same answer spawn gave.
     expect(await boardSkill()).toMatchObject({ loads: true, missing: [], needs: [{ key: 'ledger.accounts.list', setting: 'on', owner: 'ledger' }] });
   });
 
-  it('when the owner switches the borrowed read off, the board says the skill will not load — and spawn agrees', async () => {
+  it('the owner switch remains the third execution check; it does not rewrite the borrower’s enabled skill line', async () => {
     await P.api('PUT', '/api/switchboards/ledger', { settings: { 'ledger.accounts.list': 'off' } });
     try {
-      expect(await boardSkill()).toMatchObject({ loads: false, missing: ['ledger.accounts.list'], needs: [{ key: 'ledger.accounts.list', setting: 'off', owner: 'ledger' }] });
+      // WP v3 §10: the board shows A's grant. B's own switch is checked when the typed ask reaches B.
+      expect(await boardSkill()).toMatchObject({ loads: true, missing: [], needs: [{ key: 'ledger.accounts.list', setting: 'on', owner: 'ledger' }] });
       let system = '';
       P.setBrain((v) => {
         system = v.system;
         return finish('ok');
       });
-      P.backends.marketing!.core.borrowed.invalidate(P.company.id); // the owner's switch is read when the borrow list refreshes (≤ 30 s)
       const r = await P.ask('Plan the Diwali spend by account', undefined, 'marketing');
       await P.waitFor(async () => (await P.task(r.task_id)).task.status === 'COMPLETED', 'done');
-      expect(system).not.toContain('Accounts check');
+      expect(system).toContain('Accounts check');
     } finally {
       await P.api('PUT', '/api/switchboards/ledger', { settings: { 'ledger.accounts.list': 'on' } });
     }
@@ -390,12 +406,13 @@ describe('borrowed skills', () => {
     expect(r.diff).toContain('(was ["ledger.accounts.list"])');
     await P.api('POST', `/api/registry/reviews/${r.id}/answer`, { decision: 'yes', fingerprint_seen: r.fingerprint }, P.operator.token);
     const pin = async () => (await P.platform.db.query("select version from neos_registry.pins where app = 'marketing' and key = 'ledger/accounts-check'")).rows.map((x) => x.version);
-    const aclParties = async () => (await P.platform.db.query("select 1 from neos.acl where caller_app = 'marketing' and ability_key = 'ledger.parties.list'")).rowCount;
+    const partiesSetting = async () =>
+      (await P.backends.marketing!.core.runnerPool.query("select setting from marketing.switchboard where company_id = $1 and line = 'ledger.parties.list'", [P.company.id])).rows[0]?.setting;
     expect(await pin()).toEqual(['1.0.0']); // published is not pinned: Marketing's build still runs 1.0.0
     // v3 S7: the pin moves with Marketing's next build; the new requirement is a line nobody has switched on yet.
     await installAndRebuild(P, 'marketing', 'ledger/accounts-check@1.1.0');
     expect(await pin()).toEqual(['1.1.0']);
-    expect(await aclParties()).toBe(0);
+    expect(await partiesSetting()).not.toBe('on');
     expect(await boardSkill()).toMatchObject({ loads: false, missing: ['ledger.parties.list'] });
     let system = '';
     P.setBrain((v) => {
@@ -408,10 +425,9 @@ describe('borrowed skills', () => {
       return system;
     };
     expect(await spawn()).not.toContain('Accounts check');
-    const grant = { caller_app: 'marketing', target_app: 'ledger', ability_key: 'ledger.parties.list' };
-    expect((await P.api('POST', '/api/acl', grant, P.member.token)).status).toBe(403);
-    expect((await P.api('POST', '/api/acl', grant)).status).toBe(200);
-    expect(await aclParties()).toBe(1);
+    expect((await P.api('PUT', '/api/switchboards/marketing', { settings: { 'ledger.parties.list': 'on' } }, P.member.token)).status).toBe(403);
+    expect((await P.api('PUT', '/api/switchboards/marketing', { settings: { 'ledger.parties.list': 'on' } })).status).toBe(200);
+    expect(await partiesSetting()).toBe('on');
     expect(await boardSkill()).toMatchObject({ loads: true, missing: [] });
     expect(await spawn()).toContain('From ledger v1.1.0 (reviewed by NEOS)');
   });

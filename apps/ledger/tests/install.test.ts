@@ -72,7 +72,7 @@ async function snapshot(dir: string): Promise<Record<string, string>> {
   return out;
 }
 
-const read = (key: string) => P.api('POST', `/api/apps/ledger/read/${key}`, {});
+const read = (key: string) => P.read(key);
 
 describe('neos install refuses what does not verify, and changes nothing', () => {
   it('an artifact whose bytes do not match the signed hash is refused (hash_mismatch)', async () => {
@@ -121,14 +121,14 @@ describe('install at build, then run', () => {
     const r = await installAndRebuild(P, 'ledger', 'nep-stock@1.1.0', { proven: '2026-09-28 · apps/ledger/tests/install.test.ts › fixture' });
     root = r.root;
     expect(r.selftest).toBe('passed');
-    // Ledger's own set ends at 009 (nep-gst's two files): the next two numbers, in the package's order.
-    expect(r.migrations).toEqual(['010_nep_stock__001_items.sql', '011_nep_stock__002_moves.sql']);
+    // Ledger's own set now ends at 010 (declared block reads): the next two numbers, in the package's order.
+    expect(r.migrations).toEqual(['011_nep_stock__001_items.sql', '012_nep_stock__002_moves.sql']);
     const files = (await readdir(path.join(root, 'migrations'))).filter((f) => f.endsWith('.sql')).sort();
-    expect(files.slice(-4)).toEqual(['008_nep_gst__001_returns.sql', '009_nep_gst__002_gstr3b.sql', '010_nep_stock__001_items.sql', '011_nep_stock__002_moves.sql']);
+    expect(files.slice(-5)).toEqual(['008_nep_gst__001_returns.sql', '009_nep_gst__002_gstr3b.sql', '010_declared_reads.sql', '011_nep_stock__001_items.sql', '012_nep_stock__002_moves.sql']);
     const led = JSON.parse(await readFile(path.join(root, 'migrations/migrate.json'), 'utf8')).migrations;
     expect(led.slice(-2)).toEqual([
-      { file: '010_nep_stock__001_items.sql', tables: ['nep_stock__items'], baseline: false, proven_on_populated_data: '2026-09-28 · apps/ledger/tests/install.test.ts › fixture' },
-      { file: '011_nep_stock__002_moves.sql', tables: ['nep_stock__moves'], baseline: false, proven_on_populated_data: '2026-09-28 · apps/ledger/tests/install.test.ts › fixture' },
+      { file: '011_nep_stock__001_items.sql', tables: ['nep_stock__items'], baseline: false, proven_on_populated_data: '2026-09-28 · apps/ledger/tests/install.test.ts › fixture' },
+      { file: '012_nep_stock__002_moves.sql', tables: ['nep_stock__moves'], baseline: false, proven_on_populated_data: '2026-09-28 · apps/ledger/tests/install.test.ts › fixture' },
     ]);
     // The DBA's one reviewable file carries them, in order, after the host's own.
     const dba = await renderDbaBundle({ schema: 'ledger', sources: await appMigrationSources(P.defs.ledger!) });
@@ -196,11 +196,11 @@ describe('install at build, then run', () => {
 
   it('--remove takes the package’s files, pin and lines out of the build; its migrations and its tables stay', async () => {
     const r = await removeAndRebuild(P, 'ledger', 'nep-stock');
-    expect(r.kept_migrations).toEqual(['010_nep_stock__001_items.sql', '011_nep_stock__002_moves.sql']);
+    expect(r.kept_migrations).toEqual(['011_nep_stock__001_items.sql', '012_nep_stock__002_moves.sql']);
     expect((await readLock(path.join(r.root, 'packages.lock.json'))).packages.map((p) => p.key)).toEqual(['nep-gst']);
     expect(await readdir(path.join(r.root, 'src/packages'))).toEqual(['nep-gst']);
     const files = await readdir(path.join(r.root, 'migrations'));
-    expect(files).toEqual(expect.arrayContaining(['010_nep_stock__001_items.sql', '011_nep_stock__002_moves.sql']));
+    expect(files).toEqual(expect.arrayContaining(['011_nep_stock__001_items.sql', '012_nep_stock__002_moves.sql']));
     expect(JSON.parse(await readFile(path.join(r.root, 'manifest.json'), 'utf8')).packages.map((p: any) => p.key)).toEqual(['nep-gst']);
     expect((await P.api('GET', '/api/apps/ledger/abilities')).body.abilities.some((a: any) => a.from === 'nep-stock')).toBe(false);
     expect((await read('stock.count')).status).not.toBe(200);
@@ -213,8 +213,7 @@ describe('install at build, then run', () => {
 describe('a skill-only registry entry', () => {
   it('is pinned at build and read from neos_registry.skills at spawn; it loads only when it and everything it requires are on, and never once its row changes', async () => {
     const { privateKey, publicKey } = generateKeyPairSync('ed25519');
-    const url = (await P.platform.db.query("select l3_url from neos.apps where key = 'ledger'")).rows[0].l3_url;
-    await P.platform.registerApp({ key: 'ledger', l3_url: url, manifest: P.defs.ledger!.manifest, service_secret: P.backend.core.cfg.serviceSecret, blocks: P.defs.ledger!.blocks, author_public_key: publicKey.export({ format: 'jwk' }) });
+    await P.platform.registerApp({ key: 'ledger', manifest: P.defs.ledger!.manifest, service_secret: 'registry-test-secret'.padEnd(40, 'x'), blocks: P.defs.ledger!.blocks, author_public_key: publicKey.export({ format: 'jwk' }) });
     const body = '# Close check\nBefore closing a month, read the trial balance and the period status. CLOSE-CHECK-7Q.';
     const requires = ['ledger.report.trial_balance', 'ledger.periods.status'];
     const ch = contentHash({ key: 'ledger/close-check', version: '1.0.0', kind: 'skill', body, requires, offers: [], artifact_hash: null });
@@ -305,7 +304,7 @@ describe('nep-gst in Ledger’s own migration set', () => {
         const before = (await admin.query("select md5(string_agg(id::text, ',' order by id)) h, count(*)::int n from ledger.journal_entries")).rows[0];
         expect(before.n).toBeGreaterThan(0);
         const applied = await migrateApp(db.adminUrl, app);
-        expect(applied.map((m) => m.name)).toEqual(['008_nep_gst__001_returns.sql', '009_nep_gst__002_gstr3b.sql']);
+        expect(applied.map((m) => m.name)).toEqual(['008_nep_gst__001_returns.sql', '009_nep_gst__002_gstr3b.sql', '010_declared_reads.sql']);
         expect((await admin.query("select md5(string_agg(id::text, ',' order by id)) h, count(*)::int n from ledger.journal_entries")).rows[0]).toEqual(before);
         const cols = (await admin.query("select column_name from information_schema.columns where table_schema = 'ledger' and table_name = 'nep_gst_returns'")).rows.map((x) => x.column_name);
         expect(cols).toEqual(expect.arrayContaining(['period', 'payload_sha256', 'gsp_ref', 'gsp_status']));
@@ -340,4 +339,3 @@ describe('nep-gst in Ledger’s own migration set', () => {
     await rm(adir, { recursive: true, force: true });
   });
 });
-

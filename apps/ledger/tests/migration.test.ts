@@ -19,7 +19,7 @@ describe('migrations', () => {
   it('apply once, then re-running is a no-op', async () => {
     const app = await ledgerApp();
     const first = await migrateApp(db.adminUrl, app);
-    expect(first.map((m) => m.name)).toEqual(['001_standard.sql', 't002_trace_and_acks.sql', 't003_door_journal.sql', 't004_timers_and_summary.sql', 't005_input_waits.sql', 't006_documents_files.sql', 't007_standard_columns.sql', 't008_transitions.sql', 't009_notify.sql', 't010_board_truth.sql', 't011_approved_path.sql', 't012_presence.sql', 't013_answer_wait.sql', 't015_bus_room.sql', 't017_acted_for.sql', '002_ledger.sql', '003_budgets.sql', '004_bookkeeping.sql', '005_inherited.sql', '006_source_documents.sql', '007_views.sql', '008_nep_gst__001_returns.sql', '009_nep_gst__002_gstr3b.sql']);
+    expect(first.map((m) => m.name)).toEqual(['001_standard.sql', 't002_trace_and_acks.sql', 't003_door_journal.sql', 't004_timers_and_summary.sql', 't005_input_waits.sql', 't006_documents_files.sql', 't007_standard_columns.sql', 't008_transitions.sql', 't009_notify.sql', 't010_board_truth.sql', 't011_approved_path.sql', 't012_presence.sql', 't013_answer_wait.sql', 't015_bus_room.sql', 't017_acted_for.sql', 't018_desk_without_gateway.sql', 't019_no_gateway_tables.sql', 't020_human_authority.sql', 't021_draft_origin.sql', 't022_answer_deadline.sql', 't023_input_deadline.sql', 't024_answer_intents.sql', '002_ledger.sql', '003_budgets.sql', '004_bookkeeping.sql', '005_inherited.sql', '006_source_documents.sql', '007_views.sql', '008_nep_gst__001_returns.sql', '009_nep_gst__002_gstr3b.sql', '010_declared_reads.sql']);
     expect(await migrateApp(db.adminUrl, app)).toEqual([]);
   });
 

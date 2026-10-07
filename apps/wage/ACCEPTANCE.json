@@ -1,0 +1,115 @@
+{
+  "app": "wage",
+  "production_ready": false,
+  "assessment": "Implementation checkpoint, not a release attestation. All statuses are scoped; no group is fully certified.",
+  "requirements": [
+    {
+      "id": "transport.matrix",
+      "status": "pending",
+      "evidence": [],
+      "remaining": "Per-app typed ingress, sender, correlation, redelivery and real homeserver acceptance."
+    },
+    {
+      "id": "identity.company",
+      "status": "pending",
+      "evidence": [],
+      "remaining": "Sender spoofing, wrong company/room, unknown sender, agent approval and membership-race tests."
+    },
+    {
+      "id": "jobs.durable",
+      "status": "pending",
+      "evidence": [],
+      "remaining": "Kill/restart, outbox dedupe, heartbeat, thread correlation and job-token tests."
+    },
+    {
+      "id": "switchboard.enforced",
+      "status": "pending",
+      "evidence": [],
+      "remaining": "Off-on both SQL/assistant paths, mid-job changes, cap/recipient and rule-boundary tests."
+    },
+    {
+      "id": "approval.exact_content",
+      "status": "pending",
+      "evidence": [],
+      "remaining": "Stale/replay/expiry/reject/supersede/withdraw tests and real UI acceptance."
+    },
+    {
+      "id": "approval.authority",
+      "status": "pending",
+      "evidence": [],
+      "remaining": "Bind verified Matrix/Desk human to proposer and permission records, deny self/unknown/ineligible approvers at execution."
+    },
+    {
+      "id": "runner.effect_once",
+      "status": "pending",
+      "evidence": [],
+      "remaining": "Concurrent runners, crash between effect and receipt, uncertain provider reconciliation, grant suspension and wake-order tests."
+    },
+    {
+      "id": "waiting.lifecycle",
+      "status": "pending",
+      "evidence": [],
+      "remaining": "Lost notification, delayed answer, expiry, double claim, wrong sender/thread and dependency failure tests."
+    },
+    {
+      "id": "database.boundary",
+      "status": "pending",
+      "evidence": [],
+      "remaining": "Cross-schema/tenant/DDL/role escape tests with populated data and DBA grants review."
+    },
+    {
+      "id": "database.migrations",
+      "status": "pending",
+      "evidence": [],
+      "remaining": "Legacy restore-to-V3 transformation plus app boot mismatch and backup restore; DBA-reviewed bundle."
+    },
+    {
+      "id": "values.domain",
+      "status": "pending",
+      "evidence": [],
+      "remaining": "Boundary/rounding/state domain tests plus SQL constraint and source parity evidence."
+    },
+    {
+      "id": "privacy.retention",
+      "status": "pending",
+      "evidence": [],
+      "remaining": "Reviewed data map, retention decision, erasure/export tests, object ACL and restore tests."
+    },
+    {
+      "id": "sharing.registry",
+      "status": "pending",
+      "evidence": [],
+      "remaining": "Signature/hash/dependency/retirement/injection tests; no runtime row-to-code or document-to-skill path."
+    },
+    {
+      "id": "doors.credentials",
+      "status": "pending",
+      "evidence": [],
+      "remaining": "Provider-specific idempotency/read-back, scoped credentials, off/revoke and live sandbox certification."
+    },
+    {
+      "id": "assistant.isolation",
+      "status": "pending",
+      "evidence": [],
+      "remaining": "Build inspection and actual network boundary probes for each app image."
+    },
+    {
+      "id": "honesty.ui",
+      "status": "pending",
+      "evidence": [],
+      "remaining": "Read schema contracts, actual NEOS UI rendering, all failure/unknown/partial-output cases."
+    },
+    {
+      "id": "source.parity",
+      "status": "pending",
+      "evidence": [],
+      "remaining": "Pinned source and scenario-by-scenario review; domain owners sign off full workflow."
+    },
+    {
+      "id": "release.acceptance",
+      "status": "pending",
+      "evidence": [],
+      "remaining": "Manifest-bound clean-commit attestation, Matrix/model/mailbox/door/UI/load/recovery and operational owner sign-offs."
+    }
+  ]
+}

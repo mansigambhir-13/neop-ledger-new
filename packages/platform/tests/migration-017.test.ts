@@ -9,7 +9,7 @@ import path from 'node:path';
 import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { bootstrapFamily, createTestDatabase, migrate, roleUrl } from '@neop/pgkit';
-import { chatClientRoutes, generateSigningKeys, migratePlatform, Platform, PLATFORM_MIGRATIONS } from '../src/index.ts';
+import { chatRoutes, generateSigningKeys, migratePlatform, Platform, PLATFORM_MIGRATIONS } from '../src/index.ts';
 
 let db: { adminUrl: string; drop: () => Promise<void> };
 let dir016 = '';
@@ -52,7 +52,7 @@ describe('017 on a populated platform database', () => {
     }
     const before = (await c.query('select company_id, app_key, matrix_id, kind, acts_for, added_by, added_at from neos.chat_allowlist order by matrix_id')).rows;
 
-    const applied = await migratePlatform(db.adminUrl);
+    const applied = await migratePlatform(db.adminUrl, undefined, { through: '017' });
     expect(applied.map((m) => m.name)[0]).toBe('017_bridge_never_approves.sql');
 
     expect((await c.query('select company_id, app_key, matrix_id, kind, acts_for, added_by, added_at from neos.chat_allowlist order by matrix_id')).rows).toEqual(before);
@@ -75,7 +75,7 @@ describe('the admin API', () => {
     const admin = await p.createUser(co, { name: 'Anil', email: 'a@x', role: 'admin' });
     await p.installApp(co, 'ledger');
     const put = async (body: Record<string, unknown>) => {
-      const res = await chatClientRoutes(p, () => []).request('/api/chat/allowlist', { method: 'PUT', headers: { authorization: `Bearer ${admin.token}`, 'content-type': 'application/json' }, body: JSON.stringify(body) });
+      const res = await chatRoutes(p).request('/api/chat/allowlist', { method: 'PUT', headers: { authorization: `Bearer ${admin.token}`, 'content-type': 'application/json' }, body: JSON.stringify(body) });
       return { status: res.status, body: (await res.json()) as any };
     };
     const refused = await put({ app: 'ledger', matrix_id: '@agent:hs', kind: 'bridge', acts_for: admin.id, may_approve: true });

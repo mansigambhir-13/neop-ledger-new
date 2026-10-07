@@ -1,0 +1,755 @@
+{
+  "checkpoint": 13,
+  "date": "2026-10-05",
+  "branch": "rebuild/fleet-v3",
+  "starting_commit": "d3de5b938d2cb8f242330e610fd70ca35d7b49d3",
+  "scope": "Forward-only input-answer wall-clock deadlines, job-first answer/cancellation/input-expiry ordering and synthetic input lifecycles; no business authorization or provider dispatch",
+  "status": "bounded_implementation_checkpoint_not_clean_full_regression_attestation",
+  "full_regression": {
+    "path": "/Users/mansi.gambhir/Documents/Codex/2026-09-28/lo/work/fleet-v3-checkpoint-13-isolated-final-tests.json",
+    "sha256": "97a8a59e587eecc94540938e1ed4312f66d8e3c6aee4d7eab1e96102fdaa1ca1",
+    "passed": 2603,
+    "failed": 1,
+    "skipped": 2,
+    "files": 241,
+    "success": false,
+    "start_time": "2026-10-05T09:54:57.535Z",
+    "elapsed_through_last_file_seconds": 1224.43,
+    "failed_cases": [
+      {
+        "title": "moving to the store, and backing it up export-door-secrets opens the platform vault exactly as the platform did and writes 0600 files; it never prints a value",
+        "message": "AssertionError: expected [] to deeply equal [ [ null, 'email', 'written' ], …(2) ]"
+      }
+    ],
+    "new_cases": [
+      {
+        "path": "apps/buy/tests/input-lifecycle.test.ts",
+        "passed": 15,
+        "other": 0
+      },
+      {
+        "path": "apps/clear/tests/input-lifecycle.test.ts",
+        "passed": 15,
+        "other": 0
+      },
+      {
+        "path": "apps/asset/tests/input-lifecycle.test.ts",
+        "passed": 15,
+        "other": 0
+      },
+      {
+        "path": "apps/grant/tests/input-lifecycle.test.ts",
+        "passed": 15,
+        "other": 0
+      },
+      {
+        "path": "apps/deal/tests/input-lifecycle.test.ts",
+        "passed": 15,
+        "other": 0
+      },
+      {
+        "path": "apps/desk/tests/input-lifecycle.test.ts",
+        "passed": 15,
+        "other": 0
+      },
+      {
+        "path": "apps/hire/tests/input-lifecycle.test.ts",
+        "passed": 15,
+        "other": 0
+      },
+      {
+        "path": "apps/guard/tests/input-lifecycle.test.ts",
+        "passed": 15,
+        "other": 0
+      },
+      {
+        "path": "apps/pay/tests/input-lifecycle.test.ts",
+        "passed": 15,
+        "other": 0
+      },
+      {
+        "path": "apps/post/tests/input-lifecycle.test.ts",
+        "passed": 15,
+        "other": 0
+      },
+      {
+        "path": "apps/reach/tests/input-lifecycle.test.ts",
+        "passed": 15,
+        "other": 0
+      },
+      {
+        "path": "apps/renew/tests/input-lifecycle.test.ts",
+        "passed": 15,
+        "other": 0
+      },
+      {
+        "path": "apps/roster/tests/input-lifecycle.test.ts",
+        "passed": 15,
+        "other": 0
+      },
+      {
+        "path": "apps/shift/tests/input-lifecycle.test.ts",
+        "passed": 15,
+        "other": 0
+      },
+      {
+        "path": "apps/sign/tests/input-lifecycle.test.ts",
+        "passed": 15,
+        "other": 0
+      },
+      {
+        "path": "apps/quote/tests/input-lifecycle.test.ts",
+        "passed": 15,
+        "other": 0
+      },
+      {
+        "path": "apps/sync/tests/input-lifecycle.test.ts",
+        "passed": 15,
+        "other": 0
+      },
+      {
+        "path": "apps/vet/tests/input-lifecycle.test.ts",
+        "passed": 15,
+        "other": 0
+      },
+      {
+        "path": "scripts/fleet/tests/input-deadline-migration.test.ts",
+        "passed": 4,
+        "other": 0
+      }
+    ],
+    "skipped_cases": [
+      {
+        "path": "apps/ledger/tests/backup.test.ts",
+        "reason": "Matching pg_dump/restore prerequisite not available"
+      },
+      {
+        "path": "packages/neop-template/tests/document-store.test.ts",
+        "reason": "Real S3-compatible endpoint not configured"
+      }
+    ],
+    "cli_duration_seconds": 1224.49
+  },
+  "post_full_fixture_correction": {
+    "path": "/Users/mansi.gambhir/Documents/Codex/2026-09-28/lo/work/fleet-input-13-secret-fixture-corrected.json",
+    "sha256": "d98fe4af78346781e06567686302c8f27107724b93fe435c0c89b7dde3fc35b3",
+    "passed": 9,
+    "failed": 0,
+    "skipped": 0,
+    "files": 1,
+    "success": true,
+    "start_time": "2026-10-05T10:17:32.442Z",
+    "elapsed_through_last_file_seconds": 26.71,
+    "failed_cases": [],
+    "new_cases": [],
+    "skipped_cases": [],
+    "cli_duration_seconds": 27
+  },
+  "clean_full_regression_after_fixture_correction": false,
+  "post_full_runtime_migration_new_test_sources_unchanged": 30,
+  "post_full_changed_sources": [
+    {
+      "path": "apps/ledger/tests/secret-store.test.ts",
+      "change": "Pin export CLI subprocess to its pilot DBA/database URLs and synthetic keys; remove inherited file overrides",
+      "verification": "Entire nine-test file passed plus TypeScript; no product code changed"
+    }
+  ],
+  "new_distinct_tests": 274,
+  "focused_counts_are_not_additive": true,
+  "history": [
+    {
+      "path": "/Users/mansi.gambhir/Documents/Codex/2026-09-28/lo/work/fleet-catalog-13.json",
+      "sha256": "d88a66bd34bed92324c5e703a1ba3114a578cbb472437e944d3c644251d8ea45",
+      "passed": 6,
+      "failed": 0,
+      "skipped": 0,
+      "files": 1,
+      "success": true,
+      "start_time": "2026-10-05T09:35:25.053Z",
+      "elapsed_through_last_file_seconds": 2.49,
+      "failed_cases": [],
+      "interpretation": "Catalog6, overlaps full regression."
+    },
+    {
+      "path": "/Users/mansi.gambhir/Documents/Codex/2026-09-28/lo/work/fleet-input-13-complete-focused.json",
+      "sha256": "1ecd7a6ab1a5780cc7ddb929a6576230ef79b1e5fabf059890df61c83ae7050f",
+      "passed": 35,
+      "failed": 0,
+      "skipped": 0,
+      "files": 4,
+      "success": true,
+      "start_time": "2026-10-05T09:34:32.419Z",
+      "elapsed_through_last_file_seconds": 24.87,
+      "failed_cases": [],
+      "interpretation": "Final 35-case pass: Pay15, Grant15, four populated upgrades, Grant bundle1; overlaps full regression."
+    },
+    {
+      "path": "/Users/mansi.gambhir/Documents/Codex/2026-09-28/lo/work/fleet-input-13-expiry-order-direct-reproduction.json",
+      "sha256": "b3868045354b9684b2e449f1f86aea140c875706f9e017568d3ef1ff9c3259d0",
+      "passed": 0,
+      "failed": 1,
+      "skipped": 13,
+      "files": 1,
+      "success": false,
+      "start_time": "2026-10-05T09:33:32.616Z",
+      "elapsed_through_last_file_seconds": 5.78,
+      "failed_cases": [
+        {
+          "title": "pay input waiting lifecycle serializes input expiry with a late answer without a job/wait lock inversion",
+          "message": "error: deadlock detected"
+        }
+      ],
+      "interpretation": "Direct role-scoped answer versus real expiry reproduced PostgreSQL40P01; thirteen filter exclusions."
+    },
+    {
+      "path": "/Users/mansi.gambhir/Documents/Codex/2026-09-28/lo/work/fleet-input-13-expiry-order-reproduction.json",
+      "sha256": "b52f1082ea2ca2d46870b2fdfdb9774b0e90c2100710c7dd1db38ff3f62e6cc5",
+      "passed": 0,
+      "failed": 1,
+      "skipped": 13,
+      "files": 1,
+      "success": false,
+      "start_time": "2026-10-05T09:32:25.736Z",
+      "elapsed_through_last_file_seconds": 19.43,
+      "failed_cases": [
+        {
+          "title": "pay input waiting lifecycle serializes input expiry with a late answer without a job/wait lock inversion",
+          "message": "Error: timed out waiting for late answer blocked during expiry"
+        }
+      ],
+      "interpretation": "HTTP route refused expired question before DB call; test timed out on its blocked-call expectation. Thirteen filter exclusions; not a runtime race reproduction."
+    },
+    {
+      "path": "/Users/mansi.gambhir/Documents/Codex/2026-09-28/lo/work/fleet-input-13-final-focused.json",
+      "sha256": "6b893a79a34db9c0be5c229d2a3a51173146228099f84cb2f20af2d544a76699",
+      "passed": 23,
+      "failed": 4,
+      "skipped": 0,
+      "files": 4,
+      "success": false,
+      "start_time": "2026-10-05T09:15:09.776Z",
+      "elapsed_through_last_file_seconds": 21.69,
+      "failed_cases": [
+        {
+          "title": "pay: t023 preserves populated input history and privileges",
+          "message": "error: new row for relation \"waits\" violates check constraint \"waits_check\""
+        },
+        {
+          "title": "buy: t023 preserves populated input history and privileges",
+          "message": "error: new row for relation \"waits\" violates check constraint \"waits_check\""
+        },
+        {
+          "title": "renew: t023 preserves populated input history and privileges",
+          "message": "error: new row for relation \"waits\" violates check constraint \"waits_check\""
+        },
+        {
+          "title": "grant: t023 preserves populated input history and privileges",
+          "message": "error: new row for relation \"waits\" violates check constraint \"waits_check\""
+        }
+      ],
+      "interpretation": "Four invalid historical-ready fixtures omitted ready_at; corrected without weakening constraints."
+    },
+    {
+      "path": "/Users/mansi.gambhir/Documents/Codex/2026-09-28/lo/work/fleet-input-13-final-lock-order-focused.json",
+      "sha256": "ef7c2e32c0c13a84711e4aa9de409d008875777575db98c0631f0bbd955b6a94",
+      "passed": 31,
+      "failed": 0,
+      "skipped": 0,
+      "files": 4,
+      "success": true,
+      "start_time": "2026-10-05T09:25:10.942Z",
+      "elapsed_through_last_file_seconds": 25.65,
+      "failed_cases": [],
+      "interpretation": "Intermediate 31-case pass before expiry-worker review, overlaps final tests."
+    },
+    {
+      "path": "/Users/mansi.gambhir/Documents/Codex/2026-09-28/lo/work/fleet-input-13-focused-fixed.json",
+      "sha256": "e911bfbfe3c75f34206fc8a109eabf21286e6fe436abcadff4834a4f7a0d0f2e",
+      "passed": 20,
+      "failed": 0,
+      "skipped": 0,
+      "files": 2,
+      "success": true,
+      "start_time": "2026-10-05T09:13:18.829Z",
+      "elapsed_through_last_file_seconds": 14.69,
+      "failed_cases": [],
+      "interpretation": "Intermediate 20-case pass before expanded caller/cancellation/expiry coverage, overlaps later tests."
+    },
+    {
+      "path": "/Users/mansi.gambhir/Documents/Codex/2026-09-28/lo/work/fleet-input-13-focused.json",
+      "sha256": "5189acbeafc63bf8a7c419cf3b9d449ac028cca3027b4ed93fad809ada77ea22",
+      "passed": 0,
+      "failed": 0,
+      "skipped": 20,
+      "files": 2,
+      "success": false,
+      "start_time": "2026-10-05T09:11:52.429Z",
+      "elapsed_through_last_file_seconds": 0,
+      "failed_cases": [],
+      "interpretation": "Malformed new SQL dollar delimiter caused two setup-failed suites; twenty cases unexecuted. Elapsed-through-file value is not a meaningful duration for failed setup."
+    },
+    {
+      "path": "/Users/mansi.gambhir/Documents/Codex/2026-09-28/lo/work/fleet-input-13-isolated-focused.json",
+      "sha256": "301da8ec2d302166a72b2901bebca53f5cfd5c8adad72abf21dc9ae9284f99b1",
+      "passed": 56,
+      "failed": 0,
+      "skipped": 0,
+      "files": 6,
+      "success": true,
+      "start_time": "2026-10-05T09:54:03.246Z",
+      "elapsed_through_last_file_seconds": 32.11,
+      "failed_cases": [],
+      "interpretation": "56-case isolated focused pass after test-harness quiescence/job-scoping correction. Overlaps full regression."
+    },
+    {
+      "path": "/Users/mansi.gambhir/Documents/Codex/2026-09-28/lo/work/fleet-input-13-lock-order-reproduction-fixed-fixture.json",
+      "sha256": "05c2967e8b6ef194371459f8b656e6154386194505f88dce0e33b45a421791f7",
+      "passed": 0,
+      "failed": 1,
+      "skipped": 11,
+      "files": 1,
+      "success": false,
+      "start_time": "2026-10-05T09:24:16.534Z",
+      "elapsed_through_last_file_seconds": 5.95,
+      "failed_cases": [
+        {
+          "title": "pay input waiting lifecycle serializes with the real cancellation function without a job/wait lock inversion",
+          "message": "AssertionError: expected 500 to be 409 // Object.is equality"
+        }
+      ],
+      "interpretation": "Corrected tenant fixture reproduced HTTP500 instead of stale409 during cancellation; eleven filter exclusions."
+    },
+    {
+      "path": "/Users/mansi.gambhir/Documents/Codex/2026-09-28/lo/work/fleet-input-13-lock-order-reproduction.json",
+      "sha256": "94e16d3c14a881d91d9b4423c39bedffdac4fab29fbb0d40bca2dc92237c4764",
+      "passed": 0,
+      "failed": 1,
+      "skipped": 11,
+      "files": 1,
+      "success": false,
+      "start_time": "2026-10-05T09:21:27.031Z",
+      "elapsed_through_last_file_seconds": 5.88,
+      "failed_cases": [
+        {
+          "title": "pay input waiting lifecycle serializes with the real cancellation function without a job/wait lock inversion",
+          "message": "error: not_found: no job for that task"
+        }
+      ],
+      "interpretation": "Fixture lacked tenant context and failed before reaching real cancellation; eleven filter exclusions."
+    },
+    {
+      "path": "/Users/mansi.gambhir/Documents/Codex/2026-09-28/lo/work/fleet-input-13-reproduction.json",
+      "sha256": "b37440be1a7721b103504a27be3bb9b1769b7ee8f766beaed568c07195534cc6",
+      "passed": 0,
+      "failed": 4,
+      "skipped": 6,
+      "files": 1,
+      "success": false,
+      "start_time": "2026-10-05T09:10:41.648Z",
+      "elapsed_through_last_file_seconds": 15.55,
+      "failed_cases": [
+        {
+          "title": "pay input waiting lifecycle refuses input after deadline while blocked on wait and leaves no partial answer",
+          "message": "AssertionError: expected 200 to be 409 // Object.is equality"
+        },
+        {
+          "title": "pay input waiting lifecycle refuses input after deadline while blocked on job and leaves no partial answer",
+          "message": "AssertionError: expected 200 to be 409 // Object.is equality"
+        },
+        {
+          "title": "pay input waiting lifecycle refuses input after deadline while blocked on facts and leaves no partial answer",
+          "message": "AssertionError: expected 200 to be 409 // Object.is equality"
+        },
+        {
+          "title": "pay input waiting lifecycle refuses an answer when cancellation commits while the answer waits for the job lock",
+          "message": "AssertionError: expected 200 to be 409 // Object.is equality"
+        }
+      ],
+      "interpretation": "Four expected pre-fix failures; six other cases filter-excluded, not disabled."
+    },
+    {
+      "path": "/Users/mansi.gambhir/Documents/Codex/2026-09-28/lo/work/fleet-input-13-verified-focused.json",
+      "sha256": "d3a9bb92fd6b10d1c4ae1c1c54175dc02b42487f7a2982b0672b098168529729",
+      "passed": 27,
+      "failed": 0,
+      "skipped": 0,
+      "files": 4,
+      "success": true,
+      "start_time": "2026-10-05T09:16:38.144Z",
+      "elapsed_through_last_file_seconds": 22.42,
+      "failed_cases": [],
+      "interpretation": "Intermediate 27-case pass before real cancellation/expiry lock review, overlaps later tests."
+    },
+    {
+      "path": "/Users/mansi.gambhir/Documents/Codex/2026-09-28/lo/work/fleet-v3-checkpoint-13-complete-tests.json",
+      "sha256": "48cf8b673a079ac94aac8a37128f66439c1c73fae8bdada20fe45805bb5f8ce7",
+      "passed": 2601,
+      "failed": 3,
+      "skipped": 2,
+      "files": 241,
+      "success": false,
+      "start_time": "2026-10-05T09:35:23.784Z",
+      "elapsed_through_last_file_seconds": 803.46,
+      "failed_cases": [
+        {
+          "title": "A4 · the desk’s union views neos_desk is NOLOGIN and the views cover every registered app schema",
+          "message": "AssertionError: expected { rolcanlogin: true, …(2) } to deeply equal { rolcanlogin: false, …(2) }"
+        },
+        {
+          "title": "vet input waiting lifecycle serializes input expiry with a late answer without a job/wait lock inversion",
+          "message": "Error: timed out waiting for input expiry blocked on wait"
+        },
+        {
+          "title": "vet input waiting lifecycle retries contended expiry jobs and concurrent passes persist exactly one outcome",
+          "message": "AssertionError: expected [ …(2) ] to have a length of 1 but got 2"
+        }
+      ],
+      "interpretation": "First completed full regression on shared cluster: retained three failures; see checkpoint diagnostic history."
+    }
+  ],
+  "interrupted_full_runs": [
+    {
+      "report_target": "fleet-v3-checkpoint-13-tests.json",
+      "start_utc": "2026-10-05T09:18:09Z",
+      "exit_code": 130,
+      "reason": "Stopped for real-cancellation lock-order reproduction",
+      "complete_verification": false
+    },
+    {
+      "report_target": "fleet-v3-checkpoint-13-final-tests.json",
+      "start_utc": "2026-10-05T09:26:00Z",
+      "exit_code": 130,
+      "reason": "Stopped for input-expiry lock-order reproduction",
+      "complete_verification": false
+    }
+  ],
+  "apps": [
+    {
+      "app": "clear",
+      "input_lifecycle_tests_passed": 15,
+      "partial_requirements": 15,
+      "pending_requirements": 3,
+      "unfulfilled_requirements": 18,
+      "full_parity": false,
+      "production_ready": false
+    },
+    {
+      "app": "reach",
+      "input_lifecycle_tests_passed": 15,
+      "partial_requirements": 15,
+      "pending_requirements": 3,
+      "unfulfilled_requirements": 18,
+      "full_parity": false,
+      "production_ready": false
+    },
+    {
+      "app": "desk",
+      "input_lifecycle_tests_passed": 15,
+      "partial_requirements": 15,
+      "pending_requirements": 3,
+      "unfulfilled_requirements": 18,
+      "full_parity": false,
+      "production_ready": false
+    },
+    {
+      "app": "hire",
+      "input_lifecycle_tests_passed": 15,
+      "partial_requirements": 15,
+      "pending_requirements": 3,
+      "unfulfilled_requirements": 18,
+      "full_parity": false,
+      "production_ready": false
+    },
+    {
+      "app": "deal",
+      "input_lifecycle_tests_passed": 15,
+      "partial_requirements": 15,
+      "pending_requirements": 3,
+      "unfulfilled_requirements": 18,
+      "full_parity": false,
+      "production_ready": false
+    },
+    {
+      "app": "buy",
+      "input_lifecycle_tests_passed": 15,
+      "partial_requirements": 15,
+      "pending_requirements": 3,
+      "unfulfilled_requirements": 18,
+      "full_parity": false,
+      "production_ready": false
+    },
+    {
+      "app": "grant",
+      "input_lifecycle_tests_passed": 15,
+      "partial_requirements": 15,
+      "pending_requirements": 3,
+      "unfulfilled_requirements": 18,
+      "full_parity": false,
+      "production_ready": false
+    },
+    {
+      "app": "shift",
+      "input_lifecycle_tests_passed": 15,
+      "partial_requirements": 15,
+      "pending_requirements": 3,
+      "unfulfilled_requirements": 18,
+      "full_parity": false,
+      "production_ready": false
+    },
+    {
+      "app": "sync",
+      "input_lifecycle_tests_passed": 15,
+      "partial_requirements": 15,
+      "pending_requirements": 3,
+      "unfulfilled_requirements": 18,
+      "full_parity": false,
+      "production_ready": false
+    },
+    {
+      "app": "post",
+      "input_lifecycle_tests_passed": 15,
+      "partial_requirements": 15,
+      "pending_requirements": 3,
+      "unfulfilled_requirements": 18,
+      "full_parity": false,
+      "production_ready": false
+    },
+    {
+      "app": "roster",
+      "input_lifecycle_tests_passed": 15,
+      "partial_requirements": 15,
+      "pending_requirements": 3,
+      "unfulfilled_requirements": 18,
+      "full_parity": false,
+      "production_ready": false
+    },
+    {
+      "app": "quote",
+      "input_lifecycle_tests_passed": 15,
+      "partial_requirements": 15,
+      "pending_requirements": 3,
+      "unfulfilled_requirements": 18,
+      "full_parity": false,
+      "production_ready": false
+    },
+    {
+      "app": "sign",
+      "input_lifecycle_tests_passed": 15,
+      "partial_requirements": 15,
+      "pending_requirements": 3,
+      "unfulfilled_requirements": 18,
+      "full_parity": false,
+      "production_ready": false
+    },
+    {
+      "app": "guard",
+      "input_lifecycle_tests_passed": 15,
+      "partial_requirements": 15,
+      "pending_requirements": 3,
+      "unfulfilled_requirements": 18,
+      "full_parity": false,
+      "production_ready": false
+    },
+    {
+      "app": "vet",
+      "input_lifecycle_tests_passed": 15,
+      "partial_requirements": 15,
+      "pending_requirements": 3,
+      "unfulfilled_requirements": 18,
+      "full_parity": false,
+      "production_ready": false
+    },
+    {
+      "app": "pay",
+      "input_lifecycle_tests_passed": 15,
+      "partial_requirements": 15,
+      "pending_requirements": 3,
+      "unfulfilled_requirements": 18,
+      "full_parity": false,
+      "production_ready": false
+    },
+    {
+      "app": "asset",
+      "input_lifecycle_tests_passed": 15,
+      "partial_requirements": 15,
+      "pending_requirements": 3,
+      "unfulfilled_requirements": 18,
+      "full_parity": false,
+      "production_ready": false
+    },
+    {
+      "app": "renew",
+      "input_lifecycle_tests_passed": 15,
+      "partial_requirements": 15,
+      "pending_requirements": 3,
+      "unfulfilled_requirements": 18,
+      "full_parity": false,
+      "production_ready": false
+    }
+  ],
+  "checks": {
+    "typescript": "pass after final fixture correction",
+    "catalog": "6/6 pass",
+    "source_snapshots_verified": 108,
+    "completion_gate_expected_exit_code": 1,
+    "production_ready_apps": [],
+    "provider_doors": 0,
+    "source_parity_files_changed": false,
+    "applied_sql_migrations_changed": false
+  },
+  "fixture": {
+    "container_name": "neop-fleet13-20261005",
+    "container_id": "4a3f4a7cacf0a4943b0b5aedb8156451810cf3545089d4d96cccf20504ccd908",
+    "image": "postgres:17-alpine",
+    "image_id": "sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24",
+    "server_version": "PostgreSQL 17.11 aarch64 Alpine",
+    "binding": "127.0.0.1:64750",
+    "storage": "tmpfs",
+    "residual_pilot_databases_before_cleanup": 0,
+    "desk_role_before_cleanup": {
+      "rolcanlogin": false,
+      "rolbypassrls": false,
+      "rolsuper": false
+    },
+    "stopped_and_removed": true,
+    "recoverable": false,
+    "production_data_used": false,
+    "shared_cluster_role_mismatch": "Observed LOGIN=true; changer not established. Not manually reset. Future runs should use an owned isolated cluster.",
+    "older_shared_fixtures_removed": false,
+    "failed_setup_empty_databases_removed": 2,
+    "interrupted_runs_global_cleanup_claimed": false
+  },
+  "release_constraints": [
+    "No all-green full run after the final fixture-only correction",
+    "Refreshed source-bound images and DBA bundles still required",
+    "Coordinate t023 and worker rollout; old expiry workers retain opposite lock ordering and mixed-version compatibility is not certified",
+    "Business-policy and domain lifecycles/source parity/provider/privacy/legacy/live acceptance remain open"
+  ],
+  "next_step": "Clean complete isolated regression first; then bounded timer/dependency/a2a waiting, cancellation and recovery coverage while awaiting business-policy owner decisions",
+  "source_bindings": [
+    {
+      "path": "apps/grant/tests/dba-bundle.test.ts",
+      "sha256": "8561e16ed6feca8d30aecd5553218fea17eacafe1054494d26196c5ec17db851"
+    },
+    {
+      "path": "apps/ledger/tests/approved-path.test.ts",
+      "sha256": "213f50ca208b75979da46908d7104fe5bea1841b87745ee36ede71d96530efcb"
+    },
+    {
+      "path": "apps/ledger/tests/board-db.test.ts",
+      "sha256": "bbee2cd8f3e669b0df2c29bc819e1083baaadedc6a0281472c726de86fd4713c"
+    },
+    {
+      "path": "apps/ledger/tests/desk-functions.test.ts",
+      "sha256": "2626f39618019d4fbb81e7162672dafddce4cf857726ec9d7a1e9a178a3c42eb"
+    },
+    {
+      "path": "apps/ledger/tests/migration.test.ts",
+      "sha256": "486d49cdcc87b7afd8e3abf7afef8bb52e5b0ee8a6db87eda09ac65da72d48e5"
+    },
+    {
+      "path": "apps/ledger/tests/v3-conformance.test.ts",
+      "sha256": "b99679b3e7f3ef5e9ccf75514e1419f9d4c219938664e3e6ab345bc67721a56f"
+    },
+    {
+      "path": "packages/neop-template/migrations/migrate.json",
+      "sha256": "96bfea8cb579392a621e51a84eb2317749885fbf025c52bbc7ef50799a6643fd"
+    },
+    {
+      "path": "packages/neop-template/src/runner/runner.ts",
+      "sha256": "c1180b353d94609da9456fb502358eecf7e8d95c1a670fc58091e3f53f5c066b"
+    },
+    {
+      "path": "packages/testkit/src/index.ts",
+      "sha256": "f59040649f12755eb040f8a79b9c97996d1e74b4764deb3176b6627c9de06efa"
+    },
+    {
+      "path": "apps/asset/tests/input-lifecycle.test.ts",
+      "sha256": "c2daa47915fd3b01e1a5eee0871cad5a5740f21598d801349a7afe15fd3e7194"
+    },
+    {
+      "path": "apps/buy/tests/input-lifecycle.test.ts",
+      "sha256": "a7c5634c26ed8124521ef386e69a8689c2cbd395221966661a5dba91bbef6100"
+    },
+    {
+      "path": "apps/clear/tests/input-lifecycle.test.ts",
+      "sha256": "b6b6b91a05f755263e414185ba8c0c763b8179dcaba6c82ab294b2455aa5d980"
+    },
+    {
+      "path": "apps/deal/tests/input-lifecycle.test.ts",
+      "sha256": "95f400083dccbfd7a21092be5bdfd7f3e575b8a811bbccbb9da63f0f4dfc9588"
+    },
+    {
+      "path": "apps/desk/tests/input-lifecycle.test.ts",
+      "sha256": "9d988aa72e6d43153582e0d961ced1afa550aefab34462097ccda1d2b1c7ca8f"
+    },
+    {
+      "path": "apps/grant/tests/input-lifecycle.test.ts",
+      "sha256": "fa58edbc3bcc2bbe3ee03b53e7618375b0c7425d02ff2d8a7a67cc2e37391dd3"
+    },
+    {
+      "path": "apps/guard/tests/input-lifecycle.test.ts",
+      "sha256": "c741dd8f267c768df2d9006b53077f4c6391ecf521753c8f34149e40da75f9bd"
+    },
+    {
+      "path": "apps/hire/tests/input-lifecycle.test.ts",
+      "sha256": "0cd5c9b85779617a0480af413875abbf470f067d1ddbbca9ff4908594198f159"
+    },
+    {
+      "path": "apps/pay/tests/input-lifecycle.test.ts",
+      "sha256": "0592ff6aeba0da76d7be32485273026ae56ed6f8f6832f3e1edc0c01e1c3aaa9"
+    },
+    {
+      "path": "apps/post/tests/input-lifecycle.test.ts",
+      "sha256": "88c28742e5c3a2646a9ee83cb1dec1ba4b4222f7cd64d0c0e1db2a5f260ae8a2"
+    },
+    {
+      "path": "apps/quote/tests/input-lifecycle.test.ts",
+      "sha256": "392c52b57d0c5a0b2ca1eaf16b1fd7445cab8c728a8f676a16b25057f116ce33"
+    },
+    {
+      "path": "apps/reach/tests/input-lifecycle.test.ts",
+      "sha256": "41cdb5335e7b854e8e227a8ad5d642c94b7f86dd9a84c055d99b0d25ba87894e"
+    },
+    {
+      "path": "apps/renew/tests/input-lifecycle.test.ts",
+      "sha256": "14ba604aafe35a351e06ed6cb4031a4c1d7bb6181cb9a077d3e1579f14032e8c"
+    },
+    {
+      "path": "apps/roster/tests/input-lifecycle.test.ts",
+      "sha256": "6fcdf3d6e0f51094109774c4a0895b44dda1b8f4a2c25bd01808aae9f0ed0c7e"
+    },
+    {
+      "path": "apps/shift/tests/input-lifecycle.test.ts",
+      "sha256": "f1ad2ed10bbe8cff8e4ab9f54b1baf63748afad778953f74f2a809fdda900c5c"
+    },
+    {
+      "path": "apps/sign/tests/input-lifecycle.test.ts",
+      "sha256": "ea84fa28e44c73e5aa32aa191d84ca5249f7d2e771e634b96fd189fb3371e001"
+    },
+    {
+      "path": "apps/sync/tests/input-lifecycle.test.ts",
+      "sha256": "2481651cc2f4e1b2f38b1a6ea48468195991d5d514d346ba60295ed83c4a032f"
+    },
+    {
+      "path": "apps/vet/tests/input-lifecycle.test.ts",
+      "sha256": "e02df22f9d9db9bce1bdfeeb1b95808f710d81c477669deaf87ec5ab03c233a2"
+    },
+    {
+      "path": "packages/neop-template/migrations/t023_input_deadline.sql",
+      "sha256": "fe41c77839f41db34bd20bf7897029e3f5cc73f1e04d99e0ab6e64f902459ff5"
+    },
+    {
+      "path": "packages/testkit/src/input-lifecycle.ts",
+      "sha256": "07ed46035d591bfcd013ac32ad569cc4cb80167710868d5b93cea3dd436f1149"
+    },
+    {
+      "path": "scripts/fleet/tests/input-deadline-migration.test.ts",
+      "sha256": "79d466245fcd39b83fffa3a7f68b608eaa59c8a5bd654603aecb2d08569aa57a"
+    },
+    {
+      "path": "apps/ledger/tests/secret-store.test.ts",
+      "sha256": "2fbbe642cba8c850318cd538c4d9ebdfa0507c10d7f4ebbf923557fb11c034e6"
+    }
+  ]
+}

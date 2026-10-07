@@ -1,0 +1,45 @@
+{
+  "block": "page",
+  "title": "Grant drafts",
+  "description": "Internal review only; not business approval or external completion.",
+  "nav": {
+    "label": "Grant",
+    "icon": "table",
+    "order": 1
+  },
+  "children": [
+    {
+      "block": "table",
+      "source": {
+        "ability": "grant.requests.list"
+      },
+      "rows": "/rows",
+      "columns": [
+        {
+          "label": "source id",
+          "path": "/source_id"
+        },
+        {
+          "label": "system",
+          "path": "/system"
+        },
+        {
+          "label": "level",
+          "path": "/level"
+        },
+        {
+          "label": "notes",
+          "path": "/notes"
+        },
+        {
+          "label": "status",
+          "path": "/status"
+        },
+        {
+          "label": "requires elevated approval",
+          "path": "/requires_elevated_approval"
+        }
+      ]
+    }
+  ]
+}

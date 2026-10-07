@@ -1,3 +1,4 @@
+import {sqlIdent} from './roles.ts';
 // Personal data (WP §11: "personal-data columns are tagged in the manifest so deletion can find
 // them"). The DBA's tools for one data subject in one company of one app: find them, export what
 // is held about them (subject access), erase it. Only the tagged columns are ever read or
@@ -50,9 +51,9 @@ async function columnsOf(c: pg.Client, schema: string, tags: PersonalDataTag[]):
     const cols = (
       await c.query<ColumnInfo>('select column_name, data_type, is_nullable from information_schema.columns where table_schema = $1 and table_name = $2', [schema, t.table])
     ).rows;
-    if (!cols.length) throw new Error(`personal_data: ${schema}.${t.table} does not exist`);
+    if (!cols.length) throw new Error(`personal_data: ${sqlIdent(schema)}.${t.table} does not exist`);
     const byName = new Map(cols.map((x) => [x.column_name, x]));
-    for (const n of ['company_id', t.subject_key, ...t.columns]) if (!byName.has(n)) throw new Error(`personal_data: ${schema}.${t.table} has no column ${n}`);
+    for (const n of ['company_id', t.subject_key, ...t.columns]) if (!byName.has(n)) throw new Error(`personal_data: ${sqlIdent(schema)}.${t.table} has no column ${n}`);
     out.set(t.table, byName);
   }
   return out;
@@ -95,7 +96,7 @@ export async function findSubjects(adminUrl: string, schema: string, companyId: 
     const out: { table: string; subject: string; match: Record<string, unknown> }[] = [];
     for (const t of tags) {
       const where = t.columns.map((col) => `${col}::text ilike '%' || $2 || '%'`).join(' or ');
-      const r = await c.query(`select ${t.subject_key}::text as subject, ${t.columns.join(', ')} from ${schema}.${t.table} where company_id = $1 and (${where}) limit 50`, [companyId, text]);
+      const r = await c.query(`select ${t.subject_key}::text as subject, ${t.columns.join(', ')} from ${sqlIdent(schema)}.${t.table} where company_id = $1 and (${where}) limit 50`, [companyId, text]);
       for (const row of r.rows) {
         const { subject, ...match } = row;
         out.push({ table: t.table, subject, match });
@@ -119,7 +120,7 @@ export async function exportSubject(adminUrl: string, schema: string, companyId:
     await scoped(c, schema, companyId);
     const tables: SubjectExport['tables'] = {};
     for (const t of tags) {
-      tables[t.table] = (await c.query(`select ${t.subject_key}, ${t.columns.join(', ')} from ${schema}.${t.table} where company_id = $1 and ${t.subject_key}::text = $2`, [companyId, subject])).rows;
+      tables[t.table] = (await c.query(`select ${t.subject_key}, ${t.columns.join(', ')} from ${sqlIdent(schema)}.${t.table} where company_id = $1 and ${t.subject_key}::text = $2`, [companyId, subject])).rows;
     }
     await c.query('reset role');
     const rows = Object.values(tables).reduce((n, x) => n + x.length, 0);
@@ -163,7 +164,7 @@ export async function eraseSubject(
         const ci = info.get(t.table)!.get(col)!;
         if (ci.is_nullable === 'YES') cols[col] = 'null';
         else if (['text', 'character varying', 'character'].includes(ci.data_type)) cols[col] = 'pseudonym';
-        else throw new Error(`personal_data: ${schema}.${t.table}.${col} is NOT NULL ${ci.data_type}; it cannot be blanked or pseudonymised safely`);
+        else throw new Error(`personal_data: ${sqlIdent(schema)}.${t.table}.${col} is NOT NULL ${ci.data_type}; it cannot be blanked or pseudonymised safely`);
       }
       plan[t.table] = { rows: 0, columns: cols };
     }
@@ -171,11 +172,11 @@ export async function eraseSubject(
     for (const t of tags) {
       const where = `company_id = $1 and ${t.subject_key}::text = $2`;
       if (dryRun) {
-        plan[t.table]!.rows = (await c.query(`select count(*)::int as n from ${schema}.${t.table} where ${where}`, [companyId, subject])).rows[0].n;
+        plan[t.table]!.rows = (await c.query(`select count(*)::int as n from ${sqlIdent(schema)}.${t.table} where ${where}`, [companyId, subject])).rows[0].n;
         continue;
       }
       const sets = Object.entries(plan[t.table]!.columns).map(([col, how]) => `${col} = ${how === 'null' ? 'null' : '$3'}`);
-      const r = await c.query(`update ${schema}.${t.table} set ${sets.join(', ')} where ${where}`, [companyId, subject, pseudonym]);
+      const r = await c.query(`update ${sqlIdent(schema)}.${t.table} set ${sets.join(', ')} where ${where}`, [companyId, subject, pseudonym]);
       plan[t.table]!.rows = r.rowCount ?? 0;
     }
     await c.query('reset role');

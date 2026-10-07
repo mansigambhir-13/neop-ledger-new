@@ -1,4 +1,4 @@
-# backend container · an app's L3 + gate + runner, and its package sandboxes (Deno, glibc).
+# backend container · an app's Matrix presence + files listener + gate + runner, and its package sandboxes (Deno, glibc).
 # Debian slim, not Alpine: the Deno binary the package sandbox runs is glibc-only.
 FROM node:24-bookworm-slim
 WORKDIR /srv

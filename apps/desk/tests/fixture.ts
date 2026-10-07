@@ -1,0 +1,2 @@
+// Synthetic domain inputs, never production data or a business-policy approval.
+export const fixture={"id":"desk","master":"tickets","table":"refunds","noun":"refund","fk":"ticket_id","sample":{"amount_minor":12345,"currency":"INR","reason":null},"settings":{"currency":"INR","review_limit_minor":10000},"expected":{"review_limit_minor":10000,"requires_elevated_approval":true},"invalid":{"amount_minor":-1},"mutation":{"amount_minor":12346}};

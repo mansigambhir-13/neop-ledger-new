@@ -1,3 +1,4 @@
+import {sqlIdent} from '@neop/pgkit';
 // Package self-test at install (Phase 5): after its migrations, the package's own
 // `selftest` handler runs in the sandbox against its freshly migrated tables, as
 // the package role, for a throwaway company, inside a transaction that is always
@@ -37,7 +38,7 @@ export async function selftestPackage(adminUrl: string, host: string, bundle: Pa
     await client.query("select set_config('neos.company_id', $1, true)", [company]);
     const table = (t: unknown) => {
       if (typeof t !== 'string' || !t.startsWith(prefix) || !m.tables.includes(t) || !IDENT.test(t)) throw new Error(`table ${String(t)} is not this package's`);
-      return `${host}.${t}`;
+      return `${sqlIdent(host)}.${t}`;
     };
     const cols = (o: Record<string, unknown>) => {
       const ks = Object.keys(o ?? {});

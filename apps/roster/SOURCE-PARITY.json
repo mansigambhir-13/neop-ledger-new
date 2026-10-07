@@ -1,0 +1,149 @@
+{
+  "app": "roster",
+  "source_repo": "https://github.com/NEOS-Ecosystem/neos-neop-roster",
+  "source_commit": "6541756069def918dfbcb46653d0ed78d968244e",
+  "source_blob": "c693d0c5569d0b0425075e271f1690cfe1543345",
+  "full_parity": false,
+  "mappings": [
+    {
+      "legacy": "roster.chat",
+      "evidence": "pinned_upstream",
+      "disposition": "partial_transport_replacement",
+      "target": "shared Matrix typed task / job flow",
+      "notes": "Shared typed Matrix ingress exercised with a local fake homeserver and scripted assistant; real Matrix/model acceptance remains open."
+    },
+    {
+      "legacy": "roster.config",
+      "evidence": "pinned_upstream",
+      "disposition": "pending",
+      "target": null,
+      "notes": "Not exposed by this V3 build; domain port is not a full business workflow."
+    },
+    {
+      "legacy": "roster.configure",
+      "evidence": "pinned_upstream",
+      "disposition": "pending",
+      "target": null,
+      "notes": "Not exposed by this V3 build; domain port is not a full business workflow."
+    },
+    {
+      "legacy": "roster.customise",
+      "evidence": "quickbuild_catalog_only",
+      "disposition": "retired_runtime_mutation",
+      "target": null,
+      "notes": "Replace legacy live customization with reviewed signed/pinned registry skills or build-time packages. No runtime code/prompt mutation route is imported."
+    },
+    {
+      "legacy": "roster.customise.apply",
+      "evidence": "quickbuild_catalog_only",
+      "disposition": "retired_runtime_mutation",
+      "target": null,
+      "notes": "Replace legacy live customization with reviewed signed/pinned registry skills or build-time packages. No runtime code/prompt mutation route is imported."
+    },
+    {
+      "legacy": "roster.dashboard",
+      "evidence": "pinned_upstream",
+      "disposition": "pending",
+      "target": null,
+      "notes": "Not exposed by this V3 build; domain port is not a full business workflow."
+    },
+    {
+      "legacy": "roster.deliverables",
+      "evidence": "pinned_upstream",
+      "disposition": "pending",
+      "target": null,
+      "notes": "Not exposed by this V3 build; domain port is not a full business workflow."
+    },
+    {
+      "legacy": "roster.employees",
+      "evidence": "pinned_upstream",
+      "disposition": "partial_runtime",
+      "target": "roster.employees.list",
+      "notes": "Persisted internal review slice, not full legacy entity/configuration/workflow parity. Business authorization, provider effects and acceptance remain open."
+    },
+    {
+      "legacy": "roster.employees.import",
+      "evidence": "pinned_upstream",
+      "disposition": "partial_runtime",
+      "target": "roster.employees.import",
+      "notes": "Persisted internal review slice, not full legacy entity/configuration/workflow parity. Business authorization, provider effects and acceptance remain open. Checkpoint 11 adds internal-write authority or authenticated immutable draft origin, not a completed business lifecycle."
+    },
+    {
+      "legacy": "roster.leave.book",
+      "evidence": "pinned_upstream",
+      "disposition": "pending_provider",
+      "target": null,
+      "notes": "No supplied success flag can mark an external effect complete. Requires approved exact content, provider idempotency and independent read-back."
+    },
+    {
+      "legacy": "roster.leave.decide",
+      "evidence": "pinned_upstream",
+      "disposition": "pending_authorization",
+      "target": "shared human proposal row + domain authorization policy",
+      "notes": "Internal-write authority and immutable original draft provenance are locally tested (checkpoint 11). Business decisions remain unavailable: original-proposer separation, eligible/elevated entitlements, limits and historical/nonhuman policy still require implementation and review. No agent/actor argument can approve."
+    },
+    {
+      "legacy": "roster.leave.propose",
+      "evidence": "pinned_upstream",
+      "disposition": "partial_runtime",
+      "target": "roster.leave.prepare",
+      "notes": "Persisted internal review slice, not full legacy entity/configuration/workflow parity. Business authorization, provider effects and acceptance remain open. Checkpoint 11 adds internal-write authority or authenticated immutable draft origin, not a completed business lifecycle."
+    },
+    {
+      "legacy": "roster.prompt",
+      "evidence": "quickbuild_catalog_only",
+      "disposition": "retired_runtime_mutation",
+      "target": null,
+      "notes": "Replace legacy live customization with reviewed signed/pinned registry skills or build-time packages. No runtime code/prompt mutation route is imported."
+    },
+    {
+      "legacy": "roster.prompt.set",
+      "evidence": "quickbuild_catalog_only",
+      "disposition": "retired_runtime_mutation",
+      "target": null,
+      "notes": "Replace legacy live customization with reviewed signed/pinned registry skills or build-time packages. No runtime code/prompt mutation route is imported."
+    },
+    {
+      "legacy": "roster.requests",
+      "evidence": "pinned_upstream",
+      "disposition": "partial_runtime",
+      "target": "roster.requests.list",
+      "notes": "Persisted internal review slice, not full legacy entity/configuration/workflow parity. Business authorization, provider effects and acceptance remain open."
+    },
+    {
+      "legacy": "roster.skill.delete",
+      "evidence": "quickbuild_catalog_only",
+      "disposition": "retired_runtime_mutation",
+      "target": null,
+      "notes": "Replace legacy live customization with reviewed signed/pinned registry skills or build-time packages. No runtime code/prompt mutation route is imported."
+    },
+    {
+      "legacy": "roster.skill.set",
+      "evidence": "quickbuild_catalog_only",
+      "disposition": "retired_runtime_mutation",
+      "target": null,
+      "notes": "Replace legacy live customization with reviewed signed/pinned registry skills or build-time packages. No runtime code/prompt mutation route is imported."
+    },
+    {
+      "legacy": "roster.skills",
+      "evidence": "quickbuild_catalog_only",
+      "disposition": "retired_runtime_mutation",
+      "target": null,
+      "notes": "Replace legacy live customization with reviewed signed/pinned registry skills or build-time packages. No runtime code/prompt mutation route is imported."
+    },
+    {
+      "legacy": "roster.template.apply",
+      "evidence": "quickbuild_catalog_only",
+      "disposition": "retired_runtime_mutation",
+      "target": null,
+      "notes": "Replace legacy live customization with reviewed signed/pinned registry skills or build-time packages. No runtime code/prompt mutation route is imported."
+    },
+    {
+      "legacy": "roster.templates",
+      "evidence": "quickbuild_catalog_only",
+      "disposition": "retired_runtime_mutation",
+      "target": null,
+      "notes": "Replace legacy live customization with reviewed signed/pinned registry skills or build-time packages. No runtime code/prompt mutation route is imported."
+    }
+  ]
+}

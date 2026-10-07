@@ -1,78 +1,47 @@
 # neop-ledger runbook
 
-For whoever deploys and operates Ledger on a customer VM. The platform pieces it
-depends on (gateway, desk, vault, LLM proxy) ship in the same repo.
+For whoever deploys and operates Ledger on a customer VM. The platform desk,
+NeuralChat Matrix runtime, registry, and LLM proxy ship in the same repo.
 
 ## Deploy
-This whole sequence has been run end to end in Docker Compose. Every image sets `NEOS_ENV=production`, so a missing credential stops the service; it never falls back to a dev default.
 
-1. **Secrets:**
+Production is Matrix-only and fails closed. The supported automated production path uses an external homeserver with distinct ordinary accounts and tokens for Ledger and NeuralChat.
+
+1. Copy `deploy/production.env.example` to a private 0600 file and fill every required value. Keep provider and Matrix tokens in the separate files named by that env file.
+2. Generate a green conformance attestation for the exact checkout:
+   ```sh
+   pnpm exec tsx scripts/conformance.ts ledger --out deploy/attestations/ledger.json
    ```
-   pnpm exec tsx scripts/gen-secrets.ts                 # fills deploy/secrets/ (git-ignored, 0600, never overwrites)
-   echo "<provider key>" > deploy/secrets/llm_upstream_key
-   # OpenRouter instead of Anthropic: export NEOP_LLM_UPSTREAM_URL=https://openrouter.ai/api NEOP_LLM_UPSTREAM_AUTH=bearer NEOP_LLM_UPSTREAM_MODEL_PREFIX=anthropic/
+   Generate this only after the release commit and manifest are frozen. Production registration rejects a missing, failing, or mismatched attestation.
+3. Deploy or upgrade:
+   ```sh
+   scripts/deploy.sh /private/path/production.env
    ```
-   It generates the Postgres admin, a password per role, matching connection URLs, Ledger's service, job-token and package keys, the vault key, the metrics token and Grafana's admin password. The database defaults to `postgres:5432`; `--db-host`/`--db-port` (or `NEOS_DB_HOST`/`NEOS_DB_PORT`) move it, and `--dedicated <app>=<host>[:port]` gives one app its own cluster (see *Dedicated database for one app*). Compose reads the files from `deploy/secrets/` unless `NEOS_SECRETS_DIR` names another directory (absolute path). The signing keyrings are not secrets files: they rotate in place, so they live on the `platform-keys` volume and are created on first boot. **Back that volume up.**
-2. **Migrate:**
+   The script validates distinct Matrix identities/token files, takes a pre-upgrade backup when applicable, generates non-overwriting secrets, builds, runs expand migrations, registers the attested app, bootstraps the company/admin/install, starts `compose.pilot.yml` with `compose.presence-client.yml`, verifies both Matrix accounts, optionally installs the email door credential, runs the read-only verifier, and performs a declared block-read smoke check.
+   An upgrade refuses to continue if its backup service is stopped or its recovery backup fails. If the database container or its Compose volume exists but deployment state is missing, recover the original secrets and `deploy-state.json` before retrying. Never regenerate encryption/database credentials over existing volumes.
+4. Run the live network policy check after the stack is up:
+   ```sh
+   scripts/netcheck.sh deploy/compose.pilot.yml,deploy/compose.presence-client.yml <project>
    ```
-   docker compose -f deploy/compose.pilot.yml run --rm migrate
-   ```
-   - This is the only process with the admin connection.
-   - It runs platform, template (`t###`) and Ledger (`###`) migrations — Ledger's set carries the migrations of the packages installed into its build (v3 S7, see *Installing a package*) — and gives each installed package its role.
-   - It is safe to re-run.
-   - `NEOS_APPS` picks the apps (default `ledger`).
-   - At the end it hands over what the retired approvals worker had in hand (v3 S2, see *Approvals*): every
-     `neos.approvals` row still `RECORDED`/`RESOLVED` is answered once more through the app's `answer_proposal()`.
-     It prints `[approvals] N in hand, M handed over, K already held` and exits 1 if one could not be handed over.
-3. **Start:**
-   ```
-   docker compose -f deploy/compose.pilot.yml up -d
-   ```
-   The platform and the backend report healthy on `/live` and `/l3/ready`. A missing setting makes a service exit with code 78 and a JSON log line naming every missing variable.
-   - This also starts `egress-proxy` (the stack's only way to the internet) and `backup` (nightly exports).
-   - If this company files GST through a GSP, start with `NEOS_GSP_HOST=<gsp api host>` so the egress proxy allows it.
-   - Dashboards and traces: add `--profile observability` (see *Observability*).
-4. **Bootstrap.** Run these once, in the platform image. `NEOS_DB_URL_FILE` and the service secret come from the same secrets directory.
-   ```
-   OPS="docker compose -f deploy/compose.pilot.yml run --rm --no-deps \
-        -e NEOS_DB_URL_FILE=/run/secrets/neos_app_url \
-        -e NEOP_SERVICE_SECRET_FILE=/run/secrets/ledger_service_secret \
-        -v $PWD/deploy/secrets/ledger_service_secret:/run/secrets/ledger_service_secret:ro \
-        platform tsx scripts/ops.ts"
-   $OPS register-app ledger http://ledger-l3:4101   # L3 is reachable only on the l3 network, by this alias
-   $OPS create-company "Acme Traders" Asia/Kolkata          # → {"id": "<company_id>", ...}
-   $OPS create-user <company_id> "Priya" priya@acme.in admin # → the admin's desk token, shown once
-   $OPS install <company_id> ledger
-   ```
-   Desk tokens are stored as a SHA-256 hash only; a lost token is replaced, not recovered.
-5. **Test harness desk (development and CI only):** `docker compose -f deploy/compose.pilot.yml --profile test up -d web`, then open `http://127.0.0.1:4780`. It stands in for the NEOS app so a NEOP can be driven end to end; each app's screens come from its blocks. It refuses `NEOS_ENV=production` — people use the NEOS app. Sign in with a desk token; it lives in an httpOnly cookie and the page never sees it.
-6. **Smoke check:**
-   - `GET /api/me` with the admin token.
-   - `POST /api/apps/ledger/read/ledger.report.trial_balance {"as_of":"<today>"}`.
-   - Ask something from the desk. The job should reach the agent, the LLM proxy and the provider.
-7. **Network check:** `scripts/netcheck.sh deploy/compose.pilot.yml [project]` runs a probe inside every container and fails if any row of the network policy is broken. Run it after every deploy; CI runs it on every push (job `netcheck`).
-   - It covers raw sockets (the agent reaches no database, platform or internet; the backup reaches only the database).
-   - It covers egress: from the backend and the LLM proxy, an allowed host answers through `egress-proxy` and `https://example.com` is refused. A direct connection to the internet fails.
-   - It needs internet access. Override the probe URLs with `NETCHECK_ALLOWED_URL` and `NETCHECK_DENIED_URL`.
-   - Pass overlays comma-separated: `scripts/netcheck.sh deploy/compose.pilot.yml,deploy/compose.chat.yml`.
-8. **Chat (optional):** `scripts/matrix-setup.sh deploy/compose.pilot.yml` once, then start with `-f deploy/compose.chat.yml`. An admin binds the app's room (`POST /api/chat/rooms {app, room_id}` — invite the app's user `@neop_<app>_<company>` first) and links people (`PUT /api/users/<id>/chat {matrix_user_id}`).
-   - **Client road instead (`MATRIX_MODE=client`):** `scripts/matrix-setup.sh deploy/compose.pilot.yml neops <server> client` prints the operator steps: create the ordinary account `@ledger:<server>`, issue its access token once into `deploy/secrets/matrix_ledger_token`, start with `MATRIX_MODE=client` (accounts in `MATRIX_CLIENT_ACCOUNTS`, one per company-app install). The platform runs a `/sync` loop per account (cursor in `neos.chat_accounts`), joins invites only from allowlisted senders and only 1:1 rooms, and answers each plain message with exactly one `m.notice` when its task settles (the fixed failure sentence after `MATRIX_REPLY_DEADLINE_MS`, default 55 s — under NeuralChat's 60 s wait). An admin sets who may DM the account: `PUT /api/chat/allowlist {app, matrix_id, kind: "person"|"bridge", acts_for?}` (a person must be linked first; a bridge such as `@reasoning_agent` relays for `acts_for` and approves nothing — only a person's reply to the card in their own DM, or the desk). `GET /api/chat/allowlist`, `DELETE /api/chat/allowlist/<app>/<matrix_id>`, `GET /api/chat/client` (running / stopped reason).
-   - **NeuralChat never approves (v3 §5/§8/§16).** A bridge's go-ahead is refused with one reply — "I can't take a yes through NeuralChat. Please approve #<card> on your desk." — re-showing the card, audited `chat.bridge_consent` (`not_a_yes`); nothing executes. A person approves on the desk (`POST /api/desk/<id>/answer`) or with their own reply in their own DM. Migration 017 revoked every 016 `may_approve` grant (audited `chat.bridge_approve_revoked`) and forbids new ones; `PUT /api/chat/allowlist … may_approve:true` is `400 bridge_cannot_approve`. Declines from any allowlisted bridge are still taken.
-   - **Typed events (v3 §8, both roads, alongside the plain text):** senders may also post `neos.neop.task|answer|approve` (people), `task|answer` (the reasoning agent), `task|ask|answer|propose|done|note` (another NEOP, allowlisted as a `bridge` with an `@neop_…` id). Ledger answers a typed task in its thread with `neos.neop.note` / `ask` / `propose` / `done` (each also carrying the plain text as `body`). Only a person sending as themselves can `approve`; in a room they need the approve level. Anything refused or malformed is dropped and audited: `GET /api/audit?action=chat.typed_in` (outcome `refused:<type>`, `invalid` with the error, `unknown_sender`, `stale`, …).
-   - **Rooms must be invite-only, unencrypted, and give only people the approve level.** Create one with `MATRIX_ADMIN_TOKEN=… scripts/matrix-setup.sh deploy/compose.pilot.yml neops <server> room ledger <company slug> @person:<server>…`, then bind it. A bind of a room that is end-to-end encrypted, public, or where the app/a bridge could post `neos.neop.approve` answers **409 `room_unfit`** naming each problem; fix the room (or make a new one) and bind again. The appservice registration reserves `@neop_.*` and `@neuralchat_.*` (re-run `scripts/matrix-setup.sh` to regenerate it on an older install).
-   - **Client stopped** (`GET /api/chat/client` shows `token_rejected` or `account_mismatch`): the token was revoked or belongs to another account. The client does not retry, log in or log out. Issue a new token into the secret file and restart the platform; the cursor resumes, nothing is answered twice.
-9. **On today's NEOS platform** (`docs/pilot-ledger-integration.md`): set `NEOS_V1_PUBLIC_KEY_FILE` (the platform binding's Ed25519 public key, SPKI PEM) and `NEOS_V1_CUSTOMERS` (`{"<platform customer id>": "<company_id>"}`) on the backend, add the platform binding (`contractVersion: neop.v1`, loopback origin forwarded to L3), and register `apps/ledger/neos-v1/descriptor.json` + `contract.json` with `pnpm neop:register`. Regenerate them with `tsx scripts/neos-v1-descriptor.ts ledger` after any manifest change (CI fails on drift).
-10. **Acceptance:** `NEOS_TOKEN_FILE=<an admin's token file> pnpm exec tsx scripts/pilot-acceptance.ts` sends 20 real requests and checks the plan's five acceptance criteria from the platform's records.
-11. **Verify the install (read-only):** after the migrator ran and the company was installed, run where the platform's and the LLM proxy's environment is (the platform container, with the proxy's key file mounted):
-    `tsx scripts/verify-install.ts ledger <company id|slug>` with `NEOS_PLATFORM_URL`, `NEOS_DB_URL[_FILE]`, `NEOP_RUNNER_DB_URL[_FILE]` (defaults to `NEOS_DB_URL`), `NEOP_LLM_UPSTREAM_KEY_FILE`, and for the client road `MATRIX_MODE=client` + `MATRIX_HOMESERVER_URL` + `MATRIX_CLIENT_ACCOUNTS[_FILE]`.
-   - It prints one row per check — PASS / WARN / FAIL / SKIP — and exits 1 on any FAIL. Checks: the platform answers `/live`; the app is registered, active, attested (a WARN outside `NEOS_ENV=production`) and carries this build's manifest; the company has an active install; the `<app>_migrator/_app/_runner` roles exist, the app role is under RLS, neither app nor runner may CREATE; the schema is in step with the shipped migrations (the backend's own boot comparison: nothing pending, unknown or changed); every switchboard line is within its manifest floor; a door secret file exists for every connected door (checked by name and mode, never opened) and only the backend mounts the store (from the rendered compose config); the LLM proxy's provider key is present (never read or printed); the backend answers `/l3/ready` at the URL the platform routes to; each client-road account's token passes `whoami` and belongs to that account.
-   - It writes nothing (read-only sessions), sends no chat message, never logs in or out, and prints no secret. A FAIL row says what to fix (run the migrator, register this build, set the door key, issue a new Matrix token).
-12. **Acceptance — live validation of every ability:**
-    ```
-    NEOS_PLATFORM_URL=http://127.0.0.1:4500 NEOS_TOKEN_FILE=<admin token file> NEOS_MEMBER_TOKEN_FILE=<member token file> \
-      pnpm exec tsx scripts/live-validate.ts --app ledger --budget-usd 12 --email-to <a mailbox you own> [--only reads,blocks,...] [--out docs/LIVE-VALIDATION.md]
-    ```
-    Uses only the person-facing API (never the DB) and the stack's **real model**. Sections: `reads` (every read with args built from today in the company's time zone; result checked against its output schema with ajv, `generatedAt`, `sources`, and `empty` agreeing with the sources cited; a read without args coverage is a FAIL "not exercised"), `writes` (every write run as one precise ask, in an order that builds on itself: party → account → coding rule → journal entry (a wrong fingerprint is refused) → its reversal → invoice → payment → bank import → match / categorise / set aside / expense → bill → settings (put back) → opening balances (reversed; SKIPPED if already set) → close a past month and reopen it → invoice email, reminder, close pack; each card checked (fields, `sha256:` fingerprint, args), approved, EXECUTED with proof DONE, exactly one `app.operation` in the audit, and the effect read back), `governance` (a read switched off and back; loosening refused 422; a standing yes within/beyond its cap; an `amount_cap` rule refusing with its id; member vs admin), `questions` (job_ask answered on the desk and by a follow-up in the conversation), `documents` (a CSV bill attached → a matching bill card, declined; the file kept and downloaded byte-identical; unauthenticated download 401), `schedules` (a daily schedule 2 minutes ahead → a timer job runs; then disabled — there is no delete), `blocks` (every read every block references, placeholders resolved). External-effect writes run only with `--email-to` and a connected door (otherwise SKIPPED with the reason); nep-gst portal writes are SKIPPED unless `--gst` (sandbox portal only). Spend is capped by `--budget-usd` (task cost from `/api/tasks/:id`, cross-checked with `/api/usage/<app>`); every job is cancelled after `--job-timeout-s` (360). Writes a markdown report plus a `.json` copy and exits 1 on any FAIL. Changes it makes are ₹1-scale and tagged `LV…` (the run tag); accounts, parties and coding rules it adds remain. Output schemas come from this checkout (the API does not serve them), so run it from the commit that is deployed — the report fails `manifest version` otherwise. Its logic is self-tested against the in-process pilot in `apps/ledger/tests/live-validate.test.ts`.
+   It proves the agent cannot reach Postgres, the platform, or the internet; backend/provider traffic uses the allow-listing egress proxy.
+5. Ask through the real NeuralChat Matrix account and confirm the typed task, note/proposal, and done events remain in one thread. Only a person may approve, from the desk or their own Matrix identity.
+
+The local Synapse appservice topology is `compose.pilot.yml` + `compose.chat.yml`. Generate both exclusive registrations with `scripts/matrix-setup.sh`, confirm only Ledger owns `@neop_ledger_.*` and the platform owns `@neuralchat_.*`, then render and inspect the merged compose before starting it. The automated `deploy.sh` intentionally accepts only external client mode.
+
+`scripts/migrate.ts` is expand-only through platform migration 024 plus all app/package migrations. Migration 024 makes the retired app L3 address optional so V3 registration works before contraction. Platform migration 025 is the destructive S9 contract migration and is never applied by normal deploy. Before invoking it: restore a production-shaped backup into an isolated database, prove its undrained-approval abort, drain/copy required legacy state, compare archive row counts/digests, prove recovery, and obtain explicit DBA/operator approval.
+
+### Verification
+
+- `docker compose ... run --rm verify` runs `scripts/verify-install.ts`: read-only role/schema/RLS, manifest/attestation, switchboard, door-file metadata, files endpoint, Matrix account identity, and production configuration checks. It reads no secret value and sends no Matrix event.
+- `pnpm exec tsx scripts/live-validate.ts --app ledger --expect-road matrix ...` exercises reads, writes, governance, questions, documents, schedules, and blocks through the person-facing API and typed Matrix path. Use `--email-to` only with a mailbox you own; use `--gst` only against an approved GSP sandbox.
+- The repository `web` service is a development/CI harness and refuses `NEOS_ENV=production`. Product acceptance must use the real NEOS UI.
+
+### Runtime endpoints
+
+- Platform health and desk API: `/live` on the loopback-published platform port.
+- Ledger signed files and health: `/ready` on the loopback-published files listener.
+- Ledger gate and agent RPC are private network listeners; they are not platform APIs.
+- Metrics: platform `/metrics` plus the Ledger telemetry listener. See `deploy/observability/`.
 
 ## Door secrets (v3 §12: the secret store, per (app, company))
 Door credentials are files, one JSON object each, read by the app backend **at the moment of a call** (no cache;
@@ -114,7 +83,8 @@ a changed file is used on the next call, no restart). Ops provisions them; the a
   memory (a restart means a new login OTP).
 - **A door switched off** (`door:<key>` off on the switchboard) is refused by the gate before anything, and the
   backend reads no key for it even if a file exists.
-- **Upgrading from the platform vault (before v3 S8):** move every stored credential once, then mount the result:
+- **One-time upgrade from the retired platform vault (only before applying contract migration 025):** move every
+  stored credential once, then mount the result:
   ```
   docker compose -f deploy/compose.pilot.yml run --rm --no-deps -T \
     -e NEOS_DB_URL_FILE=/run/secrets/neos_app_url -e NEOS_VAULT_KEYS_FILE=/run/secrets/vault_keys \
@@ -122,8 +92,8 @@ a changed file is used on the next call, no restart). Ops provisions them; the a
   ```
   It opens each row exactly as the platform did (keyring + the (company, app, door) binding), writes 0600 files,
   keeps files already there unless `--overwrite`, prints names and paths only, and exits 1 if any row could not be
-  opened. Then `sudo chown -R 1000:1000 "$NEOS_SECRETS_DIR/doors"` (or re-run `scripts/deploy.sh`). `PUT /api/vault`
-  still answers but is **deprecated** — no backend reads the vault any more (S9 deletes it).
+  opened. Then `sudo chown -R 1000:1000 "$NEOS_SECRETS_DIR/doors"` (or re-run `scripts/deploy.sh`). After migration
+  024 the source is the private DBA-only archive; no runtime vault API exists.
 - **Backups:** each nightly run holds `doors.enc`, the whole store sealed (AES-256-GCM) with `backup_doors_key`
   (generated by `gen-secrets`). Without that key the store is skipped, never copied in clear. Keep the key with the
   rest of `$NEOS_SECRETS_DIR`, **not** beside the backups. Restore:
@@ -132,59 +102,18 @@ a changed file is used on the next call, no restart). Ops provisions them; the a
 
 Every provider must either accept an `Idempotency-Key` and let us look the effect up afterwards, or (the GST portal) let us ask the system of record directly (RETSUM for a save, RETTRACK for a filing). Ledger journals each call before sending, so "did it happen?" always has an answer.
 
-## Chat: NEOP presence (v3 S4 — the NEOP on Matrix itself)
-`NEOP_PRESENCE` on the **ledger backend** says who speaks for Ledger in Matrix. Default `off`: the platform's bridge
-(everything in *Deploy* step 8 above), as rehearsed. `client` or `appservice`: the ledger backend itself — its jobs,
-answers and a person's yes go straight into Ledger's own schema; the platform keeps no Matrix token for Ledger.
-NeuralChat (#143) sees no difference: plain `m.text` to `@ledger`, exactly one threaded `m.notice` back within
-`MATRIX_REPLY_DEADLINE_MS`, a relayed go-ahead is never a yes ("Please approve #<id> on your desk").
+## Chat: NEOP presence (V3 Matrix-only)
 
-- **What the backend reads** — only Ledger's own schema: `ledger.installs.matrix_user` (its name at the company),
-  `room_ids`, `agent_senders` + `agent_acts_for` (the allowlisted bridges/NEOPs and whom each relays for), and
-  `ledger.people` (who a Matrix id is: user id, name, role, `chat_person` = may DM Ledger). The platform writes these
-  through as `neos_desk` whenever a person is linked, the allowlist changes or Ledger is installed (`Platform.syncChat`),
-  so the admin API is the same as before (`PUT /api/users/<id>/chat`, `PUT|DELETE /api/chat/allowlist`), plus
-  `GET|PUT /api/chat/presence {app, matrix_user?, room_ids?}` for Ledger's own name and rooms (admin, audited
-  `chat.presence_set`).
-- **Switch an install to the client road (production, external homeserver):**
-  1. `NEOP_PRESENCE=client` in the deploy env file, then `scripts/deploy.sh <env>`. It uses
-     `deploy/compose.presence-client.yml` instead of `compose.matrix-external.yml`: the platform starts **without** a
-     Matrix account for Ledger (its `MATRIX_CLIENT_ACCOUNTS` entry is gone — two processes must never /sync one
-     account), the ledger backend gets `matrix_ledger_token` and `NEOP_MATRIX_CLIENT_ACCOUNTS=[{account, token_file}]`,
-     the homeserver's host is added to the egress allow-list, and step 8 writes `PUT /api/chat/presence
-     {"app":"ledger","matrix_user":"$LEDGER_MXID"}`.
-  2. Check: `GET /api/chat/presence?app=ledger` names the account; the backend logs `NEOP presence on`, then
-     `presence: client: listening from now`. A stopped client logs `STOPPED — …` with the reason
-     (`token_rejected`, `account_mismatch`, `no_install`) and records it in `ledger.presence_accounts.stopped_reason`;
-     fix it and restart the **backend** (no retries, no login, never `/logout`).
-  3. The first start reads no history (the /sync cursor starts now, kept in `ledger.presence_accounts`); messages
-     sent during the switch-over are not answered twice — the old cursor lives in `neos.chat_accounts`, the new one
-     in Ledger's schema. Tell NeuralChat's operators nothing: its road is unchanged.
-- **Switch back** (`NEOP_PRESENCE=off`): set it in the env file and re-run `scripts/deploy.sh <env>` — the platform
-  gets its `MATRIX_CLIENT_ACCOUNTS` entry and the token back, the backend stops /syncing. Replies already owed by the
-  backend are dropped with it (each person gets at most one reply per message); cards and questions stay in the
-  books and on the desk.
-- **The appservice road (local Synapse, `deploy/compose.chat.yml`):** `NEOP_PRESENCE=appservice
-  scripts/matrix-setup.sh deploy/compose.pilot.yml` writes `secrets/appservice.ledger.yaml` (id `neop-ledger`, url
-  `http://ledger-backend:4104`, exclusive `@neop_ledger_.*`, Ledger's own `matrix_ledger_hs_token` /
-  `matrix_ledger_as_token`), registers it, and narrows the platform's registration to `@neop_(?!ledger_).*`. Start
-  with `NEOP_PRESENCE=appservice docker compose … -f deploy/compose.chat.yml up -d`; name the company's bot and bind its
-  rooms with `PUT /api/chat/presence {"app":"ledger","matrix_user":"@neop_ledger_<slug>:<server>","room_ids":["!…"]}`.
-  The backend joins each room once and checks it (invite-only, unencrypted, only people at the approve level); an
-  unfit room is logged `room not fit for this app` and nothing said there is acted on. A wrong `hs_token` is 403.
-- **What to look at:** `ledger.inbound_events` (each Matrix event once: outcome, job, proposal/wait, the reply's
-  state), `ledger.outbound_events` (what Ledger said where, by key = txn id — never twice), `ledger.presence_mirror`
-  (how far the room mirror read Ledger's outbox). The platform's desk keeps showing Ledger's cards (from its outbox).
-- **A person's yes in Matrix** goes into `ledger.answer_proposal()` with the person's role (the approver policy —
-  roles, four-eyes — is the database's, as for the desk) and is carried out by the runner's approved path, like a desk
-  yes; the desk shows the same card (`neos.v_desk_cards`).
+`NEOP_PRESENCE` is mandatory and must be `client` or `appservice`; there is no production `off` or gateway fallback. Ledger reads only its own presence tables and Matrix state, opens each event/task once, and writes outbound events with stable transaction ids so restart/redelivery cannot duplicate a job or reply.
+
+- **External homeserver/client mode:** Ledger receives only `matrix_ledger_token`; NeuralChat receives a different account/token on the platform. `/whoami` must match the configured MXID. A rejected or mismatched token stops that account; replace the file and restart the owning service. Cursors remain in each owner's schema.
+- **Local Synapse/appservice mode:** Ledger has its own HS/AS token pair and exclusive `@neop_ledger_.*` namespace. NeuralChat has a separate platform registration and namespace. Rooms must be invite-only, unencrypted, and reserve approval power for people.
+- **Sender rules:** people may send task/answer/approve; NeuralChat may send task/answer; peer NEOPs may send task/ask/answer/propose/note/done. NeuralChat and other NEOPs can never approve.
+- **Approval:** a person's yes calls the app schema's `answer_proposal()` with the person's role and fingerprint. The runner executes, reads back, records DONE/FAILED/UNKNOWN, then wakes the job.
+- **Evidence:** inspect `ledger.inbound_events`, `ledger.outbound_events`, `ledger.presence_accounts`, and the task's Matrix room/thread. `scripts/live-validate.ts --expect-road matrix` rejects any non-Matrix task road.
 
 ## Bus room setup (v3 S6 — NEOP to NEOP in `#neop-bus-<co>`)
-With `NEOP_PRESENCE=appservice` on every app of a company, NEOP-to-NEOP work (a task handed to another app, one
-borrowed ability) goes over typed events in the company's **bus room**, between the apps' own Matrix names — the
-platform's a2a routing (`/internal/a2a/open`, `/internal/borrow/describe`, `/internal/gateway/call`, `neos.acl`,
-`a2aResultsTick`) is not used for those apps. With `NEOP_PRESENCE=off` the old platform road still works unchanged
-(S9 deletes it).
+With `NEOP_PRESENCE=appservice` on every app of a company, NEOP-to-NEOP work (a task handed to another app or one borrowed ability) travels only as typed events in the company's **bus room**, between the apps' own Matrix identities. The retired platform a2a/gateway routes and ACL table are not runtime fallbacks.
 
 1. Each app's name is set first (`PUT /api/chat/presence {"app":"<app>","matrix_user":"@neop_<app>_<slug>:<server>"}`;
    `scripts/deploy.sh` does it) and each app's appservice registration is live.
@@ -217,13 +146,7 @@ platform's a2a routing (`/internal/a2a/open`, `/internal/borrow/describe`, `/int
   `no_bus`); a chain stops at depth 3 and never loops (refused by the callee, and early by the asker's gate).
 
 ## Chat: NeuralChat speaks Matrix (v3 S5)
-`NEOS_NEURALCHAT_MATRIX` on the **platform** (default `off`). On, the platform's NeuralChat has its own Matrix name per
-company and a person's ask in Conversations reaches an app that runs with NEOP presence **only** as a typed
-`neos.neop.task` posted by that name in the app's room (appservice) or its 1:1 room with the app's account (client),
-the thread rooted there. It reads the app's `note` / `ask` / `propose` / `done` from that thread into the
-conversation and `neos.tasks`, answers the app's questions with a typed `answer` when the person replies in
-Conversations, and never sends `approve` (a person approves on the desk). An app with presence off (no Matrix name in
-its install row), or a company NeuralChat has no name at, keeps the gateway road (`tasks.open`) — S9 removes it.
+`NEOS_NEURALCHAT_MATRIX` is mandatory and must be `client` or `appservice`. NeuralChat has its own Matrix identity per company. A person's ask in Conversations reaches Ledger only as a typed `neos.neop.task` in the app's room/DM and stays in that thread. NeuralChat relays note/ask/propose/done into the conversation and sends typed answers to questions; it never sends `approve`. Missing Matrix identity or room/account configuration is a startup/verification failure, not a fallback.
 - **appservice** (`NEOS_NEURALCHAT_MATRIX=appservice`): reuses the platform's registration (`MATRIX_HOMESERVER_URL`,
   `MATRIX_SERVER_NAME`, `MATRIX_HS_TOKEN`, `MATRIX_AS_TOKEN`; `deploy/appservice.yaml` already reserves
   `@neuralchat_.*`). The name is `@neuralchat_<company slug>:<server>`; it registers and joins the app's first bound
@@ -238,10 +161,7 @@ its install row), or a company NeuralChat has no name at, keeps the gateway road
 - **What the app is told.** `Platform.syncChat` writes NeuralChat's name into every app's `installs.agent_senders`, and a
   `people` row (not a sender: NeuralChat's own namespace) `@neuralchat_<slug>_person_<user id>` for every person with no
   Matrix id of their own — that is how a task names the person it is for (`on_behalf_of`).
-- **Files** travel by reference: `fields.neos_file_<n>` = `{id, filename, sha256, bytes, link}`; `link` is a path on the
-  platform (`/neuralchat/files/<task>/<n>?exp&sig`, HMAC from the vault keys, 1 h), which the app resolves against its
-  own `platformUrl`, fetches and checks (size, sha256). The platform drops the bytes when the app says "on it" (then the
-  link is 410). The backend must reach the platform over HTTP (it already does).
+- **Files** travel by reference. Ledger keeps bytes in its own document store under the app/company/hash key and returns a short-lived signed URL rooted at `NEOP_FILES_PUBLIC_URL`. The files listener validates the signature, expiry, company/person access, size, and hash; the model never receives raw bytes.
 - **Retries.** A send the homeserver did not take is resent with the same txnId `nc-task-<task>` (never a second
   event); an app that is down gets the event when Matrix redelivers it; the app opens the job once (event id and task
   id). A task nobody acknowledged within the delivery window (`taskDeliveryWindowMs`, 10 min) is FAILED with
@@ -391,7 +311,7 @@ For Ledger this is packaged as `deploy/compose.dedicated-ledger.yml`. It adds a 
 
    Role passwords are kept, so the app keeps its identity.
 3. Run `migrate`. The overlay gives it `NEOS_ADMIN_URL_LEDGER_FILE`, so it logs `[ledger] dedicated cluster pg-ledger:5432`, creates Ledger's roles and schema there, and creates the platform's on the shared cluster.
-   - Check: `\dn` on `pg-ledger` shows `ledger`, the shared cluster has no `ledger` schema, and `/l3/ready` is healthy.
+   - Check: `\dn` on `pg-ledger` shows `ledger`, the shared cluster has no `ledger` schema, and the Ledger `/ready` files/health listener is healthy.
 4. Moving an existing app's data:
    - Stop its backend.
    - Take a `backup.ts nightly --schemas ledger` run.
@@ -470,21 +390,20 @@ docker compose -p neops-chaos -f deploy/compose.pilot.yml -f deploy/compose.chao
 - It prints a JSON report and exits 1 on any miss.
 
 ## Rotating secrets
-- **Gateway signing key:** `POST /api/ops/keys/rotate` (operator). This publishes the new key first; it starts signing after `activate_after_ms` (default 120 s). Call `retirePrevious` after a further 2 minutes.
-- **Job-token secret:** set `NEOP_JOB_TOKEN_SECRET="new,old"`, restart, then drop `old` after 20 minutes.
-- **Service secret:** write the new value to `deploy/secrets/ledger_service_secret`, run `$OPS rotate-service-secret ledger`, then restart `ledger-backend`. The old one keeps working for 24 h.
-- **Vault key** (deprecated with v3 S8; the vault is only the source for `export-door-secrets.ts`): add a new key id to `NEOS_VAULT_KEYS`, make it `active`, and restart. Boot re-encrypts every secret.
-- **A door credential:** `scripts/deploy.sh door set …` with the new one (see *Door secrets*); the next call uses it.
-- **LLM session-signing key** (v3 S8: each runner mints its assistants' proxy tokens): delete `<app>_llm_signing_key`, re-run `gen-secrets` (it rewrites `llm_runner_keys` to match), restart `llm-proxy` then `<app>-backend`. Sessions in flight end with their token (at most a session's length).
 
+- **Ledger or NeuralChat Matrix token:** issue the replacement for that exact account, atomically replace its token file, restart only the owning service, and confirm `/whoami` plus the persisted cursor before accepting traffic.
+- **Job-token secret:** configure `new,old`, restart the backend, wait longer than the maximum job-token lifetime, then remove `old`.
+- **Registration service secret:** rotate it with the operator command and update the file used only by the one-off registration process. It is not mounted into the running backend.
+- **Door credential:** `scripts/deploy.sh door set … < credential.json`; atomic rename makes the next call use the new value without restart.
+- **LLM provider key:** atomically replace `llm_upstream_key` and restart only `llm-proxy`.
+- **LLM session-signing key:** generate the replacement key and matching public `llm_runner_keys`, restart `llm-proxy`, then the app backend. Existing sessions end at their bounded token lifetime.
 ## When something goes wrong
 | Signal | Meaning | Do |
 | --- | --- | --- |
 | `NeopExecutionUnknown` | An approved action may or may not have happened (provider outage, lost answer) | Nothing at first. Reconciliation reads back every 30 s. Within 10 min (`NEOP_DOOR_RECOVERY_MS`) it can complete the send exactly once; after that it closes it as not sent and the person is told. |
-| `NeopDeadLetters` | The platform could not apply an app event | Fix the cause, then `POST /api/dead-letters/ledger/<id>/replay`. Nothing is lost while it is parked. |
-| `NeopAckSlow` | New jobs are acknowledged slowly | Check PgBouncer (`SHOW POOLS`) and Postgres; check `neop_gateway_latency_seconds`. |
+| `NeopAckSlow` | Typed Matrix tasks are acknowledged slowly | Check homeserver delivery, Ledger presence state, PgBouncer (`SHOW POOLS`), Postgres, and the task acknowledgement histogram. |
 | `NeopApprovalsPiling` | People are not answering cards | Product issue, not an outage. |
-| Card stuck in RESOLVED | The yes is on the row (APPROVED) but no runner has carried it out | Check the app backend is up (`/l3/ready`) and its runner log (`approved path …`). The runner's poll picks it up within `pollMs` of starting; an execution whose process died (EXECUTING, no lock holder) is resumed read-back first by the next poll. Nothing on the platform side drives it. |
+| Card stuck after a yes | The proposal row is APPROVED/EXECUTING but the effect is not terminal | Check the Ledger backend `/ready` listener and runner log. LISTEN is a hint and the runner poll is the recovery path; an abandoned EXECUTING row resumes with read-back first. Nothing on the platform side executes it. |
 | A job keeps failing | The assistant cannot finish | Read the job's steps (activity feed). After 5 interrupted sessions it fails honestly and asks a person to look. |
 
 ## Limits worth knowing

@@ -160,6 +160,53 @@
       ],
       "baseline": false,
       "proven_on_populated_data": "2026-09-28 \u00b7 apps/ledger/tests/presence-go-ahead.test.ts \u203a t017 applies forward on a populated book"
+    },
+    {
+      "file": "t018_desk_without_gateway.sql",
+      "tables": [
+        "declared_reads"
+      ],
+      "baseline": false,
+      "proven_on_populated_data": "2026-09-28 \u00b7 apps/ledger/tests/desk-no-gateway.test.ts \u203a t018 + t019 apply forward on a populated book"
+    },
+    {
+      "file": "t019_no_gateway_tables.sql",
+      "tables": [
+        "outbox_acked",
+        "seen_tokens"
+      ],
+      "baseline": false,
+      "proven_on_populated_data": "2026-09-28 \u00b7 apps/ledger/tests/desk-no-gateway.test.ts \u203a t018 + t019 apply forward on a populated book"
+    },
+    {
+      "file": "t020_human_authority.sql",
+      "tables": [],
+      "baseline": false,
+      "proven_on_populated_data": "2026-10-01 · scripts/fleet/tests/finance-authority-migration.test.ts: Pay, Buy and Renew populated disposable V3 books preserved; not a legacy-data restore or production/DBA approval"
+    },
+    {
+      "file": "t021_draft_origin.sql",
+      "tables": [],
+      "baseline": false,
+      "proven_on_populated_data": "2026-10-01 · scripts/fleet/tests/finance-origin-migration.test.ts: three populated synthetic V3 books retain drafts/jobs/receipts exactly and no historical human is inferred; not production restore, erasure certification or DBA approval"
+    },
+    {
+      "file": "t022_answer_deadline.sql",
+      "tables": [],
+      "baseline": false,
+      "proven_on_populated_data": "2026-10-01 · scripts/fleet/tests/answer-deadline-migration.test.ts: four populated synthetic V3 books preserve answer history and function privileges; not production restore or DBA approval"
+    },
+    {
+      "file": "t023_input_deadline.sql",
+      "tables": [],
+      "baseline": false,
+      "proven_on_populated_data": "2026-10-05 · scripts/fleet/tests/input-deadline-migration.test.ts: four populated synthetic V3 books preserve input history, function ownership and privileges; not production restore or DBA approval"
+    },
+    {
+      "file": "t024_answer_intents.sql",
+      "tables": ["jobs", "bus_threads", "waits", "bus_answer_intents", "outbound_events"],
+      "baseline": false,
+      "proven_on_populated_data": "2026-10-05 · scripts/fleet/tests/answer-intent-migration.test.ts: four populated synthetic V3 books preserve historical rows, refuse inferred history, and verify scoped immutable intent privileges; not production restore, retention/erasure certification or DBA approval"
     }
   ]
 }

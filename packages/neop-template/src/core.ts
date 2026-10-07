@@ -5,12 +5,10 @@ import { Book } from './data/book.ts';
 import { createDoors, DoorError, FileSecretStore, PgDoorJournal, type Doors, type SecretStore } from './doors/index.ts';
 import { BorrowCache } from './gate/borrowed.ts';
 import { JobTokens } from './gate/jobtoken.ts';
-import { GatewayAuth } from './l3/auth.ts';
 import { PackageHost, type ResolvedAbility } from './packages/host.ts';
 import { SwitchboardCache } from './gate/switchboard.ts';
 import { offDoors } from './gate/tools.ts';
 import { LlmSessions } from './runner/llm.ts';
-import { PlatformClient } from './platform-client.ts';
 import type { AppDefinition, NeopConfig } from './types.ts';
 import type { BusRoad } from './runner/bus.ts';
 
@@ -27,11 +25,9 @@ export class Core {
   /** Holds one session per in-flight execution: its advisory lock is the liveness signal. */
   readonly execLockPool: Pool;
   readonly book: Book;
-  readonly platform: PlatformClient;
   readonly board: SwitchboardCache;
   readonly jobTokens: JobTokens;
   readonly validators: Validators;
-  readonly gatewayAuth: GatewayAuth;
   readonly borrowed: BorrowCache;
   readonly packages: PackageHost;
   readonly tracer: Tracer;
@@ -41,8 +37,8 @@ export class Core {
   readonly llm: LlmSessions | null;
   readonly metrics = new Metrics();
   /**
-   * v3 S6 · NEOP to NEOP over the company's bus room, between the apps' own presences. Set by Presence when this
-   * backend runs with NEOP_PRESENCE on (appservice road); the gate then never uses the platform's a2a routing.
+   * v3 S6 · NEOP to NEOP over the company's bus room, between the apps' own presences. Set by Presence on the
+   * appservice road (the app's own name in the room); on the client road there is none and a hand-off is refused.
    */
   bus: BusRoad | null = null;
   /** Test/fault-injection hooks; empty in production. */
@@ -58,14 +54,12 @@ export class Core {
     this.manifest = app.manifest;
     this.key = app.manifest.app;
     this.cfg = cfg;
-    // Plan: small pools per app (max 5 for the app role) through PgBouncer; the
-    // runner role also serves L3's replay check, so it gets its own 5.
+    // Plan: small pools per app (max 5 for the app role) through PgBouncer; the runner role gets its own 5.
     this.appPool = createPool(cfg.appDbUrl, cfg.appPoolSize ?? 5);
     this.runnerPool = createPool(cfg.runnerDbUrl, cfg.runnerPoolSize ?? 5);
     // Session-level advisory locks need a real session: direct to Postgres, not through PgBouncer (S8).
     this.execLockPool = createPool(cfg.directDbUrl ?? cfg.runnerDbUrl, cfg.execLockPoolSize ?? 10);
     this.book = new Book(this.key);
-    this.platform = new PlatformClient(cfg.platformUrl, this.key, cfg.serviceSecret);
     // v3 §4: the board is read from this app's own schema (t010), never from the platform.
     this.board = new SwitchboardCache(this.runnerPool, this.key, this.manifest);
     this.jobTokens = new JobTokens(cfg.jobTokenSecret, this.key);
@@ -75,7 +69,6 @@ export class Core {
     this.tracer = new Tracer(`neop-${this.key}`);
     this.secrets = cfg.secrets ?? new FileSecretStore({ app: this.key, warn: (m, e) => this.log(m, e) });
     this.llm = cfg.llm ? new LlmSessions(this.key, cfg.llm) : null;
-    this.gatewayAuth = new GatewayAuth({ jwksUrl: `${cfg.platformUrl.replace(/\/$/, '')}/.well-known/jwks.json`, app: this.key, runnerPool: this.runnerPool, schema: this.key, cacheMs: cfg.jwksCacheMs });
     for (const a of this.manifest.abilities) {
       if (a.kind === 'read' && a.floor === 'ask_first') throw new Error(`ability ${a.key}: a read cannot be ask-first (R7)`);
       const h = app.abilities[a.key];
@@ -87,14 +80,6 @@ export class Core {
     for (const k of Object.keys(app.abilities)) {
       if (!this.ability(k)) throw new Error(`handler ${k} is not declared in the manifest; undeclared abilities do not exist`);
     }
-  }
-
-  /**
-   * NEOP_PRESENCE on (appservice | client): NEOP-to-NEOP work goes over Matrix (the bus room, v3 §9–§10), and the
-   * platform's a2a routing (openA2A, borrowDescribe, the gateway call) is not used. Off: today's platform path.
-   */
-  get presenceOn(): boolean {
-    return !!this.cfg.presence && this.cfg.presence.mode !== 'off';
   }
 
   ability(key: string): ManifestAbility | undefined {

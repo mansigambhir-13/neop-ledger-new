@@ -1,104 +1,63 @@
-# NEOPS · NEOP runtime, platform-lite and the Ledger pilot
+# NEOPS · Matrix-first NEOP runtime and Ledger pilot
 
-Built from `docs/source/NEOP-End-to-End-Technical-Plan.html` (the spec),
-`docs/source/NEOP-WHOLE-PICTURE-v2.md` and the platform user flow
-(`docs/source/platform-user-flow.jpeg`). **Ledger is the app in focus.** The plan's
-phases 1–6 are built around it: Ledger core, approvals + gateway, rooms + chat bridge,
-borrowing and a2a, registry + packages (with the GST package for Ledger), and
-hardening. `docs/DESIGN-PHASES-4-6.md` has the design and trade-offs for the later phases.
+Ledger is the reference NEOP. The current V3 architecture is Matrix-only: NeuralChat, people, and NEOPs exchange typed events in task threads; there is no runtime gateway or L3 fallback.
 
-## What a NEOP is here
+## Architecture
 
-A per-subject app whose always-on **runner** turns every request into a **job**
-in its own Postgres schema, spawns a keyless **assistant** session per job,
-routes every effect through a template-owned **gate**, and parks the job on a
-**fingerprinted proposal** until a person answers through the platform desk.
+A request becomes a durable job in the NEOP's own Postgres schema. A keyless assistant receives only the job bundle and declared tools. Every tool call passes through the app-owned gate and switchboard. Writes become fingerprinted proposals; only a person can approve through the desk function or their own Matrix identity. The runner executes once, reads the effect back, records proof, and only then wakes a fresh assistant.
 
-```
+```text
 packages/
-  contracts/      fingerprint (SHA-256 over RFC 8785 JCS), token claims, outbox events, settings
-  pgkit/          family roles, forward-only migrator, tenant lint (company_id + forced RLS)
-  neop-template/  THE TEMPLATE — never forked, upgraded
-    migrations/001_standard.sql   jobs · steps · waits · proposals · proposal_events · operations · facts · outbox
-    src/gate/        gate (decision order), switchboard cache, job tokens, tool list
-    src/runner/      claims (SKIP LOCKED), spawn, expiry, reconcile, LISTEN hints
-    src/l3/          L3 server: tasks.open, inbox.deliver, proposals.resolve/execute, outbox, abilities
-    src/capabilities/execute.ts   the one approved path: at-least-once + door idempotency + read-back
-    src/agent/       pi harness session (no file/shell/fetch tools), starter prompt, worker pool
-  platform/       platform-lite: gateway (EdDSA keyring + JWKS, ACL, lineage, idempotency, audit),
-                  conversations, task store, desk approvals, grants, switchboards, vault (AES-GCM),
-                  chat bridge + Matrix appservice, registry, LLM proxy, metrics
-  testkit/        boots any set of apps against a fresh DB; conformance suite every app must pass;
-                  fake Anthropic, fake homeserver, fake OTLP collector; chaos and load scenarios
-apps/ledger/      NEOP-LEDGER — 29 abilities (14 reads, 15 writes): invoicing, bills, receipts/payments, bank
-                  reconciliation, reversals, month close, reports, close pack; see apps/ledger/README.md
-apps/marketing/   Phase 4 test fixture only (a second app to prove borrowing and a2a); not a product focus
-registry/nep-gst/ the GST filing package for Ledger (runs in the Deno sandbox)
-deploy/           two-container topology and network policy
-docs/             source plan, ADRs (Phase 0), implementation notes
+  contracts/      typed Matrix contracts, fingerprints, schemas
+  pgkit/          roles, forward-only migrations, tenant/RLS checks
+  neop-template/  jobs, waits, proposals, operations, gate, runner, presence, files
+  platform/       companies, desk, NeuralChat Matrix client/appservice, registry, LLM proxy
+  testkit/        isolated pilot, fake homeserver/provider, conformance, load and chaos
+apps/ledger/      bookkeeping NEOP and build-pinned GST package
+apps/marketing/   second NEOP used to prove typed bus-room work and borrowing
+deploy/           production compose, network policy, observability and verifier
 ```
 
-## Run the tests
+Security boundaries:
+
+- Each app owns one schema and restricted app/runner roles; tenant tables use forced RLS.
+- The assistant has no database, provider credential, general shell, filesystem, or unrestricted network tool.
+- Door credentials are per-app/per-company files mounted read-only into the backend, never the agent.
+- Matrix sender class, membership, power level, event type, thread, and idempotency are checked before work opens.
+- Packages are signed, reviewed, pinned, copied into the host build, and migrated through the host DBA bundle.
+
+## Verify the build
 
 ```sh
-docker compose up -d postgres      # Postgres 17 on localhost:5433
+docker compose up -d postgres
 pnpm install
 pnpm typecheck
-pnpm test                          # ~25 s, 157 tests; every file gets its own database
-pnpm test:load                     # Phase 6 bars at full size: 200 concurrent jobs, 50 forced restarts
+pnpm test
+pnpm test:load
 ```
 
-The assistant in tests is pi's `faux` provider driven by a scripted brain, so the
-suite is deterministic and needs no model key. `injection.test` scripts a fully
-hijacked assistant on purpose.
+`pnpm test` covers both Matrix roads, sender and approval rules, typed task/question/proposal/result threads, restart/redelivery dedupe, schema isolation, packages, GST, files, observability, migrations, backup logic, and the full Ledger books. `pnpm test:load` runs 200-task acknowledgement/completion and 50 forced restarts with duplicate-effect checks. The deterministic test assistant needs no provider key.
 
-| Test | Proves |
-| --- | --- |
-| contract | every result matches its manifest schema; manifest ↔ handlers complete |
-| proposal | execute once; fingerprint-bound; stale yes refused; change / no; grants; amount caps |
-| switchboard | off = not shown and refused; company can only tighten; changes apply on the next call |
-| resume | kill the assistant mid-job; a fresh session continues from the book |
-| injection | an instruction inside data causes zero effects, even with a hijacked assistant |
-| a2a | another app calls only what its ACL allows; never a platform door |
-| honesty | empty is empty; generatedAt; sources; books internally consistent |
-| migration | forward-only, immutable, proven on populated data; tenant lint |
-| tenant (B1) | company A's token cannot read or write company B's rows |
-| wake-order (B2, B3) | no wake before execute is terminal; crash between resolve and execute recovers |
-| inbound-auth (B4) | unsigned, forged, replayed, misaddressed, expired L3 calls rejected |
-| jobtoken (S5) | gate refuses no token, stale sessions and out-of-scope abilities |
-| network (S6) | deploy topology keeps the agent off the DB/platform/internet (static; runtime probe in Phase 6) |
-| lifecycle | expiry wakes the job; UNKNOWN wakes and reconciles; no silent stops |
-| flow | the platform user flow from the NEOS app, steps 1–9: conversation first, registry context, installs, REPORTED trail, cancel, dead letters |
-| conformance | the template's bar, run for every app (contract, honesty, tenant, switchboard, proposal, auth) |
-| hardening | key rotation (publish → activate → retire), vault sealing, approver policy, outbox ack/prune, dead-letter replay, SSE |
-| llm-proxy | keyless agent over the real Anthropic wire format; reserve-then-settle job and day caps |
-| registry | package publish → review → co-sign → install → migrate; sandbox escape attempts; tampering; borrowed skills |
-| observability | one trace id from the ask to the door across every service; metrics endpoints |
-| backup | restore one company without touching another |
-| chaos | jobs and approvals survive forced restarts (quick; full size in `test:load`) |
-| books | Ledger day to day: customers, invoices with GST, sending and chasing, receipts, bills, bank import and reconciliation, reversals, month close and reopen |
-| rooms | the AgentSpace path (A → 7.1 → 7.6 card in room → 7.7 answer in room → 7.9): identity checks, fingerprint-bound room answers, Phase 3 exit (room and app write identical book entries) |
+The two conditional infrastructure checks require `pg_dump` and `NEOP_TEST_S3_ENDPOINT`; release evidence must run them against the production PostgreSQL and object-store versions.
 
-## Run the pilot locally
+## Local pilot
 
 ```sh
-export NEOP_LLM_UPSTREAM_KEY=sk-ant-...     # the agent stays keyless: the platform LLM proxy holds this
-# the GST package (nep-gst) is built into Ledger: apps/ledger/src/packages, packages.lock.json
-pnpm dev                                    # platform :4700, Ledger L3 :4701, gate :4702, agents :4703
+export NEOP_LLM_UPSTREAM_KEY=...
+# Configure NEOS_NEURALCHAT_MATRIX and NEOP_PRESENCE as client or appservice,
+# with the matching Matrix URL, account/token or appservice variables.
+pnpm dev
 ```
 
-Ops: `pnpm migrate` (the only process with the admin connection), `pnpm backup export ledger <company_id>`,
-`pnpm neos-publish registry/nep-gst`, `pnpm neos-install ledger nep-gst@2.0.0` (docs/RUNBOOK.md). Metrics at `/metrics` (platform) and `/l3/metrics` (app);
-traces go to `OTEL_EXPORTER_OTLP_ENDPOINT`; dashboard and alerts in `deploy/observability/`.
+The local process exposes the platform on `:4700`, Ledger files on `:4701`, the private gate on `:4702`, and the agent RPC on `:4703`. The repository web UI is a development/test harness; the product UI is the NEOS app.
 
-Open `http://127.0.0.1:4700/`, paste `dev_admin`, and ask *"What was our net
-profit in August 2026?"* or *"Email the September close pack to
-cfo@acme.example"* — the second becomes a card on the desk; approve it and the
-email lands in `var/mailbox/`.
+## Production
 
-**Shipping Ledger:** `docs/RUNBOOK.md` (deploy, providers, rotation, incidents), `CHANGELOG.md`,
-`docs/adr/README.md` (decisions awaiting sign-off), `.github/workflows/ci.yml`.
+Use [docs/RUNBOOK.md](docs/RUNBOOK.md). Production requires one of these overlays:
 
-See `docs/FLOW-COVERAGE.md` for every step of the platform user flow mapped to code and tests,
-`docs/IMPLEMENTATION-NOTES.md` for where this build interprets the plan, and
-`docs/adr/` for the Phase 0 decisions.
+- External homeserver: `deploy/compose.pilot.yml` + `deploy/compose.presence-client.yml`.
+- Local Synapse appservice: `deploy/compose.pilot.yml` + `deploy/compose.chat.yml`.
+
+`scripts/deploy.sh` performs the guarded install/upgrade sequence. `scripts/verify-install.ts` is the read-only release gate. Normal deploys stop at safe expand migration 024. Platform migration 025 is the explicit S9 contract migration: rehearse it on a restored production-shaped copy, drain approvals, take and prove a recovery backup, and obtain operator approval before applying it. Generate the conformance attestation only after the final commit and artifact are frozen.
+
+Current implementation status and outstanding external acceptance are tracked in [docs/V3-PRODUCTION-READINESS-PLAN.md](docs/V3-PRODUCTION-READINESS-PLAN.md). Historical design material under `docs/source/`, `docs/IMPLEMENTATION-NOTES.md`, and `docs/V3-MIGRATION-PLAN.md` describes earlier stages and is not an operator guide.

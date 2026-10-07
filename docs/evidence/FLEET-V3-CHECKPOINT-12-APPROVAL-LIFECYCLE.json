@@ -1,0 +1,433 @@
+{
+  "checkpoint": 12,
+  "date": "2026-10-01",
+  "branch": "rebuild/fleet-v3",
+  "starting_commit": "b78a29fec6b9a325e53d23690789678aeffdab66",
+  "scope": "Forward-only proposal-answer wall-clock deadline correction and internal-import waiting lifecycle across all eighteen; no new business authorization or provider dispatch",
+  "full_regression": {
+    "path": "/Users/mansi.gambhir/Documents/Codex/2026-09-28/lo/work/fleet-v3-checkpoint-12-final-tests.json",
+    "sha256": "cf2f250ddb8268c0447ab31ca52eb31b2bdbeb42164f14897a5273fddd198476",
+    "passed": 2330,
+    "failed": 0,
+    "skipped": 2,
+    "files": 222,
+    "success": true,
+    "start_time": "2026-10-01T17:23:41.047Z",
+    "duration_seconds": 580.51
+  },
+  "initial_full_regression": {
+    "path": "/Users/mansi.gambhir/Documents/Codex/2026-09-28/lo/work/fleet-v3-checkpoint-12-tests.json",
+    "sha256": "efb965131e65ed6d8bd4f12dff342a6a6be0be0158ff212c6fc0443346ac8e83",
+    "passed": 2329,
+    "failed": 1,
+    "skipped": 2,
+    "files": 222,
+    "success": false,
+    "start_time": "2026-10-01T17:11:27.247Z",
+    "duration_seconds": 680.4,
+    "unresolved_failure": "Ledger presence-go-ahead reply-to-card expected a bridge-approval refusal but received generic unavailable text; root cause unconfirmed"
+  },
+  "diagnostic_isolated": {
+    "path": "/Users/mansi.gambhir/Documents/Codex/2026-09-28/lo/work/fleet-presence-12-diagnostic.json",
+    "sha256": "79f610ca561c10ebb3fe501e2008f489423a0451bb3dd1513a67105167fed975",
+    "passed": 10,
+    "failed": 0,
+    "skipped": 0,
+    "files": 1,
+    "success": true,
+    "start_time": "2026-10-01T17:23:07.120Z",
+    "duration_seconds": 9.6,
+    "source_unchanged": true,
+    "does_not_establish_root_cause_or_fix": true
+  },
+  "reproduction": {
+    "path": "/Users/mansi.gambhir/Documents/Codex/2026-09-28/lo/work/fleet-deadline-12-reproduction-all.json",
+    "sha256": "5dd7bbbb10727e8e2edb4daf672c0a476e3b8362e6089cec97bbbcb7d12b24fd",
+    "passed": 0,
+    "failed": 6,
+    "skipped": 6,
+    "files": 1,
+    "success": false,
+    "start_time": "2026-10-01T17:05:11.139Z",
+    "duration_seconds": 19.02,
+    "skipped_meaning": "Six unrelated cases excluded by test-name filter, not disabled tests",
+    "expected_failures": 6
+  },
+  "initial_filter_miss": {
+    "path": "/Users/mansi.gambhir/Documents/Codex/2026-09-28/lo/work/fleet-deadline-12-reproduction.json",
+    "sha256": "58ab9c44598881803a243ffb66d52308d513c6b1b9785aa68fe63dcc4c6981ac",
+    "passed": 0,
+    "failed": 0,
+    "skipped": 12,
+    "files": 1,
+    "success": true,
+    "start_time": "2026-10-01T17:04:41.711Z",
+    "verification": false,
+    "skipped_meaning": "All twelve cases excluded by incorrect test-name filter"
+  },
+  "initial_fixture_errors": {
+    "path": "/Users/mansi.gambhir/Documents/Codex/2026-09-28/lo/work/fleet-lifecycle-12-pay-grant.json",
+    "sha256": "c356c60748360119a86413fa069e9947c7760d599034d30eb76b60604b78787e",
+    "passed": 3,
+    "failed": 21,
+    "skipped": 0,
+    "files": 2,
+    "success": false,
+    "start_time": "2026-10-01T17:07:16.238Z",
+    "duration_seconds": 21.67,
+    "diagnosis": "Wrong operations.proposal_id assertion and wrong HTTP status for a DB-idempotent closed card; corrected to real schema/Desk contracts without relaxing expiry assertions"
+  },
+  "focused": {
+    "path": "/Users/mansi.gambhir/Documents/Codex/2026-09-28/lo/work/fleet-lifecycle-12-pay-grant-fixed.json",
+    "sha256": "2709a0638f18b17dc2b8d9ea4c99cc61006a427ac1338f30ca2bb41a9a0aa97d",
+    "passed": 24,
+    "failed": 0,
+    "skipped": 0,
+    "files": 2,
+    "success": true,
+    "start_time": "2026-10-01T17:10:16.866Z",
+    "duration_seconds": 22.92,
+    "overlaps_full_regression": true
+  },
+  "upgrades": {
+    "path": "/Users/mansi.gambhir/Documents/Codex/2026-09-28/lo/work/fleet-deadline-12-upgrades.json",
+    "sha256": "fa5b9edbd6eadde575915aca28dfb8a3caa3b2785f4bc688e23cbcb3a327e49c",
+    "passed": 5,
+    "failed": 0,
+    "skipped": 0,
+    "files": 2,
+    "success": true,
+    "start_time": "2026-10-01T17:09:00.911Z",
+    "duration_seconds": 6.73,
+    "overlaps_full_regression": true,
+    "includes_grant_dba_bundle": true
+  },
+  "catalog": {
+    "path": "/Users/mansi.gambhir/Documents/Codex/2026-09-28/lo/work/fleet-catalog-12.json",
+    "sha256": "5b8b7cb2b9c177c914c78f52fdc72f81b8fdf05ee29516a0c062d6eabdebc37d",
+    "passed": 6,
+    "failed": 0,
+    "skipped": 0,
+    "files": 1,
+    "success": true,
+    "start_time": "2026-10-01T17:16:24.886Z",
+    "duration_seconds": 5.67,
+    "overlaps_full_regression": true
+  },
+  "new_distinct_tests": 220,
+  "apps": [
+    {
+      "app": "clear",
+      "lifecycle_tests_passed": 12,
+      "partial_requirements": 15,
+      "pending_requirements": 3,
+      "unfulfilled_requirements": 18,
+      "full_parity": false,
+      "production_ready": false
+    },
+    {
+      "app": "reach",
+      "lifecycle_tests_passed": 12,
+      "partial_requirements": 15,
+      "pending_requirements": 3,
+      "unfulfilled_requirements": 18,
+      "full_parity": false,
+      "production_ready": false
+    },
+    {
+      "app": "desk",
+      "lifecycle_tests_passed": 12,
+      "partial_requirements": 15,
+      "pending_requirements": 3,
+      "unfulfilled_requirements": 18,
+      "full_parity": false,
+      "production_ready": false
+    },
+    {
+      "app": "hire",
+      "lifecycle_tests_passed": 12,
+      "partial_requirements": 15,
+      "pending_requirements": 3,
+      "unfulfilled_requirements": 18,
+      "full_parity": false,
+      "production_ready": false
+    },
+    {
+      "app": "deal",
+      "lifecycle_tests_passed": 12,
+      "partial_requirements": 15,
+      "pending_requirements": 3,
+      "unfulfilled_requirements": 18,
+      "full_parity": false,
+      "production_ready": false
+    },
+    {
+      "app": "buy",
+      "lifecycle_tests_passed": 12,
+      "partial_requirements": 15,
+      "pending_requirements": 3,
+      "unfulfilled_requirements": 18,
+      "full_parity": false,
+      "production_ready": false
+    },
+    {
+      "app": "grant",
+      "lifecycle_tests_passed": 12,
+      "partial_requirements": 15,
+      "pending_requirements": 3,
+      "unfulfilled_requirements": 18,
+      "full_parity": false,
+      "production_ready": false
+    },
+    {
+      "app": "shift",
+      "lifecycle_tests_passed": 12,
+      "partial_requirements": 15,
+      "pending_requirements": 3,
+      "unfulfilled_requirements": 18,
+      "full_parity": false,
+      "production_ready": false
+    },
+    {
+      "app": "sync",
+      "lifecycle_tests_passed": 12,
+      "partial_requirements": 15,
+      "pending_requirements": 3,
+      "unfulfilled_requirements": 18,
+      "full_parity": false,
+      "production_ready": false
+    },
+    {
+      "app": "post",
+      "lifecycle_tests_passed": 12,
+      "partial_requirements": 15,
+      "pending_requirements": 3,
+      "unfulfilled_requirements": 18,
+      "full_parity": false,
+      "production_ready": false
+    },
+    {
+      "app": "roster",
+      "lifecycle_tests_passed": 12,
+      "partial_requirements": 15,
+      "pending_requirements": 3,
+      "unfulfilled_requirements": 18,
+      "full_parity": false,
+      "production_ready": false
+    },
+    {
+      "app": "quote",
+      "lifecycle_tests_passed": 12,
+      "partial_requirements": 15,
+      "pending_requirements": 3,
+      "unfulfilled_requirements": 18,
+      "full_parity": false,
+      "production_ready": false
+    },
+    {
+      "app": "sign",
+      "lifecycle_tests_passed": 12,
+      "partial_requirements": 15,
+      "pending_requirements": 3,
+      "unfulfilled_requirements": 18,
+      "full_parity": false,
+      "production_ready": false
+    },
+    {
+      "app": "guard",
+      "lifecycle_tests_passed": 12,
+      "partial_requirements": 15,
+      "pending_requirements": 3,
+      "unfulfilled_requirements": 18,
+      "full_parity": false,
+      "production_ready": false
+    },
+    {
+      "app": "vet",
+      "lifecycle_tests_passed": 12,
+      "partial_requirements": 15,
+      "pending_requirements": 3,
+      "unfulfilled_requirements": 18,
+      "full_parity": false,
+      "production_ready": false
+    },
+    {
+      "app": "pay",
+      "lifecycle_tests_passed": 12,
+      "partial_requirements": 15,
+      "pending_requirements": 3,
+      "unfulfilled_requirements": 18,
+      "full_parity": false,
+      "production_ready": false
+    },
+    {
+      "app": "asset",
+      "lifecycle_tests_passed": 12,
+      "partial_requirements": 15,
+      "pending_requirements": 3,
+      "unfulfilled_requirements": 18,
+      "full_parity": false,
+      "production_ready": false
+    },
+    {
+      "app": "renew",
+      "lifecycle_tests_passed": 12,
+      "partial_requirements": 15,
+      "pending_requirements": 3,
+      "unfulfilled_requirements": 18,
+      "full_parity": false,
+      "production_ready": false
+    }
+  ],
+  "typescript": "pass",
+  "pinned_source_snapshots_verified": 108,
+  "deadline_diff_audit": "Only CREATE OR REPLACE, wall-clock deadline/timestamps and final refusal guard differ from t011; applied SQL unchanged",
+  "completion_gate": {
+    "exit_code": 1,
+    "expected_refusal": true,
+    "production_ready": []
+  },
+  "migration": {
+    "shared": "t022_answer_deadline.sql",
+    "populated_synthetic_apps": [
+      "pay",
+      "buy",
+      "renew",
+      "grant"
+    ],
+    "passed": 4,
+    "historical_rows_rewritten": false,
+    "production_data_restore": false,
+    "dba_approved": false,
+    "remaining_upgrade_fixture_databases": 0
+  },
+  "limitations": [
+    "Synthetic Matrix/model fixtures only; no live provider or NEOS UI acceptance.",
+    "Matching-answer replay and deadline-exempt withdrawal retain prior semantics; business approver policy is not invented.",
+    "End-of-function guard cannot control a trusted caller holding its transaction open afterward; effect-time checks still required.",
+    "Other wait types and broader active-session/in-flight/multi-host recovery remain unverified.",
+    "Ledger refusal-message failure in the first full run remains unexplained, even if unchanged reruns pass.",
+    "Historical images and review bundles do not validate the current shared migration.",
+    "All business authorization, source parity, provider, privacy/legacy/recovery and live acceptance gaps remain."
+  ],
+  "changed_source_bindings": [
+    {
+      "path": "apps/clear/tests/approval-lifecycle.test.ts",
+      "sha256": "fca7befc41a328aa83c94a72cbb714a0763e4b487eb75e1362dc7f2d001a2c90"
+    },
+    {
+      "path": "apps/reach/tests/approval-lifecycle.test.ts",
+      "sha256": "49818fd36dd519eea4c4bd8e4c453e6070c1619da2e8b6c20ec6a86c4bc61030"
+    },
+    {
+      "path": "apps/desk/tests/approval-lifecycle.test.ts",
+      "sha256": "e04c441c244ca1d3feeda5619a7015e8a4a7ad0e19f53def8c89c39b652ef3de"
+    },
+    {
+      "path": "apps/hire/tests/approval-lifecycle.test.ts",
+      "sha256": "5f0d54cbd65145778c942ddc67867dc32b1c920eb49128efd78a2066c3e35dc6"
+    },
+    {
+      "path": "apps/deal/tests/approval-lifecycle.test.ts",
+      "sha256": "053e43d14bec907a18258e91decab7bc761c6c559d33e64f6ff47b265d8b8bd3"
+    },
+    {
+      "path": "apps/buy/tests/approval-lifecycle.test.ts",
+      "sha256": "a6ae30915d1cc8ab266838e7f1e2c2ef3dbd6de7dadd1bff39aad5aefbf961b1"
+    },
+    {
+      "path": "apps/grant/tests/approval-lifecycle.test.ts",
+      "sha256": "fca4641fa600401ea083f70361abdc95d4ed80be56fb9f9ed610b644791cc435"
+    },
+    {
+      "path": "apps/shift/tests/approval-lifecycle.test.ts",
+      "sha256": "23ca16a96db488f5c82f113b3724de08d2af30383a1280bc84bc9d5b93e3de03"
+    },
+    {
+      "path": "apps/sync/tests/approval-lifecycle.test.ts",
+      "sha256": "e96efedc8bbb4fe786989b8de8bfd34f1944dcdda4f3d30deec6367f4d9be037"
+    },
+    {
+      "path": "apps/post/tests/approval-lifecycle.test.ts",
+      "sha256": "24335c646b4d68f69a5bb571aaa9577001936a05db6dbc6c7533ac6526e899f2"
+    },
+    {
+      "path": "apps/roster/tests/approval-lifecycle.test.ts",
+      "sha256": "3a9b56d2d9292dbf601fc72930bb63c50fa978e6464f627bf7e866a84cbbf46e"
+    },
+    {
+      "path": "apps/quote/tests/approval-lifecycle.test.ts",
+      "sha256": "7086465fe0928d0937d7b4fde369487da52ab60b3c7b813b2659efc03230e3b5"
+    },
+    {
+      "path": "apps/sign/tests/approval-lifecycle.test.ts",
+      "sha256": "d2e41edc1cd70871f26695bb1dbff72fba7dab1452346dff562966af3380dc4e"
+    },
+    {
+      "path": "apps/guard/tests/approval-lifecycle.test.ts",
+      "sha256": "861d42cfa8ddf7b0d45b5e9118f21c502698b8565745c70d5318a686d74387ba"
+    },
+    {
+      "path": "apps/vet/tests/approval-lifecycle.test.ts",
+      "sha256": "5b5ad5348e0e42588ba7da2f7acb25486f0218807f05bb47e67aa84dddb523e1"
+    },
+    {
+      "path": "apps/pay/tests/approval-lifecycle.test.ts",
+      "sha256": "fb08777b6ac8a1aec2dbb30fb8cf5703884ad895a9fbc0f7022bc1611fab5aca"
+    },
+    {
+      "path": "apps/asset/tests/approval-lifecycle.test.ts",
+      "sha256": "ed1724104148b6f4a432d6f7868dc992a057849abbebb08d3febb390680bf79e"
+    },
+    {
+      "path": "apps/renew/tests/approval-lifecycle.test.ts",
+      "sha256": "bf62d353457b6fbce505ed6d73a6d3a7c437bd5588073ab44400c9d5d4355665"
+    },
+    {
+      "path": "packages/testkit/src/approval-lifecycle.ts",
+      "sha256": "fbd75918fbb0c9edf10bca5ca97187c65a04a329a57e6d05c6cd8324b0376619"
+    },
+    {
+      "path": "packages/testkit/src/index.ts",
+      "sha256": "5a212da6f2f549a9dd0bbd49ca07f4d90bb2fc80b7ff1cbddf277dd7719ce2fb"
+    },
+    {
+      "path": "packages/neop-template/migrations/t022_answer_deadline.sql",
+      "sha256": "6d855bf8eedc3ad663f03a49510dba573046c6d1664ccbe5c769b73179ae8a4f"
+    },
+    {
+      "path": "packages/neop-template/migrations/migrate.json",
+      "sha256": "b3c650967cff109b9a2c069c361af10443bf88965af95861b0bbe8ce715e4223"
+    },
+    {
+      "path": "scripts/fleet/tests/answer-deadline-migration.test.ts",
+      "sha256": "9b9be1690de2fc32fa46288b212db969787d99f490b92eb21736912535cd6848"
+    },
+    {
+      "path": "apps/grant/tests/dba-bundle.test.ts",
+      "sha256": "f029599d84d28d76239ae114dc5f71005df1f5db7c1f94d731cde1a46157689c"
+    },
+    {
+      "path": "apps/ledger/tests/approved-path.test.ts",
+      "sha256": "60e1df9ad4652a4932367bae2ef46fd3097e2da0bd3f9c4a3ec928cbe40ea31f"
+    },
+    {
+      "path": "apps/ledger/tests/board-db.test.ts",
+      "sha256": "ab93ed373b5b5baa2f91160094371b1ec2def258ec7baef2bc9bcb9073d2ecbf"
+    },
+    {
+      "path": "apps/ledger/tests/desk-functions.test.ts",
+      "sha256": "e434b2d8d8623368521e59d59dcf1f2bd2276f50dda2b04d0a21b7e434f710ac"
+    },
+    {
+      "path": "apps/ledger/tests/migration.test.ts",
+      "sha256": "886eb8b4c840356fbfe8c49f8663a762fd471d6eef8954f44af961485c950649"
+    },
+    {
+      "path": "apps/ledger/tests/v3-conformance.test.ts",
+      "sha256": "f30591301a181625deacbae50ca669ade203fc54707fdb5e2f94383e5c3bbed5"
+    }
+  ],
+  "provider_dispatch": false,
+  "production_ready": false
+}

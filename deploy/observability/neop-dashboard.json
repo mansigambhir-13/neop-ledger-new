@@ -11,7 +11,7 @@
     {
       "id": 1,
       "type": "timeseries",
-      "title": "Job ack latency p95 (target < 300 ms)",
+      "title": "Matrix tasks not yet acknowledged",
       "gridPos": {
         "x": 0,
         "y": 0,
@@ -20,7 +20,7 @@
       },
       "targets": [
         {
-          "expr": "histogram_quantile(0.95, sum by (le, app) (rate(neop_job_ack_seconds_bucket[5m])))",
+          "expr": "sum by (app) (neop_tasks_unacknowledged)",
           "refId": "A",
           "datasource": {
             "type": "prometheus",
@@ -30,7 +30,7 @@
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "s"
+          "unit": "short"
         }
       }
     },
@@ -193,7 +193,7 @@
     {
       "id": 8,
       "type": "timeseries",
-      "title": "Gateway latency p95",
+      "title": "Kept document downloads",
       "gridPos": {
         "x": 12,
         "y": 24,
@@ -202,7 +202,7 @@
       },
       "targets": [
         {
-          "expr": "histogram_quantile(0.95, sum by (le, app, endpoint) (rate(neop_gateway_latency_seconds_bucket[5m])))",
+          "expr": "sum by (app) (rate(neop_documents_downloaded_total[5m]))",
           "refId": "A",
           "datasource": {
             "type": "prometheus",
@@ -212,7 +212,7 @@
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "s"
+          "unit": "ops"
         }
       }
     },
@@ -245,7 +245,7 @@
     {
       "id": 10,
       "type": "timeseries",
-      "title": "Outbox backlog (unacked)",
+      "title": "Outbox waiting for Matrix mirror",
       "gridPos": {
         "x": 12,
         "y": 32,
@@ -254,7 +254,7 @@
       },
       "targets": [
         {
-          "expr": "neop_outbox_unacked",
+          "expr": "neop_outbox_unmirrored",
           "refId": "A",
           "datasource": {
             "type": "prometheus",
@@ -271,7 +271,7 @@
     {
       "id": 11,
       "type": "timeseries",
-      "title": "Dead letters",
+      "title": "Matrix tasks by status",
       "gridPos": {
         "x": 0,
         "y": 40,
@@ -280,7 +280,7 @@
       },
       "targets": [
         {
-          "expr": "sum by (app) (neop_dead_letters)",
+          "expr": "sum by (app, status) (neop_tasks)",
           "refId": "A",
           "datasource": {
             "type": "prometheus",

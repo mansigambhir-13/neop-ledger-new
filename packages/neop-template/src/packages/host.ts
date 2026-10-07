@@ -1,3 +1,4 @@
+import {sqlIdent} from '@neop/pgkit';
 // The package host (v3 §10, S7). What runs is what the build installed: packages.lock.json names each package
 // (unpacked by `neos install` into src/packages/nep-<name>/, read-only) and each pinned skill-only registry entry.
 // Before a package is offered — at every spawn and again before every call — its files are re-verified against the
@@ -158,7 +159,7 @@ export class PackageHost {
     const prefix = `nep_${pkg.key.replace(/^nep-/, '').replace(/[^a-z0-9]/g, '_')}_`;
     const table = (t: unknown) => {
       if (typeof t !== 'string' || !t.startsWith(prefix) || !pkg.bundle.manifest.tables.includes(t) || !IDENT.test(t)) throw new Error(`table ${String(t)} is not this package's`);
-      return `${this.core.key}.${t}`;
+      return `${sqlIdent(this.core.key)}.${t}`;
     };
     const cols = (o: Record<string, unknown>) => {
       const ks = Object.keys(o ?? {});

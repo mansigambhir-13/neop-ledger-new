@@ -1,0 +1,304 @@
+{
+  "checkpoint": 17,
+  "date": "2026-10-05",
+  "branch": "rebuild/fleet-v3",
+  "starting_commit": "2dbac0df65a47fefcfa5e0b6cf1fba9a802e6a3b",
+  "scope": "Bounded outbound a2a.answer preparation/finalization ownership checks, preservation of newer questions/unclaimed wakes, and honest send uncertainty; not durable outbound crash recovery",
+  "status": "locally_verified_implementation_checkpoint_not_full_products_or_production_acceptance",
+  "retained_runs": [
+    {
+      "path": "/Users/mansi.gambhir/Documents/Codex/2026-09-28/lo/work/fleet-v3-checkpoint-17-reproduction.json",
+      "sha256": "6f01d85efd0a3ea41aad7f475d41bc5dbaba2484ba1e29c095f01f2b9cf88684",
+      "passed": 0,
+      "failed": 3,
+      "skipped": 0,
+      "files": 1,
+      "start_time": "2026-10-05T14:56:20.535Z",
+      "elapsed_seconds": 4.893133056640625,
+      "success": false,
+      "failed_tests": [
+        "pay outbound answer finalization preserves a second question arriving during send and a fresh assistant answers it",
+        "pay outbound answer finalization does not consume an unrelated wait that became ready during the send",
+        "pay outbound answer finalization does not finalize an old session after a new runner owns the job"
+      ]
+    },
+    {
+      "path": "/Users/mansi.gambhir/Documents/Codex/2026-09-28/lo/work/fleet-v3-checkpoint-17-focused.json",
+      "sha256": "70126533f1ac242be92891fca09878661c1f7f098de790e71069632c9eff8fe8",
+      "passed": 20,
+      "failed": 0,
+      "skipped": 0,
+      "files": 4,
+      "start_time": "2026-10-05T14:58:38.532Z",
+      "elapsed_seconds": 7.345062255859375,
+      "success": true,
+      "failed_tests": []
+    },
+    {
+      "path": "/Users/mansi.gambhir/Documents/Codex/2026-09-28/lo/work/fleet-v3-checkpoint-17-uncertainty-reproduction.json",
+      "sha256": "c55d8a9ad46c3a428dd1fd5c65d3567a433ef2ce212610e872ccf337a4d7b1ec",
+      "passed": 0,
+      "failed": 2,
+      "skipped": 10,
+      "files": 1,
+      "start_time": "2026-10-05T15:00:52.163Z",
+      "elapsed_seconds": 4.54355419921875,
+      "success": false,
+      "failed_tests": [
+        "pay outbound answer finalization reports transport failure as unconfirmed, not proof of non-delivery (sent: false)",
+        "pay outbound answer finalization reports transport failure as unconfirmed, not proof of non-delivery (sent: true)"
+      ]
+    },
+    {
+      "path": "/Users/mansi.gambhir/Documents/Codex/2026-09-28/lo/work/fleet-v3-checkpoint-17-expanded-focused.json",
+      "sha256": "46097c24cccee41bfa189bc14acd39013958c20cb1c1736683f1400715d66eb5",
+      "passed": 59,
+      "failed": 1,
+      "skipped": 0,
+      "files": 7,
+      "start_time": "2026-10-05T15:02:11.042Z",
+      "elapsed_seconds": 26.1289384765625,
+      "success": false,
+      "failed_tests": [
+        "pay outbound answer finalization preserves a terminal reply arriving before answer finalization and resumes with that result"
+      ]
+    },
+    {
+      "path": "/Users/mansi.gambhir/Documents/Codex/2026-09-28/lo/work/fleet-v3-checkpoint-17-fleet-targeted.json",
+      "sha256": "06eaba122e77ef4d1304a7d4b58e3b04fac78c734cbeb425d45c166c57ed23fb",
+      "passed": 246,
+      "failed": 18,
+      "skipped": 0,
+      "files": 24,
+      "start_time": "2026-10-05T15:11:51.458Z",
+      "elapsed_seconds": 59.44235131835938,
+      "success": false,
+      "failed_tests": [
+        "asset outbound answer finalization preserves a terminal reply arriving before answer finalization and resumes with that result",
+        "buy outbound answer finalization preserves a terminal reply arriving before answer finalization and resumes with that result",
+        "clear outbound answer finalization preserves a terminal reply arriving before answer finalization and resumes with that result",
+        "grant outbound answer finalization preserves a terminal reply arriving before answer finalization and resumes with that result",
+        "desk outbound answer finalization preserves a terminal reply arriving before answer finalization and resumes with that result",
+        "deal outbound answer finalization preserves a terminal reply arriving before answer finalization and resumes with that result",
+        "hire outbound answer finalization preserves a terminal reply arriving before answer finalization and resumes with that result",
+        "guard outbound answer finalization preserves a terminal reply arriving before answer finalization and resumes with that result",
+        "pay outbound answer finalization preserves a terminal reply arriving before answer finalization and resumes with that result",
+        "reach outbound answer finalization preserves a terminal reply arriving before answer finalization and resumes with that result",
+        "renew outbound answer finalization preserves a terminal reply arriving before answer finalization and resumes with that result",
+        "roster outbound answer finalization preserves a terminal reply arriving before answer finalization and resumes with that result",
+        "sign outbound answer finalization preserves a terminal reply arriving before answer finalization and resumes with that result",
+        "post outbound answer finalization preserves a terminal reply arriving before answer finalization and resumes with that result",
+        "shift outbound answer finalization preserves a terminal reply arriving before answer finalization and resumes with that result",
+        "sync outbound answer finalization preserves a terminal reply arriving before answer finalization and resumes with that result",
+        "vet outbound answer finalization preserves a terminal reply arriving before answer finalization and resumes with that result",
+        "quote outbound answer finalization preserves a terminal reply arriving before answer finalization and resumes with that result"
+      ]
+    },
+    {
+      "path": "/Users/mansi.gambhir/Documents/Codex/2026-09-28/lo/work/fleet-v3-checkpoint-17-corrected-targeted.json",
+      "sha256": "6eb059618a6c6ed22fd1bfc425f3303480419255c87177b923121d84bda55d43",
+      "passed": 264,
+      "failed": 0,
+      "skipped": 0,
+      "files": 24,
+      "start_time": "2026-10-05T15:13:57.371Z",
+      "elapsed_seconds": 53.43914965820313,
+      "success": true,
+      "failed_tests": []
+    }
+  ],
+  "report_notes": [
+    "reproduction.json: three unchanged-runtime assertion failures before runtime edits: next question cleared, unrelated late wait consumed, and stale session finalized after runner ownership transfer.",
+    "focused.json: initial three fixes plus existing question/hand-off paths, 20 passed across four files. Historical intermediate-source evidence, overlapping later full run.",
+    "uncertainty-reproduction.json: two selected tests failed before changing non-delivery reporting, both before and after fake delivery. Ten skipped cases were excluded by the test-name filter, not disabled failing tests or conditional acceptance skips.",
+    "expanded-focused.json: 59 passed, one fixture timeout because it compared database JobStatus with API COMPLETED rather than DONE. Runtime unchanged for correction.",
+    "fleet-targeted.json: 246 passed, 18 fixture assertions failed because API mirroring was read immediately after database DONE and was still ACKNOWLEDGED. The corrected fixture waits for BOTH database DONE and API COMPLETED, with the same timeout and assertions plus consumed-wait checks.",
+    "corrected-targeted.json: 264 passed across 24 files on the final runtime/test sources; includes 216 new cases and existing Pay result/question plus Ledger/Marketing bus regressions. Overlaps the full run, not additive.",
+    "No runtime change followed the expanded focused run; only terminal-result fixture state/mirror synchronization changed. 21 changed runtime/test source hashes were frozen after the corrected targeted run and before complete regression."
+  ],
+  "changed_source_sha256": {
+    "apps/asset/tests/bus-answer-lifecycle.test.ts": "f8a2112d6ec57b9683cc06e00b7837bf657274526683d8a7335613505bc8c887",
+    "apps/buy/tests/bus-answer-lifecycle.test.ts": "294ef6aa658c481abfc15237634eac22d61f470c6205deeb7242b0adf03db043",
+    "apps/clear/tests/bus-answer-lifecycle.test.ts": "5c4e56cb6227016a488144b0cbfdc7c7a07f8e7bdcdcbb0a9a85ebfa9865d0ea",
+    "apps/deal/tests/bus-answer-lifecycle.test.ts": "4d19347d1551c854cb7c12d55ff79fff4909eb889c14a6abce492bcec22a9010",
+    "apps/desk/tests/bus-answer-lifecycle.test.ts": "6df853b891a8213b1297b616f38378314d2e8644eb37f7b55059cf5135716a2a",
+    "apps/grant/tests/bus-answer-lifecycle.test.ts": "11abcdd9c4b1ba23980fe61c578a1f4ba88e144caf96cef1e08cc234b0f5ad2e",
+    "apps/guard/tests/bus-answer-lifecycle.test.ts": "bbc551776a7dbb69d823857b1634727db89f3b7e0092e2d3af603182bbbc8e2e",
+    "apps/hire/tests/bus-answer-lifecycle.test.ts": "8752430110907badaa04751a81da0c43077633ce950f8aeecad7f2c5e0121eba",
+    "apps/pay/tests/bus-answer-lifecycle.test.ts": "f7e9784f824891c0158567814514d7dac62fe230ca022e1f1f044ae1cce3894a",
+    "apps/post/tests/bus-answer-lifecycle.test.ts": "728ef4fbe6fd9ae2e80178cffe755068c886606f6f54498e265cc227d69d4152",
+    "apps/quote/tests/bus-answer-lifecycle.test.ts": "8c0c03b107054f3799bb5c280d285b4d5d60189ca7ed182c03aed1c97deee117",
+    "apps/reach/tests/bus-answer-lifecycle.test.ts": "7a9c75c64028634c298b0acbb0a4ab624914fa8b54c5d1f25e6a31c908e398d3",
+    "apps/renew/tests/bus-answer-lifecycle.test.ts": "32ebeefa6b1c44b735941509915fbfad3be0efde3ba56fbebc583ccf6a855040",
+    "apps/roster/tests/bus-answer-lifecycle.test.ts": "8f9a0bb6f1aebd2cd898af4640aacdf471500526a847c220d93d7b4c1d7404da",
+    "apps/shift/tests/bus-answer-lifecycle.test.ts": "0ff809c3ca63007c9f1d90533e348d0dfde55c6b22a7891f54e60a9744ed73f7",
+    "apps/sign/tests/bus-answer-lifecycle.test.ts": "2d221fc50b6f91086ca218bb16bc47b4d54579ca580698c5f6066161440a8d08",
+    "apps/sync/tests/bus-answer-lifecycle.test.ts": "5e88d0c3b21fb2998af3665d3334a086c571c2026ba1ad932b1cc6c372a9e4a0",
+    "apps/vet/tests/bus-answer-lifecycle.test.ts": "394fb07e711981027294bc4919d6e539b6a53760a5f8921e27972d11211586f8",
+    "packages/neop-template/src/gate/a2a.ts": "d6b6668e0ce77aa415da57d5b2636a70454a05a545fcd7843340ec067279a203",
+    "packages/testkit/src/bus-answer-lifecycle.ts": "473fd88fb6702b1c068e0afc984dd9129a1ab44455fd46f99b12ad45206a3b0e",
+    "packages/testkit/src/index.ts": "5535a5124ef633eb46865a2cd1997f0048e8e3de1006f1240e188b1e73257f85"
+  },
+  "fixture": {
+    "container_name": "neop-fleet17-20261005",
+    "container_id": "6f496954c96537a7807bd1015a4fc0c934dff3a2ff8c522fea21bbfc7cc77577",
+    "label": "neop.fixture=fleet-checkpoint-17",
+    "image": "postgres:17-alpine",
+    "image_id": "sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24",
+    "storage": "tmpfs only; no persistent mounts",
+    "network": "loopback ephemeral port only",
+    "max_connections": 400,
+    "removed": true,
+    "shared_cluster_touched": false,
+    "remaining_synthetic_databases_before_removal": 0,
+    "active_synthetic_sessions_before_removal": 0,
+    "neos_desk": {
+      "login": false,
+      "bypassrls": false,
+      "superuser": false
+    },
+    "label_inventory_after_removal": "empty"
+  },
+  "local_checks": {
+    "typescript": "pass",
+    "source_snapshots_verified": 108,
+    "completion_gate": "expected exit 1; every app still 15 partial and 3 pending groups",
+    "production_ready": false,
+    "full_source_parity": false
+  },
+  "limitations": [
+    "Initial answer driven through the real gate with a synthetic locally acquired runner claim, fake Matrix/model and seeded outgoing receiver state. Follow-on questions/results use a fresh assistant. Fixture-only tasks.open target; shipping manifests unchanged.",
+    "Preparation, send and finalization remain separate. No durable immutable outbound intent, idempotent wait reuse or automatic repair of prepared pending waits after crash/final-step rollback.",
+    "Changed-answer retries and concurrent sends are not content-bound by the gate; model-facing uncertainty guidance is not enforcement. The tool still lacks expected peer wait identity, leaving question changes before preparation unbound.",
+    "An in-flight send can reach the peer after cancellation/ownership change; ownership checks cannot undo transport effects and are not a new wall-clock lease guarantee.",
+    "No generic hand-off/all-gate session-fencing claim. Live-job deadlines/late results, mixed-wait expiry, generic dependencies, early questions before root persistence and other ingress atomicity remain open.",
+    "Historical eager/partial receipts and privacy/retention-safe deduplication require audited designs. Previous Pay approval wake-count and Ledger presence intermittent failures remain unexplained.",
+    "Coordinate drained old answer senders/question/result receivers plus t023/input-expiry worker rollout; mixed-version compatibility unverified. Refresh current-source artifacts before release.",
+    "Owner policies for eligible/elevated roles, amount/currency limits, self-approval and historical/nonhuman handling remain missing. Business workflows, provider/source parity, privacy/legacy conversion, production restore/DBA and live Matrix/model/NEOS UI/provider acceptance remain incomplete.",
+    "No push, merge, deployment or real payment/message/signature/access/export/filing."
+  ],
+  "full_regression": {
+    "path": "/Users/mansi.gambhir/Documents/Codex/2026-09-28/lo/work/fleet-v3-checkpoint-17-full-tests.json",
+    "sha256": "c0fbc96ed5f450e279a66fdfa1da69448db51e55508ecfe7ba22ecff3f67bd5a",
+    "passed": 3432,
+    "failed": 0,
+    "skipped": 2,
+    "files": 313,
+    "start_time": "2026-10-05T15:15:37.083Z",
+    "elapsed_seconds": 1006.1571647949219,
+    "success": true,
+    "new_cases": [
+      {
+        "path": "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/asset/tests/bus-answer-lifecycle.test.ts",
+        "passed": 12,
+        "other": 0
+      },
+      {
+        "path": "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/buy/tests/bus-answer-lifecycle.test.ts",
+        "passed": 12,
+        "other": 0
+      },
+      {
+        "path": "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/deal/tests/bus-answer-lifecycle.test.ts",
+        "passed": 12,
+        "other": 0
+      },
+      {
+        "path": "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/clear/tests/bus-answer-lifecycle.test.ts",
+        "passed": 12,
+        "other": 0
+      },
+      {
+        "path": "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/grant/tests/bus-answer-lifecycle.test.ts",
+        "passed": 12,
+        "other": 0
+      },
+      {
+        "path": "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/guard/tests/bus-answer-lifecycle.test.ts",
+        "passed": 12,
+        "other": 0
+      },
+      {
+        "path": "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/desk/tests/bus-answer-lifecycle.test.ts",
+        "passed": 12,
+        "other": 0
+      },
+      {
+        "path": "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/hire/tests/bus-answer-lifecycle.test.ts",
+        "passed": 12,
+        "other": 0
+      },
+      {
+        "path": "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/quote/tests/bus-answer-lifecycle.test.ts",
+        "passed": 12,
+        "other": 0
+      },
+      {
+        "path": "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/post/tests/bus-answer-lifecycle.test.ts",
+        "passed": 12,
+        "other": 0
+      },
+      {
+        "path": "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/pay/tests/bus-answer-lifecycle.test.ts",
+        "passed": 12,
+        "other": 0
+      },
+      {
+        "path": "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/reach/tests/bus-answer-lifecycle.test.ts",
+        "passed": 12,
+        "other": 0
+      },
+      {
+        "path": "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/renew/tests/bus-answer-lifecycle.test.ts",
+        "passed": 12,
+        "other": 0
+      },
+      {
+        "path": "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/roster/tests/bus-answer-lifecycle.test.ts",
+        "passed": 12,
+        "other": 0
+      },
+      {
+        "path": "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/shift/tests/bus-answer-lifecycle.test.ts",
+        "passed": 12,
+        "other": 0
+      },
+      {
+        "path": "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/sync/tests/bus-answer-lifecycle.test.ts",
+        "passed": 12,
+        "other": 0
+      },
+      {
+        "path": "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/sign/tests/bus-answer-lifecycle.test.ts",
+        "passed": 12,
+        "other": 0
+      },
+      {
+        "path": "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/vet/tests/bus-answer-lifecycle.test.ts",
+        "passed": 12,
+        "other": 0
+      }
+    ],
+    "skips": [
+      {
+        "file": "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/ledger/tests/backup.test.ts",
+        "name": "nightly: per-schema pg_dump + per-company exports with retention; one schema restores alone",
+        "status": "skipped"
+      },
+      {
+        "file": "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/packages/neop-template/tests/document-store.test.ts",
+        "name": "S3 (Signature V4) round-trips through a real S3-compatible server",
+        "status": "skipped"
+      }
+    ]
+  },
+  "catalog_after_documentation": {
+    "path": "/Users/mansi.gambhir/Documents/Codex/2026-09-28/lo/work/fleet-v3-checkpoint-17-catalog.json",
+    "sha256": "91dbf1d7f0f1b80dc3100459466fddef81cbc730953e7bbe3996e6ec5cc085e9",
+    "passed": 6,
+    "failed": 0,
+    "skipped": 0,
+    "files": 1,
+    "success": true
+  }
+}

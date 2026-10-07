@@ -25,11 +25,13 @@ import { TEMPLATE_INFRA_TABLES, TEMPLATE_MIGRATIONS } from '@neop/template';
 import { roomsSetup } from '../../../scripts/rooms-setup.ts';
 import { LEDGER_ROOT, seedLedger } from '../src/index.ts';
 import { bootPilot, ledgerUnderTest, MATRIX, toolName, type BrainView, type Pilot } from './harness.ts';
+import { appMigrationsBefore } from '@neop/testkit';
 
 let P: Pilot;
 let BUS = '';
 let MKT = '';
 let LED = '';
+let ROOMS: Record<string, string> = {};
 const PRIYA = '@priya:acme.example';
 const SLUG = 'acmetraders';
 const t = (key: string, args: unknown = {}) => ({ tool: toolName(key), args });
@@ -59,6 +61,7 @@ beforeAll(async () => {
     people: [PRIYA],
   });
   BUS = r.bus_room_id;
+  ROOMS = r.rooms;
   // Each app's own backend joins the bus room once its schema names it (presence refreshes its rooms).
   await P.waitFor(async () => P.hs!.joined.some((j) => j.room === BUS && j.user === LED) && P.hs!.joined.some((j) => j.room === BUS && j.user === MKT), 'both apps in the bus room');
 }, 60_000);
@@ -70,14 +73,23 @@ describe('rooms-setup', () => {
     expect(bus.user).toBe(MKT);
     expect(bus.body).toMatchObject({ preset: 'private_chat', visibility: 'private', room_alias_name: `neop-bus-${SLUG}` });
     expect(JSON.stringify(bus.body.initial_state)).not.toContain('m.room.encryption');
-    const pl = bus.body.power_level_content_override;
+    // The creator stays at 100 only while Synapse writes its creation state; the final state event demotes it.
+    expect(bus.body.power_level_content_override.users).toEqual({ [MKT]: 100, [LED]: 20 });
+    const state = (await fetch(`${P.hs!.url}/_matrix/client/v3/rooms/${encodeURIComponent(BUS)}/state`, { headers: { authorization: `Bearer ${MATRIX.asToken}` } }).then((r) => r.json())) as any[];
+    const pl = state.find((e) => e.type === 'm.room.power_levels')!.content;
     expect(pl.users).toEqual({ [MKT]: 20, [LED]: 20 });
     expect(pl.events).toMatchObject({ 'neos.neop.approve': 50, 'neos.neop.task': 10, 'neos.neop.answer': 10, 'neos.neop.ask': 20, 'neos.neop.propose': 20, 'neos.neop.done': 20, 'neos.neop.note': 20 });
     expect(P.hs!.invites).toContainEqual({ room: BUS, by: MKT, user: LED });
-    const own = P.hs!.created.find((c) => c.body.room_alias_name === `ledger-${SLUG}`)!;
-    expect(own.user).toBe(LED);
-    expect(own.body.power_level_content_override.users).toEqual({ [PRIYA]: 50, [LED]: 20 });
-    expect((await led().query('select room_ids, bus_room_id, bus_peers from ledger.installs')).rows[0]).toEqual({ room_ids: [own.room_id], bus_room_id: BUS, bus_peers: { [MKT]: 'marketing' } });
+    const own = P.hs!.created.find((c) => c.body.room_alias_name === `ledger-${SLUG}`);
+    if (own) {
+      expect(own.user).toBe(LED);
+      expect(own.body.power_level_content_override.users).toEqual({ [PRIYA]: 50, [LED]: 100 });
+    } else {
+      // The pilot may pre-bind NeuralChat's app room. rooms-setup must keep it,
+      // rather than creating a competing room for the same app/company.
+      expect(ROOMS.ledger).toBe(P.appRooms.ledger);
+    }
+    expect((await led().query('select room_ids, bus_room_id, bus_peers from ledger.installs')).rows[0]).toEqual({ room_ids: [ROOMS.ledger], bus_room_id: BUS, bus_peers: { [MKT]: 'marketing' } });
     expect((await mk().query('select bus_room_id, bus_peers from marketing.installs')).rows[0]).toEqual({ bus_room_id: BUS, bus_peers: { [LED]: 'ledger' } });
     const n = P.hs!.created.length;
     const again = await roomsSetup({ neosUrl: P.platformUrl, adminToken: P.admin.token, homeserverUrl: P.hs!.url, company: SLUG, apps: [{ app: 'marketing', asToken: MATRIX.asToken }, { app: 'ledger', asToken: MATRIX.asToken }], people: [PRIYA] });
@@ -98,8 +110,8 @@ describe('a task from another app is still a job (v3 §9)', () => {
       if (isMarketing(v)) {
         if (v.job.includes('asks a question')) {
           asked = v.job;
-          const id = /a2a_answer \(task_id ([0-9a-f-]{36})/.exec(v.job)![1]!;
-          return v.calls === 0 ? t('a2a.answer', { task_id: id, answers: { cost_centre: 'digital' } }) : { text: 'waiting' };
+          const context = JSON.parse(/<data source="a2a.answer_context" trust="untrusted">\n([\s\S]*?)\n<\/data>/.exec(v.job)![1]!);
+          return v.calls === 0 ? t('a2a.answer', { ...context, answers: { cost_centre: 'digital' } }) : { text: 'waiting' };
         }
         if (v.job.includes('answered the task you handed it')) return (marketingWoke = v.job), finish('Ledger says ₹12,40,000 of the Q4 ad budget is left.');
         return v.calls === 0 ? t('a2a.request', { app: 'ledger', ask: 'Diwali budget check: how much of the Q4 ad budget is left?' }) : { text: 'waiting' };
@@ -110,7 +122,12 @@ describe('a task from another app is still a job (v3 §9)', () => {
     });
     const r = await P.ask('Diwali budget check: how much of Q4 ad budget is left?', undefined, 'marketing');
     const res = await done(r.task_id);
-    expect(res.task.status).toBe('COMPLETED');
+    const diagnostic = res.task.status === 'COMPLETED' ? undefined : JSON.stringify({
+      task: res.task,
+      job: (await mk().query('select status,claimed_by,claimed_until,attempts,tool_calls,result from marketing.jobs where id=$1', [r.job_id])).rows[0],
+      steps: (await mk().query('select kind,summary from marketing.steps where job_id=$1 order by seq', [r.job_id])).rows,
+    });
+    expect(res.task.status, diagnostic).toBe('COMPLETED');
     expect(res.task.result.summary).toBe('Ledger says ₹12,40,000 of the Q4 ad budget is left.');
 
     // The task: typed, from Marketing's own name, addressed to Ledger, with the chain and the person.
@@ -315,12 +332,9 @@ describe('the callee’s runner enforces the chain; Matrix redelivers', () => {
     expect(onBus('neos.neop.answer', LED).filter((e) => e.content.wait_id === content.wait_id)).toHaveLength(1);
   });
 
-  it('with presence on, the asking gate refuses a loop or depth > 3 before anything is sent — and never calls the platform’s a2a route', async () => {
+  it('with presence on, the asking gate refuses a loop or depth > 3 before anything is sent', async () => {
     const core = P.backends.marketing!.core;
     const gate = P.backends.marketing!.gate;
-    let platformCalls = 0;
-    const real = core.platform.openA2A.bind(core.platform);
-    core.platform.openA2A = async (req) => (platformCalls++, real(req));
     // A Marketing job taken from the bus at the end of a chain (as its bus_threads row records it), held by a session.
     const job = async (lineage: string[]) => {
       const id = (
@@ -346,17 +360,12 @@ describe('the callee’s runner enforces the chain; Matrix redelivers', () => {
       return { sub: id, sid: 'test-sid', company_id: P.company.id, app: 'marketing', abilities: [] };
     };
     const sent = onBus('neos.neop.task', MKT).length;
-    try {
-      const deep = await gate.call(await job(['cos', 'hr', 'books']), 'a2a.request', { app: 'ledger', ask: 'Post the ad spend' });
-      expect(deep).toMatchObject({ status: 'refused', code: 'a2a_depth' });
-      const loop = await gate.call(await job(['ledger']), 'a2a.request', { app: 'ledger', ask: 'Post the ad spend' });
-      expect(loop).toMatchObject({ status: 'refused', code: 'a2a_loop' });
-      expect(onBus('neos.neop.task', MKT)).toHaveLength(sent);
-      expect(platformCalls).toBe(0);
-      expect((await mk().query("select count(*)::int as n from marketing.waits where kind = 'a2a_task' and job_id in (select job_id from marketing.bus_threads where direction = 'in' and peer = $1)", [LED])).rows[0].n).toBe(0);
-    } finally {
-      core.platform.openA2A = real;
-    }
+    const deep = await gate.call(await job(['cos', 'hr', 'books']), 'a2a.request', { app: 'ledger', ask: 'Post the ad spend' });
+    expect(deep).toMatchObject({ status: 'refused', code: 'a2a_depth' });
+    const loop = await gate.call(await job(['ledger']), 'a2a.request', { app: 'ledger', ask: 'Post the ad spend' });
+    expect(loop).toMatchObject({ status: 'refused', code: 'a2a_loop' });
+    expect(onBus('neos.neop.task', MKT)).toHaveLength(sent);
+    expect((await mk().query("select count(*)::int as n from marketing.waits where kind = 'a2a_task' and job_id in (select job_id from marketing.bus_threads where direction = 'in' and peer = $1)", [LED])).rows[0].n).toBe(0);
   });
 });
 
@@ -365,6 +374,7 @@ describe('template migration t015', () => {
     const db = await createTestDatabase();
     const CO = '11111111-2222-3333-4444-555555555555';
     const tdir = await mkdtemp(path.join(os.tmpdir(), 'neop-t015-'));
+    let beforeDir = '';
     try {
       await migratePlatform(db.adminUrl);
       await cp(TEMPLATE_MIGRATIONS, tdir, { recursive: true });
@@ -373,8 +383,8 @@ describe('template migration t015', () => {
       tled.migrations = tled.migrations.filter((m: any) => m.file < 't015');
       await writeFile(path.join(tdir, 'migrate.json'), JSON.stringify(tled));
       await bootstrapFamily(db.adminUrl, 'ledger');
-      const run = async (dir: string) => migrate({ adminUrl: db.adminUrl, schema: 'ledger', sources: { dir: path.join(LEDGER_ROOT, 'migrations'), prepend: await templateFiles(dir) }, lintExempt: TEMPLATE_INFRA_TABLES });
-      await run(tdir);
+      const run = async (dir: string, appDir = path.join(LEDGER_ROOT, 'migrations')) => migrate({ adminUrl: db.adminUrl, schema: 'ledger', sources: { dir: appDir, prepend: await templateFiles(dir) }, lintExempt: TEMPLATE_INFRA_TABLES });
+      await run(tdir, (beforeDir = await appMigrationsBefore(path.join(LEDGER_ROOT, 'migrations'), '010')));
       const pool = createPool(roleUrl(db.adminUrl, 'ledger_app'));
       const runner = createPool(roleUrl(db.adminUrl, 'ledger_runner'));
       const admin = new pg.Client({ connectionString: db.adminUrl });
@@ -404,6 +414,7 @@ describe('template migration t015', () => {
     } finally {
       await db.drop();
       await rm(tdir, { recursive: true, force: true });
+      if (beforeDir) await rm(beforeDir, { recursive: true, force: true });
     }
   });
 });

@@ -47,12 +47,7 @@ it('a hijacked assistant can only propose; nothing leaves without a person', asy
 
   // The assistant has no route to approve or execute. v3 S2: there is no execute route at all (the runner carries a
   // yes out from the row), and an answer enters only through answer_proposal(), which the assistant cannot reach.
-  const tok = await P.backend.core.jobTokens.mint({ sub: job_id, sid: 'x', company_id: P.company.id, abilities: ['ledger.close_pack.email'] }, 60_000);
-  const ex = await fetch(`http://127.0.0.1:${P.backend.ports.l3}/l3/proposals.execute`, {
-    method: 'POST',
-    headers: { authorization: `Bearer ${tok}`, 'content-type': 'application/json', 'contract-version': '1' },
-    body: JSON.stringify({ proposal_id: card.proposal_id }),
-  });
+  const ex = await fetch(`http://127.0.0.1:${P.backend.ports.files}/l3/proposals.execute`, { method: 'POST' });
   expect(ex.status).toBe(404);
   const gateHasNoApprove = await fetch(`http://127.0.0.1:${P.backend.ports.gate}/l3/proposals.resolve`, { method: 'POST' });
   expect(gateHasNoApprove.status).toBe(404);

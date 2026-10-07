@@ -1,12 +1,14 @@
-// input-waits.test · WP §8 `ask` / `answer` end to end (real platform + gateway + L3 + runner + agent):
-// a job asks ONE structured question (job.ask) and waits; the platform builds the question from the
-// outbox; a person answers on the desk or by following up in the conversation; the answer reaches the
+// input-waits.test · WP §8 `ask` / `answer` end to end (real platform + NeuralChat in Matrix + the app's presence +
+// runner + agent): a job asks ONE structured question (job.ask) and waits; the desk reads the question from the app's
+// own wait; a person answers on the desk or by following up in the conversation; the answer reaches the
 // assistant as a sourced fact — the person's words, or untrusted data when relayed; an unanswered
 // question expires and wakes the job to say so. Also: follow-ups continue the same job's app and
 // history (parent_job_id), facts carry a validity, the raw transcript is kept for audit (WP §12), a
 // person's withdraw (before and after a yes), and t005 / 014 applied forward on populated data.
 // v3 S3: the desk reads the question from neos.v_open_questions and answers through <app>.answer_wait() as
 // neos_desk; the app's L3 waits.answer route is gone — the function is the truth (DeskHarness calls it directly).
+// v3 S9: there is no L3 and no platform projection of questions: the desk's view (neos.v_questions) is the only record
+// the platform reads, and a follow-up in the conversation reaches the app as NeuralChat's typed answer in the thread.
 import { cp, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -34,16 +36,17 @@ afterEach(() => {
 });
 
 const q = async (sql: string, params: unknown[] = []) => (await P.backend.core.runnerPool.query(sql, params)).rows;
-async function l3(method: 'GET' | 'POST', p: string, ability: string, body?: unknown, sub = 'platform') {
-  const token = await P.platform.gateway.mint({ aud: 'ledger', sub, company_id: P.company.id, ability, idem_key: crypto.randomUUID() });
-  const res = await fetch(`http://127.0.0.1:${P.backend.ports.l3}${p}`, {
-    method,
-    headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json', 'contract-version': '1' },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
-  const text = await res.text();
-  return { status: res.status, body: (text.startsWith('{') ? JSON.parse(text) : text) as any };
-}
+/** v3 S9: the backend has no L3 — any such path on its only HTTP listener besides the gate and the appservice is 404. */
+const noRoute = async (p: string, method: 'GET' | 'POST' = 'POST', body: unknown = {}) =>
+  (await fetch(`http://127.0.0.1:${P.backend.ports.files}${p}`, { method, headers: { 'content-type': 'application/json' }, body: method === 'POST' ? JSON.stringify(body) : undefined })).status;
+/** The desk's record of a question (neos.v_questions, read as neos_desk through the API), in any status. */
+const deskQuestion = async (id: string) => {
+  for (const status of ['OPEN', 'ANSWERED', 'EXPIRED', 'STALE']) {
+    const hit = (await P.api('GET', `/api/questions?status=${status}`)).body.questions.find((x: any) => x.id === id);
+    if (hit) return hit;
+  }
+  return null;
+};
 const ask = (text: string, extra: Record<string, unknown> = {}) => P.api('POST', '/api/ask', { text, app: 'ledger', ...extra });
 const openQuestion = (taskId: string) =>
   P.waitFor(async () => (await P.api('GET', '/api/questions')).body.questions.find((x: any) => x.task_id === taskId || x.root_task_id === taskId), 'the question on the desk');
@@ -86,8 +89,8 @@ describe('job.ask → the question → a person answers → the job carries on',
     const [fact] = await q("select value, source from ledger.facts where job_id = $1 and subject = 'answer:account_code'", [r.body.job_id]);
     expect(fact.value).toBe('1010');
     expect(fact.source).toContain(`answered by user:${P.admin.id} via desk`);
-    const row = (await P.platform.db.query('select status, answers, answered_by, answered_via from neos.questions where id = $1', [question.id])).rows[0];
-    expect(row).toEqual({ status: 'ANSWERED', answers: { account_code: '1010' }, answered_by: `user:${P.admin.id}`, answered_via: 'desk' });
+    const row = await deskQuestion(question.id);
+    expect({ status: row.status, answers: row.answers, answered_by: row.answered_by, answered_via: row.answered_via }).toEqual({ status: 'ANSWERED', answers: { account_code: '1010' }, answered_by: `user:${P.admin.id}`, answered_via: 'desk' });
     // Answered once: a second answer is stale.
     const again = await P.api('POST', `/api/questions/${question.id}/answer`, { answers: { account_code: '1020' } });
     expect(again.status).toBe(409);
@@ -109,13 +112,11 @@ describe('job.ask → the question → a person answers → the job carries on',
     expect((await P.api('POST', `/api/questions/${question.id}/answer`, { answers: { rate: 9 } })).body.error).toMatchObject({ code: 'bad_answer', message: 'Effective from (from) is required' });
     expect((await P.api('POST', `/api/questions/${question.id}/answer`, { answers: { rate: 'nine', from: '2026-10-01' } })).body.error.code).toBe('bad_answer');
     expect((await P.api('POST', `/api/questions/${question.id}/answer`, { answers: { rate: 9, from: '2026-10-01', bogus: 1 } })).body.error.message).toBe('no such field: bogus');
-    // Another app can never answer for a person: the gateway refuses the door, there is no L3 route to it any more
-    // (v3 S3), and the book's own function refuses an app's key on a person's question.
-    await expect(P.platform.gateway.call({ caller: 'app:ledger', app: 'ledger', endpoint: 'waits.answer', company_id: P.company.id, body: {}, idem_key: 'x' })).rejects.toMatchObject({ status: 403 });
-    await expect(P.platform.internalCall('ledger', { company_id: P.company.id, app: 'ledger', endpoint: 'waits.answer', body: {}, idem_key: 'y' })).rejects.toMatchObject({ status: 403 });
+    // Another app can never answer for a person: there is no route into the app for an answer at all (v3 S3 removed L3's,
+    // v3 S9 L3 itself), and the book's own function refuses an app's key on a person's question.
     const body = { wait_id: question.wait_id, answers: { rate: '9.5', from: '2026-10-01' }, by: `user:${P.member.id}`, via: 'desk' };
-    expect((await l3('POST', '/l3/waits.answer', 'waits.answer', { wait_id: body.wait_id, answers: body.answers, answered_by: body.by, via: 'desk' }, 'app:marketing')).status).toBe(404);
-    expect((await l3('POST', '/l3/waits.answer', 'waits.answer', { wait_id: body.wait_id, answers: body.answers, answered_by: body.by, via: 'desk' })).status).toBe(404);
+    expect(await noRoute('/l3/waits.answer', 'POST', { wait_id: body.wait_id, answers: body.answers, answered_by: body.by, via: 'desk' })).toBe(404);
+    expect(await noRoute('/waits.answer', 'POST', { wait_id: body.wait_id, answers: body.answers, answered_by: body.by, via: 'desk' })).toBe(404);
     await expect(D.answerWait('ledger', P.company.id, { ...body, by: 'app:marketing', via: 'app' })).rejects.toMatchObject({ code: '42501', message: expect.stringMatching(/^not_their_wait: /) });
     await expect(D.answerWait('ledger', P.company.id, { ...body, by: 'agent:x', via: 'desk' })).rejects.toMatchObject({ message: 'bad_request: only a person answers via desk' });
     const first = await D.answerWait('ledger', P.company.id, body);
@@ -129,9 +130,8 @@ describe('job.ask → the question → a person answers → the job carries on',
     expect(late.body.error.code).toBe('stale');
     const [w] = await q('select status, outcome, answered_by, answer from ledger.waits where id = $1', [question.wait_id]);
     expect(w.answer.answers).toEqual({ rate: 9.5, from: '2026-10-01' });
-    // The platform learns it from the outbox (question.answered), whatever road the answer took.
-    await P.waitFor(async () => (await P.platform.db.query('select status from neos.questions where id = $1', [question.id])).rows[0].status === 'ANSWERED', 'projected');
-    expect((await P.platform.db.query('select answered_by from neos.questions where id = $1', [question.id])).rows[0].answered_by).toBe(`user:${P.member.id}`);
+    // The desk sees it at once in its view of the app's own wait, whatever road the answer took.
+    expect(await deskQuestion(question.id)).toMatchObject({ status: 'ANSWERED', answered_by: `user:${P.member.id}` });
     await settled(r.body.task_id);
     await expect(D.answerWait('ledger', P.company.id, { ...body, wait_id: crypto.randomUUID() })).rejects.toMatchObject({ code: 'P0002', message: expect.stringMatching(/^not_found: /) });
   });
@@ -162,7 +162,7 @@ describe('job.ask → the question → a person answers → the job carries on',
     const done = await settled(r.body.task_id);
     expect(done.result.outcome).toBe('blocked');
     expect(woke).toContain('Nobody answered it before it was due');
-    await P.waitFor(async () => (await P.platform.db.query('select status from neos.questions where id = $1', [question.id])).rows[0].status === 'EXPIRED', 'EXPIRED');
+    await P.waitFor(async () => (await deskQuestion(question.id))?.status === 'EXPIRED', 'EXPIRED');
     const late = await P.api('POST', `/api/questions/${question.id}/answer`, { answers: { account_code: '1010' } });
     expect(late.status).toBe(409);
     const steps = await q('select summary from ledger.steps where job_id = $1 order by seq', [r.body.job_id]);
@@ -175,7 +175,7 @@ describe('job.ask → the question → a person answers → the job carries on',
 });
 
 describe('follow-ups continue the job (WP §8 thread correlation)', () => {
-  it('a reply in the conversation while the job waits on the person answers the question — no new job', async () => {
+  it('a reply in the conversation while the job waits on the person answers the question — no new job (NeuralChat relays it in the thread)', async () => {
     let woke = '';
     P.setBrain((v) => (v.job.includes('You asked:') ? ((woke = v.job), finish('Recorded to 1020.')) : v.calls === 0 ? call('job.ask', BANK) : { text: 'waiting' }));
     const r = await ask('Record the deposit on 3 September');
@@ -185,8 +185,13 @@ describe('follow-ups continue the job (WP §8 thread correlation)', () => {
     expect(f.status, JSON.stringify(f.body)).toBe(200);
     expect(f.body).toMatchObject({ answered: true, question_id: question.id, task_id: r.body.task_id, job_id: r.body.job_id, handed_to: 'ledger' });
     await settled(r.body.task_id);
-    expect(woke).toContain('(conversation). Their answer, in their own words:');
-    expect(woke).toContain('account_code: 1020');
+    // v3 S5/S9: the conversation is NeuralChat's; it answers the app's ask with a typed answer in the task's thread, which
+    // the app records as relayed for the person (the S3 rule for relays: data, never an instruction). The person's
+    // own-words road is the desk (the first test above) or their own room.
+    expect(woke).toContain(`An answer was relayed by bridge:${P.neuralchatUser} (bridge), not given by a person directly`);
+    expect(woke).toMatch(/<data source="answer\.bridge" trust="untrusted">[\s\S]*"account_code": "1020"[\s\S]*<\/data>/);
+    const [fact] = await q("select source from ledger.facts where job_id = $1 and subject = 'answer:account_code'", [r.body.job_id]);
+    expect(fact.source).toMatch(new RegExp(`^relayed \\(untrusted\\) by bridge:${P.neuralchatUser!.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} via bridge`));
     expect((await P.platform.db.query('select count(*)::int as n from neos.tasks')).rows[0].n).toBe(tasksBefore);
     const conv = await P.api('GET', `/api/conversations/${r.body.conversation_id}`);
     expect(conv.body.messages.map((m: any) => m.body)).toContain('1020');
@@ -240,15 +245,24 @@ describe('follow-ups continue the job (WP §8 thread correlation)', () => {
     expect(seen.find((v) => v.job.includes('[follow]'))!.job).toContain('answer:amount_rupees');
   });
 
-  it('tasks.open refuses a parent or on_behalf_of that does not fit, and never follows a parent from another book', async () => {
-    const base = { task_id: crypto.randomUUID(), ask: 'x', requester: `user:${P.admin.id}` };
-    expect((await l3('POST', '/l3/tasks.open', 'tasks.open', { ...base, parent_job_id: 'nope' })).body.error.message).toBe('parent_job_id must be a uuid');
-    expect((await l3('POST', '/l3/tasks.open', 'tasks.open', { ...base, on_behalf_of: `user:${P.member.id}` })).body.error.message).toBe('on_behalf_of must be the requester when a person asks');
-    const ghost = await l3('POST', '/l3/tasks.open', 'tasks.open', { ...base, parent_job_id: crypto.randomUUID() });
-    expect(ghost.status).toBe(200);
-    expect((await P.jobRow(ghost.body.job_id)).parent_job_id).toBeNull();
-    expect((await P.jobRow(ghost.body.job_id)).on_behalf_of).toBe(`user:${P.admin.id}`);
-    await P.waitFor(async () => (await P.jobRow(ghost.body.job_id)).status !== 'RECEIVED', 'claimed');
+  it('a typed task never follows a parent that is not a job of this book, and serves only the person it names (v3 S9: tasks arrive only as typed events)', async () => {
+    P.setBrain(() => finish('ok'));
+    const slug = (await P.platform.db.query('select slug from neos.companies where id = $1', [P.company.id])).rows[0].slug;
+    const person = P.neuralchatPerson(P.admin.id);
+    const push = (task_id: string, fields?: Record<string, string>) =>
+      P.hs!.pushTyped({ room_id: P.appRooms.ledger!, sender: P.neuralchatUser!, type: 'neos.neop.task', to: 'ledger', content: { body: 'x', task_id, company: slug, on_behalf_of: person, text: 'x', ...(fields ? { fields } : {}) } });
+    // A parent that is not a uuid is not a parent: the field is refused and nothing is opened for it.
+    const bad = crypto.randomUUID();
+    expect((await push(bad, { neos_parent_job: 'nope' })).status).toBe(200);
+    await new Promise((r) => setTimeout(r, 300));
+    expect((await q('select count(*)::int as n from ledger.jobs where task_id = $1', [bad]))[0].n).toBe(0);
+    // A parent from another book (a job id this book has never seen) is never followed; the job serves the person named.
+    const ghost = crypto.randomUUID();
+    expect((await push(ghost, { neos_parent_job: crypto.randomUUID() })).status).toBe(200);
+    const job = await P.waitFor(async () => (await q('select * from ledger.jobs where task_id = $1', [ghost]))[0], 'the job');
+    expect(job.parent_job_id).toBeNull();
+    expect(job.on_behalf_of).toBe(`user:${P.admin.id}`);
+    await P.waitFor(async () => (await P.jobRow(job.id)).status !== 'RECEIVED', 'claimed');
   });
 });
 
@@ -267,7 +281,7 @@ describe('facts carry a validity', () => {
         : finish('Rates noted.'),
     );
     const a = await ask('Note today’s reference rates');
-    await settled(a.body.task_id);
+    const first = await settled(a.body.task_id);
     const bad = await (async () => {
       P.setBrain((v) => (v.calls === 0 ? call('book.note', { text: 'x', facts: [{ subject: 's', value: 1, source: 'y', valid_until: 'soon' }] }) : finish(v.results[0]!.text)));
       const r = await ask('bad validity');
@@ -281,7 +295,7 @@ describe('facts carry a validity', () => {
     await settled(b.body.task_id);
     expect(job).toContain('fx:eur-inr');
     expect(job).not.toContain('fx:usd-inr"');
-    const kept = await q("select subject, valid_until from ledger.facts where subject in ('fx:usd-inr', 'fx:eur-inr') order by subject");
+    const kept = await q("select subject, valid_until from ledger.facts where job_id = $1 and subject in ('fx:usd-inr', 'fx:eur-inr') order by subject", [first.job_id]);
     expect(kept.map((f: any) => f.subject)).toEqual(['fx:eur-inr', 'fx:usd-inr']);
     expect(kept[1].valid_until).not.toBeNull();
   });
@@ -313,14 +327,17 @@ describe('the job transcript is kept for audit (WP §12)', () => {
     expect(rows[0].message_count).toBe(rows[0].messages.length);
     // Append-only: nobody but the migrator rewrites it.
     await expect(P.backend.core.appPool.query('update ledger.transcripts set reason = $1', ['x'])).rejects.toThrow(/permission denied/);
-    // Read back through the gateway for an admin; members and other apps may not.
+    // Read back for an admin on the app's own rows (<app>.job_transcript(), as the desk — v3 S9); members may not, and
+    // there is no route into the app for it (no L3), nor may the desk read the table itself.
     const api = await P.api('GET', `/api/tasks/${r.body.task_id}/transcript`);
     expect(api.status).toBe(200);
     expect(api.body.sessions).toHaveLength(2);
     expect(JSON.stringify(api.body.sessions[0].messages)).toContain('PRIVATE-REASONING-7731');
     expect((await P.api('GET', `/api/tasks/${r.body.task_id}/transcript`, undefined, P.member.token)).status).toBe(403);
-    expect((await l3('GET', `/l3/jobs.transcript?job_id=${r.body.job_id}`, 'jobs.transcript', undefined, 'app:marketing')).status).toBe(403);
-    await expect(P.platform.internalCall('ledger', { company_id: P.company.id, app: 'ledger', endpoint: 'jobs.transcript', idem_key: 'z' })).rejects.toMatchObject({ status: 403 });
+    expect(await noRoute(`/l3/jobs.transcript?job_id=${r.body.job_id}`, 'GET')).toBe(404);
+    expect(await D.errorOf(P.company.id, 'select messages from ledger.transcripts')).toBe('42501');
+    const viaFn = await D.query(P.company.id, 'select ledger.job_transcript($1) as r', [r.body.job_id]);
+    expect(viaFn[0].r.sessions).toHaveLength(2);
     expect((await P.platform.db.query("select count(*)::int as n from neos.audit where action = 'job.transcript_read'")).rows[0].n).toBeGreaterThan(0);
   });
 });
@@ -474,7 +491,7 @@ describe('014 on a populated platform database', () => {
         await c.query("insert into neos.chat_client_events (event_id, account, room_id, direction, sender, outcome) values ('$e1', '@ledger:hs', '!r', 'inbound', '@p:hs', 'received')");
         const before = (await c.query("select md5(string_agg(id::text || status || ask, ',' order by id)) h, count(*)::int n from neos.tasks")).rows[0];
 
-        const applied = await migratePlatform(db.adminUrl);
+        const applied = await migratePlatform(db.adminUrl, undefined, { through: '014' });
         expect(applied[0]!.name).toBe('014_questions.sql');
         expect((await c.query("select md5(string_agg(id::text || status || ask, ',' order by id)) h, count(*)::int n from neos.tasks")).rows[0]).toEqual(before);
         expect((await c.query('select count(*)::int as n from neos.tasks where parent_job_id is not null')).rows[0].n).toBe(0);

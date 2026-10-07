@@ -9,7 +9,7 @@ beforeAll(async () => {
 });
 afterAll(async () => P?.close());
 
-const read = async (key: string, args: unknown) => (await P.api('POST', `/api/apps/ledger/read/${key}`, args)).body.result;
+const read = async (key: string, args: unknown) => (await P.read(key, args)).body.result;
 
 describe('honesty', () => {
   it('a period with no entries says empty, with zero entries as its source', async () => {
@@ -96,7 +96,7 @@ describe('honesty · generatedAt (WP v3 §13 standard test)', () => {
     for (const a of reads) expect((a.output as { required?: string[] }).required ?? [], a.key).toContain('generatedAt');
     const before = Date.now();
     for (const [key, args] of Object.entries(ARGS)) {
-      const r = await P.api('POST', `/api/apps/ledger/read/${key}`, args);
+      const r = await P.read(key, args);
       expect(r.status, `${key}: ${JSON.stringify(r.body)}`).toBe(200);
       const at = r.body.result.generatedAt;
       expect(typeof at, key).toBe('string');

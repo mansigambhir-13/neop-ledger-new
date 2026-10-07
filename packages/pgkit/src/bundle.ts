@@ -1,3 +1,4 @@
+import {sqlIdent} from './roles.ts';
 // The DBA path (WP v3 §11): "the NEOP ships a migration file; the DBA reviews it, applies it to the
 // main database, creates a role that can see only that schema". This renders that one file: the
 // family's roles and grants (what bootstrapFamily does), the schema and its schema_migrations ledger,
@@ -41,9 +42,9 @@ export async function renderDbaBundle(opts: { schema: string; sources: Migration
   out.push(familyBootstrapSql(schema));
   out.push('');
   out.push('-- ── 2 · the schema and its migration ledger ───────────────────────────');
-  out.push(`create schema if not exists ${schema} authorization ${roles.migrator};`);
+  out.push(`create schema if not exists ${sqlIdent(schema)} authorization ${roles.migrator};`);
   out.push(`set role ${roles.migrator};`);
-  out.push(`create table if not exists ${schema}.schema_migrations (\n  name text primary key, checksum text not null, applied_at timestamptz not null default now());`);
+  out.push(`create table if not exists ${sqlIdent(schema)}.schema_migrations (\n  name text primary key, checksum text not null, applied_at timestamptz not null default now());`);
   out.push('reset role;');
   out.push('');
   out.push('-- ── 3 · the migrations, in order ──────────────────────────────────────');
@@ -55,17 +56,17 @@ export async function renderDbaBundle(opts: { schema: string; sources: Migration
     if (led) out.push(`-- ─── tables: ${(led.tables ?? []).join(', ') || '—'} · ${led.baseline ? 'baseline (first release)' : `proven on populated data: ${led.proven_on_populated_data ?? 'NOT YET'}`}`);
     out.push('begin;');
     out.push(`set local role ${roles.migrator};`);
-    out.push(`set local search_path to ${schema};`);
+    out.push(`set local search_path to ${sqlIdent(schema)};`);
     const body = render(raw, schema).trimEnd();
     // A file whose last statement has no ";" would run into the ledger insert below.
     out.push(/;\s*(--[^\n]*)?$/.test(body) ? body : `${body}\n;`);
-    out.push(`insert into ${schema}.schema_migrations (name, checksum) values ('${f.name}', '${f.checksum}');`);
+    out.push(`insert into ${sqlIdent(schema)}.schema_migrations (name, checksum) values ('${f.name}', '${f.checksum}');`);
     out.push('commit;');
     out.push('');
     migrations.push({ name: f.name, checksum: f.checksum });
   }
   out.push('-- ── 4 · the backend reads the ledger at boot ──────────────────────────');
-  out.push(`grant select on ${schema}.schema_migrations to ${roles.app}, ${roles.runner};`);
+  out.push(`grant select on ${sqlIdent(schema)}.schema_migrations to ${roles.app}, ${roles.runner};`);
   out.push('');
   out.push('-- ── 5 · the desk (v3 §11): DML on switchboard + installs, EXECUTE on the desk functions ──');
   out.push('-- Only when the platform has made neos_desk (NOLOGIN); safe to re-run after it does.');

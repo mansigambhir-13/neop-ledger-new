@@ -112,7 +112,7 @@ describe('the NEOP’s own rooms', () => {
     await waitSent(/^Reply to the card with "yes", "no" or "change: <what to change>"\.$/, 'unclear');
   });
 
-  it('Phase 3 exit: the same job from a room and from the NEOS app writes identical book entries', async () => {
+  it('the same job from a person room and from NeuralChat’s room writes identical book entries', async () => {
     pnlBrain();
     const r = await P.hs!.push({ room_id: ROOM, sender: PRIYA, body: 'P&L for August 2026 please' });
     const roomJob = await P.waitFor(async () => (await db().query("select * from ledger.jobs where origin = $1 and status = 'DONE'", [r.event_id])).rows[0], 'room job');
@@ -122,8 +122,8 @@ describe('the NEOP’s own rooms', () => {
     const steps = async (jobId: string) => (await db().query('select kind, summary, ability_key from ledger.steps where job_id = $1 order by seq', [jobId])).rows;
     expect(await steps(roomJob.id)).toEqual(await steps(app.job_id));
     const src = await db().query('select source from ledger.jobs where id = any($1) order by source', [[roomJob.id, app.job_id]]);
-    expect(src.rows.map((x: any) => x.source)).toEqual(['room', 'task']);
-    // A desk job is mirrored into the company's room too (as the platform's bridge did).
+    expect(src.rows.map((x: any) => x.source)).toEqual(['room', 'room']);
+    // The NeuralChat task is mirrored into the company's room too.
     await P.waitFor(async () => inRoom().find((m) => m.body === `On it — Ledger job ${app.job_id.slice(0, 8)}.`), 'the desk job mirrored');
   });
 });
@@ -172,7 +172,9 @@ describe('v3 §8 room settings, checked by the NEOP itself: invite-only, no end-
     expect(req.body).toMatchObject({ preset: 'private_chat', visibility: 'private', invite: [PRIYA] });
     expect(JSON.stringify(req.body.initial_state)).not.toContain('m.room.encryption');
     expect(req.body.power_level_content_override.events['neos.neop.approve']).toBe(50);
-    expect(req.body.power_level_content_override.users).toMatchObject({ [PRIYA]: 50, [bot]: 10 });
+    expect(req.body.power_level_content_override.users).toMatchObject({ [PRIYA]: 50, [bot]: 100 });
+    const state = (await fetch(`${P.hs!.url}/_matrix/client/v3/rooms/${encodeURIComponent(room)}/state`, { headers: { authorization: `Bearer ${MATRIX.asToken}` } }).then((x) => x.json())) as any[];
+    expect(state.find((e) => e.type === 'm.room.power_levels')!.content.users).toMatchObject({ [PRIYA]: 50, [bot]: 10 });
     expect((await bind([ROOM, room])).status).toBe(200);
     pnlBrain();
     const r = await P.hs!.push({ room_id: room, sender: PRIYA, body: 'P&L for August 2026 please' });

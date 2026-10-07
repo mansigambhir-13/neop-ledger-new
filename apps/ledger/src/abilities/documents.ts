@@ -1,7 +1,7 @@
 // Kept source documents (WP §11). A file a person attached is stored by the template (bytes in
 // the document store, a row in ledger.documents_files); a bill read from it keeps its sha256.
 // This read answers "what is that file, what was recorded from it, and where can a person get
-// it" — metadata and a short-lived link the platform serves. Never the bytes.
+// it" — metadata and a short-lived link Ledger's own files listener serves. Never the bytes.
 
 import type { PoolClient } from '@neop/pgkit';
 import { documents, type ReadAbility, type ReadCtx } from '@neop/template';

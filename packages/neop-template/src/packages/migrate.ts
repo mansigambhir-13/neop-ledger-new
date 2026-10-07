@@ -1,3 +1,4 @@
+import {sqlIdent} from '@neop/pgkit';
 // Package roles and grants (v3 §10, S7). A package's migrations are files in the host's own numbered set
 // (written by `neos install`) and run with the host's migrations — never at request time. What the migrator
 // role cannot do is make roles: this runs with the admin connection after the host's migrations (migrateApp),
@@ -23,18 +24,18 @@ export function packageGrantsSql(host: string, p: { key: string; tables: string[
   assertIdent(host);
   const role = packageRole(host, p.key);
   const app = familyRoles(host).app;
-  const lines = [`grant usage on schema ${host} to ${role};`];
+  const lines = [`grant usage on schema ${sqlIdent(host)} to ${role};`];
   for (const t of p.tables) {
     if (!IDENT.test(t)) throw new Error(`bad table name ${t}`);
     lines.push(
-      `do $g$ begin if to_regclass('${host}.${t}') is not null then`,
-      `  grant select, insert, update on ${host}.${t} to ${role};`,
-      `  revoke insert, update, delete, truncate on ${host}.${t} from ${app};`,
-      `  grant select on ${host}.${t} to ${app};`,
+      `do $g$ begin if to_regclass('${sqlIdent(host)}.${t}') is not null then`,
+      `  grant select, insert, update on ${sqlIdent(host)}.${t} to ${role};`,
+      `  revoke insert, update, delete, truncate on ${sqlIdent(host)}.${t} from ${app};`,
+      `  grant select on ${sqlIdent(host)}.${t} to ${app};`,
       `end if; end $g$;`,
     );
   }
-  lines.push(`grant usage, select on all sequences in schema ${host} to ${role};`);
+  lines.push(`grant usage, select on all sequences in schema ${sqlIdent(host)} to ${role};`);
   return lines.join('\n');
 }
 
@@ -48,7 +49,7 @@ export function packageBootstrapSql(host: string, lock: PackagesLock): string {
     const role = packageRole(host, p.key);
     out.push(`-- ${p.key}@${p.version} (artifact ${p.artifact_hash})`);
     out.push(`do $r$ begin if not exists (select 1 from pg_roles where rolname = '${role}') then create role ${role} login nobypassrls nosuperuser nocreaterole; end if; end $r$;`);
-    out.push(`alter role ${role} set search_path = ${host};`);
+    out.push(`alter role ${role} set search_path = ${sqlIdent(host)};`);
     out.push(`do $c$ begin execute format('grant connect on database %I to ${role}', current_database()); end $c$;`);
     out.push(packageGrantsSql(host, p));
   }
@@ -75,7 +76,7 @@ export async function applyPackageGrants(adminUrl: string, host: string, lock: P
         });
       }
       await retryConcurrent(() => client.query(`alter role ${role} login password '${pw}' nobypassrls nosuperuser nocreaterole`));
-      if (!(exists.rows[0]?.c ?? []).includes(`search_path=${host}`)) await retryConcurrent(() => client.query(`alter role ${role} set search_path = ${host}`));
+      if (!(exists.rows[0]?.c ?? []).includes(`search_path=${sqlIdent(host)}`)) await retryConcurrent(() => client.query(`alter role ${role} set search_path = ${sqlIdent(host)}`));
       await client.query(`grant connect on database "${db}" to ${role}`);
       await client.query(packageGrantsSql(host, p));
       roles.push(role);

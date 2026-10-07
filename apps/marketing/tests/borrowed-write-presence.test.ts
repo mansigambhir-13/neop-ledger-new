@@ -101,7 +101,7 @@ describe('a borrowed write over the bus room', () => {
     // Both operations tables have a row; nothing went through the platform's a2a routing or its ACL.
     expect((await P.backends.marketing!.core.runnerPool.query("select outcome from marketing.operations where job_id = $1 and ability_key = 'borrow:ledger:ledger.expense.record'", [r.job_id])).rows).toEqual([{ outcome: 'answered' }]);
     expect((await P.platform.db.query("select count(*)::int as n from neos.tasks where requester like 'app:%'")).rows[0].n).toBe(0);
-    expect((await P.platform.db.query('select count(*)::int as n from neos.acl')).rows[0].n).toBe(0);
+    expect((await P.platform.db.query("select to_regclass('neos.acl') as r")).rows[0].r).toBeNull();
   });
 
   it('the owner’s switch still decides, and the owner refuses what the asker does not declare', async () => {

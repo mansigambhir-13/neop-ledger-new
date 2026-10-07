@@ -53,16 +53,16 @@ afterAll(async () => {
 
 describe('B9 · registerApp keeps what installed registry entries require', () => {
   it('refuses 409 breaks_installed to drop, retype or move the major of a required ability; other changes pass', async () => {
-    await p.registerApp({ key: 'owner', l3_url: 'http://o', manifest: manifest([ability('owner.stock.read'), ability('owner.other')]), service_secret: 's' });
-    await p.registerApp({ key: 'host', l3_url: 'http://h', manifest: { ...manifest([]), app: 'host' }, service_secret: 's' });
+    await p.registerApp({ key: 'owner', manifest: manifest([ability('owner.stock.read'), ability('owner.other')]), service_secret: 's' });
+    await p.registerApp({ key: 'host', manifest: { ...manifest([]), app: 'host' }, service_secret: 's' });
     await p.installApp(co, 'host');
     await c.query(`insert into neos.registry_entries (key, version, kind, owner_app, published_by, requires, body, content_hash, platform_sig, status)
                    values ('owner/stock-check', '1.0.0', 'skill', 'owner', 'app:owner', '["owner.stock.read"]', 'check stock', 'sha256:x', 'sig', 'published')`);
     // v3 S7: the host's build pins it (`neos install host owner/stock-check@1.0.0` wrote it into the host's manifest).
     const pin = { key: 'owner/stock-check', version: '1.0.0', owner_app: 'owner', content_hash: 'sha256:x', requires: ['owner.stock.read'] };
-    await p.registerApp({ key: 'host', l3_url: 'http://h', manifest: { ...manifest([]), app: 'host', registry_skills: [pin] }, service_secret: 's' });
+    await p.registerApp({ key: 'host', manifest: { ...manifest([]), app: 'host', registry_skills: [pin] }, service_secret: 's' });
 
-    const reg = (abilities: any[]) => p.registerApp({ key: 'owner', l3_url: 'http://o', manifest: manifest(abilities), service_secret: 's' });
+    const reg = (abilities: any[]) => p.registerApp({ key: 'owner', manifest: manifest(abilities), service_secret: 's' });
     await expect(reg([ability('owner.other')])).rejects.toMatchObject({ status: 409, code: 'breaks_installed' });
     await expect(reg([ability('owner.stock.read', '1.0.0', 'write'), ability('owner.other')])).rejects.toMatchObject({ code: 'breaks_installed' });
     await expect(reg([ability('owner.stock.read', '2.0.0'), ability('owner.other')])).rejects.toMatchObject({ code: 'breaks_installed', message: /owner\/stock-check@1\.0\.0.*host.*owner\.stock\.read/ });
@@ -70,14 +70,14 @@ describe('B9 · registerApp keeps what installed registry entries require', () =
     await reg([ability('owner.stock.read', '1.1.0')]);
     expect((await c.query("select manifest->'abilities'->0->>'version' v from neos.apps where key = 'owner'")).rows[0].v).toBe('1.1.0');
     // Once the host's next build no longer pins it (`neos install --remove`, re-registered), nothing pins it any more.
-    await p.registerApp({ key: 'host', l3_url: 'http://h', manifest: { ...manifest([]), app: 'host', registry_skills: [] }, service_secret: 's' });
+    await p.registerApp({ key: 'host', manifest: { ...manifest([]), app: 'host', registry_skills: [] }, service_secret: 's' });
     await reg([ability('owner.other')]);
   });
 
   it('an installed package pins what its skills require the same way; the host itself may not break its own package', async () => {
     const pkgPin = { key: 'nep-tally', version: '1.0.0', requires: ['self.books.read'], abilities: [ability('tally.count')], doors: [], skills: [{ key: 'tally', requires: ['self.books.read', 'tally.count'] }] };
-    await p.registerApp({ key: 'self', l3_url: 'http://s', manifest: { ...manifest([ability('self.books.read')]), app: 'self', packages: [pkgPin] }, service_secret: 's' });
-    const again = (abilities: any[], packages: any[]) => p.registerApp({ key: 'self', l3_url: 'http://s', manifest: { ...manifest(abilities), app: 'self', packages }, service_secret: 's' });
+    await p.registerApp({ key: 'self', manifest: { ...manifest([ability('self.books.read')]), app: 'self', packages: [pkgPin] }, service_secret: 's' });
+    const again = (abilities: any[], packages: any[]) => p.registerApp({ key: 'self', manifest: { ...manifest(abilities), app: 'self', packages }, service_secret: 's' });
     await expect(again([], [pkgPin])).rejects.toMatchObject({ code: 'breaks_installed', message: /nep-tally@1\.0\.0 \(installed in self\) requires self\.books\.read/ });
     // The same build that removes the package may drop what only it needed.
     await again([], []);
@@ -93,7 +93,7 @@ describe('v3 S7 · publish keeps what pinned entries require', () => {
     void r1;
     // A skill pinned by the app 'user1' needs gauge.count (the package's own ability).
     const skill = { key: 'owner/gauge-check', version: '1.0.0', owner_app: 'owner', content_hash: 'sha256:y', requires: ['gauge.count'] };
-    await p.registerApp({ key: 'user1', l3_url: 'http://u', manifest: { ...manifest([]), app: 'user1', registry_skills: [skill] }, service_secret: 's' });
+    await p.registerApp({ key: 'user1', manifest: { ...manifest([]), app: 'user1', registry_skills: [skill] }, service_secret: 's' });
     const next = (version: string, abilities: any[]) => {
       const b = bundle('nep-gauge', version, ['nep_gauge__items']);
       b.manifest.abilities = abilities;
@@ -116,7 +116,7 @@ describe('v3 S7 · publish keeps what pinned entries require', () => {
     await c.query(`insert into neos.registry_entries (key, version, kind, owner_app, published_by, requires, body, content_hash, platform_sig, status)
                    values ('owner/old-skill', '1.0.0', 'skill', 'owner', 'app:owner', '[]', 'old', 'sha256:z', 'sig', 'published')`);
     const pin = { key: 'owner/old-skill', version: '1.0.0', owner_app: 'owner', content_hash: 'sha256:z', requires: [] };
-    await p.registerApp({ key: 'user2', l3_url: 'http://u2', manifest: { ...manifest([]), app: 'user2', registry_skills: [pin] }, service_secret: 's' });
+    await p.registerApp({ key: 'user2', manifest: { ...manifest([]), app: 'user2', registry_skills: [pin] }, service_secret: 's' });
     const op = { role: 'operator' };
     await expect(p.registry.retire(op, 'owner/old-skill', '1.0.0')).rejects.toMatchObject({ code: 'pinned', message: /user2 still pins owner\/old-skill@1\.0\.0/ });
     await p.registry.deprecate(op, 'owner/old-skill', '1.0.0');
@@ -159,7 +159,7 @@ describe('022 on a populated platform database', () => {
       await admin.query(`insert into neos.registry_installs (company_id, host_app, entry_key, pinned_version, status) values ($1, 'owner', 'nep-gst', '2.0.0', 'active')`, [co]);
       const counts = async () => (await admin.query("select (select count(*) from neos.registry_entries)::int e, (select count(*) from neos.registry_installs)::int i, (select count(*) from neos.apps)::int a")).rows[0];
       const before = await counts();
-      const rest = await migrate({ adminUrl: d.adminUrl, schema: 'neos', sources: { dir: PLATFORM_MIGRATIONS }, tenantLint: false });
+      const rest = await migratePlatform(d.adminUrl, undefined, { through: '022' }); // 025 (S9) contracts registry_installs; its own proof is migration-025.test.ts
       expect(rest.map((x) => x.name)).toContain('022_registry_pins.sql');
       expect(await counts()).toEqual(before);
       expect((await admin.query('select key, body, platform_sig from neos_registry.skills')).rows).toEqual([{ key: 'owner/check', body: 'check the stock', platform_sig: 'sig-s' }]);

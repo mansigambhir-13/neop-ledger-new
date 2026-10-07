@@ -26,7 +26,7 @@ const running: PresenceClient[] = [];
 const db = () => P.backend.core.runnerPool;
 
 beforeAll(async () => {
-  P = await bootPilot({ presence: 'client' });
+  P = await bootPilot({ presence: 'client', neuralchat: false });
   expect((await P.api('PUT', `/api/users/${P.admin.id}/chat`, { matrix_user_id: PRIYA })).status).toBe(200);
   expect((await P.api('PUT', `/api/users/${P.member.id}/chat`, { matrix_user_id: RAHUL })).status).toBe(200);
   for (const e of [
@@ -334,6 +334,24 @@ describe('approvals on the NEOP’s client road: only a person says yes', () => 
     expect((await P.api('PUT', '/api/chat/allowlist', { app: 'ledger', matrix_id: RAHUL, kind: 'person' })).status).toBe(200);
     try {
       const hs = fakeClientHomeserver({ me: ME });
+      const originalFetch = hs.fetchImpl;
+      let repliedBeforeReceipt = false;
+      // Matrix can expose a card to its recipient before the sender has received its HTTP response
+      // and persisted the returned event ID. A fast reply must still bind to that card.
+      hs.fetchImpl = async (input, init) => {
+        const response = await originalFetch(input, init);
+        if (!repliedBeforeReceipt && init?.method === 'PUT' && String(input).includes('/send/m.room.message/')) {
+          const content = JSON.parse(String(init.body));
+          if (content.body?.includes('Email the pack to the bank') && content.body.includes('Fingerprint:')) {
+            repliedBeforeReceipt = true;
+            const room = decodeURIComponent(String(input).split('/rooms/')[1]!.split('/send/')[0]!);
+            const { event_id } = await response.json() as { event_id: string };
+            hs.say(room, RAHUL, text('yes', { 'm.relates_to': { 'm.in_reply_to': { event_id } } }));
+            await pause(250);
+          }
+        }
+        return response;
+      };
       await client(hs);
       const dm = await dmWith(hs, RAHUL);
       P.setBrain((v) =>
@@ -344,8 +362,8 @@ describe('approvals on the NEOP’s client road: only a person says yes', () => 
       hs.say(dm, RAHUL, text('Send the August pack to the bank'));
       const [card] = await nNotices(hs, dm, 1, 'card');
       const p = (await db().query("select * from ledger.proposals where status = 'PROPOSED' and card->>'what' = 'Email the pack to the bank'")).rows[0];
-      hs.say(dm, RAHUL, text('yes', { 'm.relates_to': { 'm.in_reply_to': { event_id: card!.event_id } } }));
       const r = await nNotices(hs, dm, 2, 'refusal');
+      expect(repliedBeforeReceipt).toBe(true);
       expect(r[1]!.content.body).toBe('That answer was not recorded: only admin may approve ledger.close_pack.email.');
       expect((await proposal(p.id)).status).toBe('PROPOSED');
       await db().query("update ledger.proposals set status = 'WITHDRAWN' where id = $1", [p.id]);
@@ -504,10 +522,11 @@ describe('the identity API (PUT /api/chat/presence) and NEOP_PRESENCE', () => {
     expect(audit).toContain('chat.presence_set');
   });
 
-  it('NEOP_PRESENCE: off by default; each road needs its settings', () => {
-    expect(presenceConfigFromEnv({})).toEqual({ mode: 'off' });
-    expect(presenceConfigFromEnv({ NEOP_PRESENCE: 'off', NEOP_MATRIX_HOMESERVER_URL: 'http://hs' })).toEqual({ mode: 'off' });
-    expect(() => presenceConfigFromEnv({ NEOP_PRESENCE: 'bridge' })).toThrow(/off, appservice or client/);
+  it('NEOP_PRESENCE: the client road by default, never off (v3 S9); each road needs its settings', () => {
+    // v3 S9: the NEOP's own presence is the only road to it — there is no "off" (no platform bridge to fall back to).
+    expect(() => presenceConfigFromEnv({})).toThrow(/NEOP_MATRIX_HOMESERVER_URL/); // the default road, client, needs its settings
+    expect(() => presenceConfigFromEnv({ NEOP_PRESENCE: 'off', NEOP_MATRIX_HOMESERVER_URL: 'http://hs' })).toThrow(/appservice or client[\s\S]*only road/);
+    expect(() => presenceConfigFromEnv({ NEOP_PRESENCE: 'bridge' })).toThrow(/appservice or client/);
     expect(() => presenceConfigFromEnv({ NEOP_PRESENCE: 'client' })).toThrow(/NEOP_MATRIX_HOMESERVER_URL/);
     expect(() => presenceConfigFromEnv({ NEOP_PRESENCE: 'client', NEOP_MATRIX_HOMESERVER_URL: 'http://hs' })).toThrow(/NEOP_MATRIX_CLIENT_ACCOUNTS/);
     expect(() => presenceConfigFromEnv({ NEOP_PRESENCE: 'appservice', NEOP_MATRIX_HOMESERVER_URL: 'http://hs' })).toThrow(/HS_TOKEN/);

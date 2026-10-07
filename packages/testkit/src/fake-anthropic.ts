@@ -13,7 +13,7 @@ export interface UpstreamView {
   results: { tool: string; text: string; isError: boolean }[];
   job: string;
 }
-export type UpstreamBrain = (v: UpstreamView) => { tool: string; args: unknown } | { text: string };
+export type UpstreamBrain = (v: UpstreamView) => { tool: string; args: unknown } | { text: string } | Promise<{ tool: string; args: unknown } | { text: string }>;
 
 export interface FakeUpstream {
   url: string;
@@ -53,7 +53,7 @@ export async function fakeAnthropic(opts: { apiKey?: string; usage?: { input: nu
     const first = body.messages[0];
     const job = typeof first?.content === 'string' ? first.content : (first?.content ?? []).map((x: any) => x.text ?? '').join('');
     const system = Array.isArray(body.system) ? body.system.map((s: any) => s.text).join('') : (body.system ?? '');
-    const out = brain({ system, messages: body.messages, tools: (body.tools ?? []).map((t: any) => t.name), results, job });
+    const out = await brain({ system, messages: body.messages, tools: (body.tools ?? []).map((t: any) => t.name), results, job });
     const id = `msg_${calls.length}`;
     const events: any[] = [
       { type: 'message_start', message: { id, type: 'message', role: 'assistant', model: body.model, content: [], stop_reason: null, usage: { input_tokens: usage.input, output_tokens: 1 } } },

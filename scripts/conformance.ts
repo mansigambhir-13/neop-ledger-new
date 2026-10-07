@@ -2,7 +2,7 @@
 // template tests pass"). Runs the required suites for one app with vitest's JSON reporter
 // and writes an attestation bound to that exact manifest (sha256 over its JCS form):
 //   tsx scripts/conformance.ts ledger [--out conformance/ledger.json]
-// then: tsx scripts/ops.ts register-app ledger <l3_url> --conformance conformance/ledger.json
+// then: tsx scripts/ops.ts register-app ledger --conformance conformance/ledger.json
 import { execFileSync, spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
@@ -15,6 +15,25 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const apps: Record<string, () => Promise<{ manifest: any }>> = {
   ledger: async () => (await import('@neop/ledger')).ledgerApp(),
   marketing: async () => (await import('@neop/marketing')).marketingApp(),
+  wage: async () => (await import('@neop/wage')).wageApp(),
+  pay: async () => (await import('@neop/pay')).payApp(),
+  buy: async () => (await import('@neop/buy')).buyApp(),
+  renew: async () => (await import('@neop/renew')).renewApp(),
+  deal: async () => (await import('@neop/deal')).dealApp(),
+  quote: async () => (await import('@neop/quote')).quoteApp(),
+  hire: async () => (await import('@neop/hire')).hireApp(),
+  desk: async () => (await import('@neop/desk')).deskApp(),
+  reach: async () => (await import('@neop/reach')).reachApp(),
+  roster: async () => (await import('@neop/roster')).rosterApp(),
+  grant: async () => (await import('@neop/grant')).grantApp(),
+  shift: async () => (await import('@neop/shift')).shiftApp(),
+  sync: async () => (await import('@neop/sync')).syncApp(),
+  post: async () => (await import('@neop/post')).postApp(),
+  sign: async () => (await import('@neop/sign')).signApp(),
+  guard: async () => (await import('@neop/guard')).guardApp(),
+  vet: async () => (await import('@neop/vet')).vetApp(),
+  asset: async () => (await import('@neop/asset')).assetApp(),
+  clear: async () => (await import('@neop/clear')).clearApp(),
 };
 
 const argv = process.argv.slice(2);

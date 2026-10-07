@@ -6,8 +6,6 @@
 //   · the app role only reads (42501 on every write); the desk role (neos_desk) writes switchboard and installs and
 //     nothing else of the app's; the runner may re-stamp floors and suspend a grant;
 //   · create_grant / revoke_grant check what the platform checked; a grant suspends itself in the app's schema;
-//   · the backfill (scripts/v3/backfill-boards.ts) copies the platform's legacy rows once, idempotently, and
-//     never overwrites newer truth;
 //   · t010 applies forward on a populated book (its proof in migrate.json).
 import { cp, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
@@ -18,12 +16,11 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { bootstrapFamily, createPool, createTestDatabase, migrate, roleUrl, templateFiles, withCompany } from '@neop/pgkit';
 import { migratePlatform } from '@neop/platform';
 import { loadBoard, matchGrant, NotInstalled, TEMPLATE_INFRA_TABLES, TEMPLATE_MIGRATIONS } from '@neop/template';
-import { runBackfill } from '../../../scripts/v3/backfill-boards.ts';
 import { LEDGER_ROOT, seedLedger } from '../src/index.ts';
-import { bootPilot, call, finish, ledgerUnderTest, type Pilot } from './harness.ts';
+import { bootPilot, call, finish, type Pilot } from './harness.ts';
+import { appMigrationsBefore } from '@neop/testkit';
 
 const errOf = (p: Promise<unknown>) => p.then(() => ({ code: 'ok', message: '' }), (e: { code?: string; message?: string }) => ({ code: e.code ?? '?', message: e.message ?? String(e) }));
-
 /** One transaction as a role (the desk, by SET ROLE from the admin link), scoped to a company. */
 async function as<T>(admin: pg.Client, role: string, co: string, fn: (c: pg.Client) => Promise<T>): Promise<T> {
   await admin.query('begin');
@@ -203,102 +200,6 @@ describe('on a running pilot', () => {
     }
   });
 
-  it('the backfill copies the platform’s legacy rows once, idempotently, and never overwrites newer truth', async () => {
-    const B = await P.platform.createCompany('Backfill Traders', 'Asia/Kolkata');
-    const bAdmin = await P.platform.createUser(B.id, { name: 'Asha', email: 'asha@backfill.example', role: 'admin' });
-    const db = P.platform.db;
-    // What the platform held before S1: an install, a board at version 3, two grants and one recorded use.
-    await db.query('insert into neos.installs (company_id, app_key, installed_by) values ($1, $2, $3)', [B.id, 'ledger', bAdmin.id]);
-    await db.query(
-      `insert into neos.switchboards (company_id, app_key, version, settings, rules, budget, approvals, updated_by) values
-         ($1, 'ledger', 2, '{"ledger.report.pnl":"on"}', '[]', '{}', '{}', $2),
-         ($1, 'ledger', 3, $3, $4, '{"per_job_usd":3}', $5, $2)`,
-      [
-        B.id,
-        bAdmin.id,
-        JSON.stringify({ 'ledger.report.pnl': 'off', 'ledger.journal.post': 'off', 'door:email': 'off', 'skill:financial-reports': 'off' }),
-        JSON.stringify([{ id: 'two', type: 'recipient_cap', max: 2 }]),
-        JSON.stringify({ '*': { four_eyes: true }, 'ledger.close_pack.email': { roles: ['admin'] } }),
-      ],
-    );
-    const g1 = randomUUID();
-    const g2 = randomUUID();
-    await db.query(
-      `insert into neos.grants (id, company_id, app_key, ability_key, limits, status, expires_at, created_by, suspended_reason) values
-         ($1, $3, 'ledger', 'ledger.payment.record', '{"per_month_minor":5000,"currency":"INR"}', 'ACTIVE', now() + interval '30 days', $4, null),
-         ($2, $3, 'ledger', 'ledger.close_pack.email', '{"recipients_allow":["cfo@backfill.example"]}', 'SUSPENDED', now() + interval '30 days', $4, 'execution FAILED for proposal x')`,
-      [g1, g2, B.id, bAdmin.id],
-    );
-    const used = randomUUID();
-    await db.query(`insert into neos.audit (company_id, actor, app_key, action, ability_key, outcome, detail) values ($1, $2, 'ledger', 'grant.used', 'ledger.payment.record', 'token_minted', $3)`, [
-      B.id,
-      `grant:${g1}`,
-      JSON.stringify({ grant_id: g1, proposal_id: used, amount_minor: 700, fingerprint: 'sha256:x', job_id: randomUUID() }),
-    ]);
-    // A t009 mirror row the app wrote for B (an effective setting, not the company's choice): replaced, not kept.
-    await admin.query('begin');
-    await admin.query('set local session_replication_role = replica');
-    await admin.query("insert into ledger.switchboard (company_id, line, kind, floor, setting, version) values ($1, 'ledger.invoice.send', 'write', 'ask_first', 'ask_first', 1)", [B.id]);
-    await admin.query('commit');
-
-    const url = roleUrl(P.adminUrl, 'neos_app'); // the platform's link: a member of neos_desk
-    const first = await runBackfill({ url, company: B.id });
-    expect(first).toEqual([{ app: 'ledger', company_id: B.id, install: 'written', board: 'written', board_version: 3, grants: 2 }]);
-
-    const lines = await desk('select line, kind, floor, setting, approvers from ledger.switchboard order by line collate "C"', [], B.id);
-    expect(lines).toEqual([
-      { line: '*', kind: 'company', floor: null, setting: 'on', approvers: { four_eyes: true } },
-      { line: 'door:email', kind: 'door', floor: 'on', setting: 'off', approvers: null },
-      { line: 'ledger.close_pack.email', kind: 'write', floor: 'ask_first', setting: 'ask_first', approvers: { roles: ['admin'] } },
-      { line: 'ledger.journal.post', kind: 'write', floor: 'ask_first', setting: 'off', approvers: null },
-      { line: 'ledger.report.pnl', kind: 'read', floor: 'on', setting: 'off', approvers: null },
-      { line: 'skill:financial-reports', kind: 'skill', floor: null, setting: 'off', approvers: null },
-    ]);
-    // What the gate and the platform now read — the platform's board, as it was, from the app's schema.
-    const doc = await loadBoard(P.backend.core.runnerPool, 'ledger', B.id);
-    expect(doc).toMatchObject({
-      version: 3,
-      settings: { 'ledger.report.pnl': 'off', 'ledger.journal.post': 'off', 'door:email': 'off', 'skill:financial-reports': 'off', 'ledger.close_pack.email': 'ask_first' },
-      rules: [{ id: 'two', type: 'recipient_cap', max: 2 }],
-      budget: { per_job_usd: 3 },
-      approvals: { '*': { four_eyes: true }, 'ledger.close_pack.email': { roles: ['admin'] } },
-      company: { id: B.id, name: 'Backfill Traders', time_zone: 'Asia/Kolkata' },
-    });
-    expect((await P.api('GET', '/api/switchboards/ledger', undefined, bAdmin.token)).body).toMatchObject({ version: 3, budget: { per_job_usd: 3 } });
-    expect(await desk('select status, company_name, time_zone, installed_by from ledger.installs', [], B.id)).toEqual([{ status: 'active', company_name: 'Backfill Traders', time_zone: 'Asia/Kolkata', installed_by: `user:${bAdmin.id}` }]);
-    expect(await desk('select grant_id, ability_key, status, created_by, suspended_reason from ledger.grants order by ability_key', [], B.id)).toEqual([
-      { grant_id: g2, ability_key: 'ledger.close_pack.email', status: 'SUSPENDED', created_by: `user:${bAdmin.id}`, suspended_reason: 'execution FAILED for proposal x' },
-      { grant_id: g1, ability_key: 'ledger.payment.record', status: 'ACTIVE', created_by: `user:${bAdmin.id}`, suspended_reason: null },
-    ]);
-    expect(await desk('select grant_id, proposal_id, amount_minor::int as amount_minor from ledger.grant_uses', [], B.id)).toEqual([{ grant_id: g1, proposal_id: used, amount_minor: 700 }]);
-    // The monthly limit carries on from the platform's record of what was used.
-    const pay = (amount: number) => withCompany(P.backend.core.appPool, B.id, (c) => matchGrant(c, 'ledger', 'ledger.payment.record', { amount_minor: amount, currency: 'INR' }, 'Asia/Kolkata'));
-    expect(await pay(4300)).toEqual({ grant_id: g1 });
-    expect(await pay(4301)).toBeNull();
-
-    // Again: nothing to do, nothing written (no new board version, no new history).
-    const hist = async () => (await desk<{ n: number }>('select count(*)::int as n from ledger.switchboard_history', [], B.id))[0]!.n;
-    const h0 = await hist();
-    expect(await runBackfill({ url, company: B.id })).toEqual([{ app: 'ledger', company_id: B.id, install: 'kept', board: 'kept', board_version: 3, grants: 0 }]);
-    expect(await hist()).toBe(h0);
-
-    // The company changes a line on the desk (version 4): a later backfill (or registerApp) keeps it.
-    expect((await P.api('PUT', '/api/switchboards/ledger', { settings: { 'ledger.report.pnl': 'on' } }, bAdmin.token)).body.version).toBe(4);
-    await P.platform.registerApp({ key: 'ledger', l3_url: (await db.query("select l3_url from neos.apps where key = 'ledger'")).rows[0].l3_url, manifest: P.backend.core.manifest, service_secret: P.backend.core.cfg.serviceSecret, blocks: (await ledgerUnderTest()).def.blocks });
-    expect(await runBackfill({ url, company: B.id })).toEqual([{ app: 'ledger', company_id: B.id, install: 'kept', board: 'kept', board_version: 4, grants: 0 }]);
-    expect((await loadBoard(P.backend.core.runnerPool, 'ledger', B.id)).settings['ledger.report.pnl']).toBe('on');
-    // And nothing reads the legacy copy: it still says off.
-    expect((await db.query("select settings->>'ledger.report.pnl' as s from neos.switchboards where company_id = $1 order by version desc limit 1", [B.id])).rows[0].s).toBe('off');
-
-    // A fresh install needs no legacy at all: installApp writes the install row and the company row.
-    const C = await P.platform.createCompany('Fresh Co', 'Europe/London');
-    await P.platform.installApp(C.id, 'ledger');
-    expect(await desk('select status, company_name, time_zone from ledger.installs', [], C.id)).toEqual([{ status: 'active', company_name: 'Fresh Co', time_zone: 'Europe/London' }]);
-    expect((await loadBoard(P.backend.core.runnerPool, 'ledger', C.id)).company.time_zone).toBe('Europe/London');
-    await P.platform.uninstallApp(C.id, 'ledger', 'user:ops');
-    expect(await desk('select status from ledger.installs', [], C.id)).toEqual([{ status: 'removed' }]);
-    await expect(loadBoard(P.backend.core.runnerPool, 'ledger', C.id)).rejects.toBeInstanceOf(NotInstalled);
-  });
 });
 
 describe('t010 on a populated book', () => {
@@ -306,6 +207,7 @@ describe('t010 on a populated book', () => {
     const db = await createTestDatabase();
     const CO = '11111111-2222-3333-4444-555555555555';
     const tdir = await mkdtemp(path.join(os.tmpdir(), 'neop-t010-'));
+    let beforeDir = '';
     try {
       await migratePlatform(db.adminUrl); // the desk's role exists, as in a real cluster
       // The book as it stood before: the template stream up to t009, and the app's own.
@@ -315,8 +217,8 @@ describe('t010 on a populated book', () => {
       tled.migrations = tled.migrations.filter((m: any) => m.file < 't010');
       await writeFile(path.join(tdir, 'migrate.json'), JSON.stringify(tled));
       await bootstrapFamily(db.adminUrl, 'ledger');
-      const run = async (t: string) => migrate({ adminUrl: db.adminUrl, schema: 'ledger', sources: { dir: path.join(LEDGER_ROOT, 'migrations'), prepend: await templateFiles(t) }, lintExempt: TEMPLATE_INFRA_TABLES });
-      await run(tdir);
+      const run = async (t: string, appDir = path.join(LEDGER_ROOT, 'migrations')) => migrate({ adminUrl: db.adminUrl, schema: 'ledger', sources: { dir: appDir, prepend: await templateFiles(t) }, lintExempt: TEMPLATE_INFRA_TABLES });
+      await run(tdir, (beforeDir = await appMigrationsBefore(path.join(LEDGER_ROOT, 'migrations'), '010')));
       const pool = createPool(roleUrl(db.adminUrl, 'ledger_app'));
       const runner = createPool(roleUrl(db.adminUrl, 'ledger_runner'));
       await seedLedger(pool, CO);
@@ -343,7 +245,7 @@ describe('t010 on a populated book', () => {
       const before = await runner.query('select line, setting, version from ledger.switchboard order by line');
 
       const applied = await run(TEMPLATE_MIGRATIONS);
-      expect(applied.map((m) => m.name)).toEqual(['t010_board_truth.sql', 't011_approved_path.sql', 't012_presence.sql', 't013_answer_wait.sql', 't015_bus_room.sql', 't017_acted_for.sql']); // t011 (S2), t012 (S4), t013 (S3), t015 (S6) follow; their own proofs are in approved-path.test.ts, presence-dedupe.test.ts and desk-functions.test.ts and bus-room.test.ts
+      expect(applied.map((m) => m.name)).toEqual(['t010_board_truth.sql', 't011_approved_path.sql', 't012_presence.sql', 't013_answer_wait.sql', 't015_bus_room.sql', 't017_acted_for.sql', 't018_desk_without_gateway.sql', 't019_no_gateway_tables.sql', 't020_human_authority.sql', 't021_draft_origin.sql', 't022_answer_deadline.sql', 't023_input_deadline.sql', 't024_answer_intents.sql', '010_declared_reads.sql']);
 
       // Kept as it was; what the rows never knew is NULL.
       expect((await runner.query('select line, setting, version from ledger.switchboard order by line')).rows).toEqual(before.rows);
@@ -379,6 +281,7 @@ describe('t010 on a populated book', () => {
     } finally {
       await db.drop();
       await rm(tdir, { recursive: true, force: true });
+      if (beforeDir) await rm(beforeDir, { recursive: true, force: true });
     }
   });
 });

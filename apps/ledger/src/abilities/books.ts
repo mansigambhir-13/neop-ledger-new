@@ -24,165 +24,39 @@ const head = (entries: number, ids: string[], basis: string, currency = DEFAULT_
 const rupees = (m: number) => (m / 100).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const definite = (msg: string) => new DoorError(msg, { definite: true });
 
+/**
+ * v3 S9 · a read the NEOS screens use is ONE SQL function the app declared in its migration file (read_<x>, registered
+ * in ledger.declared_reads): the desk runs it through ledger.block_read(), and this handler runs the same function —
+ * so a screen and the assistant always see one answer.
+ */
+function declared(fn: string): ReadAbility {
+  return {
+    kind: 'read',
+    async run(a: unknown, ctx: ReadCtx) {
+      return (await ctx.db.query<{ r: unknown }>(`select ledger.${fn}($1::jsonb) as r`, [JSON.stringify(a ?? {})])).rows[0]!.r;
+    },
+  };
+}
+
 async function lockedMsg(db: PoolClient, date: string): Promise<string | null> {
   return (await B.isLocked(db, date)) ? `${date.slice(0, 7)} is closed; post into an open month or reopen it first` : null;
 }
 
 // ── reads ─────────────────────────────────────────────────────────────────
 
-export const accountsList: ReadAbility = {
-  kind: 'read',
-  async run(a: { as_of?: string; type?: string; include_inactive?: boolean }, ctx: ReadCtx) {
-    const asOf = a.as_of ?? companyToday(ctx);
-    const rows = (await accountTotals(ctx.db, { from: null, to: asOf, currency: DEFAULT_CURRENCY })).filter((x) => !a.type || x.type === a.type);
-    const active = new Map((await ctx.db.query<{ code: string; is_active: boolean }>(`select code, is_active from ${S}.accounts`)).rows.map((r) => [r.code, r.is_active]));
-    const accounts = rows
-      .filter((x) => a.include_inactive || active.get(x.code) !== false)
-      .map((x) => ({ code: x.code, name: x.name, type: x.type, subtype: x.subtype, balance_minor: natural(x), active: active.get(x.code) !== false }));
-    return { ...head(accounts.length, [], `chart of accounts with balances as of ${asOf}`), as_of: asOf, accounts };
-  },
-};
+export const accountsList: ReadAbility = declared('read_accounts_list');
 
-export const accountLedger: ReadAbility = {
-  kind: 'read',
-  async run(a: { account_code: string; from: string; to: string }, ctx: ReadCtx) {
-    const acct = await B.accountByCode(ctx.db, a.account_code);
-    if (!acct) return { ...head(0, [], `no account ${a.account_code}`), account_code: a.account_code, account_name: null, opening_minor: null, closing_minor: null, rows: [] };
-    const sign = acct.type === 'asset' || acct.type === 'expense' ? 1 : -1;
-    const open = (
-      await ctx.db.query<{ b: number }>(
-        `select coalesce(sum(l.debit_minor - l.credit_minor), 0)::bigint as b from ${S}.journal_lines l join ${S}.journal_entries e on e.id = l.entry_id
-          where l.account_id = $1 and e.entry_date < $2`,
-        [acct.id, a.from],
-      )
-    ).rows[0]!.b * sign;
-    const lines = (
-      await ctx.db.query<{ entry_id: string; date: string; memo: string; reference: string; debit_minor: number; credit_minor: number }>(
-        `select e.id as entry_id, to_char(e.entry_date, 'YYYY-MM-DD') as date, e.memo, e.reference, l.debit_minor, l.credit_minor
-           from ${S}.journal_lines l join ${S}.journal_entries e on e.id = l.entry_id
-          where l.account_id = $1 and e.entry_date between $2 and $3 order by e.entry_date, e.created_at, l.id`,
-        [acct.id, a.from, a.to],
-      )
-    ).rows;
-    let bal = open;
-    const rows = lines.map((l) => {
-      bal += (l.debit_minor - l.credit_minor) * sign;
-      return { ...l, balance_minor: bal };
-    });
-    return {
-      ...head(rows.length, rows.map((r) => r.entry_id), `lines on ${a.account_code} ${a.from}..${a.to}`),
-      account_code: acct.code,
-      account_name: acct.name,
-      opening_minor: open,
-      closing_minor: bal,
-      rows,
-    };
-  },
-};
+export const accountLedger: ReadAbility = declared('read_account_ledger');
 
-export const journalList: ReadAbility = {
-  kind: 'read',
-  async run(a: { from: string; to: string; search?: string; limit?: number }, ctx: ReadCtx) {
-    const entries = (
-      await ctx.db.query(
-        `select e.id, to_char(e.entry_date, 'YYYY-MM-DD') as date, e.memo, e.reference, e.source, e.reverses,
-                coalesce(json_agg(json_build_object('account_code', a.code, 'account_name', a.name, 'debit_minor', l.debit_minor, 'credit_minor', l.credit_minor) order by l.id), '[]') as lines
-           from ${S}.journal_entries e join ${S}.journal_lines l on l.entry_id = e.id join ${S}.accounts a on a.id = l.account_id
-          where e.entry_date between $1 and $2 and ($3::text is null or e.memo ilike '%' || $3 || '%' or e.reference ilike '%' || $3 || '%')
-          group by e.id order by e.entry_date, e.created_at limit $4`,
-        [a.from, a.to, a.search ?? null, Math.min(a.limit ?? 100, 200)],
-      )
-    ).rows;
-    return { ...head(entries.length, entries.map((e) => e.id), `journal entries ${a.from}..${a.to}${a.search ? ` matching "${a.search}"` : ''}`), entries };
-  },
-};
+export const journalList: ReadAbility = declared('read_journal_list');
 
-export const documentsList: ReadAbility = {
-  kind: 'read',
-  async run(a: { kind: 'invoice' | 'bill'; status?: 'open' | 'overdue' | 'paid' | 'all'; party?: string; as_of?: string }, ctx: ReadCtx) {
-    // Days overdue are counted to the company's today at most: a document due today is not overdue yet.
-    const asOf = agedTo(a.as_of ?? companyToday(ctx), ctx);
-    const rows = (
-      await ctx.db.query(
-        `select d.id, d.number, p.name as party, to_char(d.issue_date, 'YYYY-MM-DD') as issue_date, to_char(d.due_date, 'YYYY-MM-DD') as due_date,
-                d.currency, d.total_minor, d.paid_minor, (d.total_minor - d.paid_minor)::bigint as outstanding_minor, d.status, d.sent_at, d.reminded_at
-           from ${S}.documents d join ${S}.parties p on p.id = d.party_id
-          where d.kind = $1 and ($2::text is null or p.name ilike '%' || $2 || '%') order by d.due_date`,
-        [a.kind, a.party ?? null],
-      )
-    ).rows
-      .map((d) => ({ ...d, overdue_days: d.status === 'open' ? Math.max(0, daysBetween(d.due_date, asOf)) : 0, sent_at: d.sent_at?.toISOString?.() ?? null, reminded_at: d.reminded_at?.toISOString?.() ?? null }))
-      .filter((d) => {
-        const st = a.status ?? 'open';
-        if (st === 'all') return true;
-        if (st === 'overdue') return d.status === 'open' && d.overdue_days > 0;
-        return d.status === st;
-      });
-    // Totals are computed here, so an answer quotes them rather than adding rows up itself.
-    const open = rows.filter((d) => d.status === 'open');
-    const totals = {
-      count: rows.length,
-      outstanding_minor: open.reduce((t, d) => t + Number(d.outstanding_minor), 0),
-      overdue_minor: open.filter((d) => d.overdue_days > 0).reduce((t, d) => t + Number(d.outstanding_minor), 0),
-      due_in_7_minor: open.filter((d) => d.overdue_days === 0 && daysBetween(asOf, d.due_date) <= 7).reduce((t, d) => t + Number(d.outstanding_minor), 0),
-    };
-    return { ...head(rows.length, rows.map((d) => d.id), `${a.kind}s (${a.status ?? 'open'}) as of ${asOf}`), kind: a.kind, as_of: asOf, totals, documents: rows };
-  },
-};
+export const documentsList: ReadAbility = declared('read_documents_list');
 
-export const partiesList: ReadAbility = {
-  kind: 'read',
-  async run(a: { kind?: 'customer' | 'vendor' }, ctx: ReadCtx) {
-    const rows = (
-      await ctx.db.query(
-        `select p.id, p.kind, p.name, p.email, p.gstin,
-                coalesce(sum(d.total_minor - d.paid_minor) filter (where d.status = 'open'), 0)::bigint as outstanding_minor,
-                count(d.id) filter (where d.status = 'open')::int as open_documents
-           from ${S}.parties p left join ${S}.documents d on d.party_id = p.id
-          where ($1::text is null or p.kind = $1) group by p.id order by p.name`,
-        [a.kind ?? null],
-      )
-    ).rows;
-    return { ...head(rows.length, rows.map((r) => r.id), `${a.kind ?? 'all'} parties with open balances`), parties: rows };
-  },
-};
+export const partiesList: ReadAbility = declared('read_parties_list');
 
-export const bankUnreconciled: ReadAbility = {
-  kind: 'read',
-  async run(a: { bank_account_code?: string }, ctx: ReadCtx) {
-    const txns = (
-      await ctx.db.query(
-        `select t.id, to_char(t.txn_date, 'YYYY-MM-DD') as date, t.description, t.amount_minor, t.currency, a.code as bank_account_code
-           from ${S}.bank_transactions t join ${S}.accounts a on a.id = t.bank_account_id
-          where t.status = 'unmatched' and ($1::text is null or a.code = $1) order by t.txn_date`,
-        [a.bank_account_code ?? null],
-      )
-    ).rows;
-    const rs = await B.rules(ctx.db);
-    const docs = await B.openDocumentsForMatch(ctx.db);
-    const out = txns.map((t) => ({ ...t, suggestions: suggest(t, rs, docs) }));
-    return { ...head(out.length, out.map((t) => t.id), 'imported bank lines not yet matched to the books'), transactions: out };
-  },
-};
+export const bankUnreconciled: ReadAbility = declared('read_bank_unreconciled');
 
-export const codingRulesList: ReadAbility = {
-  kind: 'read',
-  async run(_a: unknown, ctx: ReadCtx) {
-    const rows = (
-      await ctx.db.query(
-        `select r.id, r.reference, r.pattern, a.code as account_code, a.name as account_name, r.direction, r.priority, r.created_at,
-                (select count(*)::int from ${S}.bank_transactions t
-                  where t.status <> 'unmatched' and t.description ilike '%' || r.pattern || '%') as matched
-           from ${S}.coding_rules r join ${S}.accounts a on a.id = r.account_id
-          order by r.priority, r.created_at`,
-      )
-    ).rows;
-    return {
-      ...head(rows.length, rows.map((r) => r.id), 'coding rules, in the order they are tried'),
-      rules: rows.map((r) => ({ ...r, created_at: r.created_at.toISOString() })),
-    };
-  },
-};
+export const codingRulesList: ReadAbility = declared('read_coding_rules_list');
 
 const addDays = (d: string, n: number) => new Date(Date.parse(d + 'T00:00:00Z') + n * 86_400_000).toISOString().slice(0, 10);
 const monthEnd = (m: string) => {
@@ -191,93 +65,12 @@ const monthEnd = (m: string) => {
 };
 
 /** Home: the four figures a bookkeeper looks at first, each computed here (not in a screen). */
-export const homeSummary: ReadAbility = {
-  kind: 'read',
-  async run(a: { as_of?: string }, ctx: ReadCtx) {
-    const asOf = a.as_of ?? companyToday(ctx);
-    const totals = await accountTotals(ctx.db, { from: null, to: asOf, currency: DEFAULT_CURRENCY });
-    const cashAccts = totals.filter((x) => ['bank', 'cash'].includes(x.subtype));
-    const unmatched = (await ctx.db.query<{ n: number }>(`select count(*)::int as n from ${S}.bank_transactions where status = 'unmatched'`)).rows[0]!.n;
-    const ar = await openDocuments(ctx.db, { kind: 'invoice', as_of: asOf, currency: DEFAULT_CURRENCY });
-    const ap = await openDocuments(ctx.db, { kind: 'bill', as_of: asOf, currency: DEFAULT_CURRENCY });
-    const overdue = ar.filter((d) => d.due_date < asOf && d.outstanding_minor > 0);
-    const apDue = ap.filter((d) => d.due_date <= addDays(asOf, 7) && d.outstanding_minor > 0);
-    const sum = (xs: { outstanding_minor: number }[]) => xs.reduce((t, d) => t + Number(d.outstanding_minor), 0);
-    return {
-      ...head(totals.length, [], `balances as of ${asOf}; open invoices and bills; unmatched bank lines`),
-      as_of: asOf,
-      cash_minor: cashAccts.reduce((t, x) => t + natural(x), 0),
-      bank_accounts: cashAccts.filter((x) => x.subtype === 'bank').length,
-      unmatched_lines: unmatched,
-      overdue_ar_minor: sum(overdue),
-      overdue_ar_count: overdue.length,
-      ap_due_7d_minor: sum(apDue),
-      ap_due_7d_count: apDue.length,
-    };
-  },
-};
+export const homeSummary: ReadAbility = declared('read_home_summary');
 
 /** The month-end close checklist: what blocks closing a month, worked out from the books. */
-export const closeChecklist: ReadAbility = {
-  kind: 'read',
-  async run(a: { month: string }, ctx: ReadCtx) {
-    const m = a.month;
-    const from = `${m}-01`;
-    const to = monthEnd(m);
-    const unrec = (
-      await ctx.db.query<{ month: string; n: number }>(
-        `select to_char(date_trunc('month', txn_date), 'YYYY-MM') as month, count(*)::int as n from ${S}.bank_transactions where status = 'unmatched' and txn_date <= $1 group by 1 order by 1`,
-        [to],
-      )
-    ).rows;
-    const here = unrec.find((r) => r.month === m)?.n ?? 0;
-    const earlier = unrec.filter((r) => r.month < m);
-    const unsent = (
-      await ctx.db.query<{ number: string }>(
-        `select number from ${S}.documents where kind = 'invoice' and status = 'open' and sent_at is null and issue_date between $1 and $2 order by number`,
-        [from, to],
-      )
-    ).rows.map((r) => r.number);
-    const totals = await accountTotals(ctx.db, { from: null, to, currency: DEFAULT_CURRENCY });
-    const dr = totals.reduce((t, x) => t + x.debit_minor, 0);
-    const cr = totals.reduce((t, x) => t + x.credit_minor, 0);
-    const by = (type: string) => totals.filter((x) => x.type === type).reduce((t, x) => t + natural(x), 0);
-    const bsBalanced = by('asset') === by('liability') + by('equity') + (by('income') - by('expense'));
-    const lock = (await ctx.db.query<{ locked_at: Date; reason: string | null }>(`select locked_at, reason from ${S}.period_locks where month = $1::date`, [from])).rows[0];
-    const money = (x: number) => `₹${rupees(x)}`;
-    const items = [
-      { key: 'bank', title: 'Import and match every bank line', ok: here === 0, detail: here ? `${here} line(s) still unmatched in ${m}` : 'All matched', link: here ? 'reconcile' : null },
-      { key: 'earlier', title: 'Earlier months reconciled', ok: earlier.length === 0, detail: earlier.length ? earlier.map((r) => `${r.month}: ${r.n}`).join(', ') : 'Nothing carried over', link: earlier.length ? 'reconcile' : null },
-      { key: 'invoices', title: "Send this month's invoices", ok: unsent.length === 0, detail: unsent.length ? `Not sent: ${unsent.join(', ')}` : 'All sent', link: unsent.length ? 'money' : null },
-      { key: 'trial_balance', title: 'Trial balance balances', ok: dr === cr, detail: `Debits ${money(dr)} · credits ${money(cr)}`, link: null },
-      { key: 'balance_sheet', title: 'Balance sheet balances', ok: bsBalanced, detail: `Assets ${money(by('asset'))}`, link: null },
-      { key: 'lock', title: 'Lock the month', ok: !!lock, detail: lock ? `Closed ${lock.locked_at.toISOString().slice(0, 10)}${lock.reason ? ` · ${lock.reason}` : ''}` : 'Ledger proposes the close; a person approves it', link: null },
-    ];
-    return {
-      ...head(totals.length, [], `bank lines, invoices and all entries up to ${to}`),
-      month: m,
-      closed: !!lock,
-      done: items.filter((i) => i.ok).length,
-      of: items.length,
-      items,
-    };
-  },
-};
+export const closeChecklist: ReadAbility = declared('read_close_checklist');
 
-export const periodsStatus: ReadAbility = {
-  kind: 'read',
-  async run(_a: unknown, ctx: ReadCtx) {
-    const locks = (await ctx.db.query(`select to_char(month, 'YYYY-MM') as month, locked_at, locked_by, reason from ${S}.period_locks order by month`)).rows;
-    const open = (
-      await ctx.db.query(`select to_char(date_trunc('month', txn_date), 'YYYY-MM') as month, count(*)::int as n from ${S}.bank_transactions where status = 'unmatched' group by 1 order by 1`)
-    ).rows;
-    return {
-      ...head(locks.length, [], 'period locks and unreconciled bank lines by month'),
-      closed: locks.map((l) => ({ month: l.month, locked_at: l.locked_at.toISOString(), locked_by: l.locked_by, reason: l.reason })),
-      unreconciled_by_month: open,
-    };
-  },
-};
+export const periodsStatus: ReadAbility = declared('read_periods_status');
 
 // ── writes ────────────────────────────────────────────────────────────────
 

@@ -1,0 +1,53 @@
+{
+  "block": "page",
+  "title": "Deal drafts",
+  "description": "Internal review only; not business approval or external completion.",
+  "nav": {
+    "label": "Deal",
+    "icon": "table",
+    "order": 1
+  },
+  "children": [
+    {
+      "block": "table",
+      "source": {
+        "ability": "deal.quotes.list"
+      },
+      "rows": "/rows",
+      "columns": [
+        {
+          "label": "source id",
+          "path": "/source_id"
+        },
+        {
+          "label": "list price minor",
+          "path": "/list_price_minor"
+        },
+        {
+          "label": "currency",
+          "path": "/currency"
+        },
+        {
+          "label": "discount bps",
+          "path": "/discount_bps"
+        },
+        {
+          "label": "net minor",
+          "path": "/net_minor"
+        },
+        {
+          "label": "discount limit bps",
+          "path": "/discount_limit_bps"
+        },
+        {
+          "label": "status",
+          "path": "/status"
+        },
+        {
+          "label": "requires elevated approval",
+          "path": "/requires_elevated_approval"
+        }
+      ]
+    }
+  ]
+}

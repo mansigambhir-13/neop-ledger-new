@@ -1,0 +1,740 @@
+{
+  "app": "hire",
+  "name": "Hire",
+  "subject": "Hire: internal offer draft preparation",
+  "description": "V3 Hire internal review slice. No business authorization, provider execution or production certification.",
+  "version": "0.2.0",
+  "contract_version": "1",
+  "abilities": [
+    {
+      "key": "hire.settings.get",
+      "version": "1.0.0",
+      "title": "Read review settings",
+      "description": "Read review settings. Persisted company evidence, not a business approval or external effect.",
+      "kind": "read",
+      "floor": "on",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {},
+        "required": []
+      },
+      "output": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "generatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "empty": {
+            "type": "boolean"
+          },
+          "sources": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "entries": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 1000
+              },
+              "entry_ids": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "minItems": 0,
+                "maxItems": 1000
+              },
+              "basis": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200,
+                "pattern": "\\S"
+              }
+            },
+            "required": [
+              "entries",
+              "entry_ids",
+              "basis"
+            ]
+          },
+          "rows": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "currency": {
+                  "type": "string",
+                  "pattern": "^[A-Z]{3}$"
+                },
+                "review_limit_minor": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "minimum": 0,
+                  "maximum": 1000000000000
+                }
+              },
+              "required": [
+                "currency",
+                "review_limit_minor"
+              ]
+            },
+            "minItems": 0,
+            "maxItems": 1000
+          },
+          "next_offset": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0,
+            "maximum": 1001000
+          }
+        },
+        "required": [
+          "generatedAt",
+          "empty",
+          "sources",
+          "rows",
+          "next_offset"
+        ]
+      }
+    },
+    {
+      "key": "hire.candidates.list",
+      "version": "1.0.0",
+      "title": "List candidates",
+      "description": "List candidates. Persisted company evidence, not a business approval or external effect.",
+      "kind": "read",
+      "floor": "on",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1000000
+          }
+        },
+        "required": []
+      },
+      "output": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "generatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "empty": {
+            "type": "boolean"
+          },
+          "sources": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "entries": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 1000
+              },
+              "entry_ids": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "minItems": 0,
+                "maxItems": 1000
+              },
+              "basis": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200,
+                "pattern": "\\S"
+              }
+            },
+            "required": [
+              "entries",
+              "entry_ids",
+              "basis"
+            ]
+          },
+          "rows": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "source_id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 64,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+                },
+                "name": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200,
+                  "pattern": "\\S"
+                },
+                "category": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "minLength": 1,
+                  "maxLength": 120,
+                  "pattern": "\\S"
+                },
+                "version": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 2147483647
+                }
+              },
+              "required": [
+                "id",
+                "source_id",
+                "name",
+                "category",
+                "version"
+              ]
+            },
+            "minItems": 0,
+            "maxItems": 1000
+          },
+          "next_offset": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0,
+            "maximum": 1001000
+          }
+        },
+        "required": [
+          "generatedAt",
+          "empty",
+          "sources",
+          "rows",
+          "next_offset"
+        ]
+      }
+    },
+    {
+      "key": "hire.offers.list",
+      "version": "1.0.0",
+      "title": "List offers",
+      "description": "List offers. Persisted company evidence, not a business approval or external effect.",
+      "kind": "read",
+      "floor": "on",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1000000
+          }
+        },
+        "required": []
+      },
+      "output": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "generatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "empty": {
+            "type": "boolean"
+          },
+          "sources": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "entries": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 1000
+              },
+              "entry_ids": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "minItems": 0,
+                "maxItems": 1000
+              },
+              "basis": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200,
+                "pattern": "\\S"
+              }
+            },
+            "required": [
+              "entries",
+              "entry_ids",
+              "basis"
+            ]
+          },
+          "rows": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "source_id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 64,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+                },
+                "candidate_id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "salary_minor": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 1000000000000
+                },
+                "currency": {
+                  "type": "string",
+                  "pattern": "^[A-Z]{3}$"
+                },
+                "role": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "minLength": 1,
+                  "maxLength": 500,
+                  "pattern": "\\S"
+                },
+                "requires_elevated_approval": {
+                  "type": "boolean"
+                },
+                "review_limit_minor": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "minimum": 0,
+                  "maximum": 1000000000000
+                },
+                "input_hash": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$"
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "draft",
+                    "cancelled"
+                  ]
+                },
+                "created_at": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "cancelled_at": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "external_completed": {
+                  "const": false
+                }
+              },
+              "required": [
+                "id",
+                "source_id",
+                "candidate_id",
+                "salary_minor",
+                "currency",
+                "role",
+                "requires_elevated_approval",
+                "review_limit_minor",
+                "input_hash",
+                "status",
+                "created_at",
+                "cancelled_at",
+                "external_completed"
+              ]
+            },
+            "minItems": 0,
+            "maxItems": 1000
+          },
+          "next_offset": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0,
+            "maximum": 1001000
+          }
+        },
+        "required": [
+          "generatedAt",
+          "empty",
+          "sources",
+          "rows",
+          "next_offset"
+        ]
+      }
+    },
+    {
+      "key": "hire.settings.update",
+      "version": "1.1.0",
+      "title": "Update review settings",
+      "description": "Update review settings. Internal records only; no business authorization or external execution.",
+      "kind": "write",
+      "floor": "ask_first",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "currency": {
+            "type": "string",
+            "pattern": "^[A-Z]{3}$"
+          },
+          "review_limit_minor": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0,
+            "maximum": 1000000000000
+          }
+        },
+        "required": [
+          "currency",
+          "review_limit_minor"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "required": [
+          "outcome"
+        ],
+        "properties": {
+          "outcome": {
+            "type": "string"
+          }
+        }
+      },
+      "effects": {
+        "external": false
+      },
+      "verifyWith": "Immutable transaction receipt with ability-bound request checksum, stored atomically with the company-scoped record change."
+    },
+    {
+      "key": "hire.candidates.import",
+      "version": "1.1.0",
+      "title": "Import candidates",
+      "description": "Import candidates. Internal records only; no business authorization or external execution.",
+      "kind": "write",
+      "floor": "ask_first",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "candidates": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "source_id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 64,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+                },
+                "name": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200,
+                  "pattern": "\\S"
+                },
+                "category": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "minLength": 1,
+                  "maxLength": 120,
+                  "pattern": "\\S"
+                }
+              },
+              "required": [
+                "source_id",
+                "name",
+                "category"
+              ]
+            },
+            "minItems": 1,
+            "maxItems": 1000
+          }
+        },
+        "required": [
+          "candidates"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "required": [
+          "outcome"
+        ],
+        "properties": {
+          "outcome": {
+            "type": "string"
+          }
+        }
+      },
+      "effects": {
+        "external": false
+      },
+      "verifyWith": "Immutable transaction receipt with ability-bound request checksum, stored atomically with the company-scoped record change."
+    },
+    {
+      "key": "hire.offer.prepare",
+      "version": "1.1.0",
+      "title": "Prepare an internal offer draft",
+      "description": "Prepare an internal offer draft. Internal records only; no business authorization or external execution.",
+      "kind": "write",
+      "floor": "on",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "source_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+          },
+          "candidate_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "salary_minor": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1000000000000
+          },
+          "currency": {
+            "type": "string",
+            "pattern": "^[A-Z]{3}$"
+          },
+          "role": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1,
+            "maxLength": 500,
+            "pattern": "\\S"
+          }
+        },
+        "required": [
+          "source_id",
+          "candidate_id",
+          "salary_minor",
+          "currency",
+          "role"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "required": [
+          "outcome"
+        ],
+        "properties": {
+          "outcome": {
+            "type": "string"
+          }
+        }
+      },
+      "effects": {
+        "external": false
+      },
+      "verifyWith": "Immutable transaction receipt with ability-bound request checksum, stored atomically with the company-scoped record change."
+    },
+    {
+      "key": "hire.offer.cancel",
+      "version": "1.1.0",
+      "title": "Cancel an internal offer draft",
+      "description": "Cancel an internal offer draft. Internal records only; no business authorization or external execution.",
+      "kind": "write",
+      "floor": "ask_first",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "input_hash": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "review": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "source_id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64,
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+              },
+              "candidate_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "salary_minor": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 1000000000000
+              },
+              "currency": {
+                "type": "string",
+                "pattern": "^[A-Z]{3}$"
+              },
+              "role": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "minLength": 1,
+                "maxLength": 500,
+                "pattern": "\\S"
+              },
+              "requires_elevated_approval": {
+                "type": "boolean"
+              },
+              "review_limit_minor": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "minimum": 0,
+                "maximum": 1000000000000
+              }
+            },
+            "required": [
+              "source_id",
+              "candidate_id",
+              "salary_minor",
+              "currency",
+              "role",
+              "requires_elevated_approval",
+              "review_limit_minor"
+            ]
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "required": [
+          "outcome"
+        ],
+        "properties": {
+          "outcome": {
+            "type": "string"
+          }
+        }
+      },
+      "effects": {
+        "external": false
+      },
+      "verifyWith": "Immutable transaction receipt with ability-bound request checksum, stored atomically with the company-scoped record change."
+    }
+  ],
+  "doors": [],
+  "uses": [],
+  "skills": [
+    {
+      "key": "prepare-review",
+      "path": "src/agent/skills/prepare-review/SKILL.md",
+      "requires": [
+        "hire.settings.get",
+        "hire.candidates.list",
+        "hire.offers.list",
+        "hire.offer.prepare"
+      ]
+    }
+  ],
+  "packages": [],
+  "blocks": [
+    "blocks/drafts.json"
+  ],
+  "personal_data": [
+    {
+      "table": "candidates",
+      "columns": [
+        "source_id",
+        "name",
+        "category"
+      ],
+      "subject_key": "id"
+    },
+    {
+      "table": "offers",
+      "columns": [
+        "source_id",
+        "currency",
+        "role",
+        "source_snapshot"
+      ],
+      "subject_key": "candidate_id"
+    },
+    {
+      "table": "draft_origins",
+      "columns": [
+        "draft_id",
+        "job_id",
+        "input_hash"
+      ],
+      "subject_key": "proposer_user_id"
+    }
+  ]
+}

@@ -6,8 +6,8 @@
 //   out  posts a typed neos.neop.task in the app's room (appservice) or its 1:1 room with the app's account (client),
 //        the thread rooted at that event. The body carries the person it is for (their Matrix id, or — for a person
 //        with none — a name in NeuralChat's own namespace the app's `people` rows map to them), the ask, files BY
-//        REFERENCE (contracts readTaskFields: a signed, short-lived platform path; no bytes in events), the job a
-//        follow-up continues, and the trace. txnId `nc-task-<task>`: a resend is the same event (the homeserver's
+//        REFERENCE (contracts readTaskFields: the file is uploaded to the homeserver's media store and the event
+//        carries its mxc:// URI with the sha256 and size; no bytes in events), the job a follow-up continues, and the trace. txnId `nc-task-<task>`: a resend is the same event (the homeserver's
 //        txn dedupe), and the app dedupes on event_id and task_id (S4) — a job is opened once.
 //        answers a question the app asked in the thread with a typed neos.neop.answer — the person's own reply in
 //        Conversations, relayed (the app records it as relayed, untrusted data). It NEVER sends neos.neop.approve:
@@ -15,10 +15,10 @@
 //   in   reads the app's typed note / ask / propose / done in that thread (once per event_id, from the app's own
 //        Matrix name only, bodies validated) into Conversations and neos.tasks — its own task store.
 //
-// With presence off for an app (no Matrix name in its install row), or no NeuralChat identity at the company, the
-// gateway road (tasks.open / inbox.deliver) is used exactly as before — flagged for S9, which removes it.
+// v3 S9: this is the only road. An app with no Matrix name in its install row (or no bound room on the appservice
+// road), or a company where NeuralChat has no identity, is not reachable: the task fails, saying why.
 
-import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
+import { createHash, timingSafeEqual } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { Hono } from 'hono';
 import {
@@ -36,7 +36,7 @@ import {
   type TypedBodies,
 } from '@neop/contracts';
 import { tx } from '@neop/pgkit';
-import { roomText } from './bridge/format.ts';
+import { roomText } from './format.ts';
 import type { Platform, TaskAttachment } from './platform.ts';
 
 type FetchLike = (url: string, init?: any) => Promise<{ ok: boolean; status: number; json(): Promise<any>; text?(): Promise<string> }>;
@@ -58,10 +58,8 @@ export interface NeuralChatOptions {
   log?: (m: string, e?: Record<string, unknown>) => void;
   /** How long the ask waits for the app's "on it" before answering (default 3 s): the ask stays quick either way. */
   ackWaitMs?: number;
-  /** Past this, a task the app never acknowledged fails visibly (default 10 min, like the gateway road's window). */
+  /** Past this, a task the app never acknowledged fails visibly (default 10 min). */
   deliveryWindowMs?: number;
-  /** Signed file links live this long (default 1 h). */
-  fileLinkTtlMs?: number;
   /** How long an answer waits for the app's typed ask to have been read in the thread (default 15 s). */
   askWaitMs?: number;
 }
@@ -167,7 +165,7 @@ export class NeuralChatMatrix {
   }
 
   // ── who and where ──────────────────────────────────────────────────────────
-  /** NeuralChat's own Matrix name at a company, or null (no identity there: the gateway road is used). */
+  /** NeuralChat's own Matrix name at a company, or null (no identity there: nothing can be handed to an app). */
   async identityFor(companyId: string): Promise<string | null> {
     if (this.cfg.road === 'appservice') {
       const slug = (await this.platform.db.query<{ slug: string }>('select slug from neos.companies where id = $1', [companyId])).rows[0]?.slug;
@@ -184,8 +182,8 @@ export class NeuralChatMatrix {
   }
 
   /**
-   * v3 S5 · how a task reaches this app at this company: through Matrix when the app runs with presence (its install
-   * row names its Matrix user) and NeuralChat has an identity here; null → the gateway road (presence off; S9 removes it).
+   * v3 S5 · how a task reaches this app at this company: through Matrix — the app's install row names its Matrix user
+   * and NeuralChat has an identity here; null → the app cannot be reached (v3 S9: there is no other road).
    */
   async routeFor(companyId: string, app: string): Promise<Route | null> {
     const account = await this.identityFor(companyId);
@@ -231,28 +229,26 @@ export class NeuralChatMatrix {
     return r.rows[0]!.room_id;
   }
 
-  /** The signed path a file attached to a task is served at (no bytes in events). */
-  fileLink(taskId: string, n: number, sha256: string, now = Date.now()): string {
-    const exp = now + (this.opts.fileLinkTtlMs ?? 3_600_000);
-    return `/neuralchat/files/${taskId}/${n}?exp=${exp}&sig=${this.sign(`${taskId}:${n}:${sha256}:${exp}`)}`;
-  }
-
-  private sign(s: string): string {
-    return createHmac('sha256', this.platform.fileLinkKey).update(s).digest('hex');
-  }
-
-  /** The bytes behind a signed file link, while the task still holds them (they are dropped once the app has them). */
-  async file(taskId: string, n: number, exp: string | undefined, sig: string | undefined): Promise<{ status: number; body?: Buffer; type?: string; error?: string }> {
-    if (!/^[0-9a-f-]{36}$/i.test(taskId) || !Number.isInteger(n) || n < 1 || n > 5) return { status: 404, error: 'not_found' };
-    const t = (await this.platform.db.query<{ attachments: TaskAttachment[] | null }>("select attachments from neos.tasks where id = $1 and road = 'matrix'", [taskId])).rows[0];
-    const a = t?.attachments?.[n - 1];
-    if (!a) return { status: t ? 410 : 404, error: t ? 'gone' : 'not_found' };
-    const bytes = Buffer.from(a.content_base64, 'base64');
-    const sha = createHash('sha256').update(bytes).digest('hex');
-    const want = this.sign(`${taskId}:${n}:${sha}:${exp}`);
-    if (!sig || sig.length !== want.length || !timingSafeEqual(Buffer.from(sig), Buffer.from(want))) return { status: 403, error: 'bad_link' };
-    if (!exp || !(Number(exp) > Date.now())) return { status: 410, error: 'link_expired' };
-    return { status: 200, body: bytes, type: a.content_type ?? 'application/octet-stream' };
+  /**
+   * v3 S9 · a file attached to a task goes to the homeserver's media store (as NeuralChat), and the task event carries
+   * its mxc:// URI with the sha256 and size — the app downloads it from its own homeserver with its own token and
+   * checks both. The platform serves no file to anyone. Returns the content URI.
+   */
+  private async uploadMedia(account: string, a: TaskAttachment, bytes: Buffer): Promise<string> {
+    const base = this.cfg.homeserverUrl.replace(/\/$/, '');
+    const auth = this.authFor(account);
+    const url = `${base}/_matrix/media/v3/upload?filename=${encodeURIComponent(a.filename)}${auth.asUser ? `&user_id=${encodeURIComponent(auth.asUser)}` : ''}`;
+    const res = await this.fetch(url, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${auth.token}`, 'content-type': a.content_type ?? 'application/octet-stream' },
+      body: new Uint8Array(bytes),
+      signal: AbortSignal.timeout(60_000),
+    });
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok || typeof (j as any)?.content_uri !== 'string' || !/^mxc:\/\/[^/\s]+\/[A-Za-z0-9_-]+$/.test((j as any).content_uri)) {
+      throw Object.assign(new Error(`homeserver refused the upload of ${a.filename} (${res.status} ${(j as any)?.errcode ?? ''})`), { status: res.status });
+    }
+    return (j as any).content_uri as string;
   }
 
   /**
@@ -275,12 +271,13 @@ export class NeuralChatMatrix {
     const slug = (await this.platform.db.query<{ slug: string }>('select slug from neos.companies where id = $1', [t.company_id])).rows[0]!.slug;
     const fields: Record<string, string> = {};
     const files = (t.attachments ?? []) as TaskAttachment[];
-    files.forEach((a, i) => {
+    for (const [i, a] of files.entries()) {
       const bytes = Buffer.from(a.content_base64, 'base64');
       const sha256 = createHash('sha256').update(bytes).digest('hex');
-      const [k, v] = taskFileField(i + 1, { id: `${t.id}/${i + 1}`, filename: a.filename, ...(a.content_type ? { content_type: a.content_type } : {}), sha256, bytes: bytes.length, link: this.fileLink(t.id, i + 1, sha256) });
+      const link = await this.uploadMedia(route.account, a, bytes);
+      const [k, v] = taskFileField(i + 1, { id: `${t.id}/${i + 1}`, filename: a.filename, ...(a.content_type ? { content_type: a.content_type } : {}), sha256, bytes: bytes.length, link });
       fields[k] = v;
-    });
+    }
     if (t.parent_job_id) fields[TASK_PARENT_FIELD] = t.parent_job_id;
     const body: TypedBodies['neos.neop.task'] = {
       task_id: t.id,
@@ -292,7 +289,7 @@ export class NeuralChatMatrix {
     };
     const txn = t.matrix_txn ?? `nc-task-${t.id}`;
     await this.platform.db.query('update neos.tasks set matrix_room = $2, matrix_account = $3, matrix_txn = $4, updated_at = now() where id = $1', [t.id, room, route.account, txn]);
-    const span = this.platform.gateway.tracer.start('neuralchat.task', t.trace_parent ?? null, { 'neop.app': t.app_key, 'neop.task': t.id });
+    const span = this.platform.tracer.start('neuralchat.task', t.trace_parent ?? null, { 'neop.app': t.app_key, 'neop.task': t.id });
     let eventId: string;
     try {
       eventId = await this.sendEvent(route.account, room, 'neos.neop.task', typedContent('neos.neop.task', body, `Task for ${t.app_key} from NeuralChat: ${clip(t.ask, 1000)}`, null), txn);
@@ -300,7 +297,7 @@ export class NeuralChatMatrix {
       span.end();
     }
     await this.platform.db.query('update neos.tasks set matrix_event_id = $2, delivered_at = now(), last_error = null, updated_at = now() where id = $1', [t.id, eventId]);
-    await this.platform.gateway.audit({ company_id: t.company_id, actor: `chat:${route.account}`, app_key: t.app_key, action: 'neuralchat.task_posted', outcome: 'posted', detail: { task_id: t.id, room_id: room, event_id: eventId, files: files.length } });
+    await this.platform.audit({ company_id: t.company_id, actor: `chat:${route.account}`, app_key: t.app_key, action: 'neuralchat.task_posted', outcome: 'posted', detail: { task_id: t.id, room_id: room, event_id: eventId, files: files.length } });
     this.log('task posted', { task: t.id, room, event: eventId });
     return eventId;
   }
@@ -333,7 +330,7 @@ export class NeuralChatMatrix {
     const digest = createHash('sha256').update(JSON.stringify(answers)).digest('hex').slice(0, 16);
     const text = `Answer from NeuralChat: ${Object.entries(answers).map(([k, v]) => `${k}: ${String(v)}`).join('; ')}`;
     await this.sendEvent(t.matrix_account, t.matrix_room, 'neos.neop.answer', { ...typedContent('neos.neop.answer', body, clip(text, 2000), null), 'm.relates_to': threadRelation(t.matrix_event_id) }, `nc-answer-${waitId}-${digest}`);
-    await this.platform.gateway.audit({ company_id: t.company_id, actor: `chat:${t.matrix_account}`, app_key: t.app_key, action: 'neuralchat.answer_posted', outcome: 'posted', detail: { task_id: t.id, wait_id: waitId } });
+    await this.platform.audit({ company_id: t.company_id, actor: `chat:${t.matrix_account}`, app_key: t.app_key, action: 'neuralchat.answer_posted', outcome: 'posted', detail: { task_id: t.id, wait_id: waitId } });
   }
 
   // ── in: the app's thread ────────────────────────────────────────────────────
@@ -369,7 +366,7 @@ export class NeuralChatMatrix {
     if (!maySend('neop', type)) return `refused:${shortType(type)}`;
     const v = validateTypedBody(type, ev.content);
     if (!v.ok) return `invalid:${v.error}`;
-    const span = this.platform.gateway.tracer.start(`neuralchat.read ${shortType(type)}`, t.trace_parent ?? null, { 'neop.app': t.app_key, 'neop.task': t.id });
+    const span = this.platform.tracer.start(`neuralchat.read ${shortType(type)}`, t.trace_parent ?? null, { 'neop.app': t.app_key, 'neop.task': t.id });
     try {
       const appName = (await this.platform.db.query<{ name: string }>("select manifest->>'name' as name from neos.apps where key = $1", [t.app_key])).rows[0]?.name ?? t.app_key;
       const author = `app:${t.app_key}`;
@@ -426,7 +423,6 @@ export class NeuralChatMatrix {
           await tx(this.platform.db, async (c) => {
             const u = await c.query(`update neos.tasks set status = case when status = 'CANCELLED' then status else $2 end, result = $3, job_id = coalesce(job_id, $4::uuid), attachments = null, updated_at = now() where id = $1 and result is null returning 1`, [t.id, status, JSON.stringify(result), b.job_id]);
             if (!u.rowCount) return;
-            await c.query(`update neos.questions set status = 'STALE', last_error = 'the job ended', updated_at = now() where task_id = $1 and status = 'OPEN'`, [t.id]);
             await this.platform.say(t.conversation_id, t.company_id, author, result.summary, 'result', t.id, c);
           });
           return 'done';
@@ -583,18 +579,12 @@ function tokenOk(given: string | undefined | null, expected: string): boolean {
 }
 
 /**
- * The platform's routes for NeuralChat's road: the signed file links (always) and — on the appservice road with no chat
- * bridge mounted — the appservice endpoints the homeserver pushes to. With a bridge, bridge/matrix.ts offers every
- * typed event to NeuralChat first (the same registration serves both).
+ * The platform's routes for NeuralChat's road: on the appservice road, the endpoints the homeserver pushes NeuralChat's
+ * events to (its registration: @neuralchat_.* only; v3 S9 — the platform keeps no Matrix name or namespace for any app).
  */
-export function neuralChatRoutes(nc: NeuralChatMatrix, o: { appservice: boolean }): Hono {
+export function neuralChatRoutes(nc: NeuralChatMatrix): Hono {
   const app = new Hono();
-  app.get('/neuralchat/files/:task/:n', async (c) => {
-    const r = await nc.file(c.req.param('task'), Number(c.req.param('n')), c.req.query('exp'), c.req.query('sig'));
-    if (r.status !== 200) return c.json({ error: { code: r.error, message: r.error === 'gone' ? 'the app already has this file; the platform keeps no copy' : 'not a valid file link' } }, r.status as 403);
-    return new Response(new Uint8Array(r.body!), { status: 200, headers: { 'content-type': r.type!, 'cache-control': 'no-store' } });
-  });
-  if (o.appservice && nc.cfg.road === 'appservice') {
+  if (nc.cfg.road === 'appservice') {
     const hs = nc.cfg.hsToken;
     const authed = (c: any) => {
       const h = c.req.header('authorization');
@@ -619,13 +609,14 @@ export function neuralChatRoutes(nc: NeuralChatMatrix, o: { appservice: boolean 
 }
 
 /**
- * NEOS_NEURALCHAT_MATRIX=appservice|client (default off). appservice: the platform's own registration (MATRIX_HOMESERVER_URL,
- * MATRIX_SERVER_NAME, MATRIX_HS_TOKEN, MATRIX_AS_TOKEN; @neuralchat_.* is reserved there). client: MATRIX_HOMESERVER_URL and
- * MATRIX_NEURALCHAT_ACCOUNTS[_FILE] = [{company, account?, token_file}] — one ordinary account per company.
+ * NEOS_NEURALCHAT_MATRIX=appservice|client — required (v3 S9: NeuralChat always speaks Matrix; there is no other road to
+ * an app). appservice: the platform's own registration (MATRIX_HOMESERVER_URL, MATRIX_SERVER_NAME, MATRIX_HS_TOKEN,
+ * MATRIX_AS_TOKEN[_FILE]; @neuralchat_.* only). client: MATRIX_HOMESERVER_URL and MATRIX_NEURALCHAT_ACCOUNTS[_FILE] =
+ * [{company, account?, token_file}] — one ordinary account per company (the production default beside #143's road).
  */
-export function neuralChatConfigFromEnv(env: NodeJS.ProcessEnv = process.env): NeuralChatMatrixConfig | null {
-  const mode = (env.NEOS_NEURALCHAT_MATRIX ?? 'off').trim();
-  if (mode === 'off' || !mode) return null;
+export function neuralChatConfigFromEnv(env: NodeJS.ProcessEnv = process.env): NeuralChatMatrixConfig {
+  const mode = (env.NEOS_NEURALCHAT_MATRIX ?? '').trim();
+  if (mode !== 'appservice' && mode !== 'client') throw new Error(`NEOS_NEURALCHAT_MATRIX must be appservice or client (got ${mode || 'nothing'}): NeuralChat reaches apps only through Matrix`);
   const homeserverUrl = String(env.MATRIX_HOMESERVER_URL ?? '').trim();
   if (!homeserverUrl) throw new Error('NEOS_NEURALCHAT_MATRIX needs MATRIX_HOMESERVER_URL');
   if (mode === 'appservice') {
@@ -633,7 +624,6 @@ export function neuralChatConfigFromEnv(env: NodeJS.ProcessEnv = process.env): N
     if (need.length) throw new Error(`NEOS_NEURALCHAT_MATRIX=appservice needs ${need.join(', ')}`);
     return { road: 'appservice', homeserverUrl, serverName: env.MATRIX_SERVER_NAME!, hsToken: env.MATRIX_HS_TOKEN!, asToken: env.MATRIX_AS_TOKEN! };
   }
-  if (mode !== 'client') throw new Error(`NEOS_NEURALCHAT_MATRIX must be off, appservice or client (not ${mode})`);
   const raw = env.MATRIX_NEURALCHAT_ACCOUNTS_FILE ? readFileSync(env.MATRIX_NEURALCHAT_ACCOUNTS_FILE, 'utf8') : (env.MATRIX_NEURALCHAT_ACCOUNTS ?? '');
   const list = JSON.parse(raw || '[]') as any[];
   if (!Array.isArray(list) || !list.length) throw new Error('NEOS_NEURALCHAT_MATRIX=client needs MATRIX_NEURALCHAT_ACCOUNTS (a JSON array)');

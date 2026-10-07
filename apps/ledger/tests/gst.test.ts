@@ -62,7 +62,7 @@ async function job(ask: string, steps: Step[]) {
 }
 
 const done = (taskId: string) => P.waitFor(async () => (await P.task(taskId)).task.status === 'COMPLETED', 'completed', 30_000);
-const read = async (key: string, args: unknown) => (await P.api('POST', `/api/apps/ledger/read/${key}`, args)).body.result;
+const read = async (key: string, args: unknown) => (await P.read(key, args)).body.result;
 const rows = (period: string) =>
   withCompany(P.backend.core.appPool, P.company.id, async (c) => (await c.query("select * from ledger.nep_gst_returns where period = $1 and status <> 'superseded' order by created_at", [period])).rows);
 /** The person reads the SMS and it is entered on the OTP door (the secret store's gst_portal_otp slot). The assistant never sees it. */

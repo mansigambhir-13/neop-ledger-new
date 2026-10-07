@@ -2,10 +2,10 @@ import type { Manifest, ProposalCard } from '@neop/contracts';
 import type { PoolClient } from '@neop/pgkit';
 import type { Doors } from './doors/index.ts';
 
-/** Who is asking, as the gate or L3 saw it. */
+/** Who is asking, as the gate (or the bus room, for a borrowed read) saw it. */
 export interface CallerCtx {
   company_id: string;
-  /** `user:<id>`, `app:<key>`, `platform`, or `assistant:<job>` for gate calls. */
+  /** `user:<id>`, `app:<mxid>` (another NEOP over the bus room), or `assistant:<job>` for gate calls. */
   caller: string;
   job_id: string | null;
   /** Database clock, never the app clock. */
@@ -42,6 +42,8 @@ export interface ReadAbility {
 
 export interface WriteAbility {
   kind: 'write';
+  /** A standing grant cannot substitute for this write's current human approval. */
+  requiresHumanApproval?: boolean;
   /** Optional: compute money/recipients for rules when a JSON pointer is not enough (may read the books). */
   measure?(args: any, db?: PoolClient): Measure | Promise<Measure>;
   /**
@@ -139,9 +141,6 @@ export interface NeopConfig {
   runnerDbUrl: string;
   /** A direct (session) connection for LISTEN and the execution lock — never through a transaction pooler (S8). Defaults to runnerDbUrl. */
   directDbUrl?: string;
-  platformUrl: string;
-  /** Service secret the backend uses for platform-internal calls (switchboard, grant tokens). */
-  serviceSecret: string;
   /** HMAC secret(s) for job tokens; never leave the backend. Comma-separated or a list: first signs, all verify. */
   jobTokenSecret: string | string[];
   /** Where the assistant worker pool listens. */
@@ -159,20 +158,25 @@ export interface NeopConfig {
    * entry recorded at install is used alone. Production pins the registry's JWKS (NEOP_REGISTRY_JWKS_FILE).
    */
   registryJwks?: { keys: Record<string, unknown>[] };
-  /** How long a fetched gateway JWKS is trusted (default 60 s): bounds exposure after a key is retired. */
-  jwksCacheMs?: number;
-  /** Acked outbox events older than this are pruned (default 7 days). */
+  /** Outbox events every presence mirror has passed are pruned once older than this (default 7 days). */
   outboxRetentionMs?: number;
+  /**
+   * v3 S9 · the backend's own files listener (kept source documents, downloaded with a signed short-lived link; plus
+   * /live, /ready and /metrics for ops). `publicUrl` is where a person's browser reaches it (NEOP_FILES_PUBLIC_URL);
+   * unset, links carry the path only. The platform never fetches anything from here.
+   */
+  files?: { publicUrl?: string };
   /** Where attached files are kept (WP §11): a local volume or an S3-compatible bucket. Default: NEOP_DOCUMENTS_* env, else a local directory. */
   documents?: import('./doors/documents/store.ts').DocumentStoreConfig;
   /** Door credentials (v3 §12). Default: a FileSecretStore at NEOP_DOOR_SECRETS_DIR (else /run/secrets/doors), read per call. */
   secrets?: import('./doors/secrets.ts').SecretStore;
   /** The LLM proxy and this app's session-signing key (v3: the runner mints session tokens). Unset: sessions get no token. */
   llm?: import('./runner/llm.ts').LlmConfig;
-  /** The NEOP on Matrix itself (v3 S4): NEOP_PRESENCE=off|appservice|client (presenceConfigFromEnv); off unless set. */
-  presence?: import('./presence/index.ts').PresenceConfig;
-  /** The bridge to today's NEOS platform gateway (`/capabilities/<id>`); off unless set. */
-  neosV1?: import('./l3/neos-v1.ts').NeosV1Config;
+  /**
+   * The NEOP on Matrix itself (v3 S4; required since S9 — it is the only way anything reaches the app): the appservice
+   * road (NEOP_PRESENCE=appservice) or the client road (NEOP_PRESENCE=client). presenceConfigFromEnv reads it.
+   */
+  presence: import('./presence/index.ts').PresenceConfig;
   timings: Timings;
   log?: (msg: string, extra?: Record<string, unknown>) => void;
 }

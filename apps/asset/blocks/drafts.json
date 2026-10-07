@@ -1,0 +1,45 @@
+{
+  "block": "page",
+  "title": "Asset drafts",
+  "description": "Internal review only; not business approval or external completion.",
+  "nav": {
+    "label": "Asset",
+    "icon": "table",
+    "order": 1
+  },
+  "children": [
+    {
+      "block": "table",
+      "source": {
+        "ability": "asset.requests.list"
+      },
+      "rows": "/rows",
+      "columns": [
+        {
+          "label": "source id",
+          "path": "/source_id"
+        },
+        {
+          "label": "item",
+          "path": "/item"
+        },
+        {
+          "label": "band",
+          "path": "/band"
+        },
+        {
+          "label": "notes",
+          "path": "/notes"
+        },
+        {
+          "label": "status",
+          "path": "/status"
+        },
+        {
+          "label": "requires elevated approval",
+          "path": "/requires_elevated_approval"
+        }
+      ]
+    }
+  ]
+}

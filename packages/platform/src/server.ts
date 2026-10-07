@@ -4,25 +4,24 @@ import { fileURLToPath } from 'node:url';
 import { DECISIONS, strictest, type Manifest, type Setting } from '@neop/contracts';
 import { Hono, type Context } from 'hono';
 import { streamSSE } from 'hono/streaming';
-import { GatewayError } from './gateway.ts';
-import { Platform, PlatformError } from './platform.ts';
+import { Platform, PlatformError, PLATFORM_ISSUER } from './platform.ts';
 
 const DESK_HTML = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), 'desk.html'), 'utf8');
 
-// proposals.* (v3 S2) and waits.answer (v3 S3) are retired but stay here: never a read, never callable as an ability.
-const PLATFORM_ENDPOINTS = ['tasks.open', 'inbox.deliver', 'proposals.resolve', 'proposals.execute', 'outbox.read', 'outbox.ack', 'switchboard.changed', 'tasks.cancel', 'tasks.result', 'schedules.set', 'schedules.list', 'waits.answer', 'jobs.transcript', 'manifest', 'documents.fetch'];
+// v3 S9 · everything here is the platform's own (people, Conversations, NeuralChat, the desk, the registry). No route
+// reaches an app and none is for an app to call at run time: an app's data is read and changed on the database (as
+// neos_desk, through the functions its migration file declares) and every word with it is a typed Matrix event.
 
 export function platformApp(p: Platform): Hono {
   const app = new Hono();
 
   app.onError((err, c) => {
-    if (err instanceof PlatformError || err instanceof GatewayError) return c.json({ error: { code: err.code, message: err.message } }, err.status as 400);
+    if (err instanceof PlatformError) return c.json({ error: { code: err.code, message: err.message } }, err.status as 400);
     p.log('error', { e: String(err), stack: (err as Error).stack });
     return c.json({ error: { code: 'internal', message: 'internal error' } }, 500);
   });
 
   app.get('/', (c) => c.html(DESK_HTML));
-  app.get('/.well-known/jwks.json', (c) => c.json(p.gateway.jwks()));
   app.get('/.well-known/registry-jwks.json', (c) => c.json(p.registry.jwks()));
   app.get('/live', (c) => c.json({ ok: true }));
   app.get('/metrics', async (c) => {
@@ -34,32 +33,13 @@ export function platformApp(p: Platform): Hono {
     return c.text(await p.renderMetrics(), 200, { 'content-type': 'text/plain; version=0.0.4' });
   });
 
-  // ── internal: app backends, authenticated with their service secret ──────
+  // ── registry publish, by an app's BUILD (its registry credential; v3 §13 step 5 `neos publish`) ──────
+  // Not a run-time API: no running backend holds this credential or calls anything here (v3 S9).
   const service = async (c: Context): Promise<string> => {
     const key = await p.authService(c.req.header('authorization'));
     if (!key) throw new PlatformError(401, 'unauthenticated', 'service credentials required');
     return key;
   };
-  app.get('/internal/switchboard', async (c) => {
-    const key = await service(c);
-    await p.assertInstalled(key, c.req.query('company_id') ?? '');
-    return c.json(await p.switchboard(c.req.query('company_id') ?? '', key));
-  });
-  // v3 S1: no /internal/grants/execution-token — an app matches its standing yeses in its own schema.
-  app.post('/internal/borrow/describe', async (c) => {
-    const key = await service(c);
-    return c.json(await p.borrowDescribe(key, await c.req.json()));
-  });
-  app.post('/internal/gateway/call', async (c) => {
-    const key = await service(c);
-    const res = await p.internalCall(key, await c.req.json());
-    return c.json({ status: res.status, body: res.body, request_id: res.request_id });
-  });
-  app.post('/internal/a2a/open', async (c) => {
-    const key = await service(c);
-    return c.json(await p.openA2ATask(key, await c.req.json()));
-  });
-  // Registry: an app publishes its own skills; hosts fetch what their company pinned, and artifacts by hash.
   app.post('/internal/registry/publish', async (c) => {
     const key = await service(c);
     const b = await c.req.json();
@@ -67,8 +47,8 @@ export function platformApp(p: Platform): Hono {
   });
   // v3 S7: no run-time registry fetch. A backend's packages are in its build; pinned skills are read from
   // neos_registry.skills with the app's own role. `neos install` fetches below (/api/registry/entry, /artifact).
-  // v3 (S8): /internal/vault/lend and /internal/llm/session are gone. A NEOP backend reads door credentials from the
-  // secret store per (app, company) per call, and its runner mints the assistant's LLM session token itself.
+  // v3 S8/S9: no /internal/* for backends at all — door credentials come from the secret store, LLM session tokens
+  // from the runner, the board from the app's own schema, a hand-off to another app is a typed event in the bus room.
 
   // ── the NEOS app and desk, authenticated as a person ────────────────────
   const user = async (c: Context) => {
@@ -119,15 +99,15 @@ export function platformApp(p: Platform): Hono {
       const pk = pkg.find((a) => a.key === k);
       return own ? inForce(own) : pk ? inForce(pk) : null;
     };
-    // A requirement another app owns loads only as the gate offers it: with an ACL row a person
-    // granted, at the strictest of the owner's setting there and this company's line here.
+    // A requirement another app owns (v3 §10, S6/S9) loads only as the gate offers it: the owner is whoever offers it in
+    // neos_registry, and the line is this app's own borrowed line on its board — off until the company sets it, never
+    // looser than the `uses` floor. The owner checks its own line when the typed ask arrives.
     const borrowedSetting = async (r: string): Promise<{ setting: Setting; from: string | null }> => {
-      const acl = (await p.db.query<{ target_app: string }>('select target_app from neos.acl where caller_app = $1 and ability_key = $2 and company_id = $3 limit 1', [key, r, u.company_id])).rows[0];
-      if (!acl) return { setting: 'off', from: null };
-      const d = await p.borrowDescribe(key, { company_id: u.company_id, app: acl.target_app, ability: r }).catch(() => null);
-      if (!d || d.ability.kind !== 'read' || !d.acl) return { setting: 'off', from: acl.target_app };
+      const owner = (await p.db.query<{ app: string }>("select app from neos_registry.abilities where app <> $1 and ability = $2 order by app limit 1", [key, r])).rows[0]?.app ?? null;
+      const own = sb.settings?.[r] as Setting | undefined;
+      if (!owner || own === undefined) return { setting: 'off', from: owner };
       const floor = (m.uses ?? []).find((x) => x.ability === r)?.floor ?? 'on';
-      return { setting: strictest(strictest(floor, d.owner_setting), sb.settings?.[r]), from: acl.target_app };
+      return { setting: strictest(floor, own), from: owner };
     };
     const skills = await Promise.all(
       (await p.skillLines(key, u.company_id, m)).map(async (sk) => {
@@ -230,7 +210,7 @@ export function platformApp(p: Platform): Hono {
   app.post('/api/conversations/:id/stream-token', async (c) => {
     const u = await user(c);
     await p.conversation(u, c.req.param('id'));
-    const token = await p.gateway.sign({ conversation_id: c.req.param('id'), company_id: u.company_id }, 'neos-stream', `user:${u.id}`, 300);
+    const token = await p.sign({ conversation_id: c.req.param('id'), company_id: u.company_id }, 'neos-stream', `user:${u.id}`, 300);
     return c.json({ token, expires_in: 300 });
   });
 
@@ -240,7 +220,7 @@ export function platformApp(p: Platform): Hono {
     if (st) {
       const { jwtVerify, createLocalJWKSet } = await import('jose');
       try {
-        const { payload } = await jwtVerify(st, createLocalJWKSet(p.gateway.jwks() as any), { issuer: 'neos-gateway', audience: 'neos-stream', algorithms: ['EdDSA'] });
+        const { payload } = await jwtVerify(st, createLocalJWKSet(p.opts.keys.jwks() as any), { issuer: PLATFORM_ISSUER, audience: 'neos-stream', algorithms: ['EdDSA'] });
         if (payload.conversation_id !== c.req.param('id')) throw new Error('wrong conversation');
         u = { id: String(payload.sub).slice(5), company_id: String(payload.company_id) };
       } catch {
@@ -270,27 +250,20 @@ export function platformApp(p: Platform): Hono {
     });
   });
 
-  // Timers (WP §7): an admin sets an app's schedules; the platform carries them to the app
-  // through the gateway (platform door), naming the admin as the requester of every run.
+  // Timers (WP §7): an admin sets an app's schedules, naming the admin as the requester of every run. v3 S9: on the
+  // app's own rows, as the desk, through <app>.set_schedule() / <app>.list_schedules() (templates t010, t018).
   app.get('/api/apps/:app/schedules', async (c) => {
     const u = await user(c);
     if (u.role !== 'admin') throw new PlatformError(403, 'denied', 'admins only');
-    await p.assertInstalled(c.req.param('app'), u.company_id);
-    const res = await p.gateway.call({ caller: 'platform', app: c.req.param('app'), endpoint: 'schedules.list', company_id: u.company_id });
-    return c.json(res.body, res.status as 200);
+    return c.json({ schedules: await p.listSchedules(u.company_id, c.req.param('app')) });
   });
   app.put('/api/apps/:app/schedules', async (c) => {
     const u = await user(c);
     if (u.role !== 'admin') throw new PlatformError(403, 'denied', 'admins only');
-    const key = c.req.param('app');
-    await p.assertInstalled(key, u.company_id);
     const b = await c.req.json().catch(() => null);
     if (!b || typeof b.ask !== 'string' || !b.ask.trim() || !b.rule || typeof b.rule !== 'object') throw new PlatformError(400, 'bad_request', 'ask and rule ({every, at, weekday?, day?}) required');
     if (b.id !== undefined && typeof b.id !== 'string') throw new PlatformError(400, 'bad_request', 'id must be a string');
-    const body = { ...(b.id ? { id: b.id } : {}), ask: b.ask, requester: `user:${u.id}`, rule: b.rule, ...(typeof b.enabled === 'boolean' ? { enabled: b.enabled } : {}) };
-    const res = await p.gateway.call({ caller: 'platform', app: key, endpoint: 'schedules.set', company_id: u.company_id, body, idem_key: `schedule:${crypto.randomUUID()}` });
-    if (res.status === 200) await p.gateway.audit({ company_id: u.company_id, actor: `user:${u.id}`, app_key: key, action: 'schedule.set', outcome: String(res.body?.schedule?.id ?? ''), detail: body });
-    return c.json(res.body, res.status as 200);
+    return c.json({ schedule: await p.setSchedule(u, c.req.param('app'), { id: b.id, ask: b.ask, rule: b.rule, enabled: typeof b.enabled === 'boolean' ? b.enabled : undefined }) });
   });
 
   // The desk activity feed (C6): job steps and a2a hand-offs across the company's apps, newest first.
@@ -300,42 +273,7 @@ export function platformApp(p: Platform): Hono {
     return c.json({ activity: await p.activity(u.company_id, { kind: c.req.query('kind') ?? null, app: c.req.query('app') ?? null, limit: Math.min(Number(c.req.query('limit') ?? 100) || 100, 500) }) });
   });
 
-  app.get('/api/dead-letters', async (c) => {
-    const u = await user(c);
-    if (u.role === 'member') throw new PlatformError(403, 'denied', 'admins only');
-    return c.json({ dead_letters: await p.deadLetters(u.company_id) });
-  });
-  app.post('/api/dead-letters/:app/:id/replay', async (c) => {
-    const u = await user(c);
-    if (u.role === 'member') throw new PlatformError(403, 'denied', 'admins only');
-    await p.replayDeadLetter(u.company_id, c.req.param('app'), Number(c.req.param('id')));
-    return c.json({ ok: true });
-  });
-
-  // Platform operators rotate the gateway signing key (R10).
-  const operator = async (c: Context) => {
-    const u = await user(c);
-    if (u.role !== 'operator') throw new PlatformError(403, 'denied', 'operators only');
-    return u;
-  };
-  app.post('/api/ops/keys/rotate', async (c) => {
-    const u = await operator(c);
-    // Publish now; start signing only after every app's JWKS cache (≤ 60 s) has refreshed.
-    // The activation time is stored, so a restart inside the window cannot strand the key.
-    const b = await c.req.json().catch(() => ({}));
-    const delay = Math.max(0, Number(b.activate_after_ms ?? 120_000) || 0);
-    const r = await p.rotateGatewayKey(`user:${u.id}`, delay);
-    return c.json({ next: r.next, activate_at: r.activate_at, activates_in_ms: delay });
-  });
-  app.post('/api/ops/keys/retire-previous', async (c) => {
-    const u = await operator(c);
-    const b = await c.req.json().catch(() => ({}));
-    return c.json(await p.retirePreviousGatewayKey(`user:${u.id}`, b.force === true));
-  });
-  app.get('/api/ops/keys', async (c) => {
-    await operator(c);
-    return c.json(await p.gatewayKeys());
-  });
+  // v3 S9: no dead letters (no outbox consumer: each app's own presence mirrors its outbox) and no gateway keys to rotate.
 
   app.post('/api/tasks/:id/cancel', async (c) => {
     const u = await user(c);
@@ -445,79 +383,9 @@ export function platformApp(p: Platform): Hono {
     return c.json({ version: await p.setSwitchboard(u.company_id, c.req.param('app'), u.id, b) });
   });
 
-  // A company admin configures a door's provider credentials (Resend, GSP …). Write-only: the platform never returns a
-  // secret. DEPRECATED (v3 S8, deleted in S9): no NEOP backend reads the vault any more — door credentials live in the
-  // secret store (scripts/deploy.sh door set; move existing ones with scripts/v3/export-door-secrets.ts).
-  app.put('/api/vault/:door', async (c) => {
-    const u = await user(c);
-    if (u.role !== 'admin') throw new PlatformError(403, 'denied', 'admins only');
-    const door = c.req.param('door');
-    if (!/^[a-z][a-z0-9_]{1,40}$/.test(door)) throw new PlatformError(400, 'bad_request', 'door name');
-    const b = await c.req.json().catch(() => null);
-    if (!b || typeof b !== 'object' || typeof b.provider !== 'string') throw new PlatformError(400, 'bad_request', 'a secret object with a provider is required');
-    // WP §12: ?app=<key> holds the key for that app only; without it the key is company-wide
-    // (any app declaring the door borrows it unless it has its own).
-    const forApp = c.req.query('app');
-    if (forApp !== undefined) {
-      if (!/^[a-z][a-z0-9_]{0,40}$/.test(forApp)) throw new PlatformError(400, 'bad_request', 'app key');
-      await p.assertInstalled(forApp, u.company_id);
-      if (!(await p.declaredDoors(forApp, u.company_id)).has(door.replace(/_otp$/, ''))) throw new PlatformError(422, 'undeclared_door', `${forApp} does not declare the ${door} door`);
-    }
-    await p.setVaultSecret(u.company_id, door, b, forApp ?? '*');
-    await p.gateway.audit({ company_id: u.company_id, actor: `user:${u.id}`, app_key: forApp, action: 'vault.set', ability_key: door, outcome: b.provider, detail: { slot: forApp ? 'app' : 'company' } });
-    return c.json({
-      ok: true,
-      door,
-      app: forApp ?? null,
-      provider: b.provider,
-      deprecated: 'the platform vault is no longer read by NEOP backends (v3); provision the secret store: scripts/deploy.sh door set <company> <door> [app]',
-    });
-  });
-  app.get('/api/vault', async (c) => {
-    const u = await user(c);
-    if (u.role !== 'admin') throw new PlatformError(403, 'denied', 'admins only');
-    return c.json({ doors: await p.vaultSlots(u.company_id) }); // names, owners and dates only
-  });
-
-  // A kept source document (WP §11), downloaded by a signed-in person of the company it belongs to,
-  // through a short-lived link the app's read (e.g. ledger.document.get) handed out. The platform
-  // fetches the bytes from the app's L3 through the gateway; the model never receives them.
-  app.get('/api/documents/:app/:sha256', async (c) => {
-    const u = await user(c);
-    const target = c.req.param('app');
-    const sha256 = c.req.param('sha256');
-    if (!/^[a-z][a-z0-9_]{0,40}$/.test(target) || !/^[0-9a-f]{64}$/.test(sha256)) throw new PlatformError(400, 'bad_request', 'app and sha256 required');
-    const exp = c.req.query('exp') ?? '';
-    const sig = c.req.query('sig') ?? '';
-    if (!/^\d{1,12}$/.test(exp) || !/^[A-Za-z0-9_-]{20,100}$/.test(sig)) throw new PlatformError(400, 'bad_request', 'a download link (exp, sig) is required');
-    const res = await p.gateway.call({ caller: 'platform', app: target, endpoint: 'documents.fetch', company_id: u.company_id, query: { sha256, exp, sig } });
-    await p.gateway.audit({ company_id: u.company_id, actor: `user:${u.id}`, app_key: target, action: 'document.download', ability_key: sha256, request_id: res.request_id, outcome: String(res.status) });
-    if (res.status !== 200) return c.json(res.body, res.status as 400);
-    const b = res.body as { filename: string; content_type: string; content_base64: string };
-    const name = String(b.filename).replace(/[\r\n"\\]/g, '_');
-    return new Response(new Uint8Array(Buffer.from(b.content_base64, 'base64')), {
-      headers: {
-        'content-type': /^[\w.+-]+\/[\w.+-]+$/.test(b.content_type) ? b.content_type : 'application/octet-stream',
-        'content-disposition': `attachment; filename="${name.replace(/[^\x20-\x7e]/g, '_')}"; filename*=UTF-8''${encodeURIComponent(name)}`,
-        'x-content-type-options': 'nosniff',
-        'cache-control': 'private, no-store',
-        'content-security-policy': "default-src 'none'; sandbox",
-      },
-    });
-  });
-
-  app.post('/api/acl', async (c) => {
-    const u = await user(c);
-    if (u.role !== 'admin') throw new PlatformError(403, 'denied', 'admins only');
-    await p.grantAcl(u, await c.req.json());
-    return c.json({ ok: true });
-  });
-  app.delete('/api/acl', async (c) => {
-    const u = await user(c);
-    if (u.role !== 'admin') throw new PlatformError(403, 'denied', 'admins only');
-    await p.revokeAcl(u, await c.req.json());
-    return c.json({ ok: true });
-  });
+  // v3 S9: no vault and no document fetch. Door credentials live in the secret store, per (app, company), read by the
+  // app's backend per call (scripts/deploy.sh door set). A kept document is downloaded from the app backend's own files
+  // listener with the signed link its read handed out (template doors/documents/files.ts); the platform fetches nothing.
 
   app.post('/api/registry/packages', async (c) => {
     const u = await user(c);
@@ -609,7 +477,7 @@ export function platformApp(p: Platform): Hono {
     if (!(exp.getTime() > Date.now()) || exp.getTime() > Date.now() + 366 * 864e5) throw new PlatformError(422, 'bad_expiry', 'a standing yes must expire within a year');
     const limits = Object.fromEntries(['per_call_minor', 'per_month_minor', 'currency', 'recipients_allow'].filter((k) => L[k] !== undefined).map((k) => [k, L[k]]));
     const id = await p.createGrant({ company_id: u.company_id, app_key: b.app_key, ability_key: b.ability_key, limits, expires_at: exp, created_by: u.id });
-    await p.gateway.audit({ company_id: u.company_id, actor: `user:${u.id}`, app_key: b.app_key, action: 'grant.created', ability_key: b.ability_key, outcome: id, detail: { limits, expires_at: exp.toISOString() } });
+    await p.audit({ company_id: u.company_id, actor: `user:${u.id}`, app_key: b.app_key, action: 'grant.created', ability_key: b.ability_key, outcome: id, detail: { limits, expires_at: exp.toISOString() } });
     return c.json({ id });
   });
   app.delete('/api/grants/:id', async (c) => {
@@ -617,23 +485,12 @@ export function platformApp(p: Platform): Hono {
     if (u.role !== 'admin') throw new PlatformError(403, 'denied', 'admins only');
     const r = await p.revokeGrant(u.company_id, c.req.param('id'), u.id);
     if (!r?.changed) throw new PlatformError(404, 'not_found', 'no such standing yes');
-    await p.gateway.audit({ company_id: u.company_id, actor: `user:${u.id}`, app_key: r.app_key, action: 'grant.revoked', ability_key: r.ability_key, outcome: c.req.param('id') });
+    await p.audit({ company_id: u.company_id, actor: `user:${u.id}`, app_key: r.app_key, action: 'grant.revoked', ability_key: r.ability_key, outcome: c.req.param('id') });
     return c.json({ ok: true });
   });
 
-  // Which other apps may ask an app for what (borrowing and tasks, WP §9–10).
-  app.get('/api/acl', async (c) => {
-    const u = await user(c);
-    if (u.role !== 'admin') throw new PlatformError(403, 'denied', 'admins only');
-    const r = await p.db.query(
-      `select a.caller_app, a.target_app, a.ability_key, a.granted_at, gu.name as granted_by_name
-         from neos.acl a left join neos.users gu on gu.id::text = a.granted_by::text
-        where a.company_id = $1 and ($2::text is null or a.target_app = $2 or a.caller_app = $2) order by a.granted_at desc`,
-      [u.company_id, c.req.query('app') ?? null],
-    );
-    const apps = await p.db.query(`select a.key, a.manifest->>'name' as name from neos.installs i join neos.apps a on a.key = i.app_key where i.company_id = $1 and i.status = 'active' order by a.key`, [u.company_id]);
-    return c.json({ acl: r.rows, installed_apps: apps.rows });
-  });
+  // v3 S6/S9: which other apps may ask an app for what is the bus room (membership, power levels) and each borrower's
+  // own `uses` line on its switchboard (PUT /api/switchboards/:app) — there is no ACL table.
 
   // One audit trail (WP §8): every effectful call and every governance change, newest first.
   app.get('/api/audit', async (c) => {
@@ -641,6 +498,15 @@ export function platformApp(p: Platform): Hono {
     if (u.role !== 'admin') throw new PlatformError(403, 'denied', 'admins only');
     const q = c.req.query();
     const limit = Math.min(Math.max(Number(q.limit ?? 100) || 100, 1), 500);
+    // v3 §8 "one audit trail": what an app carried out is the app's own `operations` row (neos.v_operations, read as the
+    // desk) — asked for with action=app.operation, paged by time (`before` = the last row's `at`); everything else is
+    // the platform's own trail, paged by id.
+    if (q.action && q.action.length >= 4 && 'app.operation'.startsWith(q.action)) {
+      const before = q.before ? new Date(/^\d+$/.test(q.before) ? Number(q.before) : q.before) : null;
+      if (before && Number.isNaN(before.getTime())) throw new PlatformError(400, 'bad_request', 'before is a time');
+      const ops = (await p.operations(u.company_id, { app: q.app ?? null, before, limit })).filter((x) => !q.actor || x.actor === q.actor);
+      return c.json({ rows: ops.map((x) => ({ ...x, actor_name: null })), next_before: ops.length === limit ? new Date(ops.at(-1)!.at).toISOString() : null });
+    }
     const r = await p.db.query(
       `select id, at, actor, app_key, action, ability_key, idem_key, request_id, outcome, detail from neos.audit
         where company_id = $1
@@ -717,19 +583,14 @@ export function platformApp(p: Platform): Hono {
     });
   });
 
-  // Reads for blocks (home tile, desk list): through the gateway, as the person.
+  // Reads for blocks (the screens: home tile, pages, reports). v3 S9: on the database, as the desk, through
+  // <app>.block_read(ability, args) (template t018) — only the reads the app declared in its own migration file, under
+  // the person's company (row-level security). The app's own read handler runs the same SQL, so what the screen shows
+  // is what the assistant sees. Anything the app did not declare is 403 not_declared; the platform never calls the app.
   app.post('/api/apps/:app/read/:ability', async (c) => {
     const u = await user(c);
-    if (PLATFORM_ENDPOINTS.includes(c.req.param('ability'))) throw new PlatformError(403, 'denied', 'that is not a read');
-    const res = await p.gateway.call({
-      caller: `user:${u.id}`,
-      app: c.req.param('app'),
-      endpoint: c.req.param('ability'),
-      company_id: u.company_id,
-      body: await c.req.json().catch(() => ({})),
-      idem_key: `read:${crypto.randomUUID()}`,
-    });
-    return c.json(res.body, res.status as 200);
+    const args = await c.req.json().catch(() => ({}));
+    return c.json({ result: await p.blockRead(u, c.req.param('app'), c.req.param('ability'), args) });
   });
 
   return app;

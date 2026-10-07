@@ -60,6 +60,19 @@ const pooled = (family: string, user: string, pw: string) => `postgres://${user}
 const userlist: string[] = [];
 const runnerKeys: Record<string, unknown[]> = {};
 
+// NeuralChat's router also mints short-lived LLM sessions. The platform keeps the private keyring; the
+// standalone LLM proxy receives only its active public half under the reserved `neuralchat` principal.
+const platformRing = JSON.parse(
+  put('platform_signing_key', () => {
+    const { privateKey, publicKey } = generateKeyPairSync('ed25519');
+    const kid = `llm-neuralchat-${random(6)}`;
+    const privateJwk = privateKey.export({ format: 'jwk' });
+    const publicJwk = { ...publicKey.export({ format: 'jwk' }), kid, alg: 'EdDSA', use: 'sig' };
+    return JSON.stringify({ keys: [{ kid, privateJwk, publicJwk, state: 'active', created_at: new Date().toISOString() }] });
+  }),
+);
+runnerKeys.neuralchat = platformRing.keys.filter((k: any) => k.state !== 'retired').map((k: any) => k.publicJwk);
+
 const adminPw = put('pg_admin', random);
 put('pg_admin_url', () => url('neos', 'neos_admin', adminPw));
 for (const app of dedicated.keys()) {
@@ -103,7 +116,6 @@ for (const family of ['neos', ...apps]) {
 }
 // Door credentials (v3 §12) live under doors/<company>/[<app>/]<door>.json, written by `scripts/deploy.sh door set`.
 mkdirSync(path.join(dir, 'doors'), { recursive: true, mode: 0o700 });
-put('vault_keys', () => JSON.stringify({ active: 'k1', keys: { k1: randomBytes(32).toString('base64') } }));
 put('metrics_token', () => random(24));
 put('backup_doors_key', () => randomBytes(32).toString('base64')); // seals the doors/ copy in each nightly backup
 put('grafana_admin', () => random(18)); // observability profile: Grafana's admin password

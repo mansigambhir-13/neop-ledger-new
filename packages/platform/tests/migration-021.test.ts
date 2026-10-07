@@ -66,8 +66,8 @@ describe('021 on a populated platform database', () => {
       ).rows[0];
     const before = await snap();
 
-    const applied = await migratePlatform(db.adminUrl);
-    expect(applied.map((m) => m.name)).toEqual(['021_open_questions.sql', '022_registry_pins.sql', '023_neuralchat_matrix.sql']); // 022 (S7), 023 (S5) follows; its own proof is in registry-v3.test.ts (023: migration-023.test.ts)
+    const applied = await migratePlatform(db.adminUrl, undefined, { through: '021' });
+    expect(applied.map((m) => m.name)).toEqual(['021_open_questions.sql']); // applied through 021; 022 (registry-v3.test.ts), 023 and 024 have their own proofs
     expect(await snap()).toEqual(before); // every question, task and shown-in-DM row as it was
     expect(before.n).toBe(12);
 
@@ -100,6 +100,6 @@ describe('021 on a populated platform database', () => {
       await app.end();
     }
     // A re-run is a no-op.
-    expect(await migratePlatform(db.adminUrl)).toEqual([]);
+    expect(await migratePlatform(db.adminUrl, undefined, { through: '021' })).toEqual([]);
   });
 });

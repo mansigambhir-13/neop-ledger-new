@@ -1,21 +1,17 @@
 // Operator CLI · the bootstrap steps with no HTTP route (there is no admin yet to call one),
 // plus operator actions on a running platform.
 // Runs where the platform's database role is reachable (the platform container).
-//   tsx scripts/ops.ts register-app ledger http://ledger-l3:4101 --conformance conformance/ledger.json [--author-key author.pub.jwk]
+//   tsx scripts/ops.ts register-app ledger --conformance conformance/ledger.json [--author-key author.pub.jwk]
 //                                                                        (secret: NEOP_SERVICE_SECRET[_FILE]; production refuses without a green attestation)
 //   tsx scripts/ops.ts create-company "Acme Traders" [Asia/Kolkata]
 //   tsx scripts/ops.ts create-user <company_id> <name> <email> <admin|member|operator>
 //   tsx scripts/ops.ts install <company_id> <app>
 //   tsx scripts/ops.ts rotate-service-secret <app>                     (new secret: NEOP_SERVICE_SECRET[_FILE])
-// Gateway signing keys (R10), through the running platform (it holds the keyring); NEOS_PLATFORM_URL + NEOS_OPERATOR_TOKEN[_FILE]:
-//   tsx scripts/ops.ts keys-status
-//   tsx scripts/ops.ts keys-rotate [activate_after_ms]                  (publish now; activation is stored and survives restarts)
-//   tsx scripts/ops.ts keys-retire-previous [--force]                   (after 2× token TTL)
 //   (v3 S7: a package's tables are the host's; dropping them is a contract migration in the host's own set, not an ops command)
 // Uninstall for one company (WP §11: a company-scoped delete the DBA runs from one script). NEOS_DB_URL, and for --purge NEOS_ADMIN_URL:
 //   tsx scripts/ops.ts uninstall <company_id> <app> [--purge] [--yes] [--backup-dir /backups]
 //     without --yes: a dry run — what would change, and with --purge the rows per table that would go.
-//     --yes: the install is marked removed (no routing, no offering, the gateway refuses the company).
+//     --yes: the install is marked removed (no Matrix routing and no offering for that company).
 //     --yes --purge: first a backup (that company's rows as JSON, restorable with backup.ts import, plus a
 //       pg_dump of the schema when pg_dump is on PATH), then every table in the app's schema loses that
 //       company's rows, children first, in one transaction. Kept files under NEOP_DOCUMENTS_DIR/<app>/<company>/ go too.
@@ -56,11 +52,10 @@ const backupDir = flag('--backup-dir');
 const purge = bool('--purge');
 const yes = bool('--yes');
 const authorKeyFile = flag('--author-key');
-const force = bool('--force');
 const [cmd, ...args] = argv;
 const usage = () => {
   console.error(
-    'usage: ops.ts register-app <app> <l3_url> [--conformance <file>] [--author-key <jwk file>] | create-company <name> [tz] | create-user <company_id> <name> <email> <role> | install <company_id> <app> | rotate-service-secret <app> | keys-status | keys-rotate [ms] | keys-retire-previous [--force] | uninstall <company_id> <app> [--purge] [--yes] [--backup-dir d] | personal-find|personal-export|personal-erase <company_id> <app> <subject> …',
+    'usage: ops.ts register-app <app> [--conformance <file>] [--author-key <jwk file>] | create-company <name> [tz] | create-user <company_id> <name> <email> <role> | install <company_id> <app> | rotate-service-secret <app> | uninstall <company_id> <app> [--purge] [--yes] [--backup-dir d] | personal-find|personal-export|personal-erase <company_id> <app> <subject> …',
   );
   process.exit(64);
 };
@@ -71,37 +66,18 @@ const secret = () => {
   return s;
 };
 
-/** Operator calls on the running platform (the process that holds the gateway keyring). */
-async function operatorCall(method: string, path: string, body?: unknown): Promise<unknown> {
-  const res = await fetch(env('NEOS_PLATFORM_URL', 'http://127.0.0.1:4700').replace(/\/$/, '') + path, {
-    method,
-    headers: { authorization: `Bearer ${env('NEOS_OPERATOR_TOKEN')}`, 'content-type': 'application/json' },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
-  const out = await res.json().catch(() => null);
-  if (!res.ok) throw new Error(`${method} ${path}: ${res.status} ${JSON.stringify(out)}`);
-  return out;
-}
-
-if (cmd === 'keys-status' || cmd === 'keys-rotate' || cmd === 'keys-retire-previous') {
-  if (cmd === 'keys-status') console.log(JSON.stringify(await operatorCall('GET', '/api/ops/keys')));
-  if (cmd === 'keys-rotate') console.log(JSON.stringify(await operatorCall('POST', '/api/ops/keys/rotate', { activate_after_ms: args[0] ? Number(args[0]) : 120_000 })));
-  if (cmd === 'keys-retire-previous') console.log(JSON.stringify(await operatorCall('POST', '/api/ops/keys/retire-previous', { force })));
-  process.exit(0);
-}
-
 const p = new Platform({ dbUrl: env('NEOS_DB_URL'), keys: await generateSigningKeys(), dbPoolSize: 2 });
 try {
   switch (cmd) {
     case 'register-app': {
-      need(2);
+      need(1);
       const load = apps[args[0]!];
       if (!load) throw new Error(`unknown app: ${args[0]}`);
       const def = await load();
       const conformance = conformanceFile ? JSON.parse(await readFile(conformanceFile, 'utf8')) : undefined;
       const author_public_key = authorKeyFile ? JSON.parse(await readFile(authorKeyFile, 'utf8')) : undefined;
-      await p.registerApp({ key: args[0]!, l3_url: args[1]!, manifest: def.manifest, service_secret: secret(), blocks: def.blocks, conformance, author_public_key });
-      console.log(JSON.stringify({ registered: args[0], l3_url: args[1], blocks: Object.keys(def.blocks ?? {}).length, attested: !!conformance, author_key: !!author_public_key }));
+      await p.registerApp({ key: args[0]!, manifest: def.manifest, service_secret: secret(), blocks: def.blocks, conformance, author_public_key });
+      console.log(JSON.stringify({ registered: args[0], blocks: Object.keys(def.blocks ?? {}).length, attested: !!conformance, author_key: !!author_public_key }));
       break;
     }
     case 'create-company': {
@@ -164,7 +140,7 @@ try {
           files = path.join(process.env.NEOP_DOCUMENTS_DIR, app, companyId.toLowerCase());
           await rm(files, { recursive: true, force: true });
         }
-        await p.gateway.audit({ company_id: companyId, actor: 'operator:ops', app_key: app, action: 'app.purge', outcome: String(purged.total), detail: { counts: purged.counts, backup: file, schema_dump: schemaDump, files_removed: files } });
+        await p.audit({ company_id: companyId, actor: 'operator:ops', app_key: app, action: 'app.purge', outcome: String(purged.total), detail: { counts: purged.counts, backup: file, schema_dump: schemaDump, files_removed: files } });
         Object.assign(out, { backup: { company_export: file, schema_dump: schemaDump }, purged: { counts: purged.counts, total: purged.total }, files_removed: files ?? 'kept files are on the backend volume: remove <NEOP_DOCUMENTS_DIR>/' + `${app}/${companyId}` });
       }
       console.log(JSON.stringify(out, null, 2));

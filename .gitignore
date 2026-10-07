@@ -1,4 +1,5 @@
 node_modules/
+.pnpm-store/
 var/
 .env
 *.log
@@ -8,3 +9,7 @@ deploy/secrets/
 
 # conformance attestations are generated per commit (scripts/conformance.ts), not committed
 conformance/
+
+# Local, sanitized source archaeology; never a runtime dependency or a Git payload.
+reference/quickbuild/
+reference/upstream/

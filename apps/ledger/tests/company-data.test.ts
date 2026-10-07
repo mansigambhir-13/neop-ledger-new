@@ -75,7 +75,7 @@ describe('personal data is tagged in the manifest', () => {
       for (const c of [t.subject_key, ...t.columns]) expect(cols).toContain(c);
     }
     const bad = { ...manifest, personal_data: [{ table: 'parties', columns: ['name'], subject_key: 'name' }] };
-    await expect(P.platform.registerApp({ key: 'ledger', l3_url: 'http://127.0.0.1:1', manifest: bad, service_secret: 'z'.repeat(40) })).rejects.toThrow(/personal column/);
+    await expect(P.platform.registerApp({ key: 'ledger', manifest: bad, service_secret: 'z'.repeat(40) })).rejects.toThrow(/personal column/);
   });
 });
 
@@ -150,7 +150,7 @@ describe('company-scoped uninstall', () => {
     const refused = await P.api('POST', '/api/apps/ledger/read/ledger.report.trial_balance', { as_of: '2026-09-30' });
     expect(refused.status).toBe(403);
     expect(refused.body.error.code).toBe('not_installed');
-    await expect(P.platform.gateway.call({ caller: 'platform', app: 'ledger', endpoint: 'tasks.open', company_id: P.company.id, body: {}, idem_key: 'x' })).rejects.toThrow(/not installed/);
+    expect((await P.read('ledger.report.trial_balance', { as_of: '2026-09-30' })).status).toBe(403);
     P.setBrain(() => finish('n/a'));
     expect((await P.api('POST', '/api/ask', { text: 'show my trial balance', app: 'ledger' })).status).toBeGreaterThanOrEqual(400);
     // The other company still has it.

@@ -8,7 +8,7 @@
 //     words is the one account whose name matches (4fa4f94, 7055884);
 //   · a question for a write lists every required input still missing (0f51089);
 //   · a manual posting to an account not in the chart is refused whole (1f1fb4d).
-// All through the real pilot (platform + gateway + L3 + gate + runner) with a scripted brain.
+// All through the real V3 pilot (Matrix + gate + runner) with a scripted brain.
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { withRequiredFields } from '../../../packages/neop-template/src/gate/gate.ts';
 import { accountByName, agedTo, closest, companyToday, type ChartAccount } from '../src/domain/names.ts';
@@ -25,7 +25,7 @@ const today = () => new Intl.DateTimeFormat('en-CA', { timeZone: TZ, year: 'nume
 const addDays = (d: string, n: number) => new Date(Date.parse(d + 'T00:00:00Z') + n * 86_400_000).toISOString().slice(0, 10);
 const CARD = { what: 'bookkeeping step', why: 'asked', changes: 'the books', if_no_answer: 'nothing changes' };
 const read = async (key: string, args: unknown = {}) => {
-  const r = await P.api('POST', `/api/apps/ledger/read/${key}`, args);
+  const r = await P.read(key, args);
   expect(r.status, JSON.stringify(r.body)).toBe(200);
   expect(P.backend.core.validators.checkOutput(key, r.body.result)).toBeNull();
   return r.body.result;
@@ -249,7 +249,16 @@ describe('a question for a change lists every required field (0f51089)', () => {
         : { text: 'waiting' },
     );
     const t = await P.ask('Prepare an expense for office supplies');
-    const q = await P.waitFor(async () => (await P.platform.db.query("select * from neos.questions where task_id = $1 and status = 'OPEN'", [t.task_id])).rows[0], 'question');
+    const q = await P.waitFor(
+      async () =>
+        (
+          await P.backend.core.runnerPool.query(
+            "select w.question from ledger.waits w join ledger.jobs j on j.id = w.job_id where j.task_id = $1 and w.kind = 'input' and w.status = 'pending' order by w.created_at desc limit 1",
+            [t.task_id],
+          )
+        ).rows[0]?.question,
+      'question',
+    );
     expect(q.fields.map((f: any) => f.key)).toEqual(['vendor', 'date', 'amount_minor', 'gst_rate_bps', 'account_code']);
     expect(q.fields.find((f: any) => f.key === 'amount_minor')).toMatchObject({ label: 'Amount (in minor units: paise or cents)', type: 'number', required: true });
     expect(q.fields.find((f: any) => f.key === 'date')).toMatchObject({ type: 'date', required: true });

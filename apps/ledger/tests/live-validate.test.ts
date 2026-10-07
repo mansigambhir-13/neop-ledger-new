@@ -87,12 +87,13 @@ describe('live validation against the pilot', () => {
     await P.setDoorSecret('gst_portal', { provider: 'gsp', base_url: 'http://127.0.0.1:9', client_id: 'c', client_secret: 's', username: 'acme', gstin: '27AAPFU0939F1ZV', assume_supply: 'intra_state' });
     const v = new LiveValidator({
       baseUrl: P.platformUrl,
+      filesUrl: `http://127.0.0.1:${P.backend.ports.files}`,
       adminToken: P.admin.token,
       memberToken: P.member.token,
       app: 'ledger',
       only: ['reads', 'blocks', 'governance', 'writes', 'questions', 'documents'],
       budgetUsd: 1,
-      expectRoad: 'gateway',
+      expectRoad: 'matrix',
       emailTo: 'lv-check@acme.example',
       // v3 (S8): the pilot's email door is in its secret store, which a remote check cannot list: named here.
       doors: ['email'],
@@ -132,7 +133,7 @@ describe('live validation against the pilot', () => {
     expect(passed('documents')).toContain('download is identical (sha256)');
   });
 
-  it('every task took the gateway road (presence off)', () => {
+  it('every task took the Matrix road', () => {
     expect(report.rows.filter((r) => /WRONG_ROAD/.test(r.evidence))).toEqual([]);
   });
 
@@ -158,6 +159,7 @@ describe('live validation against the pilot — NeuralChat speaks Matrix', () =>
     await P.setDoorSecret('gst_portal', { provider: 'gsp', base_url: 'http://127.0.0.1:9', client_id: 'c', client_secret: 's', username: 'acme', gstin: '27AAPFU0939F1ZV', assume_supply: 'intra_state' });
     const v = new LiveValidator({
       baseUrl: P.platformUrl,
+      filesUrl: `http://127.0.0.1:${P.backend.ports.files}`,
       adminToken: P.admin.token,
       memberToken: P.member.token,
       app: 'ledger',

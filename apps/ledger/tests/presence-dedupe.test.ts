@@ -15,6 +15,7 @@ import { migratePlatform } from '@neop/platform';
 import { TEMPLATE_INFRA_TABLES, TEMPLATE_MIGRATIONS, type PresenceClient } from '@neop/template';
 import { LEDGER_ROOT, seedLedger } from '../src/index.ts';
 import { bootPilot, call, fakeClientHomeserver, finish, MATRIX, type FakeClientHomeserver, type Pilot } from './harness.ts';
+import { appMigrationsBefore } from '@neop/testkit';
 
 const pause = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const text = (body: string, extra: Record<string, unknown> = {}) => ({ msgtype: 'm.text', body, ...extra });
@@ -29,7 +30,7 @@ describe('the client road: redelivery never opens twice or replies twice', () =>
   const running: PresenceClient[] = [];
   const db = () => P.backend.core.runnerPool;
   beforeAll(async () => {
-    P = await bootPilot({ presence: 'client' });
+    P = await bootPilot({ presence: 'client', neuralchat: false });
     expect((await P.api('PUT', `/api/users/${P.admin.id}/chat`, { matrix_user_id: PRIYA })).status).toBe(200);
     for (const e of [
       { app: 'ledger', matrix_id: PRIYA, kind: 'person' },
@@ -107,7 +108,7 @@ describe('the appservice road: redelivery and a re-read outbox never say anythin
   let P: Pilot;
   const db = () => P.backend.core.runnerPool;
   beforeAll(async () => {
-    P = await bootPilot({ presence: 'appservice' });
+    P = await bootPilot({ presence: 'appservice', neuralchat: false });
     expect((await P.api('PUT', '/api/chat/presence', { app: 'ledger', room_ids: [ROOM] })).status).toBe(200);
     expect((await P.api('PUT', `/api/users/${P.admin.id}/chat`, { matrix_user_id: PRIYA })).status).toBe(200);
   });
@@ -168,6 +169,7 @@ describe('template migration t012', () => {
     const db = await createTestDatabase();
     const CO = '11111111-2222-3333-4444-555555555555';
     const tdir = await mkdtemp(path.join(os.tmpdir(), 'neop-t012-'));
+    let beforeDir = '';
     try {
       await migratePlatform(db.adminUrl); // the desk's role exists, as in a real cluster
       await cp(TEMPLATE_MIGRATIONS, tdir, { recursive: true });
@@ -176,8 +178,8 @@ describe('template migration t012', () => {
       tled.migrations = tled.migrations.filter((m: any) => m.file < 't012');
       await writeFile(path.join(tdir, 'migrate.json'), JSON.stringify(tled));
       await bootstrapFamily(db.adminUrl, 'ledger');
-      const run = async (t: string) => migrate({ adminUrl: db.adminUrl, schema: 'ledger', sources: { dir: path.join(LEDGER_ROOT, 'migrations'), prepend: await templateFiles(t) }, lintExempt: TEMPLATE_INFRA_TABLES });
-      await run(tdir);
+      const run = async (t: string, appDir = path.join(LEDGER_ROOT, 'migrations')) => migrate({ adminUrl: db.adminUrl, schema: 'ledger', sources: { dir: appDir, prepend: await templateFiles(t) }, lintExempt: TEMPLATE_INFRA_TABLES });
+      await run(tdir, (beforeDir = await appMigrationsBefore(path.join(LEDGER_ROOT, 'migrations'), '010')));
       const pool = createPool(roleUrl(db.adminUrl, 'ledger_app'));
       const runner = createPool(roleUrl(db.adminUrl, 'ledger_runner'));
       const admin = new pg.Client({ connectionString: db.adminUrl });
@@ -228,6 +230,7 @@ describe('template migration t012', () => {
     } finally {
       await db.drop();
       await rm(tdir, { recursive: true, force: true });
+      if (beforeDir) await rm(beforeDir, { recursive: true, force: true });
     }
   });
 });

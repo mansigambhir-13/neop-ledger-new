@@ -1,7 +1,7 @@
 {
   "app": "ledger",
-  "manifest_sha256": "sha256:6b1427eda49f0d712470745bcae201e6e9067b80a6bc93457ed082866f98c079",
-  "commit": "fac2fcea201f944bc66faca235f8db961850db42",
+  "manifest_sha256": "sha256:69704a19e432bd739f1993ec05edc8cd7cfb2e7bb07930e6a1f31939c6ab3337",
+  "commit": "2d04e7413c7c5d65c7b8874a7f6dcf001291a58a",
   "suites": [
     {
       "name": "contract",
@@ -36,13 +36,13 @@
     {
       "name": "a2a",
       "file": "apps/ledger/tests/a2a.test.ts",
-      "passed": 5,
+      "passed": 2,
       "failed": 0
     },
     {
       "name": "honesty",
       "file": "apps/ledger/tests/honesty.test.ts",
-      "passed": 8,
+      "passed": 9,
       "failed": 0
     },
     {
@@ -64,9 +64,27 @@
       "failed": 0
     },
     {
-      "name": "inbound-auth",
-      "file": "apps/ledger/tests/inbound-auth.test.ts",
-      "passed": 6,
+      "name": "appservice-auth",
+      "file": "apps/ledger/tests/appservice-auth.test.ts",
+      "passed": 4,
+      "failed": 0
+    },
+    {
+      "name": "presence-sender",
+      "file": "apps/ledger/tests/presence-sender.test.ts",
+      "passed": 3,
+      "failed": 0
+    },
+    {
+      "name": "presence-dedupe",
+      "file": "apps/ledger/tests/presence-dedupe.test.ts",
+      "passed": 7,
+      "failed": 0
+    },
+    {
+      "name": "presence-typed",
+      "file": "apps/ledger/tests/presence-typed.test.ts",
+      "passed": 8,
       "failed": 0
     },
     {
@@ -78,7 +96,7 @@
     {
       "name": "network",
       "file": "apps/ledger/tests/network.test.ts",
-      "passed": 19,
+      "passed": 23,
       "failed": 0
     },
     {
@@ -89,5 +107,5 @@
     }
   ],
   "failed": 0,
-  "generated_at": "2026-09-27T14:20:54.101Z"
+  "generated_at": "2026-09-30T05:00:17.315Z"
 }

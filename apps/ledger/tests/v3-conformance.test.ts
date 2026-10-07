@@ -50,7 +50,7 @@ describe('on a running pilot', () => {
     await settled(t.task_id);
 
     const [job] = await q('select origin, task_id, switchboard_version, switchboard_snapshot from ledger.jobs where id = $1', [t.job_id]);
-    expect(job.origin).toBe(job.task_id); // asked on the platform: the task it came from
+    expect(job.origin).toMatch(/^\$/); // Matrix event id: the only production road into the app
     const board = await P.backend.core.board.get(P.company.id);
     expect(job.switchboard_version).toBe(board.version);
     expect(job.switchboard_snapshot).toMatchObject({ version: board.version, settings: { 'ledger.close_pack.email': 'ask_first', 'ledger.report.pnl': 'on' } });
@@ -170,7 +170,7 @@ describe('on a running pilot', () => {
     const hist = await withCompany(P.backend.core.appPool, P.company.id, async (c) => (await c.query("select version, op, after->>'setting' as setting from ledger.switchboard_history where line = 'ledger.report.pnl' order by id")).rows);
     expect(hist.slice(-2)).toEqual([{ version: v, op: expect.stringMatching(/insert|update/), setting: 'off' }, { version: v + 1, op: 'update', setting: 'on' }]);
     const installs = await withCompany(P.backend.core.appPool, P.company.id, async (c) => (await c.query('select status, matrix_user, company_name, time_zone from ledger.installs')).rows);
-    expect(installs).toEqual([{ status: 'active', matrix_user: null, company_name: 'Acme Traders', time_zone: 'Asia/Kolkata' }]);
+    expect(installs).toEqual([{ status: 'active', matrix_user: P.neopUser, company_name: 'Acme Traders', time_zone: 'Asia/Kolkata' }]);
     // Read-only to the app: the desk writes them.
     for (const sql of ["update ledger.switchboard set setting = 'on'", "insert into ledger.installs (company_id, status) values (current_setting('neos.company_id')::uuid, 'active')", 'delete from ledger.grants']) {
       expect(await errCode(withCompany(P.backend.core.appPool, P.company.id, (c) => c.query(sql))), sql).toBe('42501');
@@ -187,8 +187,8 @@ describe('on a running pilot', () => {
     expect(grants).toEqual([{ grant_id: g.body.id, ability_key: 'ledger.journal.post', status: 'ACTIVE', created_by: `user:${P.admin.id}` }]);
     const uses = await withCompany(P.backend.core.appPool, P.company.id, async (c) => (await c.query('select grant_id, proposal_id, amount_minor, currency from ledger.grant_uses')).rows);
     expect(uses).toEqual([{ grant_id: g.body.id, proposal_id: pr.id, amount_minor: 500, currency: 'INR' }]);
-    // Nothing of it was kept on the platform.
-    expect((await P.platform.db.query("select count(*)::int as n from neos.grants where company_id = $1", [P.company.id])).rows[0].n).toBe(0);
+    // Nothing of it is kept on the platform; S9 removed the former projection table.
+    expect((await P.platform.db.query("select to_regclass('neos.grants') as r")).rows[0].r).toBeNull();
   });
 
   it('B11: the declared views agree with the trial balance and ageing reads on the demo books', async () => {
@@ -302,7 +302,7 @@ describe('t007 + t008 + t009 + 007 on a populated book', () => {
       const before = await withCompany(pool, CO, async (c) => (await c.query("select md5(string_agg(id::text || status, ',' order by id)) h, count(*)::int n from ledger.jobs")).rows[0]);
 
       const applied = await run(TEMPLATE_MIGRATIONS, path.join(LEDGER_ROOT, 'migrations'));
-      expect(applied.map((m) => m.name)).toEqual(['t007_standard_columns.sql', 't008_transitions.sql', 't009_notify.sql', 't010_board_truth.sql', 't011_approved_path.sql', 't012_presence.sql', 't013_answer_wait.sql', 't015_bus_room.sql', 't017_acted_for.sql', '007_views.sql', '008_nep_gst__001_returns.sql', '009_nep_gst__002_gstr3b.sql']); // 008–009: nep-gst, installed at build (v3 S7; proof in install.test.ts)
+      expect(applied.map((m) => m.name)).toEqual(['t007_standard_columns.sql', 't008_transitions.sql', 't009_notify.sql', 't010_board_truth.sql', 't011_approved_path.sql', 't012_presence.sql', 't013_answer_wait.sql', 't015_bus_room.sql', 't017_acted_for.sql', 't018_desk_without_gateway.sql', 't019_no_gateway_tables.sql', 't020_human_authority.sql', 't021_draft_origin.sql', 't022_answer_deadline.sql', 't023_input_deadline.sql', 't024_answer_intents.sql', '007_views.sql', '008_nep_gst__001_returns.sql', '009_nep_gst__002_gstr3b.sql', '010_declared_reads.sql']);
 
       await withCompany(pool, CO, async (c) => {
         expect((await c.query("select md5(string_agg(id::text || status, ',' order by id)) h, count(*)::int n from ledger.jobs")).rows[0]).toEqual(before);

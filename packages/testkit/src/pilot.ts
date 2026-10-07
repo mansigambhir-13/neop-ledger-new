@@ -1,8 +1,10 @@
-// Boots NEOS in-process against a fresh database: the platform (gateway, desk,
-// bridge, LLM proxy) and any number of apps cut from the template, each with
-// its own backend (L3 + gate + runner) and agent worker. The assistant is pi's
-// faux provider driven by a scripted brain, or the real Anthropic client
-// against a fake upstream through the LLM proxy.
+import {sqlIdent} from '@neop/pgkit';
+// Boots NEOS in-process against a fresh database, the v3 way (S9): the platform (people, Conversations, NeuralChat
+// speaking Matrix as its own identity, the desk on the database, the registry, the LLM proxy) and any number of apps
+// cut from the template, each with its own backend (gate + runner + its own Matrix presence + files listener) and agent
+// worker, all talking through a fake homeserver. Nothing calls an app except Matrix; the desk reads and writes on the
+// database. The assistant is pi's faux provider driven by a scripted brain, or the real Anthropic client against a
+// fake upstream through the LLM proxy.
 
 import { randomBytes } from 'node:crypto';
 import { chmod, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
@@ -12,7 +14,7 @@ import { fauxAssistantMessage, fauxText, fauxToolCall, registerFauxProvider, typ
 import { serve } from '@hono/node-server';
 import { Hono } from 'hono';
 import { closeServer, createTestDatabase, roleUrl } from '@neop/pgkit';
-import { generateSigningKeys, migratePlatform, startPlatform, type ChatBridge } from '@neop/platform';
+import { generateSigningKeys, migratePlatform, startPlatform } from '@neop/platform';
 import { doorSecretPaths, FileSecretStore, generateLlmSigningKey, migrateApp, startBackend, toolName, type AppDefinition, type NeopBackend, type Presence } from '@neop/template';
 import { proxyModel, startAgentWorker } from '@neop/template/agent';
 import { fakeMatrix, type FakeMatrix } from './fake-matrix.ts';
@@ -81,6 +83,8 @@ export interface FakeHomeserver {
   delivered: { to: string; room: string; sender: string; type: string; content: any; event_id: string; status: number }[];
   /** Invites sent (POST /rooms/{room}/invite). */
   invites: { room: string; by: string; user: string }[];
+  /** v3 S9: the media repository — mxc:// URI → bytes, content type, the name that uploaded it. */
+  media: Map<string, { bytes: Buffer; type: string; by: string }>;
   /** Wait until every queued delivery between appservices has been made. */
   settle(): Promise<void>;
   close(): Promise<void>;
@@ -109,6 +113,7 @@ export async function fakeHomeserver(platformUrl: () => string): Promise<FakeHom
   const delivered: FakeHomeserver['delivered'] = [];
   const invites: FakeHomeserver['invites'] = [];
   const aliases = new Map<string, string>();
+  const media: FakeHomeserver['media'] = new Map();
   let queue: Promise<void> = Promise.resolve();
   let htxn = 0;
   /** Deliver one event to every other appservice with a member in the room (in order, after the send returned). */
@@ -230,6 +235,13 @@ export async function fakeHomeserver(platformUrl: () => string): Promise<FakeHom
     if (!asOk(c)) return c.json({ errcode: 'M_UNKNOWN_TOKEN' }, 401);
     return c.json([...stateOf(c.req.param('room')).entries()].map(([type, content]) => ({ type, state_key: '', content })));
   });
+  app.put('/_matrix/client/v3/rooms/:room/state/m.room.power_levels/', async (c) => {
+    if (!asOk(c)) return c.json({ errcode: 'M_UNKNOWN_TOKEN' }, 401);
+    const user = c.req.query('user_id') ?? '';
+    if (!joined.some((j) => j.room === c.req.param('room') && j.user === user)) return c.json({ errcode: 'M_FORBIDDEN' }, 403);
+    stateOf(c.req.param('room')).set('m.room.power_levels', await c.req.json());
+    return c.json({ event_id: `$state${++n}:${MATRIX.serverName}` });
+  });
   app.post('/_matrix/client/v3/createRoom', async (c) => {
     if (!asOk(c)) return c.json({ errcode: 'M_UNKNOWN_TOKEN' }, 401);
     const user = c.req.query('user_id') ?? '';
@@ -248,6 +260,21 @@ export async function fakeHomeserver(platformUrl: () => string): Promise<FakeHom
     for (const u of body.invite ?? []) invites.push({ room: room_id, by: user, user: u });
     joined.push({ room: room_id, user });
     return c.json({ room_id });
+  });
+  // v3 S9 · the media repository (a task's files travel as mxc:// references, never as bytes in an event or a platform link).
+  app.post('/_matrix/media/v3/upload', async (c) => {
+    if (!asOk(c)) return c.json({ errcode: 'M_UNKNOWN_TOKEN' }, 401);
+    const user = c.req.query('user_id') ?? '';
+    if (!users.has(user)) return c.json({ errcode: 'M_FORBIDDEN' }, 403);
+    const id = `media${++n}`;
+    media.set(`mxc://${MATRIX.serverName}/${id}`, { bytes: Buffer.from(await c.req.arrayBuffer()), type: c.req.header('content-type') ?? 'application/octet-stream', by: user });
+    return c.json({ content_uri: `mxc://${MATRIX.serverName}/${id}` });
+  });
+  app.get('/_matrix/client/v1/media/download/:server/:id', (c) => {
+    if (!asOk(c)) return c.json({ errcode: 'M_UNKNOWN_TOKEN' }, 401);
+    const f = media.get(`mxc://${c.req.param('server')}/${c.req.param('id')}`);
+    if (!f) return c.json({ errcode: 'M_NOT_FOUND' }, 404);
+    return new Response(new Uint8Array(f.bytes), { headers: { 'content-type': f.type } });
   });
   app.get('/_matrix/client/v3/directory/room/:alias', (c) => {
     if (!asOk(c)) return c.json({ errcode: 'M_UNKNOWN_TOKEN' }, 401);
@@ -286,6 +313,7 @@ export async function fakeHomeserver(platformUrl: () => string): Promise<FakeHom
     },
     delivered,
     invites,
+    media,
     route(prefix, url) {
       const i = routes.findIndex((r) => r.prefix === prefix);
       if (i >= 0) routes.splice(i, 1);
@@ -339,18 +367,22 @@ export interface AppUnderTest {
 }
 
 export interface Pilot {
+  /** The fake homeserver on the appservice road (every app's appservice and NeuralChat's); null on the client road. */
   hs: FakeHomeserver | null;
-  bridge: ChatBridge | null;
-  /** v3 S4: the first app's own presence (null unless booted with `presence`). */
+  /** The first app's own presence (every backend runs one: v3 S9, Matrix is the only road in). */
   presence: Presence | null;
-  /** v3 S4, presence 'appservice': the first app's Matrix name at the pilot's company (v3 S5 client road: its account). */
+  /** The first app's Matrix name at the pilot's company (appservice: @neop_<app>_<slug>; client road: its account). */
   neopUser: string | null;
-  /** v3 S5: NeuralChat's own Matrix name at the pilot's company (null unless booted with `neuralchat`). */
+  /** NeuralChat's own Matrix name at the pilot's company (null only with `neuralchat: false`). */
   neuralchatUser: string | null;
-  /** v3 S5, client road: the shared fake homeserver both accounts (the NEOP's, NeuralChat's) talk through. */
+  /** The name NeuralChat gives a person with no Matrix id of their own (its namespace; never a sender). */
+  neuralchatPerson(userId: string): string;
+  /** Client road: the shared fake homeserver both accounts (the NEOP's, NeuralChat's) talk through. */
   mx: FakeMatrix | null;
-  /** v3 S6, presence 'appservice': each presence app's Matrix name at the pilot's company. */
+  /** Appservice road: each app's Matrix name at the pilot's company. */
   neopUsers: Record<string, string>;
+  /** Appservice road: the room each app is bound to at the pilot's company (NeuralChat posts tasks there). */
+  appRooms: Record<string, string>;
   platformUrl: string;
   platform: Awaited<ReturnType<typeof startPlatform>>['platform'];
   /** The first app's backend (most tests drive one app). */
@@ -359,7 +391,7 @@ export interface Pilot {
   company: { id: string };
   admin: { id: string; token: string };
   member: { id: string; token: string };
-  /** A platform operator (registry reviews, key rotation). */
+  /** A platform operator (registry reviews). */
   operator: { id: string; token: string };
   /** A second operator: registry reviews are four-eyes (the submitter cannot co-sign). */
   operator2: { id: string; token: string };
@@ -375,11 +407,17 @@ export interface Pilot {
   setBrain(b: Brain): void;
   api<T = any>(method: string, path: string, body?: unknown, token?: string): Promise<{ status: number; body: T }>;
   ask(text: string, token?: string, app?: string): Promise<{ task_id: string; job_id: string }>;
+  /**
+   * Test harness only (v3 S9: the platform has no route into an app): run one of an app's read abilities in-process, the
+   * way its gate would, as a person of a company — handler, input and output checks, the company's row-level security.
+   * `status` mirrors what a caller would have been told (403 switched off / not installed, 404 unknown, 400 bad input).
+   */
+  read(key: string, args?: unknown, o?: { app?: string; company?: string; caller?: string }): Promise<{ status: number; body: any }>;
   waitFor<T>(fn: () => Promise<T | null | undefined | false>, what: string, ms?: number): Promise<T>;
   task(id: string): Promise<any>;
   desk(): Promise<any[]>;
   jobRow(jobId: string, app?: string): Promise<any>;
-  /** Stop an app backend (runner, L3, gate) and start a fresh one: a forced restart. */
+  /** Stop an app backend (runner, gate, presence, files) and start a fresh one: a forced restart. */
   restartBackend(app?: string): Promise<NeopBackend>;
   /**
    * v3 S7: deploy a new build of an app — the DBA applies its migration file (migrateApp), the backend restarts on
@@ -399,33 +437,30 @@ export interface BootOptions {
   timings?: Partial<typeof FAST>;
   seed?: boolean;
   platformWorkers?: boolean;
-  chat?: boolean;
   /** Route assistants through the platform LLM proxy to this upstream (real Anthropic wire format). */
   llmUpstream?: { url: string; apiKey: string; auth?: 'x-api-key' | 'bearer'; modelPrefix?: string };
-  /** Extra backend settings per app (e.g. the neos-v1 bridge, which needs the company id). */
+  /** Extra backend settings per app. */
   backendConfig?: (app: string, company: { id: string }) => Partial<Parameters<typeof startBackend>[1]>;
   poolSize?: number;
   /** Platform DB pool; small by default because many pilots share one Postgres in the test run. */
   platformDbPool?: number;
   /**
-   * v3 S4 · the first app speaks in Matrix itself (NEOP_PRESENCE): 'appservice' — a fake homeserver pushes to the
-   * backend's own /_matrix/app/v1 (the platform runs no bridge) and the app's name at the company is set;
-   * 'client' — the backend's presence runs with no account yet (tests add one with a fake client homeserver).
+   * The road every NEOP speaks on (v3 S9: every backend runs its own presence; there is no platform bridge):
+   * 'appservice' (default) — a fake homeserver pushes to each backend's own /_matrix/app/v1; every app has its Matrix
+   * name and a bound room at the company, and the homeserver routes every event between the apps' appservices and
+   * NeuralChat's (the rooms and the bus room). 'client' — the first app's presence runs the client road (NeuralChat
+   * #143's DM road); with `neuralchat`, @neuralchat_<slug>:hs.test and the app's @<app>:hs.test talk through one
+   * shared fake homeserver (fakeMatrix); the other apps run the client road with no account.
    */
   presence?: 'appservice' | 'client';
   /**
-   * v3 S5 · NeuralChat speaks Matrix: with `presence`, the platform's NeuralChat posts typed tasks as its own identity on
-   * the same road — appservice: @neuralchat_<slug> through the fake homeserver, which routes every event between the
-   * app's appservice and the platform's; client: @neuralchat_<slug>:hs.test and the app's @ledger:hs.test, two accounts
-   * on one shared fake homeserver (fakeMatrix), both started here. P.ask then reaches the app only through Matrix.
+   * NeuralChat speaks Matrix as its own identity (v3 S5; default on — the only road from a person's ask to an app).
+   * false: no NeuralChat road (P.ask then fails; for tests that drive Matrix by hand).
    */
   neuralchat?: boolean;
-  /** v3 S5: how long the ask waits for the app's "on it" in Matrix (default 3 s). */
+  /** How long the ask waits for the app's "on it" in Matrix (default 3 s). */
   neuralchatAckWaitMs?: number;
-  /**
-   * v3 S6 · with presence 'appservice': EVERY app speaks as its own name (not only the first), each with its own
-   * /_matrix/app/v1; the fake homeserver routes events between their appservices (the bus room). `neopUsers` names them.
-   */
+  /** @deprecated v3 S9: every app always speaks as its own name on the appservice road. Ignored. */
   presenceAll?: boolean;
 }
 
@@ -433,6 +468,8 @@ export async function bootPilot(opts: BootOptions): Promise<Pilot> {
   // Tests scrape metrics without a token; production must set NEOS_METRICS_TOKEN / NEOP_METRICS_TOKEN.
   process.env.NEOS_METRICS_PUBLIC ??= '1';
   process.env.NEOP_METRICS_PUBLIC ??= '1';
+  const road = opts.presence ?? 'appservice';
+  const withNeuralchat = opts.neuralchat !== false;
   const db = await createTestDatabase();
   await migratePlatform(db.adminUrl);
   for (const a of opts.apps) await migrateApp(db.adminUrl, a.def);
@@ -442,26 +479,26 @@ export async function bootPilot(opts: BootOptions): Promise<Pilot> {
   const llmKeys: Record<string, Awaited<ReturnType<typeof generateLlmSigningKey>>> = {};
   if (opts.llmUpstream) for (const a of opts.apps) llmKeys[a.def.manifest.app] = await generateLlmSigningKey(`llm-${a.def.manifest.app}`);
   let platUrl = '';
-  let presenceUrl = '';
-  const hs = opts.presence === 'appservice' ? await fakeHomeserver(() => presenceUrl) : opts.chat ? await fakeHomeserver(() => platUrl) : null;
-  if (opts.neuralchat && !opts.presence) throw new Error('bootPilot: neuralchat needs presence (the app must be on Matrix itself)');
-  const mx = opts.neuralchat && opts.presence === 'client' ? fakeMatrix({ serverName: 'hs.test' }) : null;
+  const backends: Record<string, NeopBackend> = {};
+  const first = opts.apps[0]!.def.manifest.app;
+  const appserviceUrl = (key: string) => (backends[key]?.ports.appservice ? `http://127.0.0.1:${backends[key]!.ports.appservice}` : '');
+  // Appservice road: one homeserver for everyone. Plain pushes (hs.push) go to the first app's appservice.
+  const hs = road === 'appservice' ? await fakeHomeserver(() => appserviceUrl(first)) : null;
+  const mx = road === 'client' && withNeuralchat ? fakeMatrix({ serverName: 'hs.test' }) : null;
   const ncTimings = { ackWaitMs: opts.neuralchatAckWaitMs ?? 3_000 };
-  const neuralchat = !opts.neuralchat
+  const neuralchat = !withNeuralchat
     ? undefined
-    : opts.presence === 'appservice'
+    : road === 'appservice'
       ? { road: 'appservice' as const, homeserverUrl: hs!.url, serverName: MATRIX.serverName, hsToken: MATRIX.hsToken, asToken: MATRIX.asToken, ...ncTimings }
       : { road: 'client' as const, homeserverUrl: 'http://hs.test', accounts: [], fetchImpl: mx!.fetchImpl, syncTimeoutMs: 100, ...ncTimings };
   const plat = await startPlatform({
     neuralchat,
-    chat: hs && opts.presence !== 'appservice' ? { matrix: { homeserverUrl: hs.url, serverName: MATRIX.serverName, hsToken: MATRIX.hsToken, asToken: MATRIX.asToken } } : undefined,
-    bridgeSendEveryMs: 100,
     llm: opts.llmUpstream ? { upstream: { baseUrl: opts.llmUpstream.url, apiKey: opts.llmUpstream.apiKey, auth: opts.llmUpstream.auth, modelPrefix: opts.llmUpstream.modelPrefix }, prices: { 'claude-sonnet-5': { input: 3, output: 15 } }, runnerKeys: Object.fromEntries(Object.entries(llmKeys).map(([k, v]) => [k, [v.publicJwk]])) } : undefined,
     dbUrl: roleUrl(db.adminUrl, 'neos_app'),
     dbPoolSize: opts.platformDbPool ?? 6,
     keys,
     workers: opts.platformWorkers !== false,
-    timings: { approvalsMs: 150, outboxMs: 150, tasksMs: 300, neuralchatMs: 200 },
+    timings: { neuralchatMs: 200 },
   });
   platUrl = plat.url;
   const company = await plat.platform.createCompany('Acme Traders', 'Asia/Kolkata');
@@ -469,6 +506,7 @@ export async function bootPilot(opts: BootOptions): Promise<Pilot> {
   const member = await plat.platform.createUser(company.id, { name: 'Rahul', email: 'rahul@acme.example', role: 'member' });
   const operator = await plat.platform.createUser(company.id, { name: 'Ops', email: 'ops@neos.example', role: 'operator' });
   const operator2 = await plat.platform.createUser(company.id, { name: 'Reviewer', email: 'review@neos.example', role: 'operator' });
+  const slug = (await plat.platform.db.query<{ slug: string }>('select slug from neos.companies where id = $1', [company.id])).rows[0]!.slug;
   const mailDir = await mkdtemp(path.join(os.tmpdir(), 'neop-mail-'));
   // v3 §12: door credentials live in the secret store, per (app, company), read by the backend per call.
   const doorsDir = await mkdtemp(path.join(os.tmpdir(), 'neop-doors-'));
@@ -504,7 +542,6 @@ export async function bootPilot(opts: BootOptions): Promise<Pilot> {
   };
   faux.setResponses(Array.from({ length: 20_000 }, () => factory));
 
-  const backends: Record<string, NeopBackend> = {};
   const workers: Pilot['workers'] = {};
   const configs: Record<string, Parameters<typeof startBackend>[1]> = {};
   for (const a of opts.apps) {
@@ -514,64 +551,55 @@ export async function bootPilot(opts: BootOptions): Promise<Pilot> {
       // With an upstream, the agent is keyless: each session gets a proxy token from the runner.
       model: opts.llmUpstream ? proxyModel({ NEOP_LLM_MODEL: 'claude-sonnet-5' }) : { model: faux.getModel() },
     });
-    const secret = randomBytes(24).toString('hex');
     configs[key] = {
       appDbUrl: roleUrl(db.adminUrl, `${key}_app`),
       runnerDbUrl: roleUrl(db.adminUrl, `${key}_runner`),
-      platformUrl: plat.url,
-      serviceSecret: secret,
       jobTokenSecret: randomBytes(32).toString('hex'),
       agentUrl: `http://127.0.0.1:${workers[key].port}`,
       poolSize: opts.poolSize ?? 5,
       runnerId: `runner-${key}`,
-      jwksCacheMs: 1_000,
       secrets: new FileSecretStore({ root: doorsDir, app: key }),
       llm: llmKeys[key] ? { proxyUrl: `${plat.url}/llm`, signingKey: llmKeys[key].privateJwk } : undefined,
       timings: { ...FAST, ...(opts.timings ?? {}) },
-      ...(opts.presence && (a === opts.apps[0] || (opts.presenceAll && opts.presence === 'appservice'))
-        ? {
-            presence:
-              opts.presence === 'appservice'
-                ? { mode: 'appservice' as const, homeserverUrl: hs!.url, appservice: { hsToken: MATRIX.hsToken, asToken: MATRIX.asToken, port: 0, host: '127.0.0.1' }, mirrorEveryMs: 100 }
-                : { mode: 'client' as const, homeserverUrl: 'http://hs.test', client: { accounts: [], syncTimeoutMs: 100, replyEveryMs: 50 }, mirrorEveryMs: 100 },
-          }
-        : {}),
+      // v3 S9: every backend is on Matrix itself — its only road in.
+      presence:
+        road === 'appservice'
+          ? { mode: 'appservice' as const, homeserverUrl: hs!.url, appservice: { hsToken: MATRIX.hsToken, asToken: MATRIX.asToken, port: 0, host: '127.0.0.1' }, mirrorEveryMs: 100 }
+          : { mode: 'client' as const, homeserverUrl: 'http://hs.test', client: { accounts: [], syncTimeoutMs: 100, replyEveryMs: 50 }, mirrorEveryMs: 100 },
       ...(opts.backendConfig?.(key, company) ?? {}),
     };
     backends[key] = await startBackend(a.def, configs[key]!, {});
-    await plat.platform.registerApp({ key, l3_url: `http://127.0.0.1:${backends[key].ports.l3}`, manifest: a.def.manifest, service_secret: secret, blocks: a.def.blocks });
+    await plat.platform.registerApp({ key, manifest: a.def.manifest, service_secret: randomBytes(24).toString('hex'), blocks: a.def.blocks });
     await plat.platform.installApp(company.id, key, admin.id);
     if (opts.seed !== false && a.seed) await a.seed(backends[key].core.appPool, company.id);
   }
-  const first = opts.apps[0]!.def.manifest.app;
-  // v3 S4: the app's own name at the company, written into its schema (as an admin would, PUT /api/chat/presence).
+  // Each app's own name and room at the company, written into its schema (as an admin would, PUT /api/chat/presence).
   let neopUser: string | null = null;
   const neopUsers: Record<string, string> = {};
-  if (opts.presence === 'appservice') {
-    presenceUrl = `http://127.0.0.1:${backends[first]!.ports.appservice}`;
-    const slug = (await plat.platform.db.query<{ slug: string }>('select slug from neos.companies where id = $1', [company.id])).rows[0]!.slug;
-    for (const key of Object.keys(backends).filter((k) => k === first || opts.presenceAll)) {
+  const appRooms: Record<string, string> = {};
+  if (road === 'appservice') {
+    for (const key of Object.keys(backends)) {
       neopUsers[key] = `@neop_${key}_${slug}:${MATRIX.serverName}`;
-      await plat.platform.setChatIdentity(company.id, key, { matrix_user: neopUsers[key] }, `user:${admin.id}`);
-      // Events another app says in a shared room reach this app's own appservice (the bus room, v3 S6).
-      hs!.route(`@neop_${key}_`, () => `http://127.0.0.1:${backends[key]!.ports.appservice}`);
+      // With NeuralChat, each app's room at the company (where NeuralChat posts its tasks); without, the test binds its own.
+      if (withNeuralchat) appRooms[key] = `!${key}-room:${MATRIX.serverName}`;
+      await plat.platform.setChatIdentity(company.id, key, { matrix_user: neopUsers[key], ...(appRooms[key] ? { room_ids: [appRooms[key]!] } : {}) }, `user:${admin.id}`);
+      // pushTyped({to}) reaches that app's own appservice.
+      hs!.route(`@neop_${key}_`, () => appserviceUrl(key));
     }
     neopUser = neopUsers[first]!;
+    // The homeserver pushes every event any appservice sends to every registration (each app's, NeuralChat's): in
+    // order, retried until taken, as Synapse does for a registration with a member in the room. Receivers keep what is theirs.
+    if (withNeuralchat) hs!.relayAll(() => [...Object.keys(backends).map(appserviceUrl).filter(Boolean), platUrl]);
   }
-  // v3 S5: NeuralChat's own name at the company, on the same road as the app.
+  // NeuralChat's own name at the company, on the same road as the apps.
   let neuralchatUser: string | null = null;
-  const slugOf = async () => (await plat.platform.db.query<{ slug: string }>('select slug from neos.companies where id = $1', [company.id])).rows[0]!.slug;
   const neopClient = async (b: NeopBackend) => {
     // The app's own account on the shared homeserver (NEOP presence, client road), listening before NeuralChat speaks.
     await b.presence!.addClient({ account: neopUser!, accessToken: mx!.account(neopUser!) }, { homeserverUrl: 'http://hs.test', fetchImpl: mx!.fetchImpl, syncTimeoutMs: 100, replyEveryMs: 50 });
   };
-  if (opts.neuralchat) {
-    const slug = await slugOf();
-    if (opts.presence === 'appservice') {
+  if (withNeuralchat) {
+    if (road === 'appservice') {
       neuralchatUser = `@neuralchat_${slug}:${MATRIX.serverName}`;
-      // Bind the app's room (as an admin would) and route every event between the two appservices.
-      await plat.platform.setChatIdentity(company.id, first, { room_ids: ['!ledger-room:acme.example'] }, `user:${admin.id}`);
-      hs!.relayAll(() => [presenceUrl, platUrl]);
     } else {
       neopUser = `@${first}:hs.test`;
       neuralchatUser = `@neuralchat_${slug}:hs.test`;
@@ -607,14 +635,15 @@ export async function bootPilot(opts: BootOptions): Promise<Pilot> {
 
   const pilot: Pilot = {
     hs,
-    bridge: plat.bridge,
     get presence() {
       return backends[first]!.presence;
     },
     neopUser,
     neuralchatUser,
+    neuralchatPerson: (userId) => `@neuralchat_${slug}_person_${userId.replace(/-/g, '')}:${road === 'appservice' ? MATRIX.serverName : 'hs.test'}`,
     mx,
     neopUsers,
+    appRooms,
     platformUrl: plat.url,
     platform: plat.platform,
     backend: backends[first]!,
@@ -647,19 +676,39 @@ export async function bootPilot(opts: BootOptions): Promise<Pilot> {
       if (r.status !== 200 || !r.body.job_id) throw new Error(`ask failed: ${JSON.stringify(r.body)}`);
       return r.body;
     },
+    async read(key, args = {}, o = {}) {
+      const b = backends[o.app ?? first]!;
+      const core = b.core;
+      const co = o.company ?? company.id;
+      const inst = (await core.runnerPool.query(`select status from ${sqlIdent(core.key)}.installs where company_id = $1`, [co])).rows[0];
+      if (inst?.status !== 'active') return { status: 403, body: { error: { code: 'not_installed', message: `${core.key} is not installed for this company` } } };
+      const resolved = await core.resolve(co, key);
+      if (!resolved || resolved.handler.kind !== 'read') return { status: 404, body: { error: { code: 'not_found', message: key } } };
+      const board = await core.board.get(co);
+      if (board.setting(resolved.meta) === 'off') return { status: 403, body: { error: { code: 'switched_off', message: `${key} is switched off` } } };
+      const bad = resolved.checkInput(args);
+      if (bad) return { status: 400, body: { error: { code: 'bad_request', message: bad } } };
+      try {
+        const result = await core.company(co, (db) => (resolved.handler as { run: (a: unknown, c: unknown) => Promise<unknown> }).run(args, { company_id: co, caller: o.caller ?? `user:${admin.id}`, job_id: null, now: new Date(), time_zone: board.company.time_zone, db }));
+        const badOut = resolved.checkOutput(result);
+        if (badOut) return { status: 500, body: { error: { code: 'contract_violation', message: badOut } } };
+        return { status: 200, body: { result } };
+      } catch (e) {
+        const x = e as { status?: number; code?: string; message?: string };
+        return { status: x.status ?? 500, body: { error: { code: x.code ?? 'internal', message: String(x.message ?? e) } } };
+      }
+    },
     waitFor,
     task: async (id) => (await api('GET', `/api/tasks/${id}`)).body,
     desk: async () => (await api('GET', '/api/desk')).body.cards,
-    jobRow: async (jobId, app = first) => (await backends[app]!.core.runnerPool.query(`select * from ${app}.jobs where id = $1`, [jobId])).rows[0],
+    jobRow: async (jobId, app = first) => (await backends[app]!.core.runnerPool.query(`select * from ${sqlIdent(app)}.jobs where id = $1`, [jobId])).rows[0],
     async restartBackend(app = first) {
       const def = opts.apps.find((a) => a.def.manifest.app === app)!.def;
       await backends[app]!.stop().catch(() => {});
       const b = await startBackend(def, configs[app]!, {});
       backends[app] = b;
       if (app === first) pilot.backend = b;
-      if (app === first && b.ports.appservice) presenceUrl = `http://127.0.0.1:${b.ports.appservice}`;
       if (app === first && mx) await neopClient(b);
-      await plat.platform.db.query('update neos.apps set l3_url = $2 where key = $1', [app, `http://127.0.0.1:${b.ports.l3}`]);
       return b;
     },
     defs: Object.fromEntries(opts.apps.map((a) => [a.def.manifest.app, a.def])),
@@ -674,8 +723,8 @@ export async function bootPilot(opts: BootOptions): Promise<Pilot> {
       const b = await startBackend(def, configs[app]!, {});
       backends[app] = b;
       if (app === first) pilot.backend = b;
-      if (app === first && b.ports.appservice) presenceUrl = `http://127.0.0.1:${b.ports.appservice}`;
-      await plat.platform.registerApp({ key: app, l3_url: `http://127.0.0.1:${b.ports.l3}`, manifest: def.manifest, service_secret: configs[app]!.serviceSecret, blocks: def.blocks });
+      if (app === first && mx) await neopClient(b);
+      await plat.platform.registerApp({ key: app, manifest: def.manifest, blocks: def.blocks });
       return b;
     },
     async close() {
@@ -698,4 +747,21 @@ export function proposalIdFrom(v: BrainView): string | null {
     if (m) return m[1]!;
   }
   return null;
+}
+
+/**
+ * An app's migration set as it stood before `file` (a copy of the folder without that file and those after it, and
+ * migrate.json cut to match) — for a populated-data proof of an older TEMPLATE file: the book as it was then had the
+ * template up to that file and the app's files of that time. (An app file that relies on a newer template file, such
+ * as Ledger's 010 on t018's declared_reads, did not exist yet.) The caller removes the folder.
+ */
+export async function appMigrationsBefore(dir: string, file: string): Promise<string> {
+  const { cp: copy, readFile } = await import('node:fs/promises');
+  const out = await mkdtemp(path.join(os.tmpdir(), `neop-app-before-${file}-`));
+  await copy(dir, out, { recursive: true });
+  const led = JSON.parse(await readFile(path.join(out, 'migrate.json'), 'utf8')) as { migrations: { file: string }[] };
+  for (const m of led.migrations.filter((x) => x.file >= file)) await rm(path.join(out, m.file));
+  led.migrations = led.migrations.filter((m) => m.file < file);
+  await writeFile(path.join(out, 'migrate.json'), JSON.stringify(led));
+  return out;
 }

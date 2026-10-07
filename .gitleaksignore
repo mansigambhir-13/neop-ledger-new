@@ -1,0 +1,6 @@
+# Reviewed 2026-09-30. Exact historical fingerprints only; new findings still fail CI.
+# Public Ed25519 registry signature over package key/version/content hash, not an access credential.
+7078476eb966d22104ea515efaff08968276c09c:apps/ledger/packages.lock.json:jwt:11
+# Synthetic sk-ledger-MOVE-2 test values in the vault-to-file export fixture and assertion.
+9da68bd8f4b916b99c91512efbfad90d61e0c555:apps/ledger/tests/secret-store.test.ts:generic-api-key:204
+9da68bd8f4b916b99c91512efbfad90d61e0c555:apps/ledger/tests/secret-store.test.ts:generic-api-key:232

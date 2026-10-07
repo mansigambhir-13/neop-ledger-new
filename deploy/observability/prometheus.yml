@@ -8,15 +8,15 @@ rule_files:
   - /etc/prometheus/rules/alerts.yml
 
 scrape_configs:
-  # Platform: gateway latency, approvals, dead letters, model spend.
+  # Platform: Matrix task state, desk approvals and model spend.
   - job_name: neos-platform
     metrics_path: /metrics
     authorization: { type: Bearer, credentials_file: /run/secrets/metrics_token }
     static_configs:
       - targets: ["platform:4000"]
-  # App backends: job ack latency, jobs, waits, execute outcomes, outbox backlog. Each backend
-  # relays its /l3/metrics on the telemetry network only (alias <app>-metrics), so the scraper
-  # never joins the gateway-only l3 network. Add one target per app.
+  # App backends: jobs, waits, execute outcomes and presence-mirror backlog. Each backend relays
+  # metrics on the telemetry network only (alias <app>-metrics), so the scraper never joins the
+  # agent or files networks. Add one target per app.
   - job_name: neop-backends
     metrics_path: /metrics
     authorization: { type: Bearer, credentials_file: /run/secrets/metrics_token }

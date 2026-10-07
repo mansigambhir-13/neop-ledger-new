@@ -1,3 +1,4 @@
+import {sqlIdent} from '@neop/pgkit';
 import type { PoolClient } from '@neop/pgkit';
 import type { Core } from '../core.ts';
 import type { RuleUsage } from '../domain/rules.ts';
@@ -15,7 +16,7 @@ export async function ruleUsage(core: Core, c: PoolClient, board: EffectiveBoard
     `select
        coalesce(sum((detail->>'amount_minor')::bigint) filter (where at >= date_trunc('day', now() at time zone $1) at time zone $1), 0)::bigint as day,
        coalesce(sum((detail->>'amount_minor')::bigint), 0)::bigint as month
-     from ${core.key}.operations
+     from ${sqlIdent(core.key)}.operations
      where outcome in ('DONE', 'UNKNOWN') and detail->>'currency' = $2
        and detail ? 'amount_minor' and detail->>'amount_minor' is not null
        and at >= date_trunc('month', now() at time zone $1) at time zone $1`,
@@ -25,7 +26,7 @@ export async function ruleUsage(core: Core, c: PoolClient, board: EffectiveBoard
   let month = rows[0]?.month ?? 0;
   const inflight = await c.query<{ id: string; ability_key: string; args: unknown; day: boolean }>(
     `select id, ability_key, args, updated_at >= date_trunc('day', now() at time zone $1) at time zone $1 as day
-       from ${core.key}.proposals where status in ('APPROVED', 'EXECUTING') and id <> coalesce($2::uuid, '00000000-0000-0000-0000-000000000000')`,
+       from ${sqlIdent(core.key)}.proposals where status in ('APPROVED', 'EXECUTING') and id <> coalesce($2::uuid, '00000000-0000-0000-0000-000000000000')`,
     [tz, excludeProposal ?? null],
   );
   for (const p of inflight.rows) {

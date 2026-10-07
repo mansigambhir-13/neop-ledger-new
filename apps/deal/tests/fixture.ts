@@ -1,0 +1,2 @@
+// Synthetic domain inputs, never production data or a business-policy approval.
+export const fixture={"id":"deal","master":"opportunities","table":"quotes","noun":"quote","fk":"opportunity_id","sample":{"list_price_minor":101,"currency":"INR","discount_bps":5001},"settings":{"currency":"INR","discount_limit_bps":5000},"expected":{"net_minor":50,"discount_limit_bps":5000,"requires_elevated_approval":true},"invalid":{"discount_bps":10001},"mutation":{"list_price_minor":102}};

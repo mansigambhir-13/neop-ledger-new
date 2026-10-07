@@ -1,0 +1,304 @@
+{
+  "checkpoint": 15,
+  "date": "2026-10-05",
+  "branch": "rebuild/fleet-v3",
+  "starting_commit": "847ffa299857d870eab12516ff1dafd36f0be412",
+  "scope": "Shared terminal bus-result receipt/thread/wait/operation/step/outbox atomicity, retryable failed deliveries and job-first reply/cancellation locking; seeded receiver fixtures under all eighteen app schemas, not new business capabilities",
+  "status": "locally_verified_implementation_checkpoint_not_full_products_or_production_acceptance",
+  "full_regression": {
+    "path": "/Users/mansi.gambhir/Documents/Codex/2026-09-28/lo/work/fleet-v3-checkpoint-15-full-tests.json",
+    "sha256": "38209eb4eef4657e4654ce8b1d16a09bf47ba587bfdd1119a7fdddc755d3ef5b",
+    "passed": 3000,
+    "failed": 0,
+    "skipped": 2,
+    "files": 277,
+    "start_time": "2026-10-05T11:50:45.405Z",
+    "elapsed_seconds": 509.15310620117185,
+    "success": true,
+    "new_cases": [
+      {
+        "path": "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/buy/tests/bus-result-lifecycle.test.ts",
+        "passed": 16,
+        "other": 0
+      },
+      {
+        "path": "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/asset/tests/bus-result-lifecycle.test.ts",
+        "passed": 16,
+        "other": 0
+      },
+      {
+        "path": "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/clear/tests/bus-result-lifecycle.test.ts",
+        "passed": 16,
+        "other": 0
+      },
+      {
+        "path": "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/deal/tests/bus-result-lifecycle.test.ts",
+        "passed": 16,
+        "other": 0
+      },
+      {
+        "path": "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/grant/tests/bus-result-lifecycle.test.ts",
+        "passed": 16,
+        "other": 0
+      },
+      {
+        "path": "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/guard/tests/bus-result-lifecycle.test.ts",
+        "passed": 16,
+        "other": 0
+      },
+      {
+        "path": "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/desk/tests/bus-result-lifecycle.test.ts",
+        "passed": 16,
+        "other": 0
+      },
+      {
+        "path": "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/hire/tests/bus-result-lifecycle.test.ts",
+        "passed": 16,
+        "other": 0
+      },
+      {
+        "path": "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/pay/tests/bus-result-lifecycle.test.ts",
+        "passed": 16,
+        "other": 0
+      },
+      {
+        "path": "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/renew/tests/bus-result-lifecycle.test.ts",
+        "passed": 16,
+        "other": 0
+      },
+      {
+        "path": "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/post/tests/bus-result-lifecycle.test.ts",
+        "passed": 16,
+        "other": 0
+      },
+      {
+        "path": "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/reach/tests/bus-result-lifecycle.test.ts",
+        "passed": 16,
+        "other": 0
+      },
+      {
+        "path": "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/roster/tests/bus-result-lifecycle.test.ts",
+        "passed": 16,
+        "other": 0
+      },
+      {
+        "path": "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/shift/tests/bus-result-lifecycle.test.ts",
+        "passed": 16,
+        "other": 0
+      },
+      {
+        "path": "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/quote/tests/bus-result-lifecycle.test.ts",
+        "passed": 16,
+        "other": 0
+      },
+      {
+        "path": "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/sign/tests/bus-result-lifecycle.test.ts",
+        "passed": 16,
+        "other": 0
+      },
+      {
+        "path": "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/sync/tests/bus-result-lifecycle.test.ts",
+        "passed": 16,
+        "other": 0
+      },
+      {
+        "path": "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/vet/tests/bus-result-lifecycle.test.ts",
+        "passed": 16,
+        "other": 0
+      }
+    ],
+    "skips": [
+      {
+        "file": "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/ledger/tests/backup.test.ts",
+        "name": "nightly: per-schema pg_dump + per-company exports with retention; one schema restores alone",
+        "status": "skipped"
+      },
+      {
+        "file": "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/packages/neop-template/tests/document-store.test.ts",
+        "name": "S3 (Signature V4) round-trips through a real S3-compatible server",
+        "status": "skipped"
+      }
+    ]
+  },
+  "retained_runs": [
+    {
+      "path": "/Users/mansi.gambhir/Documents/Codex/2026-09-28/lo/work/fleet-v3-checkpoint-15-confirmed-reproduction.json",
+      "sha256": "864939ec771161b1f52561bfff6ae2b6931f1754a47d4cdf4fed73b38e0f5b27",
+      "passed": 0,
+      "failed": 6,
+      "skipped": 0,
+      "files": 1,
+      "start_time": "2026-10-05T11:40:02.153Z",
+      "elapsed_seconds": 3.82297119140625,
+      "success": false
+    },
+    {
+      "path": "/Users/mansi.gambhir/Documents/Codex/2026-09-28/lo/work/fleet-v3-checkpoint-15-corrected-focused.json",
+      "sha256": "ed51ca9da74a15046102eea75997b4bf81ac4916220a61c6ff8d61f56617a10d",
+      "passed": 32,
+      "failed": 0,
+      "skipped": 0,
+      "files": 5,
+      "start_time": "2026-10-05T11:45:58.125Z",
+      "elapsed_seconds": 10.305861572265625,
+      "success": true
+    },
+    {
+      "path": "/Users/mansi.gambhir/Documents/Codex/2026-09-28/lo/work/fleet-v3-checkpoint-15-defects.json",
+      "sha256": "198eeec1816989db4272baf2b2cae12f5a4f814c33d6d8664a9dad58222d47f6",
+      "passed": 0,
+      "failed": 6,
+      "skipped": 0,
+      "files": 1,
+      "start_time": "2026-10-05T11:39:20.771Z",
+      "elapsed_seconds": 3.423680419921875,
+      "success": false
+    },
+    {
+      "path": "/Users/mansi.gambhir/Documents/Codex/2026-09-28/lo/work/fleet-v3-checkpoint-15-expanded-focused.json",
+      "sha256": "1da7e5fc41849dcfaa6b0b9f18696624caa526e6ed4d3bc51b8a40a8aa289658",
+      "passed": 26,
+      "failed": 6,
+      "skipped": 0,
+      "files": 5,
+      "start_time": "2026-10-05T11:44:44.312Z",
+      "elapsed_seconds": 36.08629296875,
+      "success": false
+    },
+    {
+      "path": "/Users/mansi.gambhir/Documents/Codex/2026-09-28/lo/work/fleet-v3-checkpoint-15-final-focused.json",
+      "sha256": "fc4b43ef52bd9993756c44da74b20694484dc5b5de1dcb7a6b3ffa03ed598bec",
+      "passed": 16,
+      "failed": 0,
+      "skipped": 0,
+      "files": 1,
+      "start_time": "2026-10-05T11:47:44.744Z",
+      "elapsed_seconds": 10.8008916015625,
+      "success": true
+    },
+    {
+      "path": "/Users/mansi.gambhir/Documents/Codex/2026-09-28/lo/work/fleet-v3-checkpoint-15-fleet-bus.json",
+      "sha256": "d7ebd3cd43c5979f5fe25ef383276efc19096fc8431e74b95e16d5daa4009af9",
+      "passed": 308,
+      "failed": 0,
+      "skipped": 0,
+      "files": 22,
+      "start_time": "2026-10-05T11:48:28.745Z",
+      "elapsed_seconds": 45.44551586914063,
+      "success": true
+    },
+    {
+      "path": "/Users/mansi.gambhir/Documents/Codex/2026-09-28/lo/work/fleet-v3-checkpoint-15-focused.json",
+      "sha256": "23a09435bef3b4bd54b52a2d6b1f7efd1f83ebf2743c39c8ecd235295830cc4b",
+      "passed": 22,
+      "failed": 4,
+      "skipped": 0,
+      "files": 5,
+      "start_time": "2026-10-05T11:42:45.081Z",
+      "elapsed_seconds": 9.89587744140625,
+      "success": false
+    },
+    {
+      "path": "/Users/mansi.gambhir/Documents/Codex/2026-09-28/lo/work/fleet-v3-checkpoint-15-reproduction-valid-fixture.json",
+      "sha256": "42f9b17021f705c21746f779a231e50668f29dd47f685581dd82454929671aa3",
+      "passed": 0,
+      "failed": 6,
+      "skipped": 0,
+      "files": 1,
+      "start_time": "2026-10-05T11:38:48.502Z",
+      "elapsed_seconds": 5.17607958984375,
+      "success": false
+    },
+    {
+      "path": "/Users/mansi.gambhir/Documents/Codex/2026-09-28/lo/work/fleet-v3-checkpoint-15-reproduction.json",
+      "sha256": "44b6bc7abf88005c61857ba0590070645e8e6e04cacccc929e61d146999514c8",
+      "passed": 0,
+      "failed": 6,
+      "skipped": 0,
+      "files": 1,
+      "start_time": "2026-10-05T11:38:17.146Z",
+      "elapsed_seconds": 3.738605224609375,
+      "success": false
+    }
+  ],
+  "report_notes": [
+    "The final complete regression includes the final company/job scoping guards. The earlier 308-test fleet run was not frozen across those final guards and is historical/overlapping evidence, not the definitive final-source run.",
+    "reproduction.json: six fixture-state-transition failures; reproduction-valid-fixture.json: six fixture parameter-type failures; defects.json: six fixture operation-column failures. Despite the filenames, these three are not runtime defect reproductions.",
+    "confirmed-reproduction.json: six runtime failures before the fix, covering partial commit/HTTP 200, concurrent duplicate ready waits, and post-cancellation history mutation for task and call replies.",
+    "focused.json: 22 passes / four fixture result-step selection failures after the runtime fix. expanded-focused.json: 26 passes / six fixture outbox-baseline and session-role assumptions. corrected-focused.json: 32 passes after corrections; no relaxed timeouts or weakened runtime assertions.",
+    "final-focused.json: sixteen final helper cases on Pay before final tenant-scope guards. fleet-bus.json: 308 passing cases across 22 files; all scopes overlap the complete run, not additional passes."
+  ],
+  "changed_source_sha256": {
+    "packages/neop-template/src/gate/a2a.ts": "73aa29470c79c8f75aab8e5c7ef180e8b00408cd630dee8bc034d84fd9e7c87d",
+    "packages/neop-template/src/presence/appservice.ts": "85c356aa0ff1f87197c7bbd6e6e6cbac3b8b803bb218bae19cb8a9e6d55ce4ac",
+    "packages/neop-template/src/presence/events.ts": "ccc523c227a3352255e3a3b141b5147fc21b681ed0f257a5be6555f5b300ef5b",
+    "packages/neop-template/src/presence/index.ts": "52efe2d17ee326faf9abb702668f91c96d0938d086f864fc9eea84abd72b2f04",
+    "packages/neop-template/src/runner/bus.ts": "7271fc1e5c643414a93a56426670d2d86a1332ab3f465db6718df5042c3d2f75",
+    "packages/neop-template/src/runner/inbound.ts": "4c0d518b57b2d8d3d2c7ad27760c8515935694d4728573ea84390fb93631a094",
+    "packages/testkit/src/index.ts": "439667def947609ab57c7c9e3eed5b87af980bc970fce7588bb6017a60315b69",
+    "packages/testkit/src/bus-result-lifecycle.ts": "cf33815ead68aa681b58d3e12dd6bc05e5e6d46154de0e8aa7cf71f6d2c34145",
+    "apps/clear/tests/bus-result-lifecycle.test.ts": "76528ed7083852fe79cd2bc3fee0129a5c959ad0a5aed309e2ffd0eb5e553646",
+    "apps/reach/tests/bus-result-lifecycle.test.ts": "0b31fb7e225a8ab155985c50967ca98e5e8506a0af151f590dad3b644a09ae6d",
+    "apps/desk/tests/bus-result-lifecycle.test.ts": "5bb4be337e61f175aef98360c4b895b9c2146c0707a7de66f157476208e69100",
+    "apps/hire/tests/bus-result-lifecycle.test.ts": "285e498b1bb1d1aef63415c37c3b9345b9fa2ea532d5acd2dd100f1a7ea6f36f",
+    "apps/deal/tests/bus-result-lifecycle.test.ts": "8520f251eb483c143363bf7a4e0633384a6cd569afbb58a493895d9fb817e5c3",
+    "apps/buy/tests/bus-result-lifecycle.test.ts": "969bbfee673b9ee43d953ef655a36845442fdf5b41e6f8a768e07b8db46de737",
+    "apps/grant/tests/bus-result-lifecycle.test.ts": "bd5aaa5112e8bb661083a9b8d75fb3479d3ce8dfa2d8eb40d18ee2ee7e728c5e",
+    "apps/shift/tests/bus-result-lifecycle.test.ts": "c6241cec89d465bc9730b8dc89760609bb18dd53ac6fc7132e83ce39491e9496",
+    "apps/sync/tests/bus-result-lifecycle.test.ts": "a8b077d597f42f4b48b6c7a405476321d1a2c3e3cb5116273e58d209efeb1199",
+    "apps/post/tests/bus-result-lifecycle.test.ts": "8210218a9db4da8f0cb3e8b75ba634886a00dcd8264692f5a07aa32926dd84ae",
+    "apps/roster/tests/bus-result-lifecycle.test.ts": "75e9b2e7ef36fd5a397ed1637cdef96dc4803b4df38887ff4eafb39dbcce4cb0",
+    "apps/quote/tests/bus-result-lifecycle.test.ts": "bc7d755aecd34660792b9769c9337cfe2afb94f35a7ead9c8df1be127c24d7fa",
+    "apps/sign/tests/bus-result-lifecycle.test.ts": "967f572194922eb1ab2a59d9b8216bf4895956b5aada2afcae31f9f1a44d85dc",
+    "apps/guard/tests/bus-result-lifecycle.test.ts": "6c3c5913526893b6455dded2035434475e05a3ea36be14b01c97b612dc5a77ce",
+    "apps/vet/tests/bus-result-lifecycle.test.ts": "470975961a63e4e7ba32f8628bcb6d91de1a64e5c90c126272794fe98319df1d",
+    "apps/pay/tests/bus-result-lifecycle.test.ts": "f4c303be78b1e45e61081c7a8e5449011defd7dc1598ee178737a05263745d44",
+    "apps/asset/tests/bus-result-lifecycle.test.ts": "5aae467ddf63a09cbb9c259b967ea05b368380a4b0bd403ec485947843b70f10",
+    "apps/renew/tests/bus-result-lifecycle.test.ts": "18fcd7039324bd8e9084598b97f4e4f5dce0bf66b5873f5c6c38d9a8b8d57d14"
+  },
+  "local_checks": {
+    "typescript": "pass",
+    "source_snapshots_verified": 108,
+    "completion_gate": "expected exit 1; all eighteen still 15 partial groups and 3 pending groups",
+    "production_ready": false,
+    "full_source_parity": false
+  },
+  "fixture": {
+    "container_name": "neop-fleet15-20261005",
+    "container_id": "9978ebfcbb54aa317c80931b531731388531bb2ba219f895ac6b4de2f1bcf4a1",
+    "label": "neop.fixture=fleet-checkpoint-15",
+    "image": "postgres:17-alpine",
+    "image_id": "sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24",
+    "storage": "tmpfs only; no persistent mounts",
+    "network": "loopback ephemeral port only",
+    "max_connections": 400,
+    "removed": true,
+    "remaining_pilot_databases_before_removal": 0,
+    "active_pilot_sessions_before_removal": 0,
+    "neos_desk": {
+      "login": false,
+      "bypassrls": false,
+      "superuser": false
+    },
+    "shared_cluster_touched": false
+  },
+  "limitations": [
+    "Scripted model, fake homeserver/peer and seeded outgoing receiver state; not eighteen new app-specific borrowed abilities or live Matrix acceptance.",
+    "Injected database-transaction exceptions and local backend restarts; not arbitrary process-kill points, multi-host fencing or production restore.",
+    "Generic dependency waits, question/input and other ingress receipt atomicity, a2a deadlines and late replies to still-live jobs remain open.",
+    "No automatic repair of older eager typed:received receipts or partially committed terminal threads; audited recovery design required.",
+    "Mixed-version rolling lock/acknowledgment behavior not certified. Coordinate drained result-receiver rollout and existing t023/input-expiry worker upgrade; refresh backend artifacts.",
+    "Prior intermittent Pay approval wake-count and Ledger presence failures are not reproduced/repaired by this change.",
+    "Business roles/elevated approvals, amounts/currencies, self-approval and historical/nonhuman policy decisions remain owner-blocked; providers, source parity, privacy/legacy migration and real acceptance are incomplete.",
+    "No production deployment, push, merge or real payment/message/signature/access/export/filing."
+  ],
+  "catalog_after_documentation": {
+    "path": "/Users/mansi.gambhir/Documents/Codex/2026-09-28/lo/work/fleet-v3-checkpoint-15-catalog.json",
+    "sha256": "e6a5c9a8e5e9572bfb610871bc7cf0c5cfda913550255a5fd909a17b0a1ca281",
+    "passed": 6,
+    "failed": 0,
+    "skipped": 0,
+    "files": 1,
+    "success": true
+  }
+}

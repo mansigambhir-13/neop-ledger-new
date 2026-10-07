@@ -1,0 +1,584 @@
+{
+  "date": "2026-10-01",
+  "sourceBaseCommit": "50ccfdf12607203c6c7ecc2d5012f1597ae323d9",
+  "scope": "Host child-process internal-draft jobs with real gate/runner/SDK/proxy and fake Matrix/model; not packaged backend or live/business acceptance.",
+  "production_ready": false,
+  "fullSuite": {
+    "files": 162,
+    "passed": 1397,
+    "failed": 0,
+    "skipped": 2,
+    "reportSha256": "c7871d7c0301ff65d374fac21c4613e883653aa731061ec7064b5ffff6288c81"
+  },
+  "sourceSha256": {
+    "scripts/fleet/testing/process.ts": "10f6132c8a81204a456ebb6ffe88dc106036ff760219559b6868fbb2aba956b4",
+    "scripts/fleet/testing/job-cases.ts": "b9ca802f9fc9a9209b09552110c225d80d83375aa3a8a0c8051704ec4a8e7958",
+    "scripts/fleet/tests/runtime-jobs.test.ts": "f98830c9aa93e7d4d6826601dca5ef90755ad998397336fd5012d658c647e9d5"
+  },
+  "apps": [
+    {
+      "app": "asset",
+      "passed": 5,
+      "tests": [
+        {
+          "name": "ignores unknown senders/wrong companies/rooms, then completes a real empty read once despite redelivery",
+          "status": "passed",
+          "durationMs": 491.84049999999934
+        },
+        {
+          "name": "requires an exact human approval for import and recovers the pending job after a real backend crash",
+          "status": "passed",
+          "durationMs": 1397.783875
+        },
+        {
+          "name": "persists the app-specific draft through its gate and refuses document-supplied authority fields",
+          "status": "passed",
+          "durationMs": 1501.4126670000005
+        },
+        {
+          "name": "a human rejection survives a fresh assistant process and leaves the draft unchanged",
+          "status": "passed",
+          "durationMs": 1512.5835829999996
+        },
+        {
+          "name": "cancels only the approved exact draft and does not duplicate effects or completion on replay",
+          "status": "passed",
+          "durationMs": 983.8137500000012
+        }
+      ]
+    },
+    {
+      "app": "buy",
+      "passed": 5,
+      "tests": [
+        {
+          "name": "ignores unknown senders/wrong companies/rooms, then completes a real empty read once despite redelivery",
+          "status": "passed",
+          "durationMs": 519.5409159999999
+        },
+        {
+          "name": "requires an exact human approval for import and recovers the pending job after a real backend crash",
+          "status": "passed",
+          "durationMs": 2431.4291670000002
+        },
+        {
+          "name": "persists the app-specific draft through its gate and refuses document-supplied authority fields",
+          "status": "passed",
+          "durationMs": 1512.037207999998
+        },
+        {
+          "name": "a human rejection survives a fresh assistant process and leaves the draft unchanged",
+          "status": "passed",
+          "durationMs": 1501.1741250000014
+        },
+        {
+          "name": "cancels only the approved exact draft and does not duplicate effects or completion on replay",
+          "status": "passed",
+          "durationMs": 1033.6988330000022
+        }
+      ]
+    },
+    {
+      "app": "clear",
+      "passed": 5,
+      "tests": [
+        {
+          "name": "ignores unknown senders/wrong companies/rooms, then completes a real empty read once despite redelivery",
+          "status": "passed",
+          "durationMs": 537.718584000002
+        },
+        {
+          "name": "requires an exact human approval for import and recovers the pending job after a real backend crash",
+          "status": "passed",
+          "durationMs": 2464.917624999998
+        },
+        {
+          "name": "persists the app-specific draft through its gate and refuses document-supplied authority fields",
+          "status": "passed",
+          "durationMs": 1477.319625
+        },
+        {
+          "name": "a human rejection survives a fresh assistant process and leaves the draft unchanged",
+          "status": "passed",
+          "durationMs": 1514.3714589999981
+        },
+        {
+          "name": "cancels only the approved exact draft and does not duplicate effects or completion on replay",
+          "status": "passed",
+          "durationMs": 1046.2597920000007
+        }
+      ]
+    },
+    {
+      "app": "deal",
+      "passed": 5,
+      "tests": [
+        {
+          "name": "ignores unknown senders/wrong companies/rooms, then completes a real empty read once despite redelivery",
+          "status": "passed",
+          "durationMs": 515.6594590000022
+        },
+        {
+          "name": "requires an exact human approval for import and recovers the pending job after a real backend crash",
+          "status": "passed",
+          "durationMs": 2661.5257079999974
+        },
+        {
+          "name": "persists the app-specific draft through its gate and refuses document-supplied authority fields",
+          "status": "passed",
+          "durationMs": 1492.3369999999995
+        },
+        {
+          "name": "a human rejection survives a fresh assistant process and leaves the draft unchanged",
+          "status": "passed",
+          "durationMs": 1518.3845000000001
+        },
+        {
+          "name": "cancels only the approved exact draft and does not duplicate effects or completion on replay",
+          "status": "passed",
+          "durationMs": 1023.971292000002
+        }
+      ]
+    },
+    {
+      "app": "desk",
+      "passed": 5,
+      "tests": [
+        {
+          "name": "ignores unknown senders/wrong companies/rooms, then completes a real empty read once despite redelivery",
+          "status": "passed",
+          "durationMs": 497.1984999999986
+        },
+        {
+          "name": "requires an exact human approval for import and recovers the pending job after a real backend crash",
+          "status": "passed",
+          "durationMs": 2403.356458000002
+        },
+        {
+          "name": "persists the app-specific draft through its gate and refuses document-supplied authority fields",
+          "status": "passed",
+          "durationMs": 1529.065791000001
+        },
+        {
+          "name": "a human rejection survives a fresh assistant process and leaves the draft unchanged",
+          "status": "passed",
+          "durationMs": 1474.2575829999987
+        },
+        {
+          "name": "cancels only the approved exact draft and does not duplicate effects or completion on replay",
+          "status": "passed",
+          "durationMs": 1019.9247499999983
+        }
+      ]
+    },
+    {
+      "app": "grant",
+      "passed": 5,
+      "tests": [
+        {
+          "name": "ignores unknown senders/wrong companies/rooms, then completes a real empty read once despite redelivery",
+          "status": "passed",
+          "durationMs": 528.2568340000071
+        },
+        {
+          "name": "requires an exact human approval for import and recovers the pending job after a real backend crash",
+          "status": "passed",
+          "durationMs": 1581.232250000001
+        },
+        {
+          "name": "persists the app-specific draft through its gate and refuses document-supplied authority fields",
+          "status": "passed",
+          "durationMs": 1471.050209000001
+        },
+        {
+          "name": "a human rejection survives a fresh assistant process and leaves the draft unchanged",
+          "status": "passed",
+          "durationMs": 1510.9705419999955
+        },
+        {
+          "name": "cancels only the approved exact draft and does not duplicate effects or completion on replay",
+          "status": "passed",
+          "durationMs": 1019.0288330000039
+        }
+      ]
+    },
+    {
+      "app": "guard",
+      "passed": 5,
+      "tests": [
+        {
+          "name": "ignores unknown senders/wrong companies/rooms, then completes a real empty read once despite redelivery",
+          "status": "passed",
+          "durationMs": 500.64254199999414
+        },
+        {
+          "name": "requires an exact human approval for import and recovers the pending job after a real backend crash",
+          "status": "passed",
+          "durationMs": 1682.4771669999973
+        },
+        {
+          "name": "persists the app-specific draft through its gate and refuses document-supplied authority fields",
+          "status": "passed",
+          "durationMs": 1503.0204999999987
+        },
+        {
+          "name": "a human rejection survives a fresh assistant process and leaves the draft unchanged",
+          "status": "passed",
+          "durationMs": 1500.268833000002
+        },
+        {
+          "name": "cancels only the approved exact draft and does not duplicate effects or completion on replay",
+          "status": "passed",
+          "durationMs": 1016.0794590000005
+        }
+      ]
+    },
+    {
+      "app": "hire",
+      "passed": 5,
+      "tests": [
+        {
+          "name": "ignores unknown senders/wrong companies/rooms, then completes a real empty read once despite redelivery",
+          "status": "passed",
+          "durationMs": 523.8927079999994
+        },
+        {
+          "name": "requires an exact human approval for import and recovers the pending job after a real backend crash",
+          "status": "passed",
+          "durationMs": 2535.524750000004
+        },
+        {
+          "name": "persists the app-specific draft through its gate and refuses document-supplied authority fields",
+          "status": "passed",
+          "durationMs": 1490.987457999996
+        },
+        {
+          "name": "a human rejection survives a fresh assistant process and leaves the draft unchanged",
+          "status": "passed",
+          "durationMs": 1499.5562920000084
+        },
+        {
+          "name": "cancels only the approved exact draft and does not duplicate effects or completion on replay",
+          "status": "passed",
+          "durationMs": 1027.3764999999985
+        }
+      ]
+    },
+    {
+      "app": "pay",
+      "passed": 5,
+      "tests": [
+        {
+          "name": "ignores unknown senders/wrong companies/rooms, then completes a real empty read once despite redelivery",
+          "status": "passed",
+          "durationMs": 521.5043329999899
+        },
+        {
+          "name": "requires an exact human approval for import and recovers the pending job after a real backend crash",
+          "status": "passed",
+          "durationMs": 2516.316000000006
+        },
+        {
+          "name": "persists the app-specific draft through its gate and refuses document-supplied authority fields",
+          "status": "passed",
+          "durationMs": 1514.4773330000025
+        },
+        {
+          "name": "a human rejection survives a fresh assistant process and leaves the draft unchanged",
+          "status": "passed",
+          "durationMs": 1472.0556249999936
+        },
+        {
+          "name": "cancels only the approved exact draft and does not duplicate effects or completion on replay",
+          "status": "passed",
+          "durationMs": 1009.0689580000035
+        }
+      ]
+    },
+    {
+      "app": "post",
+      "passed": 5,
+      "tests": [
+        {
+          "name": "ignores unknown senders/wrong companies/rooms, then completes a real empty read once despite redelivery",
+          "status": "passed",
+          "durationMs": 505.81108400000085
+        },
+        {
+          "name": "requires an exact human approval for import and recovers the pending job after a real backend crash",
+          "status": "passed",
+          "durationMs": 1495.554500000013
+        },
+        {
+          "name": "persists the app-specific draft through its gate and refuses document-supplied authority fields",
+          "status": "passed",
+          "durationMs": 1491.0860840000096
+        },
+        {
+          "name": "a human rejection survives a fresh assistant process and leaves the draft unchanged",
+          "status": "passed",
+          "durationMs": 1521.2734999999957
+        },
+        {
+          "name": "cancels only the approved exact draft and does not duplicate effects or completion on replay",
+          "status": "passed",
+          "durationMs": 996.5117089999985
+        }
+      ]
+    },
+    {
+      "app": "quote",
+      "passed": 5,
+      "tests": [
+        {
+          "name": "ignores unknown senders/wrong companies/rooms, then completes a real empty read once despite redelivery",
+          "status": "passed",
+          "durationMs": 505.6169579999987
+        },
+        {
+          "name": "requires an exact human approval for import and recovers the pending job after a real backend crash",
+          "status": "passed",
+          "durationMs": 2494.7515420000127
+        },
+        {
+          "name": "persists the app-specific draft through its gate and refuses document-supplied authority fields",
+          "status": "passed",
+          "durationMs": 1496.5686249999999
+        },
+        {
+          "name": "a human rejection survives a fresh assistant process and leaves the draft unchanged",
+          "status": "passed",
+          "durationMs": 1485.8149589999957
+        },
+        {
+          "name": "cancels only the approved exact draft and does not duplicate effects or completion on replay",
+          "status": "passed",
+          "durationMs": 1030.5574590000033
+        }
+      ]
+    },
+    {
+      "app": "reach",
+      "passed": 5,
+      "tests": [
+        {
+          "name": "ignores unknown senders/wrong companies/rooms, then completes a real empty read once despite redelivery",
+          "status": "passed",
+          "durationMs": 507.27125000000524
+        },
+        {
+          "name": "requires an exact human approval for import and recovers the pending job after a real backend crash",
+          "status": "passed",
+          "durationMs": 2570.1195000000007
+        },
+        {
+          "name": "persists the app-specific draft through its gate and refuses document-supplied authority fields",
+          "status": "passed",
+          "durationMs": 1479.1280419999966
+        },
+        {
+          "name": "a human rejection survives a fresh assistant process and leaves the draft unchanged",
+          "status": "passed",
+          "durationMs": 1507.7727920000034
+        },
+        {
+          "name": "cancels only the approved exact draft and does not duplicate effects or completion on replay",
+          "status": "passed",
+          "durationMs": 1044.9014160000079
+        }
+      ]
+    },
+    {
+      "app": "renew",
+      "passed": 5,
+      "tests": [
+        {
+          "name": "ignores unknown senders/wrong companies/rooms, then completes a real empty read once despite redelivery",
+          "status": "passed",
+          "durationMs": 546.1702919999952
+        },
+        {
+          "name": "requires an exact human approval for import and recovers the pending job after a real backend crash",
+          "status": "passed",
+          "durationMs": 2583.519499999995
+        },
+        {
+          "name": "persists the app-specific draft through its gate and refuses document-supplied authority fields",
+          "status": "passed",
+          "durationMs": 1473.8608329999988
+        },
+        {
+          "name": "a human rejection survives a fresh assistant process and leaves the draft unchanged",
+          "status": "passed",
+          "durationMs": 1499.8395000000019
+        },
+        {
+          "name": "cancels only the approved exact draft and does not duplicate effects or completion on replay",
+          "status": "passed",
+          "durationMs": 1016.9898329999996
+        }
+      ]
+    },
+    {
+      "app": "roster",
+      "passed": 5,
+      "tests": [
+        {
+          "name": "ignores unknown senders/wrong companies/rooms, then completes a real empty read once despite redelivery",
+          "status": "passed",
+          "durationMs": 514.7792499999923
+        },
+        {
+          "name": "requires an exact human approval for import and recovers the pending job after a real backend crash",
+          "status": "passed",
+          "durationMs": 1486.9400840000017
+        },
+        {
+          "name": "persists the app-specific draft through its gate and refuses document-supplied authority fields",
+          "status": "passed",
+          "durationMs": 1479.1464590000105
+        },
+        {
+          "name": "a human rejection survives a fresh assistant process and leaves the draft unchanged",
+          "status": "passed",
+          "durationMs": 1509.371834000005
+        },
+        {
+          "name": "cancels only the approved exact draft and does not duplicate effects or completion on replay",
+          "status": "passed",
+          "durationMs": 1034.190333999999
+        }
+      ]
+    },
+    {
+      "app": "shift",
+      "passed": 5,
+      "tests": [
+        {
+          "name": "ignores unknown senders/wrong companies/rooms, then completes a real empty read once despite redelivery",
+          "status": "passed",
+          "durationMs": 516.0346250000002
+        },
+        {
+          "name": "requires an exact human approval for import and recovers the pending job after a real backend crash",
+          "status": "passed",
+          "durationMs": 1844.9987500000134
+        },
+        {
+          "name": "persists the app-specific draft through its gate and refuses document-supplied authority fields",
+          "status": "passed",
+          "durationMs": 1479.304250000001
+        },
+        {
+          "name": "a human rejection survives a fresh assistant process and leaves the draft unchanged",
+          "status": "passed",
+          "durationMs": 1523.7230419999978
+        },
+        {
+          "name": "cancels only the approved exact draft and does not duplicate effects or completion on replay",
+          "status": "passed",
+          "durationMs": 1002.4396669999987
+        }
+      ]
+    },
+    {
+      "app": "sign",
+      "passed": 5,
+      "tests": [
+        {
+          "name": "ignores unknown senders/wrong companies/rooms, then completes a real empty read once despite redelivery",
+          "status": "passed",
+          "durationMs": 542.0355829999899
+        },
+        {
+          "name": "requires an exact human approval for import and recovers the pending job after a real backend crash",
+          "status": "passed",
+          "durationMs": 1559.5912909999897
+        },
+        {
+          "name": "persists the app-specific draft through its gate and refuses document-supplied authority fields",
+          "status": "passed",
+          "durationMs": 1481.0427080000081
+        },
+        {
+          "name": "a human rejection survives a fresh assistant process and leaves the draft unchanged",
+          "status": "passed",
+          "durationMs": 1504.4383339999913
+        },
+        {
+          "name": "cancels only the approved exact draft and does not duplicate effects or completion on replay",
+          "status": "passed",
+          "durationMs": 1016.418709000005
+        }
+      ]
+    },
+    {
+      "app": "sync",
+      "passed": 5,
+      "tests": [
+        {
+          "name": "ignores unknown senders/wrong companies/rooms, then completes a real empty read once despite redelivery",
+          "status": "passed",
+          "durationMs": 466.70441700000083
+        },
+        {
+          "name": "requires an exact human approval for import and recovers the pending job after a real backend crash",
+          "status": "passed",
+          "durationMs": 1575.419957999984
+        },
+        {
+          "name": "persists the app-specific draft through its gate and refuses document-supplied authority fields",
+          "status": "passed",
+          "durationMs": 1503.1561250000086
+        },
+        {
+          "name": "a human rejection survives a fresh assistant process and leaves the draft unchanged",
+          "status": "passed",
+          "durationMs": 1487.7219160000095
+        },
+        {
+          "name": "cancels only the approved exact draft and does not duplicate effects or completion on replay",
+          "status": "passed",
+          "durationMs": 1020.1402910000179
+        }
+      ]
+    },
+    {
+      "app": "vet",
+      "passed": 5,
+      "tests": [
+        {
+          "name": "ignores unknown senders/wrong companies/rooms, then completes a real empty read once despite redelivery",
+          "status": "passed",
+          "durationMs": 532.7221669999999
+        },
+        {
+          "name": "requires an exact human approval for import and recovers the pending job after a real backend crash",
+          "status": "passed",
+          "durationMs": 1549.4750420000055
+        },
+        {
+          "name": "persists the app-specific draft through its gate and refuses document-supplied authority fields",
+          "status": "passed",
+          "durationMs": 1490.4469999999856
+        },
+        {
+          "name": "a human rejection survives a fresh assistant process and leaves the draft unchanged",
+          "status": "passed",
+          "durationMs": 1530.2674999999872
+        },
+        {
+          "name": "cancels only the approved exact draft and does not duplicate effects or completion on replay",
+          "status": "passed",
+          "durationMs": 997.7325419999834
+        }
+      ]
+    }
+  ],
+  "limitations": [
+    "No new business ability or provider effect was added.",
+    "Recovery is tested while waiting, not during active tool execution or an external effect.",
+    "No backend image, production network, live Matrix/model/provider or NEOS UI acceptance.",
+    "Human approval of internal imports/cancellation does not certify app-specific business authority policies."
+  ]
+}

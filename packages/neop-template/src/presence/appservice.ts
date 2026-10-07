@@ -14,6 +14,7 @@ import { timingSafeEqual } from 'node:crypto';
 import { Hono } from 'hono';
 import { canPost, isTypedEventType, neopRoomPowerLevels, roomProblems, roomStateView } from '@neop/contracts';
 import { stripReplyFallback } from './lexicon.ts';
+import { RetryableInboundError } from './events.ts';
 
 export interface AppserviceConfig {
   homeserverUrl: string;
@@ -85,17 +86,30 @@ export class AppserviceTransport {
    */
   async createRoom(asUser: string, o: { people: string[]; nonPeople?: string[]; admins?: string[]; name?: string }): Promise<string> {
     await this.register(asUser);
+    const levels = neopRoomPowerLevels({ people: o.people, admins: o.admins, nonPeople: [asUser, ...(o.nonPeople ?? [])] });
+    const creationLevels = structuredClone(levels) as { users?: Record<string, number> };
+    creationLevels.users = { ...(creationLevels.users ?? {}), [asUser]: 100 };
     const body = {
       preset: 'private_chat',
       visibility: 'private',
       ...(o.name ? { name: o.name } : {}),
       invite: [...new Set([...o.people, ...(o.admins ?? []), ...(o.nonPeople ?? [])])],
       initial_state: [{ type: 'm.room.join_rules', state_key: '', content: { join_rule: 'invite' } }],
-      power_level_content_override: neopRoomPowerLevels({ people: o.people, admins: o.admins, nonPeople: [asUser, ...(o.nonPeople ?? [])] }),
+      power_level_content_override: creationLevels,
     };
     const res = await this.f(`${this.base}/_matrix/client/v3/createRoom?user_id=${encodeURIComponent(asUser)}`, { method: 'POST', headers: this.headers(), body: JSON.stringify(body), signal: AbortSignal.timeout(10_000) });
     if (!res.ok) throw new Error(`createRoom as ${asUser}: ${res.status} ${await res.text()}`);
-    return ((await res.json()) as { room_id: string }).room_id;
+    const roomId = ((await res.json()) as { room_id: string }).room_id;
+    // Synapse writes creation state after the initial override. Demote the NEOP only once that work is complete;
+    // this must be the last state event so the NEOP can never raise itself or weaken approval controls later.
+    const locked = await this.f(`${this.base}/_matrix/client/v3/rooms/${encodeURIComponent(roomId)}/state/m.room.power_levels/?user_id=${encodeURIComponent(asUser)}`, {
+      method: 'PUT',
+      headers: this.headers(),
+      body: JSON.stringify(levels),
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!locked.ok) throw new Error(`lock room ${roomId} as ${asUser}: ${locked.status} ${await locked.text()}`);
+    return roomId;
   }
 
   /** Why the room cannot be spoken in as `self` (contracts roomProblems), or []. */
@@ -130,6 +144,7 @@ export function appserviceRoutes(sink: AppserviceSink, cfg: Pick<AppserviceConfi
   const transactions = async (c: any) => {
     if (!authed(c)) return forbidden(c);
     const body = (await c.req.json().catch(() => ({}))) as { events?: any[] };
+    let retry = false;
     for (const ev of Array.isArray(body.events) ? body.events : []) {
       try {
         if (typeof ev?.event_id !== 'string' || typeof ev.room_id !== 'string' || typeof ev.sender !== 'string') continue;
@@ -146,11 +161,13 @@ export function appserviceRoutes(sink: AppserviceSink, cfg: Pick<AppserviceConfi
           in_reply_to: ev.content['m.relates_to']?.['m.in_reply_to']?.event_id ?? null,
         });
       } catch (e) {
-        // One event that cannot be handled never makes the homeserver redeliver the whole transaction forever.
+        // Malformed/nonretryable events retain their existing handling. An atomic bus update failure must be retried;
+        // already committed update events are deduplicated when the homeserver redelivers the transaction.
+        if (e instanceof RetryableInboundError) retry = true;
         log('an event could not be handled', { event: ev?.event_id, e: String((e as Error)?.message ?? e).slice(0, 200) });
       }
     }
-    return c.json({});
+    return retry ? c.json({ errcode: 'M_UNKNOWN', error: 'durable update not committed; retry transaction' }, 503) : c.json({});
   };
   app.put('/_matrix/app/v1/transactions/:txnId', transactions);
   app.put('/transactions/:txnId', transactions); // legacy path some homeserver versions still use

@@ -1,3 +1,5 @@
+import { cp, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import pg from 'pg';
@@ -6,15 +8,45 @@ import { applyDeskGrants, bootstrapFamily, migrate } from '@neop/pgkit';
 export const PLATFORM_MIGRATIONS = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../migrations');
 
 /** Functions that must read every app's schema (018): owned by the admin role, not the platform's migrator. */
-const DESK_FUNCTIONS = ['neos.desk_pending(text)', 'neos.desk_activity(text)', 'neos.refresh_desk_views()', 'neos.desk_cards(text)', 'neos.refresh_desk_cards()', 'neos.desk_questions(text)', 'neos.refresh_desk_questions()'];
+const DESK_FUNCTIONS = [
+  'neos.desk_pending(text)',
+  'neos.desk_activity(text)',
+  'neos.refresh_desk_views()',
+  'neos.desk_cards(text)',
+  'neos.refresh_desk_cards()',
+  'neos.desk_questions(text)',
+  'neos.refresh_desk_questions()',
+  'neos.desk_operations(text)',
+  'neos.refresh_desk_operations()',
+];
 
-export async function migratePlatform(adminUrl: string, log?: (m: string) => void) {
+/**
+ * Apply the platform's migrations. `through` (tests: the populated-data proof of a past migration) stops after the file
+ * whose number is that prefix — the migration under proof, and nothing newer that would later contract what it made.
+ */
+export async function migratePlatform(adminUrl: string, log?: (m: string) => void, opts: { through?: string } = {}) {
   // The platform never needs a BYPASSRLS runner role (it reads no tenant rows as a runner).
   await bootstrapFamily(adminUrl, 'neos', { runner: false });
   await ensureDeskRole(adminUrl);
-  const applied = await migrate({ adminUrl, schema: 'neos', sources: { dir: PLATFORM_MIGRATIONS }, tenantLint: false, log });
-  await afterMigrate(adminUrl, log);
-  return applied;
+  let dir = PLATFORM_MIGRATIONS;
+  let cleanup: (() => Promise<void>) | null = null;
+  if (opts.through) {
+    dir = await mkdtemp(path.join(os.tmpdir(), `neos-through-${opts.through}-`));
+    cleanup = () => rm(dir, { recursive: true, force: true });
+    await cp(PLATFORM_MIGRATIONS, dir, { recursive: true });
+    const led = JSON.parse(await readFile(path.join(dir, 'migrate.json'), 'utf8')) as { migrations: { file: string }[] };
+    const cut = (f: string) => f.slice(0, 3) > opts.through!.slice(0, 3);
+    for (const m of led.migrations.filter((x) => cut(x.file))) await rm(path.join(dir, m.file));
+    led.migrations = led.migrations.filter((m) => !cut(m.file));
+    await writeFile(path.join(dir, 'migrate.json'), JSON.stringify(led));
+  }
+  try {
+    const applied = await migrate({ adminUrl, schema: 'neos', sources: { dir }, tenantLint: false, log });
+    await afterMigrate(adminUrl, log);
+    return applied;
+  } finally {
+    await cleanup?.();
+  }
 }
 
 /** v3 §11: the desk's read-only role (NOLOGIN; the migrator cannot create roles). Cluster-wide, so created once. */
@@ -92,6 +124,8 @@ async function afterMigrate(adminUrl: string, log?: (m: string) => void): Promis
     if (await has('neos.refresh_desk_cards()')) await c.query('select neos.refresh_desk_cards()');
     // v3 S3 (021): the desk's questions, straight from every app's input waits.
     if (await has('neos.refresh_desk_questions()')) await c.query('select neos.refresh_desk_questions()');
+    // v3 S9 (025): one audit trail — every app's own operations.
+    if (await has('neos.refresh_desk_operations()')) await c.query('select neos.refresh_desk_operations()');
     if (await has('neos.grant_registry_read(text)')) {
       await c.query("select neos.grant_registry_read(key) from neos.apps where status <> 'platform' and key ~ '^[a-z][a-z0-9_]{0,40}$'");
     }

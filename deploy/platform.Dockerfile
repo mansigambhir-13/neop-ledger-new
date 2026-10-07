@@ -1,4 +1,4 @@
-# platform container · gateway, desk, approvals, vault, registry, chat bridge. Also runs migrate and llm-proxy.
+# platform container · people, Conversations/NeuralChat, desk, registry and ops tooling. Also runs migrate and llm-proxy.
 # Debian slim, not Alpine: the Deno binary the package sandbox runs is glibc-only.
 FROM node:24-bookworm-slim
 WORKDIR /srv

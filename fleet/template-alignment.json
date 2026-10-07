@@ -1,0 +1,57 @@
+{
+  "schema_version": 2,
+  "upstream": {
+    "repository": "https://github.com/NEOS-Ecosystem/neos-neop-template",
+    "commit": "94db804f94403c15ad1279e6d30dcecc7c078b82",
+    "template_version": "0.8.16",
+    "archive_sha256": "6a22d515c2a36ddeb8ad613af042960d15b4ab3f41e829bc933e105c9505aa23",
+    "acquired_as": "authenticated_commit_archive",
+    "acquired_on": "2026-10-06"
+  },
+  "strategy": {
+    "mode": "controlled_compatibility_adoption",
+    "direct_template_sync_allowed": false,
+    "reason": "The upstream standalone JavaScript template, manifest, Matrix protocol and migration lineage are not directly compatible with this TypeScript monorepo. Alignment must preserve existing forward migrations and t022-t024 safeguards.",
+    "decision": "docs/adr/0032-pinned-upstream-template-adoption.md",
+    "plan": "docs/TEMPLATE-ALIGNMENT-PLAN.md"
+  },
+  "required_gates": [
+    { "id": "ownership", "suite": "template-ownership.test.ts", "upstream": ["template.json", "scripts/template-sync.mjs"] },
+    { "id": "manifest", "suite": "template-manifest.test.ts", "upstream": ["src/manifest.mjs", "src/emit-manifest.mjs", "manifest.json"] },
+    { "id": "standard-tests", "suite": "template-standard.test.ts", "upstream": ["tests/standard"] },
+    { "id": "migrations", "suite": "template-migration.test.ts", "upstream": ["migrations", "tests/standard/migration.test.mjs", "tests/standard/schema-only.test.mjs"] },
+    { "id": "ingress-approval", "suite": "template-ingress-approval.test.ts", "upstream": ["src/presence", "src/gate", "src/capabilities/approved.mjs"] },
+    { "id": "runtime-credentials", "suite": "template-runtime-credentials.test.ts", "upstream": ["manifest.json", "tests/runtime-credentials.test.mjs"] },
+    { "id": "model-auth-provider", "suite": "template-model-auth-provider.test.ts", "upstream": ["src/auth/chatgpt", "src/agent/llm", "scripts/chatgpt.mjs", "tests/chatgpt-hardening.test.mjs", "tests/chatgpt-plan.test.mjs", "tests/codex-provider.test.mjs"] },
+    { "id": "runtime-processes", "suite": "template-runtime-processes.test.ts", "upstream": ["deploy", "tests/runtime-processes.test.mjs", "tests/compose-topology.test.mjs"] },
+    { "id": "frontend", "suite": "template-frontend.test.ts", "upstream": ["frontend", "tests/frontend.test.mjs", "tests/frontend-no-login.test.mjs"] },
+    { "id": "blocks", "suite": "template-blocks.test.ts", "upstream": ["blocks", "src/web/surface.mjs", "tests/blocks.test.mjs"] },
+    { "id": "secrets", "suite": "template-secrets.test.ts", "upstream": ["tests/synthetic-secrets.test.mjs", "deploy"] },
+    { "id": "publish-install", "suite": "template-publish-install.test.ts", "upstream": ["tests/platform/publish.test.mjs", "tests/verify-install.mjs"] }
+  ],
+  "apps": [
+    { "order": 1, "id": "ledger", "profile": "existing_reference", "assessment": "conflict", "alignment_doc": "apps/ledger/NEOP-V3-ALIGNMENT.md", "evidence": [], "product_gaps": ["stale acceptance accounting", "no template source declaration or frontend process", "live statutory, mailbox, provider and UI acceptance remain open"] },
+    { "order": 2, "id": "wage", "profile": "vertical_slice", "assessment": "gap", "alignment_doc": "apps/wage/NEOP-V3-ALIGNMENT.md", "evidence": [], "product_gaps": ["no template source declaration or frontend process", "5001-row read/output contract mismatch", "bank payout and statutory filing remain unimplemented"] },
+    { "order": 3, "id": "clear", "profile": "draft_slice", "assessment": "gap", "alignment_doc": "apps/clear/NEOP-V3-ALIGNMENT.md", "evidence": [], "product_gaps": ["live evidence retrieval and matching", "case and SAR authorization", "filing provider"] },
+    { "order": 4, "id": "reach", "profile": "draft_slice", "assessment": "gap", "alignment_doc": "apps/reach/NEOP-V3-ALIGNMENT.md", "evidence": [], "product_gaps": ["consent and suppression policy", "campaign authorization", "delivery provider"] },
+    { "order": 5, "id": "desk", "profile": "draft_slice", "assessment": "gap", "alignment_doc": "apps/desk/NEOP-V3-ALIGNMENT.md", "evidence": [], "product_gaps": ["refund eligibility and authority", "refund execution", "provider reconciliation"] },
+    { "order": 6, "id": "hire", "profile": "draft_slice", "assessment": "gap", "alignment_doc": "apps/hire/NEOP-V3-ALIGNMENT.md", "evidence": [], "product_gaps": ["offer authority", "approved offer lifecycle", "delivery and onboarding provider"] },
+    { "order": 7, "id": "deal", "profile": "draft_slice", "assessment": "gap", "alignment_doc": "apps/deal/NEOP-V3-ALIGNMENT.md", "evidence": [], "product_gaps": ["commercial approval policy", "quote issue lifecycle", "delivery provider"] },
+    { "order": 8, "id": "buy", "profile": "draft_slice", "assessment": "gap", "alignment_doc": "apps/buy/NEOP-V3-ALIGNMENT.md", "evidence": [], "product_gaps": ["procurement authority policy", "purchase-order placement", "supplier acknowledgement and reconciliation"] },
+    { "order": 9, "id": "grant", "profile": "draft_slice", "assessment": "gap", "alignment_doc": "apps/grant/NEOP-V3-ALIGNMENT.md", "evidence": [], "product_gaps": ["least-privilege authorization", "access provisioning", "effective-access read-back and revocation"] },
+    { "order": 10, "id": "shift", "profile": "draft_slice", "assessment": "gap", "alignment_doc": "apps/shift/NEOP-V3-ALIGNMENT.md", "evidence": [], "product_gaps": ["change authority and collision policy", "apply and rollback lifecycle", "independent verification"] },
+    { "order": 11, "id": "sync", "profile": "draft_slice", "assessment": "gap", "alignment_doc": "apps/sync/NEOP-V3-ALIGNMENT.md", "evidence": [], "product_gaps": ["export authorization", "redaction and privacy workflow", "delivery provider and recovery"] },
+    { "order": 12, "id": "post", "profile": "draft_slice", "assessment": "gap", "alignment_doc": "apps/post/NEOP-V3-ALIGNMENT.md", "evidence": [], "product_gaps": ["publication authority", "scheduled publishing", "published-state verification"] },
+    { "order": 13, "id": "roster", "profile": "draft_slice", "assessment": "gap", "alignment_doc": "apps/roster/NEOP-V3-ALIGNMENT.md", "evidence": [], "product_gaps": ["entitlement and overlap policy", "leave approval", "concurrent balance booking and correction"] },
+    { "order": 14, "id": "quote", "profile": "draft_slice", "assessment": "gap", "alignment_doc": "apps/quote/NEOP-V3-ALIGNMENT.md", "evidence": [], "product_gaps": ["pricing and exception policy", "quote approval and issuance", "expiry and supersession"] },
+    { "order": 15, "id": "sign", "profile": "draft_slice", "assessment": "gap", "alignment_doc": "apps/sign/NEOP-V3-ALIGNMENT.md", "evidence": [], "product_gaps": ["document and signer authority", "signature provider", "envelope reconciliation"] },
+    { "order": 16, "id": "guard", "profile": "draft_slice", "assessment": "gap", "alignment_doc": "apps/guard/NEOP-V3-ALIGNMENT.md", "evidence": [], "product_gaps": ["incident authority and evidence policy", "response execution", "containment verification"] },
+    { "order": 17, "id": "vet", "profile": "draft_slice", "assessment": "gap", "alignment_doc": "apps/vet/NEOP-V3-ALIGNMENT.md", "evidence": [], "product_gaps": ["evidence provenance and expiry", "vendor-risk approval", "onboarding provider"] },
+    { "order": 18, "id": "pay", "profile": "draft_slice", "assessment": "gap", "alignment_doc": "apps/pay/NEOP-V3-ALIGNMENT.md", "evidence": [], "product_gaps": ["owner-approved payment authority policy", "payment dispatch", "provider reconciliation"] },
+    { "order": 19, "id": "asset", "profile": "draft_slice", "assessment": "gap", "alignment_doc": "apps/asset/NEOP-V3-ALIGNMENT.md", "evidence": [], "product_gaps": ["inventory and custody lifecycle", "provisioning authority", "provider read-back and revocation"] },
+    { "order": 20, "id": "renew", "profile": "draft_slice", "assessment": "gap", "alignment_doc": "apps/renew/NEOP-V3-ALIGNMENT.md", "evidence": [], "product_gaps": ["owner-approved renewal authority policy", "renewal execution", "provider reconciliation"] }
+  ],
+  "out_of_scope_apps": [
+    { "id": "marketing", "reason": "Present as a legacy/test dependency but not part of fleet/catalog.json documented_20_working_scope." }
+  ]
+}

@@ -1,0 +1,892 @@
+{
+  "checkpoint": 19,
+  "date": "2026-10-06",
+  "started_utc_date": "2026-10-05",
+  "branch": "rebuild/fleet-v3",
+  "starting_commit": "ccf8bd183a7eafbf5e0153a36984496451e7ff72",
+  "status": "locally_tested_implementation_checkpoint_not_full_products_or_production_acceptance",
+  "scope": "Immutable outgoing task-answer intent, exact explicit retry and original return-wait reuse; no automatic replay or certified exactly-once transport",
+  "full_regression_clean": true,
+  "coverage_report": "/Users/mansi.gambhir/Documents/Codex/2026-09-28/lo/work/fleet-v3-checkpoint-19-fresh-full-tests.json",
+  "coverage_source_freeze": "19 files after test-only Ledger diagnostic addition",
+  "retained_runs": [
+    {
+      "path": "/Users/mansi.gambhir/Documents/Codex/2026-09-28/lo/work/fleet-v3-checkpoint-19-catalog.json",
+      "sha256": "e8dbe91e5a1c97ffde59aaba23569ea3af9b4b1f8c0011900ce44fdf1bba87c0",
+      "passed": 6,
+      "failed": 0,
+      "reported_pending": 0,
+      "conditional_skips": 0,
+      "excluded_by_name_filter": 0,
+      "unexecuted_or_other_pending": 0,
+      "files": 1,
+      "start_time": "2026-10-05T17:43:17.451Z",
+      "elapsed_seconds": 4.54630078125,
+      "success": true,
+      "failed_tests": [],
+      "failed_files": []
+    },
+    {
+      "path": "/Users/mansi.gambhir/Documents/Codex/2026-09-28/lo/work/fleet-v3-checkpoint-19-corrected.json",
+      "sha256": "d8178231f3138a9885777b7e2d6ea37a529bec35e8a1d62bdd61f2a852e857fd",
+      "passed": 46,
+      "failed": 0,
+      "reported_pending": 0,
+      "conditional_skips": 0,
+      "excluded_by_name_filter": 0,
+      "unexecuted_or_other_pending": 0,
+      "files": 2,
+      "start_time": "2026-10-05T17:01:39.098Z",
+      "elapsed_seconds": 15.81167724609375,
+      "success": true,
+      "failed_tests": [],
+      "failed_files": []
+    },
+    {
+      "path": "/Users/mansi.gambhir/Documents/Codex/2026-09-28/lo/work/fleet-v3-checkpoint-19-definitive-full-tests.json",
+      "sha256": "f1c0704c4e51dd416c5f17b95635f6887a50cf91882933c1468c7c80621662d1",
+      "passed": 3195,
+      "failed": 74,
+      "reported_pending": 740,
+      "conditional_skips": 2,
+      "excluded_by_name_filter": 0,
+      "unexecuted_or_other_pending": 738,
+      "files": 315,
+      "start_time": "2026-10-05T18:00:48.279Z",
+      "elapsed_seconds": 40423.15839013672,
+      "success": false,
+      "failed_tests": [
+        "asset approval waiting lifecycle change supersedes immutable content and requires a fresh human yes for the revised card",
+        "asset approval waiting lifecycle withdraws a pending proposal without performing the internal effect",
+        "asset approval waiting lifecycle refuses 'yes' after expiry while blocked on the 'job' lock, rolling back answer evidence",
+        "asset approval waiting lifecycle refuses 'no' after expiry while blocked on the 'proposal' lock, rolling back answer evidence",
+        "asset approval waiting lifecycle refuses 'no' after expiry while blocked on the 'job' lock, rolling back answer evidence",
+        "asset approval waiting lifecycle refuses 'change' after expiry while blocked on the 'proposal' lock, rolling back answer evidence",
+        "asset approval waiting lifecycle refuses 'change' after expiry while blocked on the 'job' lock, rolling back answer evidence",
+        "asset transaction-time human authority enforces configured four-eyes at answer time and accepts a distinct eligible person",
+        "asset transaction-time human authority refuses self-approval when four-eyes was enabled after the answer",
+        "asset transaction-time human authority rejects malformed database policy instead of silently allowing a write",
+        "asset transaction-time human authority ignores standing grants for writes that require a person",
+        "buy transaction-time human authority ignores standing grants for writes that require a person",
+        "buy transaction-time human authority read-back and replay preserve an already committed receipt after revocation",
+        "clear approval waiting lifecycle change supersedes immutable content and requires a fresh human yes for the revised card",
+        "clear approval waiting lifecycle withdraws a pending proposal without performing the internal effect",
+        "clear approval waiting lifecycle refuses 'yes' after expiry while blocked on the 'job' lock, rolling back answer evidence",
+        "clear approval waiting lifecycle refuses 'no' after expiry while blocked on the 'proposal' lock, rolling back answer evidence",
+        "clear approval waiting lifecycle refuses 'no' after expiry while blocked on the 'job' lock, rolling back answer evidence",
+        "clear approval waiting lifecycle refuses 'change' after expiry while blocked on the 'proposal' lock, rolling back answer evidence",
+        "clear approval waiting lifecycle refuses 'change' after expiry while blocked on the 'job' lock, rolling back answer evidence",
+        "clear outbound answer finalization does not clean up a failed send after another runner acquired the job",
+        "clear V3 internal-draft workflow starts blank; exact human approval precedes configuration and master import",
+        "clear V3 internal-draft workflow reapplies the migration set on populated records without altering them",
+        "guard transaction-time human authority records current human identity and policy with the atomic internal receipt",
+        "guard transaction-time human authority rechecks a tightened role policy after the person already said yes",
+        "guard transaction-time human authority refuses self-approval when four-eyes was enabled after the answer",
+        "guard transaction-time human authority refuses approval that expires while waiting for the human identity lock",
+        "guard atomic cross-NEOP result recovery rejects malformed, wrong-peer and mismatched-thread call events without poisoning a valid result",
+        "guard atomic cross-NEOP result recovery does not acknowledge a duplicate task while the original transaction later rolls back",
+        "guard atomic cross-NEOP result recovery does not acknowledge a duplicate call while the original transaction later rolls back",
+        "hire approval waiting lifecycle change supersedes immutable content and requires a fresh human yes for the revised card",
+        "hire approval waiting lifecycle withdraws a pending proposal without performing the internal effect",
+        "hire approval waiting lifecycle refuses 'yes' after expiry while blocked on the 'job' lock, rolling back answer evidence",
+        "hire approval waiting lifecycle refuses 'no' after expiry while blocked on the 'proposal' lock, rolling back answer evidence",
+        "hire approval waiting lifecycle refuses 'no' after expiry while blocked on the 'job' lock, rolling back answer evidence",
+        "hire approval waiting lifecycle refuses 'change' after expiry while blocked on the 'proposal' lock, rolling back answer evidence",
+        "hire approval waiting lifecycle refuses 'change' after expiry while blocked on the 'job' lock, rolling back answer evidence",
+        "the approved path on a running pilot a proposal whose fingerprint no longer matches the yes on record is refused at effect time; so is an expired one",
+        "t011 on a populated book t011 applies forward on a populated book: rows untouched, answers keep working, an old yes is picked up",
+        "follow-ups continue the job (WP §8 thread correlation) a reply in the conversation while the job waits on the person answers the question — no new job (NeuralChat relays it in the thread)",
+        "follow-ups continue the job (WP §8 thread correlation) a follow-up after the job finished stays with the same app and starts from the earlier job’s report and facts",
+        "facts carry a validity a fact past its valid_until is left out of the bundle but stays in the book; honesty intact",
+        "template migration t012 t012 applies forward on a populated book: nothing lost, the new tables empty and company-scoped, the desk writes people, the app only reads them",
+        "typed events in the NEOP’s own appservice rooms approve: a bridge’s and a NEOP’s are refused, a stranger is unknown, a person below the approve level is refused, a stale fingerprint is refused, the right one → DONE once; redelivery is a duplicate",
+        "typed events in the NEOP’s own appservice rooms ask → a NEOP answers in its own thread; the reasoning agent may not answer it; the closed wait gets a stale note; invalid bodies are dropped",
+        "t004 on a populated book t004 applies forward on a populated book: history kept, summaries and schedules work",
+        "on a running pilot B3: a job, its proposal and the operation carry origin, the board it ran on, and when it was answered, carried out and verified",
+        "on a running pilot B3: a direct write and a read served to another app are checksummed too; a timer job’s origin is \"timer\"",
+        "t007 + t008 + t009 + 007 on a populated book t007 + t008 + t009 + 007 apply forward on a populated book: history kept, new columns NULL, lifecycles enforced, mirrors and views work",
+        "pay approval waiting lifecycle withdraws a pending proposal without performing the internal effect",
+        "pay approval waiting lifecycle withdraws a approved proposal without performing the internal effect",
+        "pay outbound answer finalization refuses an ineligible foreign_company thread without a wait or send",
+        "pay input waiting lifecycle persists a typed human answer across restart and preserves exact replay after expiry",
+        "pay input waiting lifecycle keeps invalid, foreign-company and nonhuman desk answers out of the book",
+        "pay input waiting lifecycle refuses input after deadline while blocked on job and leaves no partial answer",
+        "pay input waiting lifecycle refuses an answer when cancellation commits while the answer waits for the job lock",
+        "pay input waiting lifecycle retries contended expiry jobs and concurrent passes persist exactly one outcome",
+        "pay input waiting lifecycle rolls back late answer evidence without aborting or undoing the caller transaction",
+        "post transaction-time human authority ignores standing grants for writes that require a person",
+        "post transaction-time human authority read-back and replay preserve an already committed receipt after revocation",
+        "reach atomic cross-NEOP result recovery rolls back a failed call step, then accepts exact-event redelivery after restart once",
+        "reach atomic cross-NEOP result recovery rolls back a failed task receipt, then accepts exact-event redelivery after restart once",
+        "reach atomic cross-NEOP result recovery rolls back a failed call receipt, then accepts exact-event redelivery after restart once",
+        "reach atomic cross-NEOP result recovery serializes two distinct simultaneous task results to one outcome",
+        "renew atomic cross-NEOP result recovery rolls back a failed call step, then accepts exact-event redelivery after restart once",
+        "renew atomic cross-NEOP result recovery rolls back a failed task receipt, then accepts exact-event redelivery after restart once",
+        "renew atomic cross-NEOP result recovery rolls back a failed call receipt, then accepts exact-event redelivery after restart once",
+        "roster transaction-time human authority refuses an approver whose identity link was removed after answering",
+        "shift transaction-time human authority records current human identity and policy with the atomic internal receipt",
+        "shift transaction-time human authority rechecks a tightened role policy after the person already said yes",
+        "shift transaction-time human authority refuses approval that expires while waiting for the human identity lock",
+        "vet input waiting lifecycle refuses input after deadline while blocked on wait and leaves no partial answer",
+        "vet input waiting lifecycle retries contended expiry jobs and concurrent passes persist exactly one outcome",
+        "vet input waiting lifecycle rolls back late answer evidence without aborting or undoing the caller transaction"
+      ],
+      "failed_files": [
+        "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/asset/tests/approval-lifecycle.test.ts",
+        "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/asset/tests/authority.test.ts",
+        "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/asset/tests/workflow.test.ts",
+        "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/buy/tests/approval-lifecycle.test.ts",
+        "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/buy/tests/authority.test.ts",
+        "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/clear/tests/approval-lifecycle.test.ts",
+        "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/clear/tests/bus-answer-lifecycle.test.ts",
+        "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/clear/tests/workflow.test.ts",
+        "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/deal/tests/approval-lifecycle.test.ts",
+        "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/deal/tests/authority.test.ts",
+        "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/desk/tests/authority.test.ts",
+        "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/desk/tests/bus-answer-lifecycle.test.ts",
+        "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/desk/tests/origins.test.ts",
+        "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/guard/tests/approval-lifecycle.test.ts",
+        "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/guard/tests/authority.test.ts",
+        "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/guard/tests/bus-result-lifecycle.test.ts",
+        "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/guard/tests/workflow.test.ts",
+        "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/grant/tests/approval-lifecycle.test.ts",
+        "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/grant/tests/authority.test.ts",
+        "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/grant/tests/bus-result-lifecycle.test.ts",
+        "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/hire/tests/approval-lifecycle.test.ts",
+        "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/hire/tests/authority.test.ts",
+        "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/hire/tests/input-lifecycle.test.ts",
+        "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/hire/tests/origins.test.ts",
+        "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/ledger/tests/approved-path.test.ts",
+        "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/ledger/tests/bus-room.test.ts",
+        "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/ledger/tests/inherited.test.ts",
+        "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/ledger/tests/input-waits.test.ts",
+        "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/ledger/tests/install.test.ts",
+        "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/ledger/tests/presence-client.test.ts",
+        "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/ledger/tests/presence-dedupe.test.ts",
+        "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/ledger/tests/presence-typed.test.ts",
+        "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/ledger/tests/runtime-gate.test.ts",
+        "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/ledger/tests/runtime-timers.test.ts",
+        "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/ledger/tests/v3-conformance.test.ts",
+        "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/marketing/tests/a2a-questions-presence.test.ts",
+        "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/marketing/tests/borrowed-write-presence.test.ts",
+        "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/pay/tests/approval-lifecycle.test.ts",
+        "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/pay/tests/bus-answer-lifecycle.test.ts",
+        "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/pay/tests/input-lifecycle.test.ts",
+        "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/pay/tests/origins.test.ts",
+        "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/quote/tests/approval-lifecycle.test.ts",
+        "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/quote/tests/authority.test.ts",
+        "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/quote/tests/bus-answer-lifecycle.test.ts",
+        "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/quote/tests/bus-question-lifecycle.test.ts",
+        "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/quote/tests/bus-result-lifecycle.test.ts",
+        "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/quote/tests/origins.test.ts",
+        "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/post/tests/authority.test.ts",
+        "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/reach/tests/approval-lifecycle.test.ts",
+        "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/reach/tests/authority.test.ts",
+        "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/reach/tests/bus-result-lifecycle.test.ts",
+        "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/reach/tests/origins.test.ts",
+        "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/renew/tests/approval-lifecycle.test.ts",
+        "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/renew/tests/authority.test.ts",
+        "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/renew/tests/bus-result-lifecycle.test.ts",
+        "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/renew/tests/origins.test.ts",
+        "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/roster/tests/authority.test.ts",
+        "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/roster/tests/input-lifecycle.test.ts",
+        "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/roster/tests/origins.test.ts",
+        "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/sign/tests/approval-lifecycle.test.ts",
+        "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/sign/tests/authority.test.ts",
+        "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/sync/tests/approval-lifecycle.test.ts",
+        "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/sync/tests/bus-question-lifecycle.test.ts",
+        "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/shift/tests/authority.test.ts",
+        "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/shift/tests/input-lifecycle.test.ts",
+        "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/shift/tests/origins.test.ts",
+        "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/shift/tests/workflow.test.ts",
+        "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/vet/tests/approval-lifecycle.test.ts",
+        "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/vet/tests/bus-result-lifecycle.test.ts",
+        "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/vet/tests/input-lifecycle.test.ts"
+      ]
+    },
+    {
+      "path": "/Users/mansi.gambhir/Documents/Codex/2026-09-28/lo/work/fleet-v3-checkpoint-19-expanded.json",
+      "sha256": "703a169e2a96901a05f7444777c3b022d41308f010d6410b0bfda85eacbc83a4",
+      "passed": 41,
+      "failed": 5,
+      "reported_pending": 0,
+      "conditional_skips": 0,
+      "excluded_by_name_filter": 0,
+      "unexecuted_or_other_pending": 0,
+      "files": 2,
+      "start_time": "2026-10-05T17:00:10.237Z",
+      "elapsed_seconds": 17.28143310546875,
+      "success": false,
+      "failed_tests": [
+        "pay outbound answer finalization answer intent refuses unbound_event history without inferring content",
+        "pay: t024 preserves historical books and scopes immutable answer intents",
+        "buy: t024 preserves historical books and scopes immutable answer intents",
+        "renew: t024 preserves historical books and scopes immutable answer intents",
+        "grant: t024 preserves historical books and scopes immutable answer intents"
+      ],
+      "failed_files": [
+        "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/pay/tests/bus-answer-lifecycle.test.ts",
+        "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/scripts/fleet/tests/answer-intent-migration.test.ts"
+      ]
+    },
+    {
+      "path": "/Users/mansi.gambhir/Documents/Codex/2026-09-28/lo/work/fleet-v3-checkpoint-19-final-catalog.json",
+      "sha256": "782ed505fcf0e8317fe697dca0cca6d55bdcd477ad7c5b2c47a4d3e42527afc9",
+      "passed": 6,
+      "failed": 0,
+      "reported_pending": 0,
+      "conditional_skips": 0,
+      "excluded_by_name_filter": 0,
+      "unexecuted_or_other_pending": 0,
+      "files": 1,
+      "start_time": "2026-10-06T05:39:05.914Z",
+      "elapsed_seconds": 2.556991943359375,
+      "success": true,
+      "failed_tests": [],
+      "failed_files": []
+    },
+    {
+      "path": "/Users/mansi.gambhir/Documents/Codex/2026-09-28/lo/work/fleet-v3-checkpoint-19-final-full-tests.json",
+      "sha256": "d97930d9092d4d51523b711a64b3752b14f2af601e65aaeefeb977a2afd390b9",
+      "passed": 4018,
+      "failed": 1,
+      "reported_pending": 2,
+      "conditional_skips": 2,
+      "excluded_by_name_filter": 0,
+      "unexecuted_or_other_pending": 0,
+      "files": 315,
+      "start_time": "2026-10-05T17:33:01.071Z",
+      "elapsed_seconds": 1165.552166015625,
+      "success": false,
+      "failed_tests": [
+        "a bridge’s go-ahead is never a yes (NeuralChat-shaped: plain messages, never replies) a go-ahead as a REPLY to the card notice is refused the same way"
+      ],
+      "failed_files": [
+        "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/ledger/tests/presence-go-ahead.test.ts"
+      ]
+    },
+    {
+      "path": "/Users/mansi.gambhir/Documents/Codex/2026-09-28/lo/work/fleet-v3-checkpoint-19-final-targeted.json",
+      "sha256": "aaad160b78db7f8d70bb2ffded2bece8435072c72fdacb3c699a0f0dabb9a05c",
+      "passed": 1312,
+      "failed": 0,
+      "reported_pending": 0,
+      "conditional_skips": 0,
+      "excluded_by_name_filter": 0,
+      "unexecuted_or_other_pending": 0,
+      "files": 57,
+      "start_time": "2026-10-05T17:10:53.861Z",
+      "elapsed_seconds": 210.95344604492186,
+      "success": true,
+      "failed_tests": [],
+      "failed_files": []
+    },
+    {
+      "path": "/Users/mansi.gambhir/Documents/Codex/2026-09-28/lo/work/fleet-v3-checkpoint-19-focused.json",
+      "sha256": "d6631712a2766070a3e69d7421e6129e6b9a88ec9f353ede7e23614decfb4f50",
+      "passed": 9,
+      "failed": 16,
+      "reported_pending": 0,
+      "conditional_skips": 0,
+      "excluded_by_name_filter": 0,
+      "unexecuted_or_other_pending": 0,
+      "files": 1,
+      "start_time": "2026-10-05T16:56:03.835Z",
+      "elapsed_seconds": 142.05668579101564,
+      "success": false,
+      "failed_tests": [
+        "pay outbound answer finalization answer intent refuses changed content after an acknowledged send with failed finalization",
+        "pay outbound answer finalization answer intent reuses the prepared return wait after finalization failure",
+        "pay outbound answer finalization rebuilds pending peer question context after asking a person and restarting",
+        "pay outbound answer finalization question binding refuses a stale answer when the peer already asked a newer question",
+        "pay outbound answer finalization question binding preserves opaque peer IDs as escaped data in a fresh assistant",
+        "pay outbound answer finalization question binding preserves a Unicode peer ID within the existing wire limit",
+        "pay outbound answer finalization preserves a second question arriving during send and a fresh assistant answers it",
+        "pay outbound answer finalization does not consume an unrelated wait that became ready during the send",
+        "pay outbound answer finalization does not finalize an old session after a new runner owns the job",
+        "pay outbound answer finalization does not consume an unclaimed wake that arrived before answer preparation",
+        "pay outbound answer finalization does not finalize or revive a job cancelled while the answer was in flight",
+        "pay outbound answer finalization preserves a terminal reply arriving before answer finalization and resumes with that result",
+        "pay outbound answer finalization rolls back question, wait consumption and job status when final evidence fails after a send",
+        "pay outbound answer finalization reports transport failure as unconfirmed, not proof of non-delivery (sent: false)",
+        "pay outbound answer finalization reports transport failure as unconfirmed, not proof of non-delivery (sent: true)",
+        "pay outbound answer finalization does not clean up a failed send after another runner acquired the job"
+      ],
+      "failed_files": [
+        "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/pay/tests/bus-answer-lifecycle.test.ts"
+      ]
+    },
+    {
+      "path": "/Users/mansi.gambhir/Documents/Codex/2026-09-28/lo/work/fleet-v3-checkpoint-19-fresh-full-tests.json",
+      "sha256": "39526dad1c73456b90848bb5a76867f9f522f8aa97b7fe2959ebdebd3457cb62",
+      "passed": 4019,
+      "failed": 0,
+      "reported_pending": 2,
+      "conditional_skips": 2,
+      "excluded_by_name_filter": 0,
+      "unexecuted_or_other_pending": 0,
+      "files": 315,
+      "start_time": "2026-10-06T05:16:57.183Z",
+      "elapsed_seconds": 1204.6091064453126,
+      "success": true,
+      "failed_tests": [],
+      "failed_files": []
+    },
+    {
+      "path": "/Users/mansi.gambhir/Documents/Codex/2026-09-28/lo/work/fleet-v3-checkpoint-19-full-tests.json",
+      "sha256": "edb3816e7e53f8718a10c840c2b96dd2479757c4fadc76b3a175c780a82aa71d",
+      "passed": 4013,
+      "failed": 6,
+      "reported_pending": 2,
+      "conditional_skips": 2,
+      "excluded_by_name_filter": 0,
+      "unexecuted_or_other_pending": 0,
+      "files": 315,
+      "start_time": "2026-10-05T17:14:52.699Z",
+      "elapsed_seconds": 920.874083984375,
+      "success": false,
+      "failed_tests": [
+        "Grant DBA SQL parity applies the reserved-name schema bundle and gives the app its correct unqualified home",
+        "t011 on a populated book t011 applies forward on a populated book: rows untouched, answers keep working, an old yes is picked up",
+        "t010 on a populated book t010 applies forward on a populated book: history kept, new columns NULL, t009 mirrors stay safe, the triggers hold on old rows",
+        "t013 on a populated book t013 applies forward on a populated book: rows untouched, open questions answerable through the function",
+        "migrations apply once, then re-running is a no-op",
+        "t007 + t008 + t009 + 007 on a populated book t007 + t008 + t009 + 007 apply forward on a populated book: history kept, new columns NULL, lifecycles enforced, mirrors and views work"
+      ],
+      "failed_files": [
+        "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/grant/tests/dba-bundle.test.ts",
+        "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/ledger/tests/approved-path.test.ts",
+        "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/ledger/tests/board-db.test.ts",
+        "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/ledger/tests/desk-functions.test.ts",
+        "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/ledger/tests/migration.test.ts",
+        "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/ledger/tests/v3-conformance.test.ts"
+      ]
+    },
+    {
+      "path": "/Users/mansi.gambhir/Documents/Codex/2026-09-28/lo/work/fleet-v3-checkpoint-19-inventory-corrected.json",
+      "sha256": "48158277803cdff181aa37861717b273c073ff296200a8a201f5bea89a28a651",
+      "passed": 45,
+      "failed": 0,
+      "reported_pending": 0,
+      "conditional_skips": 0,
+      "excluded_by_name_filter": 0,
+      "unexecuted_or_other_pending": 0,
+      "files": 6,
+      "start_time": "2026-10-05T17:31:49.097Z",
+      "elapsed_seconds": 24.715618408203124,
+      "success": true,
+      "failed_tests": [],
+      "failed_files": []
+    },
+    {
+      "path": "/Users/mansi.gambhir/Documents/Codex/2026-09-28/lo/work/fleet-v3-checkpoint-19-presence-instrumented.json",
+      "sha256": "bab4d0d66ae06aaadf3b0bed4817622db2bf26fc7b581922696cb179d9427f3d",
+      "passed": 10,
+      "failed": 0,
+      "reported_pending": 0,
+      "conditional_skips": 0,
+      "excluded_by_name_filter": 0,
+      "unexecuted_or_other_pending": 0,
+      "files": 1,
+      "start_time": "2026-10-05T18:00:04.915Z",
+      "elapsed_seconds": 9.7550341796875,
+      "success": true,
+      "failed_tests": [],
+      "failed_files": []
+    },
+    {
+      "path": "/Users/mansi.gambhir/Documents/Codex/2026-09-28/lo/work/fleet-v3-checkpoint-19-presence-unchanged.json",
+      "sha256": "eff352beace30c32c68ce235e2803723248231746ce345a264d377c84904d184",
+      "passed": 10,
+      "failed": 0,
+      "reported_pending": 0,
+      "conditional_skips": 0,
+      "excluded_by_name_filter": 0,
+      "unexecuted_or_other_pending": 0,
+      "files": 1,
+      "start_time": "2026-10-05T17:54:06.326Z",
+      "elapsed_seconds": 14.1866796875,
+      "success": true,
+      "failed_tests": [],
+      "failed_files": []
+    },
+    {
+      "path": "/Users/mansi.gambhir/Documents/Codex/2026-09-28/lo/work/fleet-v3-checkpoint-19-question-fixture-reproduction.json",
+      "sha256": "80815c2af3019f71b40cef248cd2afb1e7bdc2e8ffa18f2cad1af1e475980aa9",
+      "passed": 0,
+      "failed": 1,
+      "reported_pending": 11,
+      "conditional_skips": 0,
+      "excluded_by_name_filter": 11,
+      "unexecuted_or_other_pending": 0,
+      "files": 1,
+      "start_time": "2026-10-05T17:09:42.687Z",
+      "elapsed_seconds": 25.07262646484375,
+      "success": false,
+      "failed_tests": [
+        "pay atomic cross-NEOP questions does not reopen an answered question when the peer resends its wait ID in a new event"
+      ],
+      "failed_files": [
+        "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/pay/tests/bus-question-lifecycle.test.ts"
+      ]
+    },
+    {
+      "path": "/Users/mansi.gambhir/Documents/Codex/2026-09-28/lo/work/fleet-v3-checkpoint-19-reproduction.json",
+      "sha256": "82384ef3539cc3bb042118c2b0ea3fd185a235faf4ad27d7ce46e5c7d53168ff",
+      "passed": 0,
+      "failed": 2,
+      "reported_pending": 23,
+      "conditional_skips": 0,
+      "excluded_by_name_filter": 23,
+      "unexecuted_or_other_pending": 0,
+      "files": 1,
+      "start_time": "2026-10-05T16:51:55.659Z",
+      "elapsed_seconds": 5.557222900390625,
+      "success": false,
+      "failed_tests": [
+        "pay outbound answer finalization answer intent refuses changed content after an acknowledged send with failed finalization",
+        "pay outbound answer finalization answer intent reuses the prepared return wait after finalization failure"
+      ],
+      "failed_files": [
+        "/Users/mansi.gambhir/Documents/NEOPS_NEW/.claude/worktrees/fleet-v3-rebuild/apps/pay/tests/bus-answer-lifecycle.test.ts"
+      ]
+    }
+  ],
+  "frozen_runtime_migration_test_sources": [
+    {
+      "path": "apps/grant/tests/dba-bundle.test.ts",
+      "sha256": "80f5f215c0d67baf0e956eac28952837304f48c37c56230ffc216fc2143457e2"
+    },
+    {
+      "path": "apps/ledger/tests/approved-path.test.ts",
+      "sha256": "386b618ba7c2452aef322cca56113993486277ddfcf16937e06f33646e80f178"
+    },
+    {
+      "path": "apps/ledger/tests/board-db.test.ts",
+      "sha256": "49e935645ba1d7061ac1def8806b4d1ea637dd6f7fe12c69363dc632c3573ce2"
+    },
+    {
+      "path": "apps/ledger/tests/desk-functions.test.ts",
+      "sha256": "68828e606d453c57cd4a7eb4bf62b5650fde09834906aff0b166fef558eedbbc"
+    },
+    {
+      "path": "apps/ledger/tests/migration.test.ts",
+      "sha256": "e7e2c30d744a29df109d9f80b7c89d18361ee6d87618a02b43884d7c9d084738"
+    },
+    {
+      "path": "apps/ledger/tests/presence-go-ahead.test.ts",
+      "sha256": "ddc665b4d1c973add39d798c42d80b647e4217c073fba1da62797b12e819226f"
+    },
+    {
+      "path": "apps/ledger/tests/v3-conformance.test.ts",
+      "sha256": "2c32a65dc55a020855f57770fb1699575aec2eb60d08ed23e629a12245bd5e19"
+    },
+    {
+      "path": "packages/neop-template/migrations/migrate.json",
+      "sha256": "c6a1ccdfde0273cee2ebb43ab7624691c6d8893d05fd5629d59eb31ab20b842a"
+    },
+    {
+      "path": "packages/neop-template/migrations/t024_answer_intents.sql",
+      "sha256": "09848d310b78065e2d7648a5e3d7a3b8f7eaa3903e42420a5c5cac201cd54a49"
+    },
+    {
+      "path": "packages/neop-template/src/agent/bundle.ts",
+      "sha256": "66571b529ff880bd44b9b37bc79243f9230d1c8da96e14aa35b158b59193aea4"
+    },
+    {
+      "path": "packages/neop-template/src/agent/context.ts",
+      "sha256": "6d06b3da65166ef452afb524f3a5a3d36452b573a7ff1172bb85994417889f81"
+    },
+    {
+      "path": "packages/neop-template/src/agent/prompt.ts",
+      "sha256": "14d55a461afe19549f8e7d91f392c49289961751d401e01440329237038e6ed7"
+    },
+    {
+      "path": "packages/neop-template/src/data/answer-intents.ts",
+      "sha256": "2c72a612b6fbac44838609869d04636d3a9f7d88ffa93f6ace9c443a79318c72"
+    },
+    {
+      "path": "packages/neop-template/src/gate/a2a.ts",
+      "sha256": "2bf19df395a73a34c139cab74ee9f02095682781eb46bc80b58e94c851024881"
+    },
+    {
+      "path": "packages/neop-template/src/runner/bus.ts",
+      "sha256": "cf524aecd869b10eee630f22e6d4a461f589ced87151e0fdd50686c68f3d6eb7"
+    },
+    {
+      "path": "packages/testkit/src/bus-answer-lifecycle.ts",
+      "sha256": "40abf9d6819b7dae39806b1d9f3387b8bf21ee997add2b5196bc209ca0413ea3"
+    },
+    {
+      "path": "packages/testkit/src/bus-question-lifecycle.ts",
+      "sha256": "fda162f348b1d790a11eca7f5545f1aa61f40df240226fe876c0f528f69bb6f8"
+    },
+    {
+      "path": "scripts/fleet/tests/answer-intent-migration.test.ts",
+      "sha256": "5f6758b65047c3943b07545ad3218dc4192770e1c256fadb9d73f591fa5b5dec"
+    },
+    {
+      "path": "scripts/fleet/tests/catalog.test.ts",
+      "sha256": "2e845f1cd846b8838da2c8dc720bdbf4e111ca7627c91d1fedf1f22fd988a74b"
+    }
+  ],
+  "per_app": [
+    {
+      "app": "clear",
+      "new_answer_intent_cases": 21,
+      "passed_in_coverage_run": 21,
+      "separate_suspension_affected_run": {
+        "passed": 21
+      },
+      "production_ready": false,
+      "full_parity": false
+    },
+    {
+      "app": "reach",
+      "new_answer_intent_cases": 21,
+      "passed_in_coverage_run": 21,
+      "separate_suspension_affected_run": {
+        "passed": 21
+      },
+      "production_ready": false,
+      "full_parity": false
+    },
+    {
+      "app": "desk",
+      "new_answer_intent_cases": 21,
+      "passed_in_coverage_run": 21,
+      "separate_suspension_affected_run": {
+        "skipped": 21
+      },
+      "production_ready": false,
+      "full_parity": false
+    },
+    {
+      "app": "hire",
+      "new_answer_intent_cases": 21,
+      "passed_in_coverage_run": 21,
+      "separate_suspension_affected_run": {
+        "passed": 21
+      },
+      "production_ready": false,
+      "full_parity": false
+    },
+    {
+      "app": "deal",
+      "new_answer_intent_cases": 21,
+      "passed_in_coverage_run": 21,
+      "separate_suspension_affected_run": {
+        "passed": 21
+      },
+      "production_ready": false,
+      "full_parity": false
+    },
+    {
+      "app": "buy",
+      "new_answer_intent_cases": 21,
+      "passed_in_coverage_run": 21,
+      "separate_suspension_affected_run": {
+        "passed": 21
+      },
+      "production_ready": false,
+      "full_parity": false
+    },
+    {
+      "app": "grant",
+      "new_answer_intent_cases": 21,
+      "passed_in_coverage_run": 21,
+      "separate_suspension_affected_run": {
+        "passed": 21
+      },
+      "production_ready": false,
+      "full_parity": false
+    },
+    {
+      "app": "shift",
+      "new_answer_intent_cases": 21,
+      "passed_in_coverage_run": 21,
+      "separate_suspension_affected_run": {
+        "passed": 21
+      },
+      "production_ready": false,
+      "full_parity": false
+    },
+    {
+      "app": "sync",
+      "new_answer_intent_cases": 21,
+      "passed_in_coverage_run": 21,
+      "separate_suspension_affected_run": {
+        "passed": 21
+      },
+      "production_ready": false,
+      "full_parity": false
+    },
+    {
+      "app": "post",
+      "new_answer_intent_cases": 21,
+      "passed_in_coverage_run": 21,
+      "separate_suspension_affected_run": {
+        "passed": 21
+      },
+      "production_ready": false,
+      "full_parity": false
+    },
+    {
+      "app": "roster",
+      "new_answer_intent_cases": 21,
+      "passed_in_coverage_run": 21,
+      "separate_suspension_affected_run": {
+        "passed": 21
+      },
+      "production_ready": false,
+      "full_parity": false
+    },
+    {
+      "app": "quote",
+      "new_answer_intent_cases": 21,
+      "passed_in_coverage_run": 21,
+      "separate_suspension_affected_run": {
+        "skipped": 21
+      },
+      "production_ready": false,
+      "full_parity": false
+    },
+    {
+      "app": "sign",
+      "new_answer_intent_cases": 21,
+      "passed_in_coverage_run": 21,
+      "separate_suspension_affected_run": {
+        "passed": 21
+      },
+      "production_ready": false,
+      "full_parity": false
+    },
+    {
+      "app": "guard",
+      "new_answer_intent_cases": 21,
+      "passed_in_coverage_run": 21,
+      "separate_suspension_affected_run": {
+        "passed": 21
+      },
+      "production_ready": false,
+      "full_parity": false
+    },
+    {
+      "app": "vet",
+      "new_answer_intent_cases": 21,
+      "passed_in_coverage_run": 21,
+      "separate_suspension_affected_run": {
+        "passed": 21
+      },
+      "production_ready": false,
+      "full_parity": false
+    },
+    {
+      "app": "pay",
+      "new_answer_intent_cases": 21,
+      "passed_in_coverage_run": 21,
+      "separate_suspension_affected_run": {
+        "passed": 21
+      },
+      "production_ready": false,
+      "full_parity": false
+    },
+    {
+      "app": "asset",
+      "new_answer_intent_cases": 21,
+      "passed_in_coverage_run": 21,
+      "separate_suspension_affected_run": {
+        "passed": 21
+      },
+      "production_ready": false,
+      "full_parity": false
+    },
+    {
+      "app": "renew",
+      "new_answer_intent_cases": 21,
+      "passed_in_coverage_run": 21,
+      "separate_suspension_affected_run": {
+        "passed": 21
+      },
+      "production_ready": false,
+      "full_parity": false
+    }
+  ],
+  "new_cases_included_not_additive": 382,
+  "host_suspension": {
+    "source": "Read-only pmset -g log captured after regression wall-clock gap",
+    "run": "fleet-v3-checkpoint-19-definitive-full-tests.json",
+    "events": [
+      {
+        "time": "2026-10-05T23:35:30+05:30",
+        "event": "Entering Sleep state",
+        "reason": "Clamshell Sleep",
+        "reported_duration_seconds": 5237
+      },
+      {
+        "time": "2026-10-06T01:02:47+05:30",
+        "event": "DarkWake from Deep Idle",
+        "reported_duration_seconds": 45
+      },
+      {
+        "time": "2026-10-06T01:03:32+05:30",
+        "event": "Entering Sleep state",
+        "reason": "Maintenance Sleep",
+        "reported_duration_seconds": 4
+      },
+      {
+        "time": "2026-10-06T01:03:36+05:30",
+        "event": "DarkWake from Deep Idle"
+      },
+      {
+        "time": "2026-10-06T05:40:39+05:30",
+        "event": "Entering Sleep state",
+        "reason": "Maintenance Sleep",
+        "reported_duration_seconds": 3653
+      },
+      {
+        "time": "2026-10-06T10:33:13+05:30",
+        "event": "Entering Sleep state",
+        "reason": "Maintenance Sleep",
+        "reported_duration_seconds": 209
+      },
+      {
+        "time": "2026-10-06T10:36:42+05:30",
+        "event": "Wake from Deep Idle",
+        "reason": "lid / user activity"
+      }
+    ],
+    "coverage": "Selected events, not an exhaustive sleep log. Repeated maintenance and sleep-service cycles continued overnight between the first clamshell sleep and the final full wake.",
+    "limitation": "The run had a process-scoped idle-sleep inhibitor, which cannot prevent clamshell or every forced suspension. Timing-sensitive failures require individual inspection; the sleep does not prove every observed failure is environmental."
+  },
+  "suspension_run_accounting": {
+    "passed": 3195,
+    "failed": 74,
+    "reported_pending": 740,
+    "existing_conditional_skips": 2,
+    "unexecuted_collected_cases": 738,
+    "expected_but_uncollected_cases": 12,
+    "collection_failure": "Quote bus-question lifecycle resolveId timeout before collection",
+    "failed_files": 70,
+    "files_without_failed_assertions": 46,
+    "elapsed_seconds": 40423.15839013672,
+    "interpretation": "Repeated documented host suspensions affected this run. Not all failures are proven environmental; full failed report retained. Ledger bridge-refusal file passed in this attempt."
+  },
+  "first_fixture_cleanup": {
+    "container_id": "f8e82e295cbc61e43b59c6a42f6e459abf8443b7eb018621941f6c4749d81003",
+    "synthetic_databases": [
+      "neop_t_00b1bc9155",
+      "neop_t_00b23b1173",
+      "neop_t_03cda915a8",
+      "neop_t_0935089c02",
+      "neop_t_0c8e18b1b3",
+      "neop_t_105bf0269a",
+      "neop_t_13a9c9d36a",
+      "neop_t_144bbdad5a",
+      "neop_t_172c1f8748",
+      "neop_t_178488c6ab",
+      "neop_t_19d51051da",
+      "neop_t_2ed0186ab2",
+      "neop_t_2f5c88cc97",
+      "neop_t_34d533b5bc",
+      "neop_t_38a99162f7",
+      "neop_t_39cf0bddeb",
+      "neop_t_463df34711",
+      "neop_t_4a223764da",
+      "neop_t_4c5cc6ddd3",
+      "neop_t_4fe0c6f97c",
+      "neop_t_561585c001",
+      "neop_t_58817083ff",
+      "neop_t_5c7669b558",
+      "neop_t_5f3e000bb6",
+      "neop_t_63c78f536c",
+      "neop_t_7ba371d14a",
+      "neop_t_7ebde72a04",
+      "neop_t_804b98e585",
+      "neop_t_847a8f58a6",
+      "neop_t_89a720ec2c",
+      "neop_t_8b81723f70",
+      "neop_t_913178ebe4",
+      "neop_t_9bbc3c3615",
+      "neop_t_9bd7d48d8c",
+      "neop_t_9f34eb8b11",
+      "neop_t_b187abd849",
+      "neop_t_b4a930d339",
+      "neop_t_bc178826a9",
+      "neop_t_bc2f9091ea",
+      "neop_t_bcdaaa5771",
+      "neop_t_bcf304b358",
+      "neop_t_bda6161d20",
+      "neop_t_caaa2426a2",
+      "neop_t_ce10399997",
+      "neop_t_d1236fca7d",
+      "neop_t_d7a23d53af",
+      "neop_t_d874a246bc",
+      "neop_t_d9bf2ce1cc",
+      "neop_t_db52400dad",
+      "neop_t_dbf6628db0",
+      "neop_t_e24f088afc",
+      "neop_t_e8185886af",
+      "neop_t_e94019fb32",
+      "neop_t_ea3e4e38ec",
+      "neop_t_f661cd21ba"
+    ],
+    "scope": "Owned tmpfs only; zero synthetic sessions observed; failures and reports retained",
+    "removed": true,
+    "disposable_credentials_removed": true,
+    "reports_retained": true
+  },
+  "final_fixture_cleanup": {
+    "name": "neop-fleet19-verify-20261006",
+    "container_id": "4b90814f9f1e05e5fd8d6b89d700fcbf9eba5adc431e29584802f5eb48407d75",
+    "zero_residual_synthetic_databases": true,
+    "zero_residual_synthetic_sessions": true,
+    "neos_desk": {
+      "login": false,
+      "bypassrls": false,
+      "superuser": false
+    },
+    "removed": true,
+    "disposable_credentials_removed": true,
+    "reports_retained": true
+  },
+  "interrupted_run": {
+    "report": null,
+    "exit_code": 130,
+    "aggregate_count": null,
+    "reason": "Old question fixtures inserted protocol-0 historical threads. Stored refusal steps were observed in owned Quote, Clear, Shift and Renew synthetic databases. A focused unchanged-fixture reproduction is retained; newly simulated hand-offs were explicitly marked protocol 1 and historical-refusal cases retained."
+  },
+  "intermittent_diagnostic": {
+    "retained_full_run": "fleet-v3-checkpoint-19-final-full-tests.json",
+    "passed": 4018,
+    "failed": 1,
+    "conditional_skips": 2,
+    "failure": "Ledger presence-go-ahead: bridge reply approval refusal returned the fixed books-unreachable sentence instead of the expected desk-refusal message",
+    "unchanged_focused_run": {
+      "passed": 10,
+      "failed": 0
+    },
+    "instrumented_focused_run": {
+      "passed": 10,
+      "failed": 0
+    },
+    "instrumentation": "Failure-only bounded synthetic notices, scoped inbound/outbound records, job/session/lease/step state and current-database activity/locks. Original assertions/timeouts unchanged.",
+    "root_cause": "Unconfirmed; no runtime repair claimed, even if the later complete regression passes."
+  },
+  "checks": {
+    "typescript": "passed",
+    "pinned_source_hashes": 108,
+    "completion_gate": "correctly refused; no production-ready apps",
+    "secret_scan": "exact staged-patch result recorded in external handoff before local commit"
+  },
+  "limitations": [
+    "Synthetic Matrix/model and seeded outgoing state only",
+    "No shipping borrowing, business/provider capability or source-parity change",
+    "Historical threads remain protocol 0; no promotion or inferred answer/wait ownership",
+    "Owner-approved historical recovery and immutable-payload privacy/retention design required",
+    "No single-sender lease, automatic dispatch, live Matrix token/endpoint-rotation guarantee or cancellation unsend",
+    "Peer deadlines, mixed-wait ordering and semantic human-input provenance remain open",
+    "Older unexplained Pay/Ledger intermittents remain unresolved",
+    "No production restore, legacy conversion, DBA approval, refreshed artifact/live acceptance, push, merge or deployment"
+  ]
+}

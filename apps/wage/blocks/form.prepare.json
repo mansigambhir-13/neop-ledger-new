@@ -1,0 +1,15 @@
+{
+  "block": "form",
+  "title": "Prepare payroll",
+  "fields": [
+    {
+      "name": "period",
+      "label": "Period (YYYY-MM)",
+      "type": "text",
+      "required": true,
+      "pattern": "[0-9]{4}-(0[1-9]|1[0-2])"
+    }
+  ],
+  "submit_label": "Ask Wage",
+  "ask": "Prepare payroll for {{period}}. Show the persisted register for review; do not release or claim anyone has been paid."
+}

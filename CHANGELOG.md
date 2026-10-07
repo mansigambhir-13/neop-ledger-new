@@ -1,5 +1,23 @@
 # Changelog
 
+## Release hardening — 2026-09-30
+- The appservice overlay makes Synapse part of the default Compose lifecycle, including ordinary startup and teardown.
+- Final local regression: 94 test files, 609 passed, zero failed, two conditional integration skips; compiler and history secret scan pass.
+- Fixed a Matrix receipt race: a reply arriving before the card's send receipt is persisted now waits for its fingerprint binding and follows the normal person/role approval checks.
+- CI starts the required Matrix topology with real Synapse and runs on the release branch.
+- Upgrades stop before mutation when a backup cannot be taken, or a database survives without its original deployment state.
+- Matrix setup defaults to distinct platform/NEOP registrations and honours the configured secret directory.
+- Corrected the PostgreSQL client type used by LLM settlement during shutdown; added deployment failure-path regressions.
+- Deployment ownership and the release boundary are recorded in `docs/RELEASE-HANDOFF.md`.
+
+## neop-ledger 2.0.0-rc.1 · V3 Matrix-only release candidate — 2026-09-29
+- **One road:** NeuralChat, people, Ledger and peer NEOPs now exchange typed Matrix events in task threads. The runtime gateway/L3, platform-client, execution-token and fallback delivery paths are removed.
+- **One owner:** jobs, waits, proposals, approvals, operations, transcripts, switchboards, grants, presence cursors and declared reads live in the app's schema behind restricted roles and reviewed functions/views.
+- **Person-only approval:** NeuralChat and peer NEOPs cannot approve. A person's fingerprint-bound answer lands through `answer_proposal()`; the runner executes once, reads back and wakes only after a terminal proof.
+- **Build-time packages and private doors:** packages are signed, reviewed and pinned into the host build; door credentials are per-app/per-company files mounted only into the backend.
+- **Deployment:** external-client and local-appservice Matrix topologies, fail-closed verification, Matrix/files observability, safe expand migration 024, guarded contract migration 025, and updated operator documentation.
+- **Evidence:** 601 regression tests, 200-request load, 50-restart chaos, populated migration-025 rehearsal, PostgreSQL 17 dump/restore, real S3-compatible round trip, and a production-mode clean install against real local Synapse are green. The rehearsal includes attested registration, appservice rooms, verifier (12 PASS/0 WARN), a declared read, and a completed typed-Matrix ask. Production Matrix, NEOS UI, GSP and production-data cutover acceptance remain explicit go-live gates.
+
 ## neop-ledger 1.5.0 · go-live — 2026-09-27
 Ready for the NEOS reasoning agent's Matrix road (neos-agent-neuralchat #143) and a one-command deploy.
 - **Approvals in the chat (Shivam's option 2):** an admin may let a named bridge relay yeses (`may_approve`); its go-ahead approves only the card Ledger just showed in that DM, bound to the fingerprint and expiry, deterministic yes/no words, amounts must match, approver policy applies; a refused plain go-ahead re-shows the still-open card. Plain declines bind to the card (explicit decline words only). Reply deadline 55 s.

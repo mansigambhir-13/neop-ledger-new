@@ -6,15 +6,13 @@ import { matchGrant } from '@neop/template';
 import { bootPilot, type Pilot } from './harness.ts';
 
 let P: Pilot;
-let secret = '';
 beforeAll(async () => {
   P = await bootPilot();
-  secret = P.backend.core.cfg.serviceSecret;
 });
 afterAll(async () => P?.close());
 
 const internal = (method: string, path: string, body?: unknown) =>
-  fetch(P.platformUrl + path, { method, headers: { authorization: `Service ledger:${secret}`, 'content-type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
+  fetch(P.platformUrl + path, { method, headers: { 'content-type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
 const CARD = { what: 'x', why: 'x', changes: 'x', if_no_answer: 'x' };
 
 async function oneCall(key: string, args: Record<string, unknown>) {
@@ -39,8 +37,8 @@ async function approve(card: any) {
   return P.waitFor(async () => (await P.platform.db.query("select status, proof from neos.v_desk_cards where id = $1 and status in ('EXECUTED','FAILED','UNKNOWN','REFUSED')", [card.id])).rows[0], 'executed');
 }
 
-describe('B1 · door credentials and internal endpoints are scoped to installs and declared doors', () => {
-  it('refuses a door credential for a company that has not installed the app, and for an undeclared door', async () => {
+describe('B1 · door credentials stay app-local and obsolete platform internals do not exist', () => {
+  it('refuses a door credential outside the install/manifest and exposes no former lending or gateway endpoints', async () => {
     const core = P.backend.core;
     const declared = core.manifest.doors.map((d) => d.key);
     const other = await P.platform.createCompany('Not A Customer');
@@ -53,7 +51,7 @@ describe('B1 · door credentials and internal endpoints are scoped to installs a
     // v3 (S8): the platform lends nothing and mints no model sessions any more.
     expect((await internal('POST', '/internal/vault/lend', { company_id: P.company.id, door: 'email' })).status).toBe(404);
     expect((await internal('POST', '/internal/llm/session', { company_id: P.company.id, job_id: 'x', sid: 'x', ttl_seconds: 60 })).status).toBe(404);
-    expect((await internal('GET', `/internal/switchboard?company_id=${other.id}`)).status).toBe(403);
+    expect((await internal('GET', `/internal/switchboard?company_id=${other.id}`)).status).toBe(404);
     // v3 (S7): no registry fetch at run time either — packages are in the build, pinned skills are read from the registry schema.
     expect((await internal('GET', `/internal/registry/entries?company_id=${other.id}`)).status).toBe(404);
     expect((await internal('GET', '/internal/registry/artifacts/sha256:00')).status).toBe(404);
@@ -115,10 +113,9 @@ describe('H3 · a bank line is posted once, whatever order approvals arrive in',
 });
 
 describe('H4 · people cannot open jobs directly or satisfy four-eyes with an unknown requester', () => {
-  it('refuses platform doors on the read route, and user-opened jobs at L3', async () => {
+  it('refuses platform doors on the read route and exposes no job-open HTTP route', async () => {
     expect((await P.api('POST', '/api/apps/ledger/read/tasks.open', { task_id: crypto.randomUUID(), ask: 'x', requester: `user:${P.admin.id}` })).status).toBe(403);
-    const r = await P.platform.gateway.call({ caller: `user:${P.admin.id}`, app: 'ledger', endpoint: 'tasks.open', company_id: P.company.id, body: { task_id: crypto.randomUUID(), ask: 'x', requester: `user:${P.admin.id}` }, idem_key: 'h4' });
-    expect(r.status).toBe(403);
+    expect((await fetch(`http://127.0.0.1:${P.backend.ports.files}/l3/tasks.open`, { method: 'POST' })).status).toBe(404);
   });
 });
 
@@ -130,9 +127,9 @@ describe('H5 · package module state never crosses companies', () => {
     const bu = await P.platform.createUser(B.id, { name: 'B', email: 'b@second.example', role: 'admin' });
     // v3 S7: the package is in Ledger's build, so every company that installs Ledger has its lines (at their floors).
     await P.platform.installApp(B.id, 'ledger');
-    const a1 = (await P.api('POST', '/api/apps/ledger/read/probe.counter', {})).body.result.n;
-    const a2 = (await P.api('POST', '/api/apps/ledger/read/probe.counter', {})).body.result.n;
-    const b1 = (await P.api('POST', '/api/apps/ledger/read/probe.counter', {}, bu.token)).body.result.n;
+    const a1 = (await P.read('probe.counter')).body.result.n;
+    const a2 = (await P.read('probe.counter')).body.result.n;
+    const b1 = (await P.read('probe.counter', {}, { company: B.id })).body.result.n;
     expect([a1, a2, b1]).toEqual([1, 2, 1]);
   });
 });
@@ -175,7 +172,7 @@ describe('M2, M4 · untrusted notes and closed endpoints', () => {
     process.env.NEOS_METRICS_PUBLIC = '0';
     process.env.NEOP_METRICS_PUBLIC = '0';
     expect((await fetch(`${P.platformUrl}/metrics`)).status).toBe(404);
-    expect((await fetch(`http://127.0.0.1:${P.backend.ports.l3}/l3/metrics`)).status).toBe(404);
+    expect((await fetch(`http://127.0.0.1:${P.backend.ports.files}/metrics`)).status).toBe(404);
     process.env.NEOS_METRICS_PUBLIC = saveP;
     process.env.NEOP_METRICS_PUBLIC = saveA;
   });

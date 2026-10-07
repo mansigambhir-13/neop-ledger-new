@@ -48,7 +48,7 @@ describe('the app’s roles see only the app’s schema', () => {
     // The pilot really has other schemas to be kept out of.
     expect(others.filter((o) => o.s === 'marketing').length).toBeGreaterThan(10);
     expect(others.filter((o) => o.s === 'neos').length).toBeGreaterThan(10);
-    expect([...new Set(others.map((o) => o.s))].sort()).toEqual(['marketing', 'neos']);
+    expect([...new Set(others.map((o) => o.s))].sort()).toEqual(['marketing', 'neos', 'neos_s9_archive']);
     for (const role of ['ledger_app', 'ledger_runner']) {
       await as(role, async (c) => {
         for (const o of others) expect(await code(c.query(`select 1 from ${o.s}.${o.t} limit 1`)), `${role} → ${o.s}.${o.t}`).toBe('42501');
@@ -76,7 +76,8 @@ describe('the assistant holds no DB link', () => {
   it('its deployment carries no DB URL and no secret; its entry script reads none', async () => {
     let agents = 0;
     for (const f of ['compose.pilot.yml', 'compose.dedicated-ledger.yml', 'compose.chat.yml']) {
-      const doc = parse(await readFile(path.join(REPO, 'deploy', f), 'utf8')) as { services?: Record<string, any> };
+      // Compose merge tags retain their values in this static YAML view.
+      const doc = parse((await readFile(path.join(REPO, 'deploy', f), 'utf8')).replace(/!(?:override|reset)\s+/g, '')) as { services?: Record<string, any> };
       for (const [name, svc] of Object.entries(doc.services ?? {})) {
         const cmd = JSON.stringify(svc.command ?? '') + JSON.stringify(svc.build ?? '');
         if (!/agent\.ts|agent\.Dockerfile/.test(cmd)) continue;

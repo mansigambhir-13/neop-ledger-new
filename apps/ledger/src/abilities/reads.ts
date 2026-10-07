@@ -8,77 +8,33 @@ import { agedTo } from '../domain/names.ts';
 
 export const DEFAULT_CURRENCY = 'INR';
 
+/**
+ * v3 S9 · a read the NEOS screens use is ONE SQL function the app declared in its migration file (read_<x>, registered
+ * in ledger.declared_reads): the desk runs it through ledger.block_read(), and this handler runs the same function —
+ * so a screen and the assistant always see one answer.
+ */
+function declared(fn: string): ReadAbility {
+  return {
+    kind: 'read',
+    async run(a: unknown, ctx: ReadCtx) {
+      return (await ctx.db.query<{ r: unknown }>(`select ledger.${fn}($1::jsonb) as r`, [JSON.stringify(a ?? {})])).rows[0]!.r;
+    },
+  };
+}
+
 function head(currency: string, sources: R.Sources) {
   return { generatedAt: new Date().toISOString(), currency, sources, empty: sources.entries === 0 };
 }
 
-export const pnl: ReadAbility = {
-  kind: 'read',
-  async run(a: { from: string; to: string; currency?: string }, ctx: ReadCtx) {
-    const cur = a.currency ?? DEFAULT_CURRENCY;
-    const q = { from: a.from, to: a.to, currency: cur };
-    const accts = await repo.accountTotals(ctx.db, q);
-    const src = await repo.entrySources(ctx.db, q, `journal entries dated ${a.from}..${a.to}`);
-    return { ...head(cur, src), period: { from: a.from, to: a.to }, ...R.profitAndLoss(accts) };
-  },
-};
+export const pnl: ReadAbility = declared('read_pnl');
 
-export const balanceSheet: ReadAbility = {
-  kind: 'read',
-  async run(a: { as_of: string; currency?: string }, ctx: ReadCtx) {
-    const cur = a.currency ?? DEFAULT_CURRENCY;
-    const q = { from: null, to: a.as_of, currency: cur };
-    const accts = await repo.accountTotals(ctx.db, q);
-    const src = await repo.entrySources(ctx.db, q, `all journal entries up to ${a.as_of}`);
-    return { ...head(cur, src), as_of: a.as_of, ...R.balanceSheet(accts) };
-  },
-};
+export const balanceSheet: ReadAbility = declared('read_balance_sheet');
 
-export const trialBalance: ReadAbility = {
-  kind: 'read',
-  async run(a: { as_of: string; currency?: string }, ctx: ReadCtx) {
-    const cur = a.currency ?? DEFAULT_CURRENCY;
-    const q = { from: null, to: a.as_of, currency: cur };
-    const accts = await repo.accountTotals(ctx.db, q);
-    const src = await repo.entrySources(ctx.db, q, `all journal entries up to ${a.as_of}`);
-    return { ...head(cur, src), as_of: a.as_of, ...R.trialBalance(accts) };
-  },
-};
+export const trialBalance: ReadAbility = declared('read_trial_balance');
 
-export const cashFlow: ReadAbility = {
-  kind: 'read',
-  async run(a: { from: string; to: string; currency?: string }, ctx: ReadCtx) {
-    const cur = a.currency ?? DEFAULT_CURRENCY;
-    const lines = await repo.cashLines(ctx.db, { from: a.from, to: a.to, currency: cur });
-    const opening = await repo.cashBalanceBefore(ctx.db, { before: a.from, currency: cur });
-    const src = await repo.entrySources(ctx.db, { from: a.from, to: a.to, currency: cur }, `journal entries touching cash or bank, ${a.from}..${a.to}`);
-    return { ...head(cur, src), period: { from: a.from, to: a.to }, ...R.cashFlow(lines, opening) };
-  },
-};
+export const cashFlow: ReadAbility = declared('read_cash_flow');
 
-export const aging: ReadAbility = {
-  kind: 'read',
-  async run(a: { kind: 'receivable' | 'payable'; as_of: string; currency?: string }, ctx: ReadCtx) {
-    const cur = a.currency ?? DEFAULT_CURRENCY;
-    // A running period is aged to the company's today, never past it; the as_of returned is the one used.
-    const asOf = agedTo(a.as_of, ctx);
-    const docs = await repo.openDocuments(ctx.db, { kind: a.kind === 'receivable' ? 'invoice' : 'bill', as_of: asOf, currency: cur });
-    const sources: R.Sources = {
-      entries: docs.length,
-      entry_ids: docs.slice(0, 50).map((d) => d.id),
-      basis: `open ${a.kind === 'receivable' ? 'customer invoices' : 'supplier bills'} issued on or before ${asOf}${asOf !== a.as_of ? ` (aged to today, ${asOf}: ${a.as_of} has not come yet)` : ''}`,
-    };
-    return {
-      ...head(cur, sources),
-      kind: a.kind,
-      as_of: asOf,
-      ...R.aging(
-        docs.map(({ id: _id, ...d }) => d),
-        asOf,
-      ),
-    };
-  },
-};
+export const aging: ReadAbility = declared('read_aging');
 
 export const budgetRemaining: ReadAbility = {
   kind: 'read',
@@ -98,13 +54,4 @@ export const budgetRemaining: ReadAbility = {
   },
 };
 
-export const vatSummary: ReadAbility = {
-  kind: 'read',
-  async run(a: { from: string; to: string; currency?: string }, ctx: ReadCtx) {
-    const cur = a.currency ?? DEFAULT_CURRENCY;
-    const q = { from: a.from, to: a.to, currency: cur };
-    const accts = await repo.accountTotals(ctx.db, q);
-    const src = await repo.entrySources(ctx.db, q, `journal entries dated ${a.from}..${a.to}`);
-    return { ...head(cur, src), period: { from: a.from, to: a.to }, ...R.taxSummary(accts) };
-  },
-};
+export const vatSummary: ReadAbility = declared('read_vat_summary');

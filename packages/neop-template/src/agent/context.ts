@@ -1,3 +1,4 @@
+import {sqlIdent} from '@neop/pgkit';
 // Builds THIS JOB from the book: ask, steps, facts, and the answer if waking.
 
 import type { PoolClient } from '@neop/pgkit';
@@ -72,12 +73,24 @@ export async function buildBundle(core: Core, c: PoolClient, job: JobRow, board:
   // What the requester has waiting for a yes: stated in every job, so an answer about "that proposal" is never guessed.
   const open = (
     await c.query<{ id: string; ability_key: string; card: any; fingerprint: string; expires_at: Date }>(
-      `select p.id, p.ability_key, p.card, p.fingerprint, p.expires_at from ${core.key}.proposals p join ${core.key}.jobs j on j.id = p.job_id
+      `select p.id, p.ability_key, p.card, p.fingerprint, p.expires_at from ${sqlIdent(core.key)}.proposals p join ${sqlIdent(core.key)}.jobs j on j.id = p.job_id
         where p.company_id = $2 and j.company_id = $2 and j.requester = $1 and p.status = 'PROPOSED' and p.expires_at > now() order by p.created_at desc limit 10`,
       [job.requester, job.company_id],
     )
   ).rows.map((p) => ({ id: p.id, ability_key: p.ability_key, what: String(p.card?.what ?? '').slice(0, 300), fingerprint: p.fingerprint, expires_at: p.expires_at.toISOString() }));
   const borrowed = await core.borrowed.list(job.company_id, board);
+  // Do not depend on an earlier assistant remembering the peer's question while it asks its person.
+  // This is scoped context, not send authority; a2a.answer rechecks the ID under job/thread locks.
+  const pendingPeerQuestions = (await c.query<NonNullable<JobBundle['pending_peer_questions']>[number]>(
+    `select t.id::text as task_id, t.question->>'wait_id' as question_wait_id, t.peer_app as from_app,
+       t.question->'question' as question, t.question->>'due' as due,
+       case when i.id is not null then jsonb_build_object('intent_id',i.id,'answers',i.answers) end as prepared_answer
+     from ${sqlIdent(core.key)}.bus_threads t left join ${sqlIdent(core.key)}.bus_answer_intents i
+       on i.company_id=t.company_id and i.job_id=t.job_id and i.thread_id=t.id and i.question_wait_id=t.question->>'wait_id'
+     where t.company_id=$1 and t.job_id=$2 and t.direction='out' and t.kind='task' and t.status='open'
+       and t.root_event_id is not null and jsonb_typeof(t.question->'wait_id')='string'
+       and char_length(t.question->>'wait_id') between 1 and 200
+     order by t.updated_at desc,t.id limit 10`, [job.company_id, job.id])).rows;
   const installed = await core.packages.forCompany(job.company_id).catch((e) => {
     core.log('installed packages unreadable; packages and pinned skills skipped', { e: String(e) });
     return { abilities: [], skills: [], skipped: [] as { key: string; version: string; reason: string }[] };
@@ -92,7 +105,7 @@ export async function buildBundle(core: Core, c: PoolClient, job: JobRow, board:
       await core.book.addStep(c, { company_id: job.company_id, job_id: job.id, kind: 'note', summary, mirror: false });
     }
   }
-  const tools = buildTools(core.manifest, board, borrowed, core.borrowed.a2aTargets(), installed.abilities.map((a) => a.meta), { bus: core.presenceOn });
+  const tools = buildTools(core.manifest, board, borrowed, core.borrowed.a2aTargets(), installed.abilities.map((a) => a.meta), { bus: true });
   const on = new Set(tools.map((t) => t.key));
   // A skill loads only when every ability it requires is switched on — the app's own, a package's, or a borrowed skill.
   const skills = [
@@ -118,6 +131,7 @@ export async function buildBundle(core: Core, c: PoolClient, job: JobRow, board:
     },
     parent,
     open_proposals: open,
+    pending_peer_questions: pendingPeerQuestions,
     steps: recent.map((s) => ({ seq: s.seq, kind: s.kind, summary: s.summary, at: s.created_at.toISOString() })),
     older_steps_summary: summary,
     facts: facts.map((f) => ({ subject: f.subject, value: f.value, source: f.source, observed_at: f.observed_at.toISOString() })),

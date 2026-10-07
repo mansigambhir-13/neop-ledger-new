@@ -1,3 +1,4 @@
+import {sqlIdent} from './roles.ts';
 import { createHash } from 'node:crypto';
 import { readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
@@ -236,11 +237,11 @@ export async function assertSchemaInStep(url: string, schema: string, sources: M
   await client.connect();
   let applied: AppliedMigration[];
   try {
-    applied = (await client.query<AppliedMigration>(`select name, checksum from ${schema}.schema_migrations order by name`)).rows;
+    applied = (await client.query<AppliedMigration>(`select name, checksum from ${sqlIdent(schema)}.schema_migrations order by name`)).rows;
   } catch (e) {
     const code = (e as { code?: string }).code;
     if (code === '42P01' || code === '3F000') throw new SchemaMismatchError(schema, { pending: shipped.map((s) => s.name), unknown: [], changed: [] });
-    if (code === '42501') throw new Error(`cannot read ${schema}.schema_migrations (permission denied); re-run the migrator, which grants it to the app and runner roles`, { cause: e });
+    if (code === '42501') throw new Error(`cannot read ${sqlIdent(schema)}.schema_migrations (permission denied); re-run the migrator, which grants it to the app and runner roles`, { cause: e });
     throw e;
   } finally {
     await client.end().catch(() => {});
@@ -271,13 +272,13 @@ export async function migrate(opts: MigrateOptions): Promise<AppliedMigration[]>
   const applied: AppliedMigration[] = [];
   try {
     await client.query('select pg_advisory_lock(hashtext($1))', [`migrate:${schema}`]);
-    await client.query(`create schema if not exists ${schema} authorization ${roles.migrator}`);
+    await client.query(`create schema if not exists ${sqlIdent(schema)} authorization ${roles.migrator}`);
     await client.query(`set role ${roles.migrator}`);
-    await client.query(`create table if not exists ${schema}.schema_migrations (
+    await client.query(`create table if not exists ${sqlIdent(schema)}.schema_migrations (
       name text primary key, checksum text not null, applied_at timestamptz not null default now())`);
     await client.query('reset role');
     const done = new Map(
-      (await client.query<{ name: string; checksum: string }>(`select name, checksum from ${schema}.schema_migrations`)).rows.map(
+      (await client.query<{ name: string; checksum: string }>(`select name, checksum from ${sqlIdent(schema)}.schema_migrations`)).rows.map(
         (r) => [r.name, r.checksum],
       ),
     );
@@ -300,7 +301,7 @@ export async function migrate(opts: MigrateOptions): Promise<AppliedMigration[]>
       await client.query('begin');
       try {
         await client.query(`set local role ${roles.migrator}`);
-        await client.query(`set local search_path to ${schema}`);
+        await client.query(`set local search_path to ${sqlIdent(schema)}`);
         if (f.name.endsWith('.sql')) {
           await client.query(render(raw, schema));
         } else {
@@ -308,7 +309,7 @@ export async function migrate(opts: MigrateOptions): Promise<AppliedMigration[]>
           await mod.default(client, schema);
         }
         if (opts.tenantLint !== false) await tenantLint(client, schema, ['schema_migrations', ...(opts.lintExempt ?? [])]);
-        await client.query(`insert into ${schema}.schema_migrations (name, checksum) values ($1, $2)`, [f.name, checksum]);
+        await client.query(`insert into ${sqlIdent(schema)}.schema_migrations (name, checksum) values ($1, $2)`, [f.name, checksum]);
         await client.query('commit');
         applied.push({ name: f.name, checksum });
       } catch (e) {
@@ -320,7 +321,7 @@ export async function migrate(opts: MigrateOptions): Promise<AppliedMigration[]>
     // to start). Only the family's roles that the migrations let into the schema get it.
     for (const r of [roles.app, roles.runner]) {
       const ok = await client.query<{ ok: boolean }>("select case when exists (select 1 from pg_roles where rolname = $1) then has_schema_privilege($1, $2, 'usage') else false end as ok", [r, schema]);
-      if (ok.rows[0]?.ok) await client.query(`grant select on ${schema}.schema_migrations to ${r}`);
+      if (ok.rows[0]?.ok) await client.query(`grant select on ${sqlIdent(schema)}.schema_migrations to ${r}`);
     }
     // v3 §11: the desk's grants on a NEOP schema (t010+), repeated idempotently — the platform may have
     // made its role after this schema's migrations first ran.
@@ -333,7 +334,13 @@ export async function migrate(opts: MigrateOptions): Promise<AppliedMigration[]>
 }
 
 export function render(sql: string, schema: string): string {
-  return sql.replaceAll('{{schema}}', schema);
+  assertIdent(schema);
+  // Identifier positions are quoted, while role suffixes, NOTIFY channels,
+  // object-storage prefixes and format(%I) arguments keep the raw app ID.
+  return sql.replaceAll('{{schema}}.', `${sqlIdent(schema)}.`)
+    .replace(/\b(schema\s+)\{\{schema\}\}/gi, (_, prefix: string) => prefix + sqlIdent(schema))
+    .replace(/\b(search_path\s*(?:=|to)\s*)\{\{schema\}\}/gi, (_, prefix: string) => prefix + sqlIdent(schema))
+    .replaceAll('{{schema}}', schema);
 }
 
 /**

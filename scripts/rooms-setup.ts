@@ -23,7 +23,7 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { v3RoomPowerLevels } from '@neop/template';
+import { roomProblems, roomStateView, v3RoomPowerLevels } from '@neop/template';
 
 type FetchLike = (url: string, init?: { method?: string; headers?: Record<string, string>; body?: string; signal?: AbortSignal }) => Promise<{ ok: boolean; status: number; json(): Promise<any> }>;
 
@@ -94,7 +94,26 @@ export async function roomsSetup(o: RoomsSetupOptions): Promise<RoomsSetupResult
   const room = async (a: (typeof apps)[number], localAlias: string, name: string, invite: string[], levels: Record<string, unknown>): Promise<string> => {
     const alias = `#${localAlias}:${a.server}`;
     const found = await resolve(a, alias);
-    if (found) return found;
+    if (found) {
+      const current = await as(a, 'GET', `/_matrix/client/v3/rooms/${encodeURIComponent(found)}/state`);
+      const expected = levels as { users?: Record<string, number>; users_default?: number; events?: Record<string, number>; events_default?: number };
+      const view = current.ok && Array.isArray(current.body) ? roomStateView(current.body) : roomStateView([]);
+      const nonPeople = Object.entries(expected.users ?? {}).filter(([, level]) => level < 50).map(([user]) => user);
+      const problems = roomProblems(view, { self: a.user, nonPeople });
+      const actual = view.power_levels;
+      if (actual) {
+        if (actual.users_default !== expected.users_default || actual.events_default !== expected.events_default) problems.push('default power levels differ from the V3 contract');
+        for (const [user, level] of Object.entries(expected.users ?? {})) if (actual.users?.[user] !== level) problems.push(`${user} has level ${actual.users?.[user] ?? actual.users_default ?? 0}, expected ${level}`);
+        for (const [type, level] of Object.entries(expected.events ?? {})) if (actual.events?.[type] !== level) problems.push(`${type} needs level ${actual.events?.[type] ?? actual.events_default ?? 0}, expected ${level}`);
+      }
+      if (problems.length) throw new Error(`existing room ${alias} (${found}) is not V3-fit; it was not bound: ${[...new Set(problems)].join('; ')}`);
+      return found;
+    }
+    // Synapse still has to write level-100 creation state (including the canonical alias) after it applies this
+    // override. Keep the appservice creator at 100 for that transaction, then make its permanent V3 demotion the
+    // final state event below. A room must never be left with the NEOP able to change its own controls.
+    const creationLevels = structuredClone(levels) as { users?: Record<string, number> };
+    creationLevels.users = { ...(creationLevels.users ?? {}), [a.user]: 100 };
     const r = await as(a, 'POST', '/_matrix/client/v3/createRoom', {
       preset: 'private_chat',
       visibility: 'private',
@@ -102,7 +121,7 @@ export async function roomsSetup(o: RoomsSetupOptions): Promise<RoomsSetupResult
       room_alias_name: localAlias,
       invite: [...new Set(invite.filter((u) => u !== a.user))],
       initial_state: [{ type: 'm.room.join_rules', state_key: '', content: { join_rule: 'invite' } }],
-      power_level_content_override: levels,
+      power_level_content_override: creationLevels,
     });
     if (!r.ok) {
       if (r.body?.errcode === 'M_ROOM_IN_USE') {
@@ -111,6 +130,8 @@ export async function roomsSetup(o: RoomsSetupOptions): Promise<RoomsSetupResult
       }
       throw new Error(`createRoom ${alias} as ${a.user}: ${r.status} ${JSON.stringify(r.body)}`);
     }
+    const locked = await as(a, 'PUT', `/_matrix/client/v3/rooms/${encodeURIComponent(r.body.room_id)}/state/m.room.power_levels/`, levels);
+    if (!locked.ok) throw new Error(`lock room ${alias} as ${a.user}: ${locked.status} ${JSON.stringify(locked.body)}`);
     created.push(r.body.room_id);
     log(`created ${alias} (${r.body.room_id}) as ${a.user}`);
     return r.body.room_id as string;

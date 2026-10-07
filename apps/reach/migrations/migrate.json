@@ -1,0 +1,30 @@
+{
+  "migrations": [
+    {
+      "file": "002_drafts.sql",
+      "baseline": true,
+      "tables": [
+        "settings",
+        "audiences",
+        "campaigns",
+        "write_receipts"
+      ]
+    },
+    {
+      "file": "003_declared_reads.sql",
+      "baseline": true,
+      "tables": [
+        "declared_reads"
+      ]
+    },
+    {
+      "file": "004_draft_origins.sql",
+      "tables": [
+        "campaigns",
+        "draft_origins"
+      ],
+      "baseline": false,
+      "proven_on_populated_data": "2026-10-01 · scripts/fleet/tests/review-origin-migration.test.ts: fifteen populated synthetic V3 books retain drafts/jobs/receipts and no historical human is inferred; not production restore, erasure certification or DBA approval"
+    }
+  ]
+}

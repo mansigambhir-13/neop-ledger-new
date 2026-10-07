@@ -1,0 +1,22 @@
+{
+  "name": "@neop/sign",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "start:backend": "tsx scripts/backend.ts",
+    "start:agent": "tsx scripts/agent.ts"
+  },
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@neop/contracts": "workspace:*",
+    "@neop/pgkit": "workspace:*",
+    "@neop/template": "workspace:*",
+    "@neop/domain-values": "workspace:*"
+  },
+  "devDependencies": {
+    "@neop/testkit": "workspace:*"
+  }
+}

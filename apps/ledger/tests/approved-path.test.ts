@@ -12,21 +12,22 @@
 //   · the assistant is woken only after DONE, with the proof
 //   · approver policy (roles, four-eyes) enforced in the database, whoever calls
 //   · (was stuck-approval.test) a slow effect — longer than many polls — is carried out once and the card settles;
-//     no platform call sits between a yes and the effect; ability calls still carry ability_version
-//   · the drain: what the retired approvals worker had in hand (RECORDED / RESOLVED) is handed over once, idempotently
+//     nothing but the desk's one function call sits between a yes and the effect (v3 S9: there is no gateway to call);
+//     the proposal carries the ability version it was written for
+//   (the S2 drain of the retired approvals worker's rows is gone with neos.approvals in S9; platform 025 refuses to drop
+//    that table while an answered row was never handed over — packages/platform/tests/migration-025.test.ts)
 //   · t011 applies forward on a populated book (its proof in migrate.json)
 import { cp, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import pg from 'pg';
-import { decodeJwt } from 'jose';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { bootstrapFamily, createPool, createTestDatabase, migrate, roleUrl, templateFiles, withCompany } from '@neop/pgkit';
 import { migratePlatform } from '@neop/platform';
 import { ApprovedPath, startBackend, TEMPLATE_INFRA_TABLES, TEMPLATE_MIGRATIONS, type NeopBackend } from '@neop/template';
-import { runDrain } from '../../../scripts/v3/drain-approvals.ts';
 import { ledgerApp, LEDGER_ROOT, seedLedger } from '../src/index.ts';
 import { bootPilot, call, finish, type BrainView, type Pilot } from './harness.ts';
+import { appMigrationsBefore } from '@neop/testkit';
 
 const errOf = (p: Promise<unknown>) => p.then(() => ({ code: 'ok', message: '' }), (e: { code?: string; message?: string }) => ({ code: e.code ?? '?', message: e.message ?? String(e) }));
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
@@ -381,78 +382,26 @@ describe('the approved path on a running pilot', () => {
       await policy({});
     }
   });
-  it('the drain hands the retired worker’s RECORDED and RESOLVED yeses to the app once; a re-run changes nothing', async () => {
-    // The state neos.approvals held at deploy time (written here as the old worker did, by the admin link: the
-    // platform's own role can no longer write the frozen table).
-    const legacy = async (card: any, status: string) => {
-      const p = await proposal(card.proposal_id);
-      return admin.query(
-        `insert into neos.approvals (company_id, app_key, proposal_id, job_id, task_id, ability_key, ability_version, args, card, fingerprint, expires_at, status, decision, decided_by, decided_at, fingerprint_seen)
-         values ($1, 'ledger', $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'yes', $12, now(), $9) returning id`,
-        [P.company.id, card.proposal_id, card.job_id, card.task_id, p.ability_key, p.ability_version, JSON.stringify(p.args), JSON.stringify(p.card), p.fingerprint, p.expires_at, status, P.admin.id],
-      );
-    };
-    path_().pause();
-    try {
-      const recorded = await asked('Email the pack (a yes the old worker recorded)');
-      const resolved = await asked('Email the pack (a yes the app already held)', undefined, ['ca@acme.example']);
-      await answer(resolved.card, 'yes'); // the app holds it (APPROVED); the old worker had not executed it yet
-      await legacy(recorded.card, 'RECORDED');
-      await legacy(resolved.card, 'RESOLVED');
-      const before = await mails();
-      const first = await runDrain({ url: P.adminUrl, app: 'ledger' });
-      expect(first.map((r) => [r.proposal_id, r.result, r.status]).sort()).toEqual(
-        [
-          [recorded.card.proposal_id, 'answered', 'APPROVED'],
-          [resolved.card.proposal_id, 'already', 'APPROVED'],
-        ].sort(),
-      );
-      expect((await proposal(recorded.card.proposal_id)).decided_by).toBe(`user:${P.admin.id}`);
-      expect(await mails()).toBe(before); // the drain answers; it never executes
-      path_().resume();
-      await settled(recorded.task_id);
-      await settled(resolved.task_id);
-      expect(await mails()).toBe(before + 2);
-      const again = await runDrain({ url: P.adminUrl, app: 'ledger' });
-      expect(again.map((r) => r.result)).toEqual(['already', 'already']);
-      await sleep(400);
-      expect(await mails()).toBe(before + 2);
-      for (const c of [recorded.card, resolved.card]) expect((await events(c.proposal_id)).filter((e) => e.startsWith('executed:'))).toEqual(['executed:DONE']);
-    } finally {
-      path_().resume();
-      await admin.query("delete from neos.approvals where app_key = 'ledger'");
-    }
-  });
-
-  it('a slow effect (longer than many polls) is carried out once and the card settles EXECUTED; no platform call is made on a yes', async () => {
-    const calls: { path: string; claims: any }[] = [];
-    const real = P.platform.gateway.fetchImpl;
-    P.platform.gateway.fetchImpl = (async (url: any, init: any) => {
-      const auth = init?.headers?.authorization as string | undefined;
-      if (auth?.startsWith('Bearer ')) calls.push({ path: new URL(String(url)).pathname, claims: decodeJwt(auth.slice(7)) });
-      return real(url, init);
-    }) as typeof fetch;
+  it('a slow effect (longer than many polls) is carried out once and the card settles EXECUTED; nothing but the answer on the row sits between a yes and the effect', async () => {
     P.backend.core.hooks.beforeExecuteEffect = async () => void (await sleep(2_000)); // ~13 polls at 150 ms
     try {
       const x = await asked('Send the August close pack (slow provider)');
       const before = await mails();
-      calls.length = 0;
+      const auditBefore = (await P.platform.db.query('select coalesce(max(id), 0)::bigint as id from neos.audit')).rows[0].id;
       await answer(x.card, 'yes');
       await P.waitFor(async () => (await P.desk()).find((c) => c.id === x.card.id)?.status === 'EXECUTED', 'card settled', 20_000);
       await settled(x.task_id);
       expect((await mails()) - before).toBe(1); // exactly once
       expect(await events(x.card.proposal_id)).toEqual(['proposed', 'answered:yes', 'executing', 'executed:DONE', 'resumed', 'reported']);
-      // Between the yes and the effect nothing went through the gateway: no resolve, no execute, no token.
-      expect(calls.filter((c) => /\/l3\/proposals\./.test(c.path))).toEqual([]);
-      expect(calls.some((c) => c.claims.exec || c.claims.fingerprint)).toBe(false);
-      // Ability calls still carry the version the manifest serves (Contracts).
-      calls.length = 0;
-      expect((await P.api('POST', '/api/apps/ledger/read/ledger.report.pnl', { from: '2026-08-01', to: '2026-08-31' })).status).toBe(200);
-      const ab = calls.find((c) => c.path.endsWith('/l3/abilities/ledger.report.pnl'))!;
-      expect(ab.claims.ability_version).toBe(P.backend.core.manifest.abilities.find((a) => a.key === 'ledger.report.pnl')!.version);
+      // Between the yes and the effect the platform did one thing: the desk's answer on the row (its audit row says so).
+      // v3 S9: it has no route into the app to do anything else — the runner carried the yes out under its own name.
+      const said = (await P.platform.db.query('select action from neos.audit where id > $1 and app_key = $2 order by id', [auditBefore, 'ledger'])).rows.map((r) => r.action);
+      expect(said).toEqual(['desk.answer']);
+      expect((await q("select actor from ledger.proposal_events where proposal_id = $1 and event = 'executing'", [x.card.proposal_id]))[0].actor).toMatch(/^runner:/);
+      // The proposal carries the ability version it was written for; the runner executes only that version (Contracts).
+      expect((await proposal(x.card.proposal_id)).ability_version).toBe(P.backend.core.manifest.abilities.find((a) => a.key === 'ledger.close_pack.email')!.version);
     } finally {
       P.backend.core.hooks.beforeExecuteEffect = undefined;
-      P.platform.gateway.fetchImpl = real;
     }
   }, 60_000);
 });
@@ -462,6 +411,7 @@ describe('t011 on a populated book', () => {
     const db = await createTestDatabase();
     const CO = '11111111-2222-3333-4444-555555555555';
     const tdir = await mkdtemp(path.join(os.tmpdir(), 'neop-t011-'));
+    let beforeDir = '';
     try {
       await migratePlatform(db.adminUrl); // the desk's role exists, as in a real cluster
       await cp(TEMPLATE_MIGRATIONS, tdir, { recursive: true });
@@ -470,8 +420,8 @@ describe('t011 on a populated book', () => {
       tled.migrations = tled.migrations.filter((m: any) => m.file < 't011');
       await writeFile(path.join(tdir, 'migrate.json'), JSON.stringify(tled));
       await bootstrapFamily(db.adminUrl, 'ledger');
-      const run = async (t: string) => migrate({ adminUrl: db.adminUrl, schema: 'ledger', sources: { dir: path.join(LEDGER_ROOT, 'migrations'), prepend: await templateFiles(t) }, lintExempt: TEMPLATE_INFRA_TABLES });
-      await run(tdir);
+      const run = async (t: string, appDir = path.join(LEDGER_ROOT, 'migrations')) => migrate({ adminUrl: db.adminUrl, schema: 'ledger', sources: { dir: appDir, prepend: await templateFiles(t) }, lintExempt: TEMPLATE_INFRA_TABLES });
+      await run(tdir, (beforeDir = await appMigrationsBefore(path.join(LEDGER_ROOT, 'migrations'), '010')));
       const pool = createPool(roleUrl(db.adminUrl, 'ledger_app'));
       const runner = createPool(roleUrl(db.adminUrl, 'ledger_runner'));
       await seedLedger(pool, CO);
@@ -501,7 +451,7 @@ describe('t011 on a populated book', () => {
       const before = await snap();
 
       const applied = await run(TEMPLATE_MIGRATIONS);
-      expect(applied.map((m) => m.name)).toEqual(['t011_approved_path.sql', 't012_presence.sql', 't013_answer_wait.sql', 't015_bus_room.sql', 't017_acted_for.sql']); // t012 (S4), t013 (S3), t015 (S6) follow; their own proofs are in presence-dedupe.test.ts and desk-functions.test.ts and bus-room.test.ts
+      expect(applied.map((m) => m.name)).toEqual(['t011_approved_path.sql', 't012_presence.sql', 't013_answer_wait.sql', 't015_bus_room.sql', 't017_acted_for.sql', 't018_desk_without_gateway.sql', 't019_no_gateway_tables.sql', 't020_human_authority.sql', 't021_draft_origin.sql', 't022_answer_deadline.sql', 't023_input_deadline.sql', 't024_answer_intents.sql', '010_declared_reads.sql']);
       expect(await snap()).toEqual(before);
 
       const admin = new pg.Client({ connectionString: db.adminUrl });
@@ -530,6 +480,7 @@ describe('t011 on a populated book', () => {
     } finally {
       await db.drop();
       await rm(tdir, { recursive: true, force: true });
+      if (beforeDir) await rm(beforeDir, { recursive: true, force: true });
     }
   });
 });

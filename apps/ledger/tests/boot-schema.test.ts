@@ -20,12 +20,11 @@ let saved: { name: string; checksum: string }[];
 const cfg = () => ({
   appDbUrl: roleUrl(db.adminUrl, 'ledger_app'),
   runnerDbUrl: roleUrl(db.adminUrl, 'ledger_runner'),
-  platformUrl: 'http://127.0.0.1:9',
-  serviceSecret: 'x'.repeat(40),
   jobTokenSecret: 'y'.repeat(40),
   agentUrl: 'http://127.0.0.1:9',
   poolSize: 1,
   runnerId: 'boot-test',
+  presence: { mode: 'appservice' as const, homeserverUrl: 'http://127.0.0.1:9', appservice: { hsToken: 'hs', asToken: 'as' } },
 });
 
 beforeAll(async () => {
@@ -61,7 +60,7 @@ async function refusal(): Promise<SchemaMismatchError> {
 
 it('starts when the schema is exactly the shipped set', async () => {
   const b = await startBackend(app, cfg(), { runner: false });
-  const r = await fetch(`http://127.0.0.1:${b.ports.l3}/l3/ready`);
+  const r = await fetch(`http://127.0.0.1:${b.ports.files}/ready`);
   expect(r.status).toBe(200);
   await b.stop();
 });
@@ -102,13 +101,15 @@ it('the backend container entry logs the drift and exits 78 (EX_CONFIG)', async 
           NEOS_ENV: 'test',
           NEOP_APP_DB_URL: c.appDbUrl,
           NEOP_RUNNER_DB_URL: c.runnerDbUrl,
-          NEOS_PLATFORM_URL: c.platformUrl,
-          NEOP_SERVICE_SECRET: c.serviceSecret,
           NEOP_JOB_TOKEN_SECRET: c.jobTokenSecret,
           NEOP_AGENT_URL: c.agentUrl,
           NEOP_GATE_URL: 'http://127.0.0.1:9',
-          L3_PORT: '0',
+          FILES_PORT: '0',
           GATE_PORT: '0',
+          NEOP_PRESENCE: 'appservice',
+          NEOP_MATRIX_HOMESERVER_URL: 'http://127.0.0.1:9',
+          NEOP_MATRIX_HS_TOKEN: 'hs',
+          NEOP_MATRIX_AS_TOKEN: 'as',
         },
       },
       (err, _out, stderr) => resolve({ code: err ? ((err as { code?: number }).code ?? null) : 0, stderr }),

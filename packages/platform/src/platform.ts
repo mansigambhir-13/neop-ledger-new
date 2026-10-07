@@ -1,41 +1,41 @@
-// NEOS platform-lite for the pilot: task store, desk approvals, vault and the
-// workers that move them. It never reads an app's book; what it knows about an
-// app comes from signed L3 calls and the app's outbox (S4) — except the board,
-// the install and the standing yeses, which live in the app's own schema since
-// v3 S1 and which it reads and writes there as the desk (boards.ts).
+// NEOS platform-lite for the pilot (WP v3 §1): companies, people and sign-in, Conversations, NeuralChat (which speaks
+// Matrix as its own identity, neuralchat-matrix.ts), the desk and the registry. It never calls an app and no app calls
+// it (v3 S9: no gateway, no platform API): what it knows of an app it reads — and what it changes it writes — on the
+// database, as neos_desk, through the views and SECURITY DEFINER functions the app's migration file declares
+// (boards.ts): the board, the install and the standing yeses, the cards and questions, cancel, schedules, transcripts
+// and the screens' reads. Everything between agents is a typed Matrix event.
 
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
-import { answersFromText, blocksProblem, canonicalize, checkAnswers, isSetting, Metrics, personalDataProblems, rulesProblem, satisfies, sha256, strictest, type Decision, type Manifest, type OutboxEvent, type ProposalCreatedPayload, type QuestionAskedPayload, type Setting, type TaskResult } from '@neop/contracts';
+import { answersFromText, blocksProblem, checkAnswers, isSetting, Metrics, personalDataProblems, rulesProblem, satisfies, strictest, Tracer, type Decision, type Manifest, type Setting } from '@neop/contracts';
+import { SignJWT } from 'jose';
 import { modelRoute, pickApp, ROUTER_PRINCIPAL, type RouteDecision } from './neuralchat.ts';
-import { isEnvelope, VaultCipher, type VaultKeys } from './vault.ts';
 import { KeyRing } from './keys.ts';
 import { manifestPins, pinsOf, Registry } from './registry.ts';
-import { roomText } from './bridge/format.ts';
 import { attestationProblem, manifestSha256, type ConformanceAttestation } from './conformance.ts';
-import { createPool, tx, type Pool, type PoolClient } from '@neop/pgkit';
-import { Gateway, GatewayError, retryableStatus } from './gateway.ts';
-import { AppBoards, backfillBoards, lineMetaFrom, readBoard, writeBoard, EMPTY_BOARD } from './boards.ts';
+import { createPool, tx, type Pool } from '@neop/pgkit';
+import { AppBoards, lineMetaFrom, readBoard, writeBoard, EMPTY_BOARD } from './boards.ts';
 import type { SigningKeys } from './keys.ts';
 import type { NeuralChatMatrix } from './neuralchat-matrix.ts';
 
 export interface PlatformOptions {
   dbUrl: string;
+  /**
+   * The platform's own signing keys, used in this process only: conversation stream tokens, and NeuralChat's
+   * routing-model session tokens (the LLM proxy holds the public half, like a runner's). Never published.
+   */
   keys: SigningKeys;
-  /** Directory the dev email door writes to (vault lends it per company). */
-  mailboxRoot?: string;
-  /** Vault keyring (AES-256-GCM). Required outside tests; tests get an ephemeral one. */
-  vaultKeys?: VaultKeys;
   /** Platform DB pool (default 20; behind PgBouncer in production). */
   dbPoolSize?: number;
-  /** Long-lived registry co-signing keys (separate from the gateway's short-lived tokens). */
+  /** Long-lived registry co-signing keys. */
   registryKeys?: KeyRing;
   log?: (msg: string, extra?: Record<string, unknown>) => void;
-  timings?: { approvalsMs?: number; outboxMs?: number; tasksMs?: number; keysMs?: number; a2aResultGiveUpMs?: number; taskDeliveryWindowMs?: number; neuralchatMs?: number };
-  /** How long the gateway waits for an app's answer (default 30 s). */
-  gatewayTimeoutMs?: number;
+  timings?: { taskDeliveryWindowMs?: number; neuralchatMs?: number };
   /** Model NeuralChat routes asks with, through the LLM proxy (default NEOS_ROUTER_MODEL; none = keyword fallback). */
   routerModel?: string | null;
 }
+
+/** The issuer of the platform's own tokens (stream tokens; NeuralChat's routing-model session tokens). */
+export const PLATFORM_ISSUER = 'neos-platform';
 
 export interface ApproverPolicy {
   roles?: ('admin' | 'member')[];
@@ -53,8 +53,6 @@ export class PlatformError extends Error {
   }
 }
 
-export type { VaultKeys };
-
 /** A file a person attached to an ask; the app's documents door reads it (no model). */
 export interface TaskAttachment {
   filename: string;
@@ -62,34 +60,56 @@ export interface TaskAttachment {
   content_base64: string;
 }
 
-const BACKOFF_MS = [1_000, 2_000, 5_000, 15_000, 30_000, 60_000];
-
 export class Platform {
   readonly db: Pool;
-  readonly gateway: Gateway;
-  readonly vault: VaultCipher;
   /** v3 S1: each app's switchboard, install and grants, in the app's own schema (as neos_desk). */
   readonly boards: AppBoards;
   registry!: Registry;
   readonly opts: PlatformOptions;
+  readonly tracer = new Tracer('neos-platform');
+  readonly metrics = new Metrics();
   private timers: NodeJS.Timeout[] = [];
   /** NeuralChat's routing model (null: keyword fallback, recorded as such). */
   routerModel: string | null;
-  /** v3 S5: NeuralChat's Matrix tool (its own identity per company); null: every task takes the gateway road. */
+  /**
+   * v3 S5/S9: NeuralChat's Matrix tool (its own identity per company) — the only road from a person's ask to an app.
+   * Null only in a platform that hands nothing to apps (scripts, the migrator).
+   */
   neuralchat: NeuralChatMatrix | null = null;
-  /** v3 S5: signs the short-lived links a task's files are fetched by (derived from the vault keys, so it survives a restart). */
-  readonly fileLinkKey: Buffer;
+  /** Where NeuralChat's routing model is reached (the LLM proxy); null when this platform runs none. */
+  llmProxyUrl: string | null = null;
 
   constructor(opts: PlatformOptions) {
     this.opts = opts;
     this.db = createPool(opts.dbUrl, opts.dbPoolSize ?? 20);
-    this.gateway = new Gateway(this.db, opts.keys, { timeoutMs: opts.gatewayTimeoutMs });
     this.routerModel = opts.routerModel !== undefined ? opts.routerModel : (process.env.NEOS_ROUTER_MODEL ?? null);
-    const vaultKeys = opts.vaultKeys ?? VaultCipher.generate();
-    this.vault = new VaultCipher(vaultKeys);
-    this.fileLinkKey = createHash('sha256').update('neos:neuralchat-file-link:').update(JSON.stringify(vaultKeys)).digest();
     this.boards = new AppBoards(this.db, (m, e) => this.log(m, e));
     if (opts.registryKeys) this.registry = new Registry(this, opts.registryKeys);
+  }
+
+  /** One row of the platform's own audit trail (governance and what the platform did); apps keep their own operations. */
+  async audit(e: { company_id: string | null; actor: string; app_key?: string; action: string; ability_key?: string; idem_key?: string; request_id?: string; outcome?: string; detail?: unknown }): Promise<void> {
+    await this.db.query(
+      `insert into neos.audit (company_id, actor, app_key, action, ability_key, idem_key, request_id, outcome, detail) values ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+      [e.company_id, e.actor, e.app_key ?? null, e.action, e.ability_key ?? null, e.idem_key ?? null, e.request_id ?? null, e.outcome ?? null, JSON.stringify(e.detail ?? null)],
+    );
+  }
+
+  /**
+   * Sign one of the platform's own short-lived tokens (never sent to an app): conversation stream tokens (issuer
+   * neos-platform), and NeuralChat's routing-model session at the LLM proxy (issued as the proxy's `neuralchat`
+   * principal, like a runner's session; the proxy holds the public half).
+   */
+  async sign(claims: Record<string, unknown>, aud: string, sub: string, ttlSeconds: number, issuer = PLATFORM_ISSUER): Promise<string> {
+    return new SignJWT(claims)
+      .setProtectedHeader({ alg: 'EdDSA', kid: this.opts.keys.active.kid, typ: 'JWT' })
+      .setIssuer(issuer)
+      .setAudience(aud)
+      .setSubject(sub)
+      .setJti(randomUUID())
+      .setIssuedAt()
+      .setExpirationTime(Math.floor(Date.now() / 1000) + ttlSeconds)
+      .sign(this.opts.keys.active.privateKey);
   }
 
   /** Tests and dev: an ephemeral registry keyring when none was configured. */
@@ -137,10 +157,8 @@ export class Platform {
       [companyId, app, by ?? null],
     );
     // v3 §11: installing is a row in the app's own schema (the truth the gate reads); neos.installs above
-    // is the platform's record for what it still routes itself (gateway, bridge, NeuralChat).
+    // is the platform's own record (what NeuralChat offers and routes to, the desk's app list).
     await this.writeInstall(companyId, app, 'active', by ? `user:${by}` : null);
-    // Anything the platform held for this company before S1 (a board, grants) comes along once.
-    await backfillBoards(this.db, { app, company: companyId, log: (m, e) => this.log(m, e) });
     // v3 S4: who may talk to the app in Matrix here, written into its own schema (its presence reads only that).
     await this.syncChat(companyId, app).catch((e) => this.log('chat directory not written through', { app, e: String(e) }));
   }
@@ -208,7 +226,7 @@ export class Platform {
 
   /**
    * WP §11: uninstall for one company. The install is marked removed, so the platform stops
-   * offering the app (registry context) and the gateway refuses every call for that company.
+   * offering the app (registry context) and the app's own gate stops acting for that company (its install row).
    * The company's rows in the app's schema are the DBA's to purge (scripts/ops.ts uninstall --purge).
    */
   async uninstallApp(companyId: string, app: string, by: string): Promise<{ previous: string }> {
@@ -220,7 +238,7 @@ export class Platform {
     if (!r.rows[0]) throw new PlatformError(404, 'not_installed', `${app} was never installed for this company`);
     // The app's own install row says so too: its gate stops acting for the company at once (NOTIFY).
     await this.writeInstall(companyId, app, 'removed', by.includes(':') ? by : `user:${by}`);
-    await this.gateway.audit({ company_id: companyId, actor: by, app_key: app, action: 'app.uninstall', outcome: 'removed', detail: { previous: r.rows[0].previous } });
+    await this.audit({ company_id: companyId, actor: by, app_key: app, action: 'app.uninstall', outcome: 'removed', detail: { previous: r.rows[0].previous } });
     return r.rows[0];
   }
 
@@ -286,7 +304,7 @@ export class Platform {
    */
   async ask(user: { id: string; company_id: string }, text: string, opts: { app?: string; conversation_id?: string; attachments?: TaskAttachment[] } = {}) {
     // (1) The root of the trace for everything this ask causes, in every app.
-    const root = this.gateway.tracer.start('neos.ask', null, { 'neop.company': user.company_id });
+    const root = this.tracer.start('neos.ask', null, { 'neop.company': user.company_id });
     try {
       return await this.askTraced(user, text, opts, root.header());
     } finally {
@@ -380,7 +398,7 @@ export class Platform {
       try {
         await this.ensureRouterPrincipal();
         const tz = (await this.db.query<{ time_zone: string }>('select time_zone from neos.companies where id = $1', [companyId])).rows[0]?.time_zone ?? 'UTC';
-        const token = await this.gateway.sign(
+        const token = await this.sign(
           {
             company_id: companyId,
             job_id: conversationId,
@@ -392,6 +410,7 @@ export class Platform {
           'llm-proxy',
           `app:${ROUTER_PRINCIPAL}`,
           120,
+          `neop-runner:${ROUTER_PRINCIPAL}`,
         );
         const c = await modelRoute({ proxyUrl: this.llmProxyUrl, token, model: this.routerModel, ask, apps: ctx });
         decision = { app: c.app, method: 'model', reason: c.reason };
@@ -399,15 +418,15 @@ export class Platform {
         decision = { app: pickApp(ask, ctx), method: 'keyword', reason: `keyword fallback: the routing model failed (${String((e as Error).message ?? e).slice(0, 300)})` };
       }
     }
-    await this.gateway.audit({ company_id: companyId, actor: 'neuralchat', app_key: decision.app ?? undefined, action: 'neuralchat.routed', outcome: decision.method, detail: { app: decision.app, reason: decision.reason, conversation_id: conversationId } });
+    await this.audit({ company_id: companyId, actor: 'neuralchat', app_key: decision.app ?? undefined, action: 'neuralchat.routed', outcome: decision.method, detail: { app: decision.app, reason: decision.reason, conversation_id: conversationId } });
     return decision;
   }
 
   /** The platform-owned principal NeuralChat's model spend is metered under (never routed to). */
   private async ensureRouterPrincipal(): Promise<void> {
     await this.db.query(
-      `insert into neos.apps (key, l3_url, manifest, contract_version, service_secret_hash, status)
-       values ($1, 'platform:internal', $2, '1', $3, 'platform') on conflict (key) do nothing`,
+      `insert into neos.apps (key, manifest, contract_version, service_secret_hash, status)
+       values ($1, $2, '1', $3, 'platform') on conflict (key) do nothing`,
       [ROUTER_PRINCIPAL, JSON.stringify({ app: ROUTER_PRINCIPAL, name: 'NeuralChat', subject: 'routing', description: 'platform router', abilities: [] }), hashSecret(randomBytes(32).toString('hex'))],
     );
   }
@@ -425,15 +444,16 @@ export class Platform {
     const t = (await this.db.query('select * from neos.tasks where id = $1 and company_id = $2', [taskId, user.company_id])).rows[0];
     if (!t) throw new PlatformError(404, 'not_found', 'no such task');
     if (['COMPLETED', 'FAILED', 'CANCELLED'].includes(t.status)) return { status: t.status };
-    const res = await this.gateway.call({
-      caller: 'platform',
-      app: t.app_key,
-      endpoint: 'tasks.cancel',
-      company_id: t.company_id,
-      body: { task_id: t.id, by: `user:${user.id}`, reason: reason ?? null },
-      idem_key: `cancel:${t.id}`,
-    });
-    if (res.status !== 200) throw new PlatformError(res.status, 'cancel_failed', JSON.stringify(res.body));
+    // v3 S9: the person's stop lands on the app's own job through <app>.cancel_job() (template t018), as the desk; the
+    // app's presence mirror then says `done` (cancelled) in the task's thread. The job is found by its id, or by the
+    // task id it carries (a Matrix task's job keeps the neos task id), so a stop right after the ask still finds it.
+    await this.boards
+      .deskCall(t.app_key, t.company_id, 'cancel_job', 'uuid, text, text', [t.job_id ?? t.id, `user:${user.id}`, reason ?? null], `user:${user.id}`)
+      .catch((e) => {
+        const d = deskError(e);
+        throw new PlatformError(d.status, 'cancel_failed', d.message);
+      });
+    await this.audit({ company_id: t.company_id, actor: `user:${user.id}`, app_key: t.app_key, action: 'task.cancelled', outcome: 'cancelled', detail: { task_id: t.id, reason: reason ?? null } });
     await this.db.query(`update neos.tasks set status = 'CANCELLED', updated_at = now() where id = $1 and status not in ('COMPLETED', 'FAILED')`, [t.id]);
     return { status: 'CANCELLED' };
   }
@@ -449,9 +469,13 @@ export class Platform {
 
   async registerApp(a: {
     key: string;
-    l3_url: string;
     manifest: Manifest;
-    service_secret: string;
+    /**
+     * The app build's registry credential (`Service <app>:<secret>`: publishing its skills, `neos install` fetches). The
+     * running backend holds none and calls nothing here (v3 S9). Absent: the one on record is kept (a new app gets none
+     * that anyone knows).
+     */
+    service_secret?: string;
     blocks?: Record<string, unknown>;
     /** The conformance attestation (scripts/conformance.ts) for exactly this manifest. Required in production. */
     conformance?: unknown;
@@ -462,7 +486,7 @@ export class Platform {
     // Plan, test bar: an app is registered on green, not on promises.
     const unattested = attestationProblem(a.conformance, a.key, a.manifest);
     if (unattested && process.env.NEOS_ENV === 'production') {
-      await this.gateway.audit({ company_id: null, actor: 'platform', app_key: undefined, action: 'app.register_refused', outcome: 'unattested', detail: { app: a.key, problem: unattested } });
+      await this.audit({ company_id: null, actor: 'platform', app_key: undefined, action: 'app.register_refused', outcome: 'unattested', detail: { app: a.key, problem: unattested } });
       throw new PlatformError(422, 'unattested', `${a.key} is not registered: ${unattested}`);
     }
     if (a.author_public_key !== undefined && !isEd25519Jwk(a.author_public_key)) throw new PlatformError(422, 'bad_author_key', 'the author key must be an Ed25519 public JWK ({kty:"OKP", crv:"Ed25519", x})');
@@ -483,7 +507,8 @@ export class Platform {
       // Owner not registered yet: its own registration checks this range (below), and the call is refused until then.
       if (!owner) continue;
       const ab = owner.abilities.find((x) => x.key === u.ability);
-      // A read is called through the gateway; a write is one step handed to its owner as a task (v3 §10).
+      // A declared screen read is reached through the desk function; a borrowed write is handed to its owner as a
+      // typed Matrix task (v3 §10).
       if (!ab) throw new PlatformError(422, 'uses_unknown_ability', `${u.app} has no ${u.ability}`);
       if (!satisfies(ab.version, u.range)) throw new PlatformError(422, 'uses_version', `${a.key} needs ${u.ability}@${u.range}; ${u.app} serves ${ab.version}`);
     }
@@ -511,44 +536,39 @@ export class Platform {
         if (why) throw new PlatformError(409, 'breaks_installed', `${n.entry_key}@${n.pinned_version} (installed in ${n.host_app}) requires ${n.req}; this manifest ${why}`);
       }
     }
+    // v3 S9: no address for the app is kept — the platform never calls it (its presence is in Matrix, its data on the database).
     await this.db.query(
-      `insert into neos.apps (key, l3_url, manifest, contract_version, service_secret_hash, blocks, conformance, author_key) values ($1,$2,$3,$4,$5,$6,$7,$8)
-       on conflict (key) do update set l3_url = excluded.l3_url, manifest = excluded.manifest,
-         contract_version = excluded.contract_version, service_secret_hash = excluded.service_secret_hash, blocks = excluded.blocks,
+      `insert into neos.apps (key, manifest, contract_version, service_secret_hash, blocks, conformance, author_key) values ($1,$2,$3,coalesce($4, $8),$5,$6,$7)
+       on conflict (key) do update set manifest = excluded.manifest,
+         contract_version = excluded.contract_version, service_secret_hash = coalesce($4, neos.apps.service_secret_hash), blocks = excluded.blocks,
          conformance = excluded.conformance, author_key = coalesce(excluded.author_key, neos.apps.author_key)
        where neos.apps.status <> 'platform'`,
       [
         a.key,
-        a.l3_url,
         JSON.stringify(a.manifest),
         a.manifest.contract_version,
-        hashSecret(a.service_secret),
+        a.service_secret ? hashSecret(a.service_secret) : null,
         JSON.stringify(blocks),
         unattested ? null : JSON.stringify(a.conformance),
         a.author_public_key === undefined ? null : JSON.stringify(a.author_public_key),
+        hashSecret(randomBytes(32).toString('hex')),
       ],
     );
-    await this.db.query('insert into neos.outbox_cursors (app_key) values ($1) on conflict do nothing', [a.key]);
     // v3 §11: the desk's union views now include this app; v3 §10: its roles may read neos_registry (and nothing else in neos).
     for (const [what, sql] of [
       ['desk_views', 'select neos.refresh_desk_views()'],
       ['desk_cards', 'select neos.refresh_desk_cards()'],
       ['desk_questions', 'select neos.refresh_desk_questions()'],
+      ['desk_operations', 'select neos.refresh_desk_operations()'],
       ['registry_read', 'select neos.grant_registry_read($1)'],
     ] as const) {
       await this.db.query(sql, what === 'registry_read' ? [a.key] : []).catch(async (e) => {
         this.log(`register ${a.key}: ${what} not refreshed`, { e: String(e) });
-        await this.gateway.audit({ company_id: null, actor: 'platform', app_key: a.key, action: 'app.register_views', outcome: `failed:${what}`, detail: { error: String(e).slice(0, 300) } });
+        await this.audit({ company_id: null, actor: 'platform', app_key: a.key, action: 'app.register_views', outcome: `failed:${what}`, detail: { error: String(e).slice(0, 300) } });
       });
     }
-    // v3 S1: whatever the platform held for this app before (installs, boards, grants) is carried into the
-    // app's own schema once (idempotent; scripts/v3/backfill-boards.ts is the DBA's way to run it too).
-    await backfillBoards(this.db, { app: a.key, log: (m, e) => this.log(m, e) }).catch(async (e) => {
-      this.log(`register ${a.key}: boards not backfilled`, { e: String(e) });
-      await this.gateway.audit({ company_id: null, actor: 'platform', app_key: a.key, action: 'app.register_views', outcome: 'failed:boards_backfill', detail: { error: String(e).slice(0, 300) } });
-    });
     // Dev accepts an app without a green attestation, but never silently.
-    await this.gateway.audit({
+    await this.audit({
       company_id: null,
       actor: 'platform',
       action: 'app.registered',
@@ -575,7 +595,7 @@ export class Platform {
       `update neos.apps set previous_service_secret_hash = service_secret_hash, service_secret_hash = $2, secret_rotated_at = now() where key = $1`,
       [app, hashSecret(next)],
     );
-    await this.gateway.audit({ company_id: null, actor: 'platform', app_key: app, action: 'service_secret.rotated' });
+    await this.audit({ company_id: null, actor: 'platform', app_key: app, action: 'service_secret.rotated' });
   }
 
   async authUser(header: string | undefined): Promise<{ id: string; company_id: string; role: string; name: string } | null> {
@@ -583,48 +603,6 @@ export class Platform {
     if (!m) return null;
     const r = await this.db.query('select id, company_id, role, name from neos.users where token_hash = $1', [hashSecret(m[1]!)]);
     return r.rows[0] ?? null;
-  }
-
-  /**
-   * WP §12: a door credential is held per (company, app, door). `app` '*' is the company-wide
-   * credential (every row from before 015): any app declaring that door borrows it unless the app
-   * has one of its own. The AAD binds the sealed secret to exactly its slot.
-   */
-  async setVaultSecret(companyId: string, door: string, secret: Record<string, unknown>, app = '*'): Promise<void> {
-    if (app !== '*' && !/^[a-z][a-z0-9_]{0,40}$/.test(app)) throw new PlatformError(400, 'bad_request', 'app key');
-    await this.db.query(
-      `insert into neos.vault_secrets (company_id, app_key, door, secret) values ($1,$2,$3,$4)
-       on conflict (company_id, app_key, door) do update set secret = excluded.secret, updated_at = now()`,
-      [companyId, app, door, JSON.stringify(this.vault.seal(secret, vaultAad(companyId, app, door)))],
-    );
-  }
-
-  /** Re-encrypt every secret under the active vault key (after adding a key, or to seal legacy rows). */
-  async rekeyVault(): Promise<number> {
-    const rows = (await this.db.query<{ company_id: string; app_key: string; door: string; secret: unknown }>('select company_id, app_key, door, secret from neos.vault_secrets')).rows;
-    let n = 0;
-    for (const r of rows) {
-      const aad = vaultAad(r.company_id, r.app_key, r.door);
-      if (isEnvelope(r.secret) && r.secret.kid === this.vault.active) continue;
-      const plain = isEnvelope(r.secret) ? this.vault.open(r.secret, aad) : (r.secret as Record<string, unknown>);
-      await this.db.query('update neos.vault_secrets set secret = $4, updated_at = now() where company_id = $1 and app_key = $2 and door = $3', [
-        r.company_id,
-        r.app_key,
-        r.door,
-        JSON.stringify(this.vault.seal(plain, aad)),
-      ]);
-      n++;
-    }
-    return n;
-  }
-
-  /** The vault's slots for a company (names, owners and dates only; never a secret). `app` null = company-wide. */
-  async vaultSlots(companyId: string): Promise<{ door: string; app: string | null; updated_at: Date }[]> {
-    const r = await this.db.query<{ door: string; app: string | null; updated_at: Date }>(
-      `select door, nullif(app_key, '*') as app, updated_at from neos.vault_secrets where company_id = $1 order by door, app_key`,
-      [companyId],
-    );
-    return r.rows;
   }
 
   // ── switchboards ─────────────────────────────────────────────────────────
@@ -648,6 +626,11 @@ export class Platform {
     if (!manifest) throw new PlatformError(404, 'not_found', 'no such app');
     const lines: { key: string; kind: string; floor: Setting }[] = [...manifest.abilities, ...(await this.packageAbilities(app, companyId))];
     const skills = await this.skillLines(app, companyId, manifest);
+    const owned = new Set(lines.map((x) => x.key));
+    const pinnedRequirements = new Set([
+      ...(manifest.registry_skills ?? []).flatMap((s) => s.requires ?? []),
+      ...(manifest.packages ?? []).flatMap((p) => [...(p.requires ?? []), ...(p.skills ?? []).flatMap((s) => s.requires ?? [])]),
+    ]);
     for (const [k, v] of Object.entries(patch.settings ?? {})) {
       if (k.startsWith('door:')) {
         // v3 §4: a door is a line like any other — on or off; the app's floor holds (a company can only close it).
@@ -662,12 +645,13 @@ export class Platform {
         if (v !== 'on' && v !== 'off') throw new PlatformError(422, 'bad_setting', `${k}: a skill line is on or off`);
         continue;
       }
-      // v3 S6: a borrowed line (the app's manifest `uses` another app's ability) is the company's own on/off switch —
-      // with NEOP_PRESENCE on it is the borrower's check (off until set), in place of an ACL row.
+      // v3 S6/S7: a borrowed line declared by the app, or required by a build-pinned skill/package, is the
+      // company's own on/off switch. The pin makes it available but never grants it: it remains off until set.
       const u = (manifest.uses ?? []).find((x) => x.ability === k && x.ability !== 'tasks.open');
-      if (u && !lines.some((x) => x.key === k)) {
+      const pinnedBorrow = !owned.has(k) && pinnedRequirements.has(k);
+      if ((u || pinnedBorrow) && !owned.has(k)) {
         if (v !== 'on' && v !== 'off') throw new PlatformError(422, 'bad_setting', `${k}: a borrowed line is on or off`);
-        if (u.floor && strictest(u.floor, v) !== v) throw new PlatformError(422, 'cannot_loosen', `${k}: the app's floor is ${u.floor}; a company can only tighten it`);
+        if (u?.floor && strictest(u.floor, v) !== v) throw new PlatformError(422, 'cannot_loosen', `${k}: the app's floor is ${u.floor}; a company can only tighten it`);
         continue;
       }
       const a = lines.find((x) => x.key === k);
@@ -713,7 +697,7 @@ export class Platform {
         if (e?.code === '23514') throw new PlatformError(422, String(e.message).split(':')[0] || 'refused', String(e.message));
         throw e;
       });
-    await this.gateway.audit({ company_id: companyId, actor: `user:${by}`, app_key: app, action: 'switchboard.changed', outcome: String(version), detail: patch });
+    await this.audit({ company_id: companyId, actor: `user:${by}`, app_key: app, action: 'switchboard.changed', outcome: String(version), detail: patch });
     return version;
   }
 
@@ -764,212 +748,6 @@ export class Platform {
   private async grantApps(companyId: string): Promise<string[]> {
     return (await this.db.query<{ app_key: string }>("select i.app_key from neos.installs i join neos.apps a on a.key = i.app_key where i.company_id = $1 and a.status <> 'platform' order by 1", [companyId])).rows.map((r) => r.app_key);
   }
-  /** A person lets one app call another's ability (borrowing) or hand it tasks (`tasks.open`). */
-  async grantAcl(user: { id: string; company_id: string }, g: { caller_app: string; target_app: string; ability_key: string }): Promise<void> {
-    const m = (await this.db.query<{ manifest: Manifest }>('select manifest from neos.apps where key = $1', [g.target_app])).rows[0]?.manifest;
-    if (!m) throw new PlatformError(404, 'not_found', `no app ${g.target_app}`);
-    // A read is borrowed through the gateway; a write only as one step handed over as a task (v3 §10), and only when
-    // the caller's manifest declares that it `uses` it.
-    const ab = m.abilities.find((a) => a.key === g.ability_key);
-    const caller = (await this.db.query<{ manifest: Manifest }>('select manifest from neos.apps where key = $1', [g.caller_app])).rows[0]?.manifest;
-    const declaredWrite = ab?.kind === 'write' && (caller?.uses ?? []).some((u) => u.app === g.target_app && u.ability === g.ability_key);
-    if (g.ability_key !== 'tasks.open' && ab?.kind !== 'read' && !declaredWrite) {
-      throw new PlatformError(422, 'not_borrowable', `${g.ability_key} is not a read of ${g.target_app}, nor a write ${g.caller_app} declares it uses; writes are asked for as tasks`);
-    }
-    await this.db.query(
-      `insert into neos.acl (caller_app, target_app, ability_key, company_id, granted_by) values ($1,$2,$3,$4,$5) on conflict do nothing`,
-      [g.caller_app, g.target_app, g.ability_key, user.company_id, user.id],
-    );
-    await this.gateway.audit({ company_id: user.company_id, actor: `user:${user.id}`, app_key: g.target_app, action: 'acl.granted', ability_key: g.ability_key, detail: g });
-    // The borrower's gate re-reads what it may borrow now, not when its cache expires.
-    await this.notifyApp(g.caller_app, user.company_id).catch(() => {});
-  }
-
-  async revokeAcl(user: { id: string; company_id: string }, g: { caller_app: string; target_app: string; ability_key: string }): Promise<void> {
-    await this.db.query('delete from neos.acl where caller_app = $1 and target_app = $2 and ability_key = $3 and company_id = $4', [g.caller_app, g.target_app, g.ability_key, user.company_id]);
-    await this.gateway.audit({ company_id: user.company_id, actor: `user:${user.id}`, app_key: g.target_app, action: 'acl.revoked', ability_key: g.ability_key, detail: g });
-    await this.notifyApp(g.caller_app, user.company_id).catch(() => {});
-  }
-
-  // ── borrowing and a2a (Phase 4) ───────────────────────────────────────────
-  /** What a host needs to offer a borrowed ability: the owner's contract and its setting at this company. */
-  async borrowDescribe(host: string, req: { company_id: string; app?: string | null; ability: string }) {
-    await this.assertInstalled(host, req.company_id);
-    if (!req.app) {
-      // A requirement of an installed registry entry: its owner is whoever the admin's ACL row names.
-      const row = (await this.db.query<{ target_app: string }>('select target_app from neos.acl where caller_app = $1 and ability_key = $2 and company_id = $3 order by granted_at limit 1', [host, req.ability, req.company_id])).rows[0];
-      if (!row) throw new PlatformError(404, 'not_granted', `no ACL row lets ${host} borrow ${req.ability}`);
-      req = { ...req, app: row.target_app };
-    }
-    const owner = (await this.registryContext(req.company_id)).find((a) => a.key === req.app);
-    if (!owner) throw new PlatformError(404, 'not_installed', `${req.app} is not installed for this company`);
-    const line = owner.abilities.find((a) => a.key === req.ability);
-    const manifest = (await this.db.query<{ manifest: Manifest }>('select manifest from neos.apps where key = $1', [req.app])).rows[0]!.manifest;
-    const ability = manifest.abilities.find((a) => a.key === req.ability);
-    if (!ability) throw new PlatformError(404, 'not_found', `${req.app} has no ${req.ability}`);
-    const acl = await this.db.query('select 1 from neos.acl where caller_app = $1 and target_app = $2 and ability_key = $3 and company_id = $4', [
-      host,
-      req.app,
-      req.ability,
-      req.company_id,
-    ]);
-    return { ability, owner: req.app, owner_setting: line?.setting ?? 'off', acl: (acl.rowCount ?? 0) > 0 };
-  }
-
-  /** A call from one app's backend to another app, through the gateway, as `app:<host>`. */
-  async internalCall(host: string, req: { company_id: string; app: string; endpoint: string; body?: unknown; idem_key: string }) {
-    await this.assertInstalled(host, req.company_id);
-    if (['tasks.open', 'proposals.resolve', 'proposals.execute', 'outbox.read', 'inbox.deliver', 'tasks.cancel', 'tasks.result', 'switchboard.changed', 'outbox.ack', 'schedules.set', 'schedules.list', 'waits.answer', 'jobs.transcript', 'manifest'].includes(req.endpoint)) {
-      throw new PlatformError(403, 'denied', `${req.endpoint} is not callable this way`);
-    }
-    // A borrowed write never runs directly from another app: it is handed to its owner as a task (openA2ATask).
-    const target = (await this.db.query<{ manifest: Manifest }>('select manifest from neos.apps where key = $1', [req.app])).rows[0]?.manifest;
-    if (target?.abilities.some((a) => a.key === req.endpoint && a.kind === 'write')) {
-      throw new PlatformError(403, 'write_is_a_task', `${req.endpoint} is a write: hand it to ${req.app} as a task`);
-    }
-    return this.gateway.call({ caller: `app:${host}`, app: req.app, endpoint: req.endpoint, company_id: req.company_id, body: req.body, idem_key: req.idem_key });
-  }
-
-  /**
-   * An app hands a task to another app (a2a). The chain of apps is carried in
-   * `lineage`; a target already in it, or a chain deeper than 3, is refused
-   * here — the only place that sees both apps (R3).
-   */
-  async openA2ATask(host: string, req: { company_id: string; target: string; ask: string; parent_task_id: string | null; host_job_id: string; ability?: string; args?: unknown }) {
-    await this.assertInstalled(host, req.company_id);
-    // v3 §10 "one step in another app's subject": a borrowed WRITE is handed to its owner as a task. The owner's
-    // gate, switchboard, proposal and a person's yes all apply there; the ACL row a person granted for exactly
-    // this ability is what lets it through (never a tasks.open grant the host was not given).
-    let borrowed: string | null = null;
-    if (req.ability !== undefined && req.ability !== null) {
-      const d = await this.borrowDescribe(host, { company_id: req.company_id, app: req.target, ability: req.ability });
-      const hostManifest = (await this.db.query<{ manifest: Manifest }>('select manifest from neos.apps where key = $1', [host])).rows[0]?.manifest;
-      if (!(hostManifest?.uses ?? []).some((u) => u.app === req.target && u.ability === req.ability)) throw new PlatformError(403, 'not_declared', `${host} does not declare it uses ${req.target}.${req.ability}`);
-      if (d.ability.kind !== 'write') throw new PlatformError(422, 'not_a_write', `${req.ability} is a read: call it through the gateway`);
-      if (!d.acl) throw new PlatformError(403, 'not_granted', `no ACL row lets ${host} borrow ${req.ability}`);
-      if (d.owner_setting === 'off') throw new PlatformError(403, 'switched_off', `${req.ability} is switched off at ${req.target}`);
-      borrowed = req.ability;
-      req = { ...req, ask: borrowedWriteAsk(host, d.ability, req.args ?? {}) };
-    }
-    const parent = req.parent_task_id
-      ? (await this.db.query<{ lineage: string[]; company_id: string }>('select lineage, company_id from neos.tasks where id = $1', [req.parent_task_id])).rows[0]
-      : null;
-    if (parent && parent.company_id !== req.company_id) throw new PlatformError(403, 'denied', 'parent task belongs to another company');
-    const lineage = [...(parent?.lineage ?? []), host];
-    if (req.target === host || lineage.includes(req.target)) throw new PlatformError(409, 'a2a_loop', `${req.target} is already in this chain (${lineage.join(' → ')})`);
-    if (lineage.length > 3) throw new PlatformError(409, 'a2a_depth', `a2a chains stop at depth 3 (${lineage.join(' → ')})`);
-    const r = await this.db.query<{ id: string }>(
-      `insert into neos.tasks (company_id, app_key, requester, ask, parent_task_id, lineage, host_job_id, borrowed_ability) values ($1,$2,$3,$4,$5,$6,$7,$8) returning id`,
-      [req.company_id, req.target, `app:${host}`, req.ask, req.parent_task_id, JSON.stringify(lineage), req.host_job_id, borrowed],
-    );
-    const id = r.rows[0]!.id;
-    try {
-      await this.deliverTask(id);
-    } catch (e) {
-      if (e instanceof GatewayError && e.status === 403) {
-        // Refused by the gateway (no ACL, not installed): final, not retried.
-        await this.db.query(`update neos.tasks set status = 'FAILED', last_error = $2, result_delivered_at = now() where id = $1`, [id, e.message]);
-        throw new PlatformError(403, e.code, e.message);
-      }
-      // Otherwise the task stays OPEN and tasksTick retries delivery.
-    }
-    return { task_id: id, lineage, ...(borrowed ? { borrowed_ability: borrowed } : {}) };
-  }
-
-  /** Deliver finished a2a results to the host app's job (signed tasks.result), until acknowledged. */
-  async a2aResultsTick(): Promise<void> {
-    const due = await this.db.query(
-      `select t.*, split_part(t.requester, ':', 2) as host_app from neos.tasks t
-        where t.requester like 'app:%' and t.result_delivered_at is null and t.status in ('COMPLETED', 'FAILED', 'CANCELLED')
-          and t.result_failed_at is null and (t.result_next_at is null or t.result_next_at <= now())
-        order by t.updated_at limit 20`,
-    );
-    const giveUpMs = this.opts.timings?.a2aResultGiveUpMs ?? 10 * 60_000;
-    for (const t of due.rows) {
-      let why: string;
-      try {
-        const res = await this.gateway.call({
-          caller: 'platform',
-          app: t.host_app,
-          endpoint: 'tasks.result',
-          company_id: t.company_id,
-          // The idempotency key names the attempt: a 404 is never stored, but a fresh key keeps each retry a real call.
-          body: { task_id: t.id, status: t.status, from_app: t.app_key, result: t.result },
-          idem_key: `result:${t.id}:${t.result_attempts}`,
-        });
-        if (res.status === 200) {
-          await this.db.query('update neos.tasks set result_delivered_at = now(), last_error = null where id = $1', [t.id]);
-          continue;
-        }
-        // 404 "no job waits on that task" is not an answer: the host may not have recorded its wait yet.
-        why = `tasks.result answered ${res.status}: ${JSON.stringify(res.body).slice(0, 300)}`;
-      } catch (e) {
-        why = String(e);
-      }
-      await this.resultRetryOrGiveUp(t, why, giveUpMs);
-    }
-  }
-
-  /** Back off and retry an undelivered a2a result; past the window, give up loudly (audit + task failure). */
-  private async resultRetryOrGiveUp(t: any, why: string, giveUpMs: number): Promise<void> {
-    const first = t.result_first_try_at ? new Date(t.result_first_try_at).getTime() : Date.now();
-    const n = Number(t.result_attempts) + 1;
-    if (Date.now() - first >= giveUpMs) {
-      const msg = `result could not be delivered to ${t.host_app} after ${n} attempts: ${why}`.slice(0, 500);
-      await tx(this.db, async (c) => {
-        await c.query(
-          `update neos.tasks set status = 'FAILED', result_failed_at = now(), result_attempts = $2, last_error = $3, updated_at = now() where id = $1`,
-          [t.id, n, msg],
-        );
-        await c.query(`insert into neos.audit (company_id, actor, app_key, action, outcome, detail) values ($1, 'platform', $2, 'a2a.result_undeliverable', 'gave_up', $3)`, [
-          t.company_id,
-          t.host_app,
-          JSON.stringify({ task_id: t.id, from_app: t.app_key, task_status: t.status, attempts: n, error: why.slice(0, 300) }),
-        ]);
-      });
-      this.log('a2a result undeliverable; task failed', { task: t.id, host: t.host_app });
-      return;
-    }
-    await this.db.query(
-      `update neos.tasks set result_attempts = $2, result_first_try_at = coalesce(result_first_try_at, now()),
-         result_next_at = now() + ($3 || ' milliseconds')::interval, last_error = $4 where id = $1`,
-      [t.id, n, String(BACKOFF_MS[Math.min(n - 1, BACKOFF_MS.length - 1)]), why.slice(0, 500)],
-    );
-  }
-
-  // ── LLM session tokens (R1) ───────────────────────────────────────────────
-  /** Where agents reach the LLM proxy; null when this platform runs none (tests with a local model). */
-  llmProxyUrl: string | null = null;
-
-  /**
-   * A token scoped to one assistant session. The budget comes from the
-   * company's switchboard, never from the app or the agent.
-   * @deprecated v3 (S8): the runner mints session tokens itself (template runner/llm.ts); no route serves this. S9 deletes it.
-   */
-  async llmSession(app: string, req: { company_id: string; job_id: string; sid: string; ttl_seconds: number }) {
-    if (!this.llmProxyUrl) throw new PlatformError(404, 'no_llm_proxy', 'this platform runs no LLM proxy');
-    const inst = await this.db.query("select 1 from neos.installs where company_id = $1 and app_key = $2 and status = 'active'", [req.company_id, app]);
-    if (!inst.rowCount) throw new PlatformError(403, 'not_installed', `${app} is not installed for this company`);
-    const sb = await this.switchboard(req.company_id, app);
-    const perJob = Number(sb.budget?.per_job_usd ?? 5);
-    const perDay = Number(sb.budget?.per_day_usd ?? 50);
-    const token = await this.gateway.sign(
-      {
-        company_id: req.company_id,
-        job_id: req.job_id,
-        sid: req.sid,
-        budget_micros: Math.round(perJob * 1_000_000),
-        day_cap_micros: Math.round(perDay * 1_000_000),
-        tz: sb.company.time_zone,
-      },
-      'llm-proxy',
-      `app:${app}`,
-      Math.max(60, req.ttl_seconds),
-    );
-    return { base_url: this.llmProxyUrl, token };
-  }
-
-  // ── vault ────────────────────────────────────────────────────────────────
   /** B1: an app acts for a company only if that company installed it. */
   async assertInstalled(app: string, companyId: string): Promise<void> {
     if (!/^[0-9a-f-]{36}$/i.test(companyId ?? '')) throw new PlatformError(400, 'bad_request', 'company_id required');
@@ -990,61 +768,6 @@ export class Platform {
     return (m?.packages ?? []).flatMap((p) =>
       (p.abilities ?? []).map((a) => ({ key: a.key, kind: a.kind, floor: a.floor, version: a.version, title: a.title ?? a.key, description: a.description ?? '', effects: a.effects ?? {}, doors: a.doors ?? [], package: p.key, package_version: p.version, install_status: 'active' })),
     );
-  }
-
-  /**
-   * Tell an app that something the platform still holds changed (an ACL row, a registry install): it drops
-   * its borrow and package caches for that company. A change to the board itself needs no push — the app's
-   * own schema NOTIFYs 'board:<company>' (t010).
-   */
-  async notifyApp(app: string, companyId: string): Promise<void> {
-    const v = (await this.boards.read(app, companyId).catch(() => null))?.version ?? 0;
-    // Durable first: the push is owed until the app acknowledges it, across retries and restarts.
-    const row = (
-      await this.db.query(
-        `insert into neos.app_notifications (company_id, app_key, version, idem_key) values ($1,$2,$3,$4)
-         on conflict (company_id, app_key) do update set version = excluded.version, idem_key = excluded.idem_key, attempts = 0, next_attempt_at = now(), last_error = null
-         returning *`,
-        [companyId, app, v, `sb:${companyId}:${app}:${v}:${randomUUID()}`],
-      )
-    ).rows[0];
-    await this.deliverNotification(row);
-  }
-
-  /** Push one owed switchboard.changed; the row goes only when the app answered 200. */
-  private async deliverNotification(n: { company_id: string; app_key: string; version: number; idem_key: string; attempts: number }): Promise<boolean> {
-    let err: string;
-    try {
-      const res = await this.gateway.call({ caller: 'platform', app: n.app_key, endpoint: 'switchboard.changed', company_id: n.company_id, body: { version: n.version }, idem_key: n.idem_key });
-      const final = res.status !== 200 && !retryableStatus(res.status, res.body);
-      if (res.status === 200 || final) {
-        await this.db.query('delete from neos.app_notifications where company_id = $1 and app_key = $2 and idem_key = $3', [n.company_id, n.app_key, n.idem_key]);
-        if (final) await this.gateway.audit({ company_id: n.company_id, actor: 'platform', app_key: n.app_key, action: 'switchboard.notify_refused', outcome: String(res.status), detail: res.body });
-        return res.status === 200;
-      }
-      err = `answered ${res.status}`;
-    } catch (e) {
-      if (e instanceof GatewayError && e.status < 500) {
-        // Not installed / not active: nothing to tell, and retrying cannot change that.
-        await this.db.query('delete from neos.app_notifications where company_id = $1 and app_key = $2 and idem_key = $3', [n.company_id, n.app_key, n.idem_key]);
-        return false;
-      }
-      err = String(e);
-    }
-    const a = n.attempts + 1;
-    // Short, capped backoff: a switch-off must not lag behind an app that was briefly away.
-    const wait = [250, 500, 1_000, 2_000, 5_000][Math.min(a - 1, 4)]!;
-    await this.db.query(
-      `update neos.app_notifications set attempts = $4, last_error = $5, next_attempt_at = now() + ($6 || ' milliseconds')::interval where company_id = $1 and app_key = $2 and idem_key = $3`,
-      [n.company_id, n.app_key, n.idem_key, a, err.slice(0, 500), String(wait)],
-    );
-    this.log('switchboard.changed not delivered; will retry', { app: n.app_key, attempts: a, e: err });
-    return false;
-  }
-
-  async notificationsTick(): Promise<void> {
-    const due = await this.db.query(`select * from neos.app_notifications where next_attempt_at <= now() order by next_attempt_at limit 50`);
-    await Promise.all(due.rows.map((n) => this.deliverNotification(n).catch(() => false)));
   }
 
   /** Skill lines on the board (WP §10): the app's own skills and registry skills pinned for it. */
@@ -1083,175 +806,62 @@ export class Platform {
     return strictest(doorFloor(m, door), sb.settings?.[`door:${door}`]);
   }
 
-  /** @deprecated v3 (S8): NEOP backends read the secret store (template doors/secrets.ts); no route serves this. S9 deletes it. */
-  async lend(app: string, companyId: string, door: string): Promise<Record<string, unknown>> {
-    await this.assertInstalled(app, companyId);
-    if (!(await this.declaredDoors(app, companyId)).has(door)) {
-      await this.gateway.audit({ company_id: companyId, actor: `app:${app}`, app_key: app, action: 'vault.lend', ability_key: door, outcome: 'refused_undeclared' });
-      throw new PlatformError(403, 'undeclared_door', `${app} does not declare the ${door} door`);
-    }
-    // v3 §4: the company can switch a door off; then no key is lent for it, whatever asks.
-    if ((await this.doorSetting(app, companyId, door)) === 'off') {
-      await this.gateway.audit({ company_id: companyId, actor: `app:${app}`, app_key: app, action: 'vault.lend', ability_key: door, outcome: 'refused_door_off' });
-      throw new PlatformError(403, 'door_off', `the ${door} door is switched off for ${app} at this company`);
-    }
-    // The app's own credential for this door, else the company-wide one; never another app's (WP §12).
-    const r = await this.db.query<{ secret: Record<string, unknown>; app_key: string }>(
-      `select secret, app_key from neos.vault_secrets where company_id = $1 and door = $2 and app_key in ($3, '*')
-        order by (app_key = '*') limit 1`,
-      [companyId, door, app],
-    );
-    const row = r.rows[0];
-    await this.gateway.audit({ company_id: companyId, actor: `app:${app}`, app_key: app, action: 'vault.lend', ability_key: door, outcome: row ? 'lent' : 'none', detail: row ? { slot: row.app_key === '*' ? 'company' : 'app' } : null });
-    if (!row) throw new PlatformError(404, 'no_secret', `no ${door} credential for ${app} at this company`);
-    if (!isEnvelope(row.secret)) throw new PlatformError(500, 'vault_unsealed', 'secret is not sealed; run rekeyVault');
-    return this.vault.open(row.secret, vaultAad(companyId, row.app_key, door));
-  }
-
   // ── tasks (NeuralChat hands an ask to an app) ────────────────────────────
+  /**
+   * v3 §1 steps 4–6 · the task is recorded, then NeuralChat — as its own Matrix identity — posts it as a typed
+   * neos.neop.task in the app's room (or its 1:1 room with the app's account), thread-rooted there. Matrix is the only
+   * road (v3 S9): an app with no Matrix presence at the company, or a platform with no NeuralChat identity there, gets
+   * the task FAILED at once, saying why — nothing reaches an app any other way.
+   */
   async openTask(t: {
     company_id: string;
     app_key: string;
     requester: string;
     ask: string;
     conversation_id?: string | null;
-    origin?: 'app' | 'room';
-    room_id?: string | null;
-    room_event_id?: string | null;
     trace_parent?: string | null;
     routed_by?: 'explicit' | 'model' | 'keyword' | null;
     route_reason?: string | null;
-    /** Files the person attached; held on the task until the app acknowledges it. */
+    /** Files the person attached; uploaded to the homeserver's media store with the task, dropped once the app has them. */
     attachments?: TaskAttachment[];
     /** A follow-up in the same conversation: the earlier job it continues (sent to the app). */
     parent_job_id?: string | null;
     /** Runs after the task row exists and before it is handed to the app. */
     beforeDeliver?: (taskId: string) => Promise<void>;
   }): Promise<{ task_id: string; status: string; job_id: string | null; ack: string | null }> {
-    // Handed over inline right below; the retry worker only looks at it if that fails (no double delivery under load).
     const r = await this.db.query(
-      `insert into neos.tasks (company_id, app_key, requester, ask, conversation_id, origin, room_id, trace_parent, routed_by, route_reason, attachments, parent_job_id, next_attempt_at)
-       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12, now() + interval '10 seconds') returning *`,
-      [t.company_id, t.app_key, t.requester, t.ask, t.conversation_id ?? null, t.origin ?? 'app', t.room_id ?? null, t.trace_parent ?? null, t.routed_by ?? null, t.route_reason ?? null, t.attachments?.length ? JSON.stringify(t.attachments) : null, t.parent_job_id ?? null],
+      `insert into neos.tasks (company_id, app_key, requester, ask, conversation_id, origin, trace_parent, routed_by, route_reason, attachments, parent_job_id, road, next_attempt_at)
+       values ($1,$2,$3,$4,$5,'app',$6,$7,$8,$9,$10,'matrix', now()) returning *`,
+      [t.company_id, t.app_key, t.requester, t.ask, t.conversation_id ?? null, t.trace_parent ?? null, t.routed_by ?? null, t.route_reason ?? null, t.attachments?.length ? JSON.stringify(t.attachments) : null, t.parent_job_id ?? null],
     );
-    const row = r.rows[0]!;
-    const id: string = row.id;
-    if (t.room_event_id) await this.db.query('update neos.room_events set task_id = $2 where event_id = $1', [t.room_event_id, id]);
-    // v3 S5: a person's ask to an app that runs with presence goes ONLY through Matrix — NeuralChat posts a typed task as
-    // its own identity; the gateway road below is for presence-off installs (S9 removes it).
-    if (this.neuralchat && t.requester.startsWith('user:') && (t.origin ?? 'app') === 'app' && (await this.neuralchat.routeFor(t.company_id, t.app_key))) {
-      await this.db.query("update neos.tasks set road = 'matrix', next_attempt_at = now() where id = $1", [id]);
-      await t.beforeDeliver?.(id);
-      await this.neuralchat.deliver(id).catch((e) => this.neuralchat!.failedSend(id, 0, e));
-      await this.neuralchat.waitAck(id);
-      const cur = (await this.db.query('select status, job_id from neos.tasks where id = $1', [id])).rows[0];
-      return { task_id: id, status: cur.status, job_id: cur.job_id, ack: cur.job_id ? `On it — job ${String(cur.job_id).slice(0, 8)}.` : null };
+    const id: string = r.rows[0]!.id;
+    const route = t.requester.startsWith('user:') && this.neuralchat ? await this.neuralchat.routeFor(t.company_id, t.app_key) : null;
+    if (!route) {
+      const why = !this.neuralchat
+        ? 'NeuralChat has no Matrix road on this platform (set NEOS_NEURALCHAT_MATRIX)'
+        : `${t.app_key} is not on Matrix at this company yet (no Matrix name or room for it; RUNBOOK "Chat: NEOP presence")`;
+      await this.db.query(`update neos.tasks set status = 'FAILED', last_error = $2, attachments = null, updated_at = now() where id = $1`, [id, why]);
+      await this.say(t.conversation_id ?? null, t.company_id, 'neuralchat', `Not handed over: ${why}.`, 'notice', id);
+      await this.audit({ company_id: t.company_id, actor: 'neuralchat', app_key: t.app_key, action: 'neuralchat.task_not_posted', outcome: 'no_road', detail: { task_id: id, why } });
+      return { task_id: id, status: 'FAILED', job_id: null, ack: null };
     }
     await t.beforeDeliver?.(id);
-    const out = await this.deliverTask(row, t.room_event_id ?? undefined).catch(() => null);
-    if (out) return { task_id: id, status: out.status, job_id: out.job_id, ack: out.ack };
-    const cur = await this.db.query('select status, job_id from neos.tasks where id = $1', [id]);
-    return { task_id: id, status: cur.rows[0].status, job_id: cur.rows[0].job_id, ack: null };
+    await this.neuralchat!.deliver(id).catch((e) => this.neuralchat!.failedSend(id, 0, e));
+    await this.neuralchat!.waitAck(id);
+    const cur = (await this.db.query('select status, job_id from neos.tasks where id = $1', [id])).rows[0];
+    return { task_id: id, status: cur.status, job_id: cur.job_id, ack: cur.job_id ? `On it — job ${String(cur.job_id).slice(0, 8)}.` : null };
   }
 
-  /** Hand a task to its app (tasks.open, or inbox.deliver for a room message). Takes the row or its id. */
-  private async deliverTask(taskOrId: string | any, roomEventId?: string): Promise<{ ack: string; status: string; job_id: string } | null> {
-    const t = typeof taskOrId === 'string' ? (await this.db.query('select * from neos.tasks where id = $1', [taskOrId])).rows[0] : taskOrId;
-    if (!t || t.status !== 'OPEN' || t.road === 'matrix') return null; // v3 S5: a Matrix task is NeuralChat's (neuralchat-matrix.ts)
-    try {
-      const fromRoom = t.origin === 'room';
-      const ev = fromRoom ? (roomEventId ? { event_id: roomEventId } : (await this.db.query<{ event_id: string }>('select event_id from neos.room_events where task_id = $1 limit 1', [t.id])).rows[0]) : null;
-      // WP §9: the person the work is for. A person's own ask is theirs; an app's hand-off carries the
-      // person its chain started from (rootRequester), so the callee's job knows whom it serves.
-      const onBehalf = t.requester.startsWith('user:') ? t.requester : await this.rootRequester(t.parent_task_id).then((u) => (u ? `user:${u}` : null));
-      const res = await this.gateway.call<{ job_id: string; ack: string }>({
-        caller: t.requester.startsWith('app:') ? t.requester : 'platform',
-        app: t.app_key,
-        endpoint: fromRoom ? 'inbox.deliver' : 'tasks.open',
-        company_id: t.company_id,
-        body: fromRoom
-          ? { task_id: t.id, event_id: ev?.event_id ?? t.id, room_id: t.room_id, sender: t.requester, text: t.ask }
-          : {
-              task_id: t.id,
-              ask: t.ask,
-              requester: t.requester,
-              ...(onBehalf ? { on_behalf_of: onBehalf } : {}),
-              ...(t.parent_job_id ? { parent_job_id: t.parent_job_id } : {}),
-              ...(t.attachments ? { attachments: t.attachments } : {}),
-            },
-        idem_key: `task:${t.id}`,
-        trace: t.trace_parent,
-        ...(t.borrowed_ability ? { acl_key: t.borrowed_ability } : {}),
-      });
-      if (res.status !== 200) {
-        // A definite refusal (4xx other than timeout / rate limit) will not change on retry: fail it now.
-        const final = res.status >= 400 && res.status < 500 && res.status !== 408 && res.status !== 429;
-        throw Object.assign(new Error(`tasks.open answered ${res.status}: ${JSON.stringify(res.body)}`), { final });
-      }
-      const u = await this.db.query<{ status: string; job_id: string }>(
-        `update neos.tasks set status = case when status = 'OPEN' then 'ACKNOWLEDGED' else status end, job_id = $2, attachments = null, updated_at = now() where id = $1 returning status, job_id`,
-        [t.id, res.body.job_id],
-      );
-      return { ack: res.body.ack, status: u.rows[0]!.status, job_id: u.rows[0]!.job_id };
-    } catch (e) {
-      // An app that is down (restarting, redeploying) is retried for a window of time, not a count of
-      // attempts: a burst of restarts must not lose a person's ask. Past the window, or on a definite
-      // refusal, the task fails visibly.
-      const attempts = t.open_attempts + 1;
-      const windowMs = this.opts.timings?.taskDeliveryWindowMs ?? 10 * 60_000;
-      await this.db.query(
-        `update neos.tasks set open_attempts = $2, last_error = $3, next_attempt_at = now() + ($4 || ' milliseconds')::interval,
-           status = case when $5 or created_at < now() - ($6 || ' milliseconds')::interval then 'FAILED' else status end, updated_at = now() where id = $1`,
-        [t.id, attempts, String(e).slice(0, 500), String(BACKOFF_MS[Math.min(attempts, BACKOFF_MS.length - 1)]), (e as { final?: boolean }).final === true, String(windowMs)],
-      );
-      throw e;
-    }
-  }
-
-  async tasksTick(): Promise<void> {
-    // The gateway road only (presence-off installs; S9 removes it). A Matrix task is resent by NeuralChat's own tick.
-    const due = await this.db.query<{ id: string }>(`select id from neos.tasks where status = 'OPEN' and road = 'gateway' and next_attempt_at <= now() order by created_at limit 20`);
-    for (const t of due.rows) await this.deliverTask(t.id).catch(() => {});
-  }
-
-  /** The person who started the chain that led to this task (walks a2a parents). */
-  private async rootRequester(taskId: string | null): Promise<string | null> {
-    let id = taskId;
-    for (let i = 0; id && i < 10; i++) {
-      const t = (await this.db.query<{ requester: string; parent_task_id: string | null }>('select requester, parent_task_id from neos.tasks where id = $1', [id])).rows[0];
-      if (!t) return null;
-      if (t.requester.startsWith('user:')) return t.requester.slice(5);
-      id = t.parent_task_id;
-    }
-    return null;
-  }
-
-  /** The task a person started the chain from (walks a2a parents), or null if nobody is on record. */
-  private async rootTask(taskId: string | null, c: { query: Pool['query'] } = this.db): Promise<{ id: string; requester: string; conversation_id: string | null; app_key: string } | null> {
-    let id = taskId;
-    for (let i = 0; id && i < 10; i++) {
-      const t = (await c.query<{ id: string; requester: string; parent_task_id: string | null; conversation_id: string | null; app_key: string }>(
-        'select id, requester, parent_task_id, conversation_id, app_key from neos.tasks where id = $1',
-        [id],
-      )).rows[0];
-      if (!t) return null;
-      if (t.requester.startsWith('user:')) return t;
-      id = t.parent_task_id;
-    }
-    return null;
-  }
-
-  // ── the desk's activity (v3 S3) ─────────────────────────────────────────────
-  // A job's steps are the app's own rows, read through neos.v_activity (018) as neos_desk; the a2a hand-offs (C6) are
-  // the platform's own record (neos.activity kind 'a2a', from a2a.requested). neos.activity's step rows (step.mirror)
-  // are no longer read by the desk: they stay only for the Matrix bridge's typed notes until presence moves (S4/S5).
+  // ── the desk's activity (v3 S3, S9) ─────────────────────────────────────────
+  // A job's steps are the app's own rows, read through neos.v_activity (018) as neos_desk. A hand-off to another app is
+  // one of those steps ("Handed to …", written by the app's gate before it posts the typed task in the bus room).
 
   /** A step's id on the feed: stable and numeric (a step row has no platform id; the view names it by app, job, seq). */
   private static stepId(app: string, job: string, seq: number): number {
     return parseInt(createHash('md5').update(`${app}:${job}:${seq}`).digest('hex').slice(0, 12), 16);
   }
 
-  /** The company's feed, newest first: steps from every app, and a2a hand-offs. */
+  /** The company's feed, newest first: steps from every app. */
   async activity(companyId: string, o: { kind?: string | null; app?: string | null; limit?: number } = {}) {
     const limit = Math.max(1, Math.min(o.limit ?? 100, 500));
     const steps = await this.boards.deskRead(companyId, async (c) =>
@@ -1264,47 +874,60 @@ export class Platform {
         )
       ).rows,
     );
-    const a2a =
-      o.kind && o.kind !== 'a2a'
-        ? []
-        : (
-            await this.db.query<{ id: string; app_key: string; job_id: string; seq: number | null; kind: string; summary: string; at: Date }>(
-              `select id, app_key, job_id, seq, kind, summary, at from neos.activity
-                where company_id = $1 and kind = 'a2a' and ($2::text is null or app_key = $2) order by at desc, id desc limit $3`,
-              [companyId, o.app ?? null, limit],
-            )
-          ).rows;
-    return [...steps.map((x) => ({ id: Platform.stepId(x.app_key, x.job_id, x.seq), ...x })), ...a2a.map((x) => ({ ...x, id: Number(x.id) }))]
-      .sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime() || b.id - a.id)
-      .slice(0, limit);
+    return steps.map((x) => ({ id: Platform.stepId(x.app_key, x.job_id, x.seq), ...x }));
   }
 
-  /** One job's record, oldest first: its steps and the hand-offs it made. */
+  /** One job's record, oldest first: its steps. */
   async jobActivity(companyId: string, jobId: string) {
     const steps = await this.boards.deskRead(companyId, async (c) =>
       (await c.query('select seq, kind, summary, created_at as at from neos.v_activity where company_id = $1 and job_id = $2', [companyId, jobId])).rows,
     );
-    const a2a = (await this.db.query("select seq, kind, summary, at from neos.activity where company_id = $1 and job_id = $2 and kind = 'a2a'", [companyId, jobId])).rows;
-    return [...steps, ...a2a].sort((a, b) => new Date(a.at).getTime() - new Date(b.at).getTime() || (a.seq ?? Infinity) - (b.seq ?? Infinity));
+    return steps.sort((a, b) => new Date(a.at).getTime() - new Date(b.at).getTime() || (a.seq ?? Infinity) - (b.seq ?? Infinity));
   }
 
-  /** For the task list, read once: open questions per task, and steps (+ hand-offs) per app job. */
+  /** For the task list, read once: open questions per task, and steps per app job. */
   async deskCounts(companyId: string): Promise<{ questions: Map<string, number>; steps: Map<string, number> }> {
     const { q, s } = await this.boards.deskRead(companyId, async (c) => ({
       q: (await c.query<{ task_id: string; n: number }>('select task_id, count(*)::int as n from neos.v_open_questions where company_id = $1 and task_id is not null group by task_id', [companyId])).rows,
       s: (await c.query<{ app_key: string; job_id: string; n: number }>('select app_key, job_id, count(*)::int as n from neos.v_activity where company_id = $1 group by app_key, job_id', [companyId])).rows,
     }));
-    const a2a = (await this.db.query<{ app_key: string; job_id: string; n: number }>("select app_key, job_id, count(*)::int as n from neos.activity where company_id = $1 and kind = 'a2a' group by app_key, job_id", [companyId])).rows;
     const steps = new Map<string, number>();
-    for (const r of [...s, ...a2a]) steps.set(`${r.app_key}:${r.job_id}`, (steps.get(`${r.app_key}:${r.job_id}`) ?? 0) + r.n);
+    for (const r of s) steps.set(`${r.app_key}:${r.job_id}`, (steps.get(`${r.app_key}:${r.job_id}`) ?? 0) + r.n);
     return { questions: new Map(q.map((r) => [String(r.task_id), r.n])), steps };
   }
 
+  /**
+   * v3 §8 "one audit trail": what every app carried out, from each app's own `operations` (neos.v_operations, 024, as
+   * the desk), newest first, shaped like the platform's audit rows (action `app.operation`). `before` pages by time.
+   */
+  async operations(companyId: string, o: { app?: string | null; before?: Date | null; limit?: number } = {}) {
+    const limit = Math.max(1, Math.min(o.limit ?? 100, 500));
+    const rows = await this.boards.deskRead(companyId, async (c) =>
+      (
+        await c.query(
+          `select app_key, id, job_id, caller, ability_key, idempotency_key, outcome, reason, request_checksum, result_checksum, at
+             from neos.v_operations where company_id = $1 and ($2::text is null or app_key = $2) and ($3::timestamptz is null or at < $3)
+            order by at desc, id desc limit $4`,
+          [companyId, o.app ?? null, o.before ?? null, limit],
+        )
+      ).rows,
+    );
+    return rows.map((r) => ({
+      id: parseInt(createHash('md5').update(`${r.app_key}:op:${r.id}`).digest('hex').slice(0, 12), 16),
+      at: r.at,
+      actor: r.caller,
+      app_key: r.app_key,
+      action: 'app.operation',
+      ability_key: r.ability_key,
+      idem_key: r.idempotency_key,
+      request_id: null,
+      outcome: r.outcome,
+      detail: { job_id: r.job_id, caller: r.caller, ability_key: r.ability_key, idempotency_key: r.idempotency_key, outcome: r.outcome, reason: r.reason, request_checksum: r.request_checksum, result_checksum: r.result_checksum },
+    }));
+  }
   // ── questions (WP §8 `ask` / `answer`) ─────────────────────────────────────
   // v3 S3: a question is the app's own input wait. The desk reads it through neos.v_questions / neos.v_open_questions
-  // (021, as neos_desk) and answers it through <app>.answer_wait() (template t013). A question's id is its wait id;
-  // neos.questions is only the Matrix bridge's and the conversation's projection (a new row's id is its wait id too,
-  // and an id from before the move maps to its wait).
+  // (021, as neos_desk) and answers it through <app>.answer_wait() (template t013). A question's id is its wait id.
 
   /**
    * The desk's question rows (the view's columns), with what only the platform knows: the task a person started the
@@ -1419,14 +1042,10 @@ export class Platform {
     return rows.filter((x) => x.root_task_id === rootTaskId).sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())[0] ?? null;
   }
 
-  /** The question an id names, from the desk's view: its wait id, or (from before v3 S3) a neos.questions id. */
+  /** The question an id names, from the desk's view (its wait id). */
   private async questionFor(questionId: string, companyId: string): Promise<any | null> {
     if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(questionId)) return null;
-    const hit = (await this.questionRows(companyId, 'id = $2', [questionId]))[0];
-    if (hit) return hit;
-    const legacy = (await this.db.query<{ app_key: string; wait_id: string }>('select app_key, wait_id from neos.questions where id = $1 and company_id = $2', [questionId, companyId])).rows[0];
-    if (!legacy) return null;
-    return (await this.questionRows(companyId, 'app_key = $2 and wait_id = $3', [legacy.app_key, legacy.wait_id]))[0] ?? null;
+    return (await this.questionRows(companyId, 'id = $2', [questionId]))[0] ?? null;
   }
 
   /**
@@ -1443,8 +1062,6 @@ export class Platform {
   ): Promise<{ status: 'ANSWERED'; question_id: string; job_id: string; task_id: string | null }> {
     const q = await this.questionFor(questionId, who.company_id);
     if (!q) throw new PlatformError(404, 'not_found', 'no such question');
-    const markStale = (why: string) =>
-      this.db.query(`update neos.questions set status = 'STALE', last_error = $3, updated_at = now() where app_key = $1 and wait_id = $2 and status = 'OPEN'`, [q.app_key, q.wait_id, why.slice(0, 500)]);
     if (q.status !== 'OPEN') throw new PlatformError(409, 'stale', `this question is ${String(q.status).toLowerCase()}; it can no longer be answered`);
     const answeredBy = who.user_id ? `user:${who.user_id}` : who.relay;
     if (!answeredBy) throw new PlatformError(400, 'bad_request', 'who answered is required');
@@ -1460,24 +1077,15 @@ export class Platform {
       const m = /^(not_found|bad_answer|bad_request|not_their_wait): (.*)$/s.exec(String(err.message ?? ''));
       if (!m) throw e;
       const [, code, msg] = m as unknown as [string, string, string];
-      if (code === 'not_found') {
-        await markStale(msg);
-        throw new PlatformError(409, 'stale', 'this question is no longer open');
-      }
+      if (code === 'not_found') throw new PlatformError(409, 'stale', 'this question is no longer open');
       if (code === 'not_their_wait') throw new PlatformError(403, code, msg);
       throw new PlatformError(400, code === 'bad_request' ? 'bad_request' : 'bad_answer', msg);
     }
     if (res.status === 'stale') {
-      await markStale(res.reason ?? 'stale');
       throw new PlatformError(409, 'stale', res.reason ?? 'this question is no longer open');
     }
     const actor = who.user_id ? `user:${who.user_id}` : `chat:${who.relay}`;
     await tx(this.db, async (c) => {
-      // The bridge's and the conversation's projection, in step (the question.answered event brings it too).
-      await c.query(
-        `update neos.questions set status = 'ANSWERED', answers = $3, answered_by = $4, answered_via = $5, answered_at = now(), updated_at = now() where app_key = $1 and wait_id = $2 and status in ('OPEN', 'STALE')`,
-        [q.app_key, q.wait_id, JSON.stringify(checked.answers), answeredBy, via],
-      );
       if (q.task_id) await c.query(`update neos.tasks set status = 'ACKNOWLEDGED', updated_at = now() where id = $1 and status = 'NEEDS_INPUT'`, [q.task_id]);
       if (!res.idempotent) {
         const root = q.root_task_id ? (await c.query<{ conversation_id: string | null }>('select conversation_id from neos.tasks where id = $1', [q.root_task_id])).rows[0] : null;
@@ -1517,7 +1125,7 @@ export class Platform {
       const name = (await this.db.query<{ name: string }>('select name from neos.users where id = $1', [user.id])).rows[0]?.name ?? 'a person';
       await this.say(conversationId, user.company_id, 'neuralchat', `Answered by ${name}: ${Object.entries(checked.answers).map(([k, v]) => `${k}: ${String(v)}`).join('; ').slice(0, 1000)}`, 'notice', q.root_task_id);
       await this.db.query(`update neos.tasks set status = 'ACKNOWLEDGED', updated_at = now() where id = $1 and status = 'NEEDS_INPUT'`, [matrixTask.id]);
-      await this.gateway.audit({ company_id: user.company_id, actor: `user:${user.id}`, app_key: q.app_key, action: 'question.answered', outcome: 'conversation:matrix', detail: { question_id: q.id, wait_id: q.wait_id, job_id: q.job_id } });
+      await this.audit({ company_id: user.company_id, actor: `user:${user.id}`, app_key: q.app_key, action: 'question.answered', outcome: 'conversation:matrix', detail: { question_id: q.id, wait_id: q.wait_id, job_id: q.job_id } });
       return { ...base, status: 'ANSWERED', answered: true };
     }
     try {
@@ -1536,25 +1144,67 @@ export class Platform {
     const t = (await this.db.query('select id, app_key, job_id from neos.tasks where id = $1 and company_id = $2', [taskId, user.company_id])).rows[0];
     if (!t) throw new PlatformError(404, 'not_found', 'no such task');
     if (!t.job_id) throw new PlatformError(404, 'not_found', 'this task has no job yet');
-    const res = await this.gateway.call({ caller: 'platform', app: t.app_key, endpoint: 'jobs.transcript', company_id: user.company_id, query: { job_id: t.job_id } });
-    if (res.status !== 200) throw new PlatformError(res.status === 404 ? 404 : 502, res.body?.error?.code ?? 'unavailable', res.body?.error?.message ?? `${t.app_key} answered ${res.status}`);
-    await this.gateway.audit({ company_id: user.company_id, actor: `user:${user.id}`, app_key: t.app_key, action: 'job.transcript_read', outcome: 'read', detail: { task_id: t.id, job_id: t.job_id } });
-    return { task_id: t.id, app: t.app_key, ...res.body };
+    // v3 S9: read on the app's own rows through <app>.job_transcript() (template t018), as the desk — no gateway.
+    const out = await this.boards
+      .deskCall<Record<string, unknown> | null>(t.app_key, user.company_id, 'job_transcript', 'uuid', [t.job_id], `user:${user.id}`)
+      .catch((e) => {
+        throw deskError(e);
+      });
+    if (!out) throw new PlatformError(404, 'not_found', 'no such job');
+    await this.audit({ company_id: user.company_id, actor: `user:${user.id}`, app_key: t.app_key, action: 'job.transcript_read', outcome: 'read', detail: { task_id: t.id, job_id: t.job_id } });
+    return { task_id: t.id, app: t.app_key, ...out };
+  }
+
+  /** v3 S9: an app's schedules for the company, read through <app>.list_schedules() (template t018) as the desk. */
+  async listSchedules(companyId: string, app: string): Promise<unknown[]> {
+    await this.assertInstalled(app, companyId);
+    return this.boards.deskCall<unknown[]>(app, companyId, 'list_schedules', '', []).catch((e) => {
+      throw deskError(e);
+    });
+  }
+
+  /**
+   * v3 S9: an admin sets a schedule through <app>.set_schedule() (template t010) as the desk, naming the admin as the
+   * requester of every run; the rule is checked by the schedules table (the same rule the L3 route checked).
+   */
+  async setSchedule(user: { id: string; company_id: string }, app: string, b: { id?: string; ask: string; rule: unknown; enabled?: boolean }): Promise<unknown> {
+    await this.assertInstalled(app, user.company_id);
+    const bad = scheduleProblem(b);
+    if (bad) throw new PlatformError(400, 'bad_request', bad);
+    const row = await this.boards
+      .deskCall<Record<string, unknown> | null>(app, user.company_id, 'set_schedule', 'uuid, text, text, jsonb, boolean', [b.id ?? null, b.ask, `user:${user.id}`, JSON.stringify(b.rule), b.enabled ?? true], `user:${user.id}`)
+      .catch((e) => {
+        throw deskError(e);
+      });
+    if (!row) throw new PlatformError(404, 'not_found', 'no such schedule');
+    const body = { ...(b.id ? { id: b.id } : {}), ask: b.ask, requester: `user:${user.id}`, rule: b.rule, ...(typeof b.enabled === 'boolean' ? { enabled: b.enabled } : {}) };
+    await this.audit({ company_id: user.company_id, actor: `user:${user.id}`, app_key: app, action: 'schedule.set', outcome: String(row.id ?? ''), detail: body });
+    return row;
+  }
+
+  /**
+   * v3 S9 · a screen's read (a block source) for a signed-in person of the company: on the database, as the desk,
+   * through <app>.block_read(ability, args) (template t018) — which runs only SQL the app declared in its migration file
+   * (<app>.declared_reads), under the company's row-level security. The app's own read handler runs the same function.
+   */
+  async blockRead(user: { id: string; company_id: string }, app: string, ability: string, args: unknown): Promise<unknown> {
+    if (!/^[a-z][a-z0-9_]{0,40}$/.test(app)) throw new PlatformError(404, 'not_found', 'no such app');
+    await this.assertInstalled(app, user.company_id);
+    if (!args || typeof args !== 'object' || Array.isArray(args)) throw new PlatformError(400, 'bad_request', 'the read takes an object of arguments');
+    return this.boards.deskCall(app, user.company_id, 'block_read', 'text, jsonb', [ability, JSON.stringify(args)]).catch((e) => {
+      throw deskError(e);
+    });
   }
 
   // ── desk: a person's answer lands on the app's own row (v3 S2) ─────────────
   /**
    * The app and proposal a card id names, with the card as the desk shows it (neos.v_desk_cards). A card id is
-   * the app's proposal id (020); an id from before the move (a frozen neos.approvals row — say a desk tab left
-   * open across the deploy) maps to its proposal.
+   * the app's proposal id (020).
    */
   async cardFor(cardId: string, companyId: string): Promise<{ app_key: string; proposal_id: string; status: string; fingerprint: string; task_id: string | null } | null> {
     if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(cardId)) return null;
     const q = 'select app_key, proposal_id, status, fingerprint, task_id from neos.v_desk_cards where id = $1 and company_id = $2';
-    const hit = (await this.db.query(q, [cardId, companyId])).rows[0];
-    if (hit) return hit;
-    const legacy = (await this.db.query<{ proposal_id: string }>('select proposal_id from neos.approvals where id = $1 and company_id = $2', [cardId, companyId])).rows[0];
-    return legacy ? ((await this.db.query(q, [legacy.proposal_id, companyId])).rows[0] ?? null) : null;
+    return (await this.db.query(q, [cardId, companyId])).rows[0] ?? null;
   }
 
   /**
@@ -1576,7 +1226,7 @@ export class Platform {
     const role = user.role ?? (await this.db.query<{ role: string }>('select role from neos.users where id = $1 and company_id = $2', [user.id, user.company_id])).rows[0]?.role;
     const detail = { approval_id: card.proposal_id, app: card.app_key, fingerprint_seen: a.fingerprint_seen };
     const audit = (outcome: string, extra: Record<string, unknown> = {}) =>
-      this.gateway.audit({ company_id: user.company_id, actor: `user:${user.id}`, app_key: card.app_key, action: 'desk.answer', outcome, detail: { ...detail, ...extra } });
+      this.audit({ company_id: user.company_id, actor: `user:${user.id}`, app_key: card.app_key, action: 'desk.answer', outcome, detail: { ...detail, ...extra } });
     let out: { status: string; idempotent: boolean; refused?: string };
     try {
       out = await this.boards.answer(card.app_key, user.company_id, {
@@ -1621,333 +1271,12 @@ export class Platform {
     return { status: out.status, idempotent: out.idempotent, app_key: card.app_key, proposal_id: card.proposal_id };
   }
 
-  // ── outbox consumer ──────────────────────────────────────────────────────
-  async outboxTick(): Promise<number> {
-    const apps = await this.db.query<{ key: string }>("select key from neos.apps where status = 'active'");
-    let n = 0;
-    for (const { key } of apps.rows) n += await this.pullOutbox(key).catch((e) => (this.log('outbox pull failed', { key, e: String(e) }), 0));
-    return n;
-  }
-
-  /**
-   * Pull and apply one app's events. The cursor row is held for the whole
-   * pull (SKIP LOCKED), so two pulls — overlapping ticks or two platform
-   * processes — never apply the same events twice.
-   */
-  async pullOutbox(app: string): Promise<number> {
-    return tx(this.db, async (c) => {
-      const cur = await c.query<{ cursor: number }>('select cursor from neos.outbox_cursors where app_key = $1 for update skip locked', [app]);
-      if (!cur.rows[0]) return 0; // another pull holds it
-      const after = cur.rows[0].cursor;
-      const res = await this.gateway.call<{ events: OutboxEvent<any>[]; next_cursor: number }>({
-        caller: 'platform',
-        app,
-        endpoint: 'outbox.read',
-        company_id: null,
-        query: { after, limit: 200 },
-      });
-      if (res.status !== 200) throw new GatewayError(res.status, 'outbox', JSON.stringify(res.body));
-      const { events, next_cursor } = res.body;
-      if (!events.length) return 0;
-      for (const e of events) {
-        // Each event in its own savepoint: one bad event is parked, not allowed to stall the rest.
-        await c.query('savepoint ev');
-        try {
-          await this.consume(c, app, e);
-          await c.query('release savepoint ev');
-        } catch (err) {
-          await c.query('rollback to savepoint ev');
-          await c.query(
-            `insert into neos.outbox_dead_letters (app_key, event_id, company_id, event_type, payload, error) values ($1,$2,$3,$4,$5,$6) on conflict do nothing`,
-            [app, e.id, e.company_id, e.event_type, JSON.stringify(e.payload), String(err).slice(0, 1000)],
-          );
-          await c.query(`insert into neos.audit (company_id, actor, app_key, action, outcome, detail) values ($1, 'platform', $2, 'outbox.dead_letter', 'parked', $3)`, [
-            e.company_id,
-            app,
-            JSON.stringify({ event_id: e.id, event_type: e.event_type, error: String(err).slice(0, 300) }),
-          ]);
-          this.log('outbox event parked', { app, id: e.id, type: e.event_type, err: String(err) });
-        }
-      }
-      await c.query('update neos.outbox_cursors set cursor = $2, updated_at = now() where app_key = $1', [app, next_cursor]);
-      return events.length;
-    });
-  }
-
-  /** The task an event belongs to (by task id, or by job id for steps and executions). */
-  private async taskFor(c: PoolClient, app: string, p: { task_id?: string | null; job_id?: string | null }, companyId: string) {
-    const r = p.task_id
-      ? await c.query('select * from neos.tasks where id = $1 and app_key = $2 and company_id = $3', [p.task_id, app, companyId])
-      : await c.query('select * from neos.tasks where app_key = $1 and job_id = $2 and company_id = $3', [app, p.job_id, companyId]);
-    return r.rows[0] ?? null;
-  }
-
-  /** The room a job is mirrored to: the room it came from, else the company's app room. */
-  private async roomFor(c: PoolClient, companyId: string, app: string, task: { room_id?: string | null } | null): Promise<string | null> {
-    if (task?.room_id) return task.room_id;
-    const r = await c.query<{ room_id: string }>("select room_id from neos.rooms where company_id = $1 and app_key = $2 and kind = 'app' and status = 'active'", [companyId, app]);
-    return r.rows[0]?.room_id ?? null;
-  }
-
-  private async mirror(
-    c: PoolClient,
-    room: string | null,
-    m: { dedupe_key: string; kind: 'ack' | 'step' | 'card' | 'answer' | 'result' | 'notice'; body: string; approval_id?: string; fingerprint_shown?: string },
-  ): Promise<void> {
-    if (!room) return;
-    await c.query(
-      `insert into neos.room_messages (room_id, dedupe_key, kind, body, approval_id, fingerprint_shown) values ($1,$2,$3,$4,$5,$6)
-       on conflict (room_id, dedupe_key) do nothing`,
-      [room, m.dedupe_key, m.kind, m.body, m.approval_id ?? null, m.fingerprint_shown ?? null],
-    );
-  }
-
-  /**
-   * v3 S3: the DESK no longer depends on anything this consumer writes — its cards, questions and steps are the apps'
-   * own rows, read through neos.v_desk_cards / v_pending_approvals, neos.v_questions / v_open_questions and
-   * neos.v_activity. What is still consumed, and for whom (until presence moves into the NEOP, S4/S5, and S9):
-   *   proposal.created / .resolved / .expired / .executed — the Matrix bridge's room mirrors (room_messages: the card,
-   *     its answer, expiry, the proof), the conversation's "waiting" line and the task's WAITING/ACKNOWLEDGED status.
-   *   question.asked / .answered / .expired — neos.questions, now only the bridge's and the conversation's projection
-   *     (which DM a question was shown in, a reply to it, a follow-up in the conversation; client-sync.ts, typed.ts,
-   *     askTraced), the task's NEEDS_INPUT status, the conversation's question/expiry lines and the room mirror.
-   *   step.mirror — neos.activity step rows for the typed Matrix road's notes (bridge/typed.ts dueTypedOut) and the
-   *     room's step mirror. The desk's feed reads the steps from neos.v_activity instead.
-   *   operation.recorded — the audit trail's `app.operation` rows (/api/audit): no desk view replaces that page's
-   *     id-paged contract yet (S9 retires the gateway's audit with it).
-   *   a2a.requested — the a2a hand-off lines of the desk feed (the platform's own record; not an app step).
-   */
-  private async consume(c: PoolClient, app: string, e: OutboxEvent<any>): Promise<void> {
-    const p = e.payload;
-    const appName = (await c.query<{ name: string }>("select manifest->>'name' as name from neos.apps where key = $1", [app])).rows[0]?.name ?? app;
-    // v3 S5: a task NeuralChat posted in Matrix is driven by the app's typed events in its thread (neuralchat-matrix.ts),
-    // not by this consumer: its status, job, result and conversation lines are never written here.
-    const viaMatrix = async (x: { task_id?: string | null; job_id?: string | null }) => (await this.taskFor(c, app, x, e.company_id))?.road === 'matrix';
-    switch (e.event_type) {
-      case 'job.acknowledged': {
-        if (await viaMatrix(p)) break;
-        await c.query(
-          `update neos.tasks set job_id = $2, status = case when status = 'OPEN' then 'ACKNOWLEDGED' else status end, updated_at = now()
-            where id = $1 and app_key = $3 and company_id = $4`,
-          [p.task_id, p.job_id, app, e.company_id],
-        );
-        const task = await this.taskFor(c, app, p, e.company_id);
-        const text = `On it — ${appName} job ${String(p.job_id).slice(0, 8)}.`;
-        await this.say(task?.conversation_id ?? null, e.company_id, `app:${app}`, text, 'ack', task?.id ?? null, c);
-        await this.mirror(c, await this.roomFor(c, e.company_id, app, task), { dedupe_key: `ack:${p.job_id}`, kind: 'ack', body: text });
-        break;
-      }
-      case 'proposal.created': {
-        // v3 S2: the card is the app's proposal row (neos.v_desk_cards); the platform keeps no copy. Its id is the proposal id.
-        const pc = p as ProposalCreatedPayload;
-        const task = await this.taskFor(c, app, pc, e.company_id);
-        if (task?.road === 'matrix') break;
-        if (task) await c.query(`update neos.tasks set status = 'WAITING', updated_at = now() where id = $1 and status in ('OPEN','ACKNOWLEDGED')`, [task.id]);
-        await this.say(task?.conversation_id ?? null, e.company_id, `app:${app}`, `Waiting for a yes on your desk: ${pc.card.what}`, 'waiting', task?.id ?? null, c);
-        await this.mirror(c, await this.roomFor(c, e.company_id, app, task), {
-          dedupe_key: `card:${pc.proposal_id}`,
-          kind: 'card',
-          body: roomText.card(appName, pc),
-          approval_id: pc.proposal_id,
-          fingerprint_shown: pc.fingerprint,
-        });
-        break;
-      }
-      case 'proposal.resolved': {
-        const task = await this.taskFor(c, app, p, e.company_id);
-        await this.mirror(c, await this.roomFor(c, e.company_id, app, task), { dedupe_key: `resolved:${p.proposal_id}:${p.decision}`, kind: 'answer', body: roomText.resolved(p) });
-        break;
-      }
-      case 'proposal.expired': {
-        const task = await this.taskFor(c, app, p, e.company_id);
-        await this.mirror(c, await this.roomFor(c, e.company_id, app, task), { dedupe_key: `expired:${p.proposal_id}`, kind: 'notice', body: `Proposal ${String(p.proposal_id).slice(0, 8)} expired: nobody answered in time. Nothing was done.` });
-        break;
-      }
-      case 'proposal.executed': {
-        await c.query(`insert into neos.audit (company_id, actor, app_key, action, outcome, detail) values ($1, $2, $3, 'proposal.executed', $4, $5)`, [
-          e.company_id,
-          `app:${app}`,
-          app,
-          p.outcome,
-          JSON.stringify(p),
-        ]);
-        const task = await this.taskFor(c, app, p, e.company_id);
-        // The job is working again until it reports.
-        if (task && task.road !== 'matrix') await c.query(`update neos.tasks set status = 'ACKNOWLEDGED', updated_at = now() where id = $1 and status = 'WAITING'`, [task.id]);
-        await this.mirror(c, await this.roomFor(c, e.company_id, app, task), {
-          dedupe_key: `executed:${p.proposal_id}:${p.reconciled ? 'r' : 'x'}`,
-          kind: 'notice',
-          body: roomText.executed(p),
-        });
-        break;
-      }
-      case 'step.mirror': {
-        await c.query('insert into neos.activity (company_id, app_key, job_id, seq, kind, summary) values ($1,$2,$3,$4,$5,$6) on conflict do nothing', [
-          e.company_id,
-          app,
-          p.job_id,
-          p.seq,
-          p.kind,
-          p.summary,
-        ]);
-        if (!['received', 'report', 'failed', 'proposal'].includes(p.kind)) {
-          const task = await this.taskFor(c, app, p, e.company_id);
-          await this.mirror(c, await this.roomFor(c, e.company_id, app, task), { dedupe_key: `step:${p.job_id}:${p.seq}`, kind: 'step', body: `· ${p.summary}` });
-        }
-        break;
-      }
-      case 'a2a.requested': {
-        // C6: a2a calls are mirrored into the desk activity feed (there is no bus room).
-        const target = (await c.query<{ ask: string; app_key: string; name: string | null }>(
-          `select t.ask, t.app_key, a.manifest->>'name' as name from neos.tasks t left join neos.apps a on a.key = t.app_key where t.id = $1 and t.company_id = $2`,
-          [p.task_id, e.company_id],
-        )).rows[0];
-        const who = target?.name ?? p.target ?? 'another app';
-        const summary = `${appName} asked ${who} (task ${String(p.task_id).slice(0, 8)})${target ? `: ${target.ask.slice(0, 300)}` : ''}`;
-        await c.query(
-          `insert into neos.activity (company_id, app_key, job_id, seq, kind, summary, dedupe_key) values ($1,$2,$3,null,'a2a',$4,$5)
-           on conflict (app_key, dedupe_key) where dedupe_key is not null do nothing`,
-          [e.company_id, app, p.job_id, summary, `a2a:${p.task_id}`],
-        );
-        break;
-      }
-      case 'card.raised': {
-        const task = await this.taskFor(c, app, p, e.company_id);
-        if (task?.road === 'matrix') break;
-        const text = `${p.kind === 'question' ? 'Question' : 'Heads-up'}: ${p.text}`;
-        await c.query('insert into neos.conversation_messages (company_id, conversation_id, task_id, author, body, kind) values ($1,$2,$3,$4,$5,$6)', [
-          e.company_id,
-          task?.conversation_id ?? null,
-          task?.id ?? null,
-          `app:${app}`,
-          text,
-          'card',
-        ]);
-        await this.mirror(c, await this.roomFor(c, e.company_id, app, task), { dedupe_key: `cardraised:${e.id}`, kind: 'notice', body: text });
-        break;
-      }
-      case 'question.asked': {
-        // WP §8 `ask`: the job waits on a person's answer. Shown where the person who started the chain is:
-        // their conversation, the desk, their DM (client road). An app's hand-off is answered by that person,
-        // never by the calling app (WP §9: another app's words are information, and only a person answers for a person).
-        const qp = p as QuestionAskedPayload;
-        const task = await this.taskFor(c, app, qp, e.company_id);
-        const root = task ? await this.rootTask(task.id, c) : null;
-        const askedOf = root?.requester?.startsWith('user:') ? root.requester.slice(5) : null;
-        const ins = await c.query<{ id: string }>(
-          `insert into neos.questions (id, company_id, app_key, task_id, root_task_id, job_id, wait_id, text, why, fields, due_at, asked_of)
-           values ($6,$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) on conflict do nothing returning id`,
-          [e.company_id, app, task?.id ?? null, root?.id ?? task?.id ?? null, qp.job_id, qp.wait_id, qp.text, qp.why, JSON.stringify(qp.fields), qp.due_at, askedOf],
-        );
-        if (!ins.rows[0]) break;
-        if (task?.road === 'matrix' || (root && root.id !== task?.id && (await c.query("select 1 from neos.tasks where id = $1 and road = 'matrix'", [root.id])).rowCount)) break; // NeuralChat reads the typed ask
-        if (task) await c.query(`update neos.tasks set status = 'NEEDS_INPUT', updated_at = now() where id = $1 and status in ('OPEN', 'ACKNOWLEDGED', 'WAITING')`, [task.id]);
-        const body = roomText.question(appName, qp);
-        await this.say(root?.conversation_id ?? task?.conversation_id ?? null, e.company_id, `app:${app}`, body, 'card', root?.id ?? task?.id ?? null, c);
-        await this.mirror(c, await this.roomFor(c, e.company_id, app, task), { dedupe_key: `question:${qp.wait_id}`, kind: 'notice', body });
-        break;
-      }
-      case 'question.answered': {
-        // Every road ends here too (e.g. an answer through the NEOS v1 bridge): the app's wait is the truth.
-        const u = await c.query<{ task_id: string | null }>(
-          `update neos.questions set status = 'ANSWERED', answers = $3, answered_by = $4, answered_via = $5, answered_at = coalesce(answered_at, now()), updated_at = now()
-            where app_key = $1 and wait_id = $2 and status in ('OPEN', 'STALE') returning task_id`,
-          [app, p.wait_id, JSON.stringify(p.answers ?? {}), p.answered_by, p.via ?? null],
-        );
-        for (const r of u.rows) if (r.task_id) await c.query(`update neos.tasks set status = 'ACKNOWLEDGED', updated_at = now() where id = $1 and status = 'NEEDS_INPUT' and road = 'gateway'`, [r.task_id]);
-        break;
-      }
-      case 'question.expired': {
-        const u = await c.query<{ task_id: string | null; root_task_id: string | null; text: string }>(
-          `update neos.questions set status = 'EXPIRED', updated_at = now() where app_key = $1 and wait_id = $2 and status = 'OPEN' returning task_id, root_task_id, text`,
-          [app, p.wait_id],
-        );
-        for (const r of u.rows) {
-          if (r.task_id) await c.query(`update neos.tasks set status = 'ACKNOWLEDGED', updated_at = now() where id = $1 and status = 'NEEDS_INPUT' and road = 'gateway'`, [r.task_id]);
-          const root = r.root_task_id ? (await c.query<{ conversation_id: string | null; road: string }>('select conversation_id, road from neos.tasks where id = $1', [r.root_task_id])).rows[0] : null;
-          if (root?.road === 'matrix') continue; // the app's thread says what happens next
-          await this.say(root?.conversation_id ?? null, e.company_id, `app:${app}`, `Nobody answered in time: "${r.text.slice(0, 300)}". ${appName} will report without it.`, 'notice', r.root_task_id, c);
-        }
-        break;
-      }
-      case 'operation.recorded':
-        await c.query(
-          `insert into neos.audit (company_id, actor, app_key, action, ability_key, idem_key, outcome, detail) values ($1,$2,$3,'app.operation',$4,$5,$6,$7)`,
-          [e.company_id, p.caller, app, p.ability_key, p.idempotency_key, p.outcome, JSON.stringify(p)],
-        );
-        break;
-      case 'task.completed':
-      case 'task.failed': {
-        const result = p.result as TaskResult;
-        const task = await this.taskFor(c, app, p, e.company_id);
-        if (task?.road === 'matrix') break; // NeuralChat reads the typed done in the thread
-        if (task) {
-          const status = result.outcome === 'cancelled' ? 'CANCELLED' : e.event_type === 'task.completed' ? 'COMPLETED' : 'FAILED';
-          await c.query(`update neos.tasks set status = $2, result = $3, updated_at = now() where id = $1`, [task.id, status, JSON.stringify(result)]);
-          // A question the finished job still had open can no longer be answered.
-          await c.query(`update neos.questions set status = 'STALE', last_error = 'the job ended', updated_at = now() where task_id = $1 and status = 'OPEN'`, [task.id]);
-          // (8) Conversations gets the result, typed, from the finished task.
-          await c.query('insert into neos.conversation_messages (company_id, conversation_id, task_id, author, body, kind) values ($1,$2,$3,$4,$5,$6)', [
-            e.company_id,
-            task.conversation_id,
-            task.id,
-            `app:${app}`,
-            result.summary,
-            'result',
-          ]);
-        }
-        // (7.9) The room gets the same typed result: what it did, what changed, what it could not do.
-        await this.mirror(c, await this.roomFor(c, e.company_id, app, task), { dedupe_key: `result:${p.job_id}`, kind: 'result', body: roomText.result(appName, result) });
-        break;
-      }
-      default:
-        break;
-    }
-  }
-
-  // ── dead letters (R12) ────────────────────────────────────────────────────
-  async deadLetters(companyId: string) {
-    const r = await this.db.query('select app_key, event_id, event_type, error, at, replayed_at from neos.outbox_dead_letters where company_id = $1 order by at desc limit 200', [companyId]);
-    return r.rows;
-  }
-
-  /** Re-apply a parked event after the platform bug is fixed; it is marked, never deleted. */
-  async replayDeadLetter(companyId: string, app: string, eventId: number): Promise<void> {
-    await tx(this.db, async (c) => {
-      const d = (await c.query('select * from neos.outbox_dead_letters where app_key = $1 and event_id = $2 and company_id = $3 for update', [app, eventId, companyId])).rows[0];
-      if (!d) throw new PlatformError(404, 'not_found', 'no such dead letter');
-      if (d.replayed_at) throw new PlatformError(409, 'already_replayed', 'already replayed');
-      await c.query('savepoint replay');
-      try {
-        await this.consume(c, app, { id: d.event_id, company_id: d.company_id, event_type: d.event_type, payload: d.payload, created_at: d.at });
-      } catch (e) {
-        await c.query('rollback to savepoint replay');
-        throw new PlatformError(409, 'replay_failed', `still fails: ${String(e).slice(0, 300)}`);
-      }
-      await c.query('update neos.outbox_dead_letters set replayed_at = now() where app_key = $1 and event_id = $2', [app, eventId]);
-      await c.query(`insert into neos.audit (company_id, actor, app_key, action, outcome, detail) values ($1, 'platform', $2, 'outbox.replayed', 'ok', $3)`, [
-        companyId,
-        app,
-        JSON.stringify({ event_id: eventId }),
-      ]);
-    });
-  }
-
-  /** Tell each app what the platform has durably applied, so it can prune (R11). */
-  async ackOutboxes(): Promise<void> {
-    const rows = (await this.db.query<{ app_key: string; cursor: number }>("select c.app_key, c.cursor from neos.outbox_cursors c join neos.apps a on a.key = c.app_key where a.status = 'active' and c.cursor > 0")).rows;
-    for (const r of rows) {
-      await this.gateway
-        .call({ caller: 'platform', app: r.app_key, endpoint: 'outbox.ack', company_id: null, body: { cursor: Number(r.cursor) }, idem_key: `ack:${r.app_key}:${r.cursor}` })
-        .catch((e) => this.log('outbox ack failed', { app: r.app_key, e: String(e) }));
-    }
-  }
-
   async retention(): Promise<void> {
-    await this.db.query(`delete from neos.gateway_ledger where created_at < now() - interval '30 days'`);
+    // v3 S9: nothing of the gateway's is kept any more; NeuralChat's event dedupe needs a few days, not forever.
+    await this.db.query(`delete from neos.neuralchat_events where received_at < now() - interval '30 days'`).catch(() => {});
   }
 
-  /** Prometheus: gateway counters/latency plus platform state read at scrape time. */
+  /** Prometheus: platform state read at scrape time (tasks, the desk's cards, model spend). */
   async renderMetrics(): Promise<string> {
     const q = async (sql: string) => (await this.db.query(sql)).rows;
     const g = [
@@ -1959,7 +1288,12 @@ export class Platform {
         'gauge',
         (await q("select app_key, coalesce(avg(extract(epoch from decided_at - created_at)), 0)::float as s from neos.v_desk_cards where decided_at > now() - interval '7 days' group by 1")).map((r) => ({ labels: { app: r.app_key }, value: r.s })),
       ),
-      Metrics.lines('neop_dead_letters', 'Parked outbox events not yet replayed', 'gauge', (await q('select app_key, count(*)::int as n from neos.outbox_dead_letters where replayed_at is null group by 1')).map((r) => ({ labels: { app: r.app_key }, value: r.n }))),
+      Metrics.lines(
+        'neop_tasks_unacknowledged',
+        'Tasks posted in Matrix that no app has acknowledged yet',
+        'gauge',
+        (await q("select app_key, count(*)::int as n from neos.tasks where status = 'OPEN' and job_id is null group by 1")).map((r) => ({ labels: { app: r.app_key }, value: r.n })),
+      ),
       Metrics.lines(
         'neop_llm_spend_usd_today',
         'Model spend today per company and app (USD)',
@@ -1968,69 +1302,11 @@ export class Platform {
       ),
       Metrics.lines('neop_llm_refused_total', 'Model calls refused on budget', 'counter', (await q("select app_key, count(*)::int as n from neos.llm_usage where outcome = 'refused_budget' group by 1")).map((r) => ({ labels: { app: r.app_key }, value: r.n }))),
     ];
-    return (await this.gateway.metrics.render()) + g.join('\n') + '\n';
-  }
-
-  // ── gateway key rotation (R10), durable ──────────────────────────────────
-  /**
-   * Publish a new signing key now and schedule its activation in the database, so a
-   * restart inside the window (verifiers' JWKS caches refreshing) still activates it on
-   * time: whichever process holds the keyring activates it on its next tick.
-   */
-  async rotateGatewayKey(by: string, activateAfterMs = 120_000): Promise<{ next: string; activate_at: string }> {
-    const cur = this.gateway.keys.active;
-    await this.db.query(`insert into neos.gateway_keys (kid, state, activated_at) values ($1, 'active', now()) on conflict (kid) do nothing`, [cur.kid]);
-    const pending = await this.db.query(`select kid from neos.gateway_keys where state = 'next'`);
-    if (pending.rowCount) throw new PlatformError(409, 'rotation_in_progress', `key ${pending.rows[0].kid} is already waiting to activate`);
-    const k = await this.gateway.keys.rotate();
-    const r = await this.db.query<{ activate_at: Date }>(
-      `insert into neos.gateway_keys (kid, state, activate_at) values ($1, 'next', now() + ($2 || ' milliseconds')::interval) returning activate_at`,
-      [k.kid, String(Math.max(0, Math.round(activateAfterMs)))],
-    );
-    await this.gateway.audit({ company_id: null, actor: by, action: 'gateway.key_published', outcome: k.kid, detail: { activate_after_ms: activateAfterMs } });
-    return { next: k.kid, activate_at: r.rows[0]!.activate_at.toISOString() };
-  }
-
-  /** Activate any published key whose time has come (runs on the worker tick and at start). */
-  async keysTick(): Promise<string | null> {
-    const due = (await this.db.query<{ kid: string }>(`select kid from neos.gateway_keys where state = 'next' and activate_at <= now() order by activate_at limit 1`)).rows[0];
-    if (!due) return null;
-    const ring = this.gateway.keys;
-    const k = ring.keys.find((x) => x.kid === due.kid);
-    if (!k) {
-      this.log('scheduled gateway key is not in this keyring; cannot activate it here', { kid: due.kid });
-      return null;
-    }
-    if (k.state === 'next') await ring.activate();
-    await tx(this.db, async (c) => {
-      await c.query(`update neos.gateway_keys set state = 'retired', retired_at = now() where state = 'previous'`);
-      await c.query(`update neos.gateway_keys set state = 'previous' where state = 'active' and kid <> $1`, [due.kid]);
-      await c.query(`update neos.gateway_keys set state = 'active', activated_at = now() where kid = $1`, [due.kid]);
-      await c.query(`insert into neos.audit (actor, action, outcome) values ('platform', 'gateway.key_activated', $1)`, [due.kid]);
-    });
-    return due.kid;
-  }
-
-  /** Stop publishing the previous key once every token it signed has expired (2× token TTL after activation). */
-  async retirePreviousGatewayKey(by: string, force = false): Promise<{ retired: string[] }> {
-    const act = (await this.db.query<{ age_s: number }>(`select extract(epoch from now() - activated_at)::float as age_s from neos.gateway_keys where state = 'active'`)).rows[0];
-    const minS = 2 * 60; // 2 × GATEWAY_TOKEN_TTL_S
-    if (!force && act && act.age_s < minS) throw new PlatformError(409, 'too_soon', `the active key signed its first token ${Math.round(act.age_s)} s ago; tokens from the previous key may still be live (wait ${minS} s)`);
-    const prev = this.gateway.keys.keys.filter((k) => k.state === 'previous').map((k) => k.kid);
-    await this.gateway.keys.retirePrevious();
-    await this.db.query(`update neos.gateway_keys set state = 'retired', retired_at = now() where state = 'previous'`);
-    await this.gateway.audit({ company_id: null, actor: by, action: 'gateway.key_retired', outcome: prev.join(',') || 'none', detail: { force } });
-    return { retired: prev };
-  }
-
-  async gatewayKeys() {
-    const rows = (await this.db.query('select kid, state, published_at, activate_at, activated_at, retired_at from neos.gateway_keys order by published_at')).rows;
-    return { keys: this.gateway.keys.keys.map((k) => ({ kid: k.kid, state: k.state, created_at: k.created_at, schedule: rows.find((r) => r.kid === k.kid) ?? null })) };
+    return (await this.metrics.render()) + g.join('\n') + '\n';
   }
 
   // ── lifecycle ────────────────────────────────────────────────────────────
   start(): void {
-    const t = { approvalsMs: 1_000, outboxMs: 1_000, tasksMs: 5_000, ...(this.opts.timings ?? {}) };
     const loop = (fn: () => Promise<unknown>, ms: number) => {
       let busy = false;
       this.timers.push(
@@ -2043,13 +1319,8 @@ export class Platform {
         }, ms),
       );
     };
-    loop(() => this.outboxTick(), t.outboxMs);
-    loop(() => this.tasksTick(), t.tasksMs);
-    if (this.neuralchat) loop(() => this.neuralchat!.tick(), t.neuralchatMs ?? 1_000);
-    loop(() => this.a2aResultsTick(), t.approvalsMs);
-    loop(() => this.notificationsTick(), t.approvalsMs);
-    loop(() => this.keysTick(), t.keysMs ?? 1_000);
-    loop(() => this.ackOutboxes(), 60_000);
+    // v3 S9: the only worker is NeuralChat's (resend what the homeserver did not take; fail what no app acknowledged).
+    if (this.neuralchat) loop(() => this.neuralchat!.tick(), this.opts.timings?.neuralchatMs ?? 1_000);
     loop(() => this.retention(), 3_600_000);
   }
 
@@ -2091,6 +1362,34 @@ export function doorFloor(m: Pick<Manifest, 'doors'> | undefined | null, door: s
 
 export function hashSecret(s: string): string {
   return createHash('sha256').update(s).digest('hex');
+}
+
+/**
+ * v3 S9: a refusal raised by one of an app's desk functions (message `<code>: …`, with its SQLSTATE) as the HTTP error
+ * the desk has always answered: bad argument 400, not found 404, not allowed 403, not possible now 409.
+ */
+export function deskError(e: any): PlatformError {
+  if (e instanceof PlatformError) return e;
+  if (e?.status && e?.code && typeof e.code === 'string' && !/^[0-9A-Z]{5}$/.test(e.code)) return new PlatformError(e.status, e.code, String(e.message ?? e));
+  const msg = String(e?.message ?? e);
+  const code = /^([a-z_]+):/.exec(msg)?.[1];
+  const status = e?.code === '22023' || e?.code === '23514' || e?.code === '22P02' ? 400 : e?.code === 'P0002' ? 404 : e?.code === '42501' ? 403 : e?.code === '55000' ? 409 : null;
+  if (status === null) return new PlatformError(502, 'app_unavailable', msg);
+  return new PlatformError(status, code ?? (status === 400 ? 'bad_request' : status === 404 ? 'not_found' : status === 403 ? 'denied' : 'conflict'), msg);
+}
+
+/** A schedule as a person sets it: {id?, ask, rule: {every, at, weekday?, day?}, enabled?} (the table checks it again). */
+export function scheduleProblem(b: any): string | null {
+  if (!b || typeof b !== 'object') return 'body required';
+  if (b.id !== undefined && b.id !== null && (typeof b.id !== 'string' || !/^[0-9a-f-]{36}$/i.test(b.id))) return 'id must be a uuid';
+  if (typeof b.ask !== 'string' || !b.ask.trim() || b.ask.length > 8000) return 'ask (1..8000 chars) required';
+  const r = b.rule;
+  if (!r || typeof r !== 'object' || !['day', 'week', 'month'].includes(r.every)) return "rule.every must be 'day', 'week' or 'month'";
+  if (typeof r.at !== 'string' || !/^([01][0-9]|2[0-3]):[0-5][0-9]$/.test(r.at)) return 'rule.at must be HH:MM (company time)';
+  if (r.every === 'week' && !(Number.isInteger(r.weekday) && r.weekday >= 1 && r.weekday <= 7)) return 'rule.weekday (1 = Monday … 7) required';
+  if (r.every === 'month' && !(Number.isInteger(r.day) && r.day >= 1 && r.day <= 31)) return 'rule.day (1..31) required';
+  if (b.enabled !== undefined && typeof b.enabled !== 'boolean') return 'enabled must be a boolean';
+  return null;
 }
 
 /** What a sealed vault secret is bound to: company-wide rows keep the pre-015 binding, so they still open. */

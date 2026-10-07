@@ -1,11 +1,12 @@
-// PRESENCE · the NEOP is on Matrix itself (WP v3 §8, §13 `src/presence`; V3 migration stage S4).
-// NEOP_PRESENCE chooses the road, per backend (default off: today's platform bridge keeps speaking for the app):
-//   off         nothing here runs; the platform's bridge (appservice or client road) is the app's voice.
+// PRESENCE · the NEOP is on Matrix itself (WP v3 §8, §13 `src/presence`; V3 migration stage S4). Mandatory since S9:
+// there is no platform bridge and no gateway, so this is the only way anything reaches the app. NEOP_PRESENCE chooses
+// the road, per backend (default client — the production road beside NeuralChat #143):
 //   appservice  this backend is the application service for @neop_<app>_.* (deploy/appservice.<app>.yaml): the
-//               homeserver pushes to /_matrix/app/v1 on APPSERVICE_PORT; it speaks as each company's name.
+//               homeserver pushes to /_matrix/app/v1 on APPSERVICE_PORT; it speaks as each company's name, in the
+//               app's rooms and the company's bus room (NEOP to NEOP).
 //   client      one ordinary account per company (NeuralChat #143's road): /sync from here, one reply per message.
 // Either way the ear is runner/inbound.ts, the mouth runner/mirror.ts, and everything is kept in this app's own
-// schema (template t012). The platform bridge must not also speak for the app (the RUNBOOK's switch steps).
+// schema (template t012).
 
 import { readFileSync } from 'node:fs';
 import { serve, type ServerType } from '@hono/node-server';
@@ -17,9 +18,10 @@ import { Bus } from '../runner/bus.ts';
 import { appserviceRoutes, AppserviceTransport, type AppserviceConfig } from './appservice.ts';
 import { DEFAULT_REPLY_DEADLINE_MS, PresenceClient, type ClientAccountConfig, type ClientOptions, type FetchLike } from './client.ts';
 import { claimInbound } from './events.ts';
+import { downloadMedia } from './files.ts';
 import { Identity, type InstallIdentity, type Who } from './identity.ts';
 
-export type PresenceMode = 'off' | 'appservice' | 'client';
+export type PresenceMode = 'appservice' | 'client';
 
 export interface PresenceConfig {
   mode: PresenceMode;
@@ -39,16 +41,17 @@ function secret(env: NodeJS.ProcessEnv, name: string): string {
 }
 
 /**
- * NEOP_PRESENCE=off|appservice|client (default off) and the road's settings:
+ * NEOP_PRESENCE=appservice|client (default client; v3 S9: there is no "off") and the road's settings:
  *   NEOP_MATRIX_HOMESERVER_URL                                     both roads
  *   NEOP_MATRIX_HS_TOKEN[_FILE] · NEOP_MATRIX_AS_TOKEN[_FILE] · APPSERVICE_PORT (4104) · APPSERVICE_HOST     appservice
  *   NEOP_MATRIX_CLIENT_ACCOUNTS[_FILE]  [{"account":"@ledger:hs","token_file":"/run/secrets/matrix_ledger_token"}]   client
  *   MATRIX_REPLY_DEADLINE_MS (55000) · MATRIX_SYNC_TIMEOUT_MS (30000)
  */
 export function presenceConfigFromEnv(env: NodeJS.ProcessEnv = process.env): PresenceConfig {
-  const mode = String(env.NEOP_PRESENCE ?? 'off').trim().toLowerCase() || 'off';
-  if (!['off', 'appservice', 'client'].includes(mode)) throw new Error(`NEOP_PRESENCE must be off, appservice or client (got ${mode})`);
-  if (mode === 'off') return { mode: 'off' };
+  const mode = String(env.NEOP_PRESENCE ?? 'client').trim().toLowerCase() || 'client';
+  if (!['appservice', 'client'].includes(mode)) {
+    throw new Error(`NEOP_PRESENCE must be appservice or client (got ${mode}): the NEOP's own presence is the only road to it (v3 S9 removed the platform bridge and the gateway)`);
+  }
   const homeserverUrl = String(env.NEOP_MATRIX_HOMESERVER_URL ?? '').trim();
   if (!homeserverUrl) throw new Error(`NEOP_PRESENCE=${mode} needs NEOP_MATRIX_HOMESERVER_URL`);
   const num = (v: string | undefined) => (v && Number.isFinite(Number(v)) ? Number(v) : undefined);
@@ -137,6 +140,7 @@ export class Presence {
       send: (room, content, txnId) => t.sendEvent(room, account, 'm.room.message', content, txnId),
       sendEvent: (room, type, content, txnId) => t.sendEvent(room, account, type, content, txnId),
       mayApproveHere: (room, sender) => t.canApprove(room, account, sender),
+      download: (mxc, max) => downloadMedia({ homeserverUrl: t.cfg.homeserverUrl, token: t.cfg.asToken, asUser: account, fetchImpl: t.cfg.fetchImpl as any }, mxc, max),
     };
     this.roads.set(account, road);
     return road;
@@ -191,6 +195,12 @@ export class Presence {
     if ('outcome' in r) return r.outcome;
     // In the bus room only another app on the bus is anyone (v3 S6); elsewhere the room's people and allowed agents.
     const who: Who | null = r.inst.bus_room_id === ev.room_id ? await this.identity.busSender(r.road.companyId, ev.sender) : await this.identity.sender(r.road.companyId, ev.sender, 'appservice');
+    // Bus questions and terminal replies commit their dedupe receipt, thread, wait and evidence together.
+    // This must precede the generic eager receipt below, which is not a retryable inbox.
+    if (who && r.inst.bus_room_id === ev.room_id && this.inbound.bus) {
+      const result = await this.inbound.bus.receiveUpdate(r.road, ev, who);
+      if (result !== null) return result;
+    }
     const fresh = await claimInbound(
       this.core.runnerPool,
       this.core.key,

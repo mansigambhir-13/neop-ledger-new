@@ -1,0 +1,830 @@
+{
+  "checkpoint": 11,
+  "date": "2026-10-01",
+  "branch": "rebuild/fleet-v3",
+  "starting_commit": "1b2567e963ee5a48078266d682a3b3901fd75779",
+  "scope": "Existing internal-write authority and immutable authenticated draft-origin opt-ins for the remaining fifteen apps; no business approval or provider dispatch",
+  "full_regression": {
+    "path": "/Users/mansi.gambhir/Documents/Codex/2026-09-28/lo/work/fleet-v3-checkpoint-11-tests.json",
+    "sha256": "3412e3b105ead760962a601261a3fafaed7472a9d4f0b4cd49780eb511355769",
+    "passed": 2110,
+    "failed": 0,
+    "skipped": 2,
+    "files": 203,
+    "success": true,
+    "start_time": "2026-10-01T12:17:50.379Z",
+    "duration_seconds": 466.58
+  },
+  "focused": {
+    "path": "/Users/mansi.gambhir/Documents/Codex/2026-09-28/lo/work/fleet-guards-11-focused.json",
+    "sha256": "726eb06c7ee5a02a53de809e16f58b24cb7423a97def147316610c9a50676e68",
+    "passed": 273,
+    "failed": 0,
+    "skipped": 0,
+    "files": 22,
+    "success": true,
+    "start_time": "2026-10-01T12:16:23.694Z",
+    "duration_seconds": 61.03,
+    "overlaps_full_regression": true
+  },
+  "new_distinct_tests": 570,
+  "apps": [
+    {
+      "app": "clear",
+      "manifest_version": "0.2.0",
+      "authority_tests_passed": 18,
+      "origin_tests_passed": 19,
+      "populated_upgrade_tests_passed": 1,
+      "production_ready": false
+    },
+    {
+      "app": "reach",
+      "manifest_version": "0.2.0",
+      "authority_tests_passed": 18,
+      "origin_tests_passed": 19,
+      "populated_upgrade_tests_passed": 1,
+      "production_ready": false
+    },
+    {
+      "app": "desk",
+      "manifest_version": "0.2.0",
+      "authority_tests_passed": 18,
+      "origin_tests_passed": 19,
+      "populated_upgrade_tests_passed": 1,
+      "production_ready": false
+    },
+    {
+      "app": "hire",
+      "manifest_version": "0.2.0",
+      "authority_tests_passed": 18,
+      "origin_tests_passed": 19,
+      "populated_upgrade_tests_passed": 1,
+      "production_ready": false
+    },
+    {
+      "app": "deal",
+      "manifest_version": "0.2.0",
+      "authority_tests_passed": 18,
+      "origin_tests_passed": 19,
+      "populated_upgrade_tests_passed": 1,
+      "production_ready": false
+    },
+    {
+      "app": "grant",
+      "manifest_version": "0.2.0",
+      "authority_tests_passed": 18,
+      "origin_tests_passed": 19,
+      "populated_upgrade_tests_passed": 1,
+      "production_ready": false
+    },
+    {
+      "app": "shift",
+      "manifest_version": "0.2.0",
+      "authority_tests_passed": 18,
+      "origin_tests_passed": 19,
+      "populated_upgrade_tests_passed": 1,
+      "production_ready": false
+    },
+    {
+      "app": "sync",
+      "manifest_version": "0.2.0",
+      "authority_tests_passed": 18,
+      "origin_tests_passed": 19,
+      "populated_upgrade_tests_passed": 1,
+      "production_ready": false
+    },
+    {
+      "app": "post",
+      "manifest_version": "0.2.0",
+      "authority_tests_passed": 18,
+      "origin_tests_passed": 19,
+      "populated_upgrade_tests_passed": 1,
+      "production_ready": false
+    },
+    {
+      "app": "roster",
+      "manifest_version": "0.2.0",
+      "authority_tests_passed": 18,
+      "origin_tests_passed": 19,
+      "populated_upgrade_tests_passed": 1,
+      "production_ready": false
+    },
+    {
+      "app": "quote",
+      "manifest_version": "0.2.0",
+      "authority_tests_passed": 18,
+      "origin_tests_passed": 19,
+      "populated_upgrade_tests_passed": 1,
+      "production_ready": false
+    },
+    {
+      "app": "sign",
+      "manifest_version": "0.2.0",
+      "authority_tests_passed": 18,
+      "origin_tests_passed": 19,
+      "populated_upgrade_tests_passed": 1,
+      "production_ready": false
+    },
+    {
+      "app": "guard",
+      "manifest_version": "0.2.0",
+      "authority_tests_passed": 18,
+      "origin_tests_passed": 19,
+      "populated_upgrade_tests_passed": 1,
+      "production_ready": false
+    },
+    {
+      "app": "vet",
+      "manifest_version": "0.2.0",
+      "authority_tests_passed": 18,
+      "origin_tests_passed": 19,
+      "populated_upgrade_tests_passed": 1,
+      "production_ready": false
+    },
+    {
+      "app": "asset",
+      "manifest_version": "0.2.0",
+      "authority_tests_passed": 18,
+      "origin_tests_passed": 19,
+      "populated_upgrade_tests_passed": 1,
+      "production_ready": false
+    }
+  ],
+  "readiness": [
+    {
+      "app": "asset",
+      "partial": 14,
+      "pending": 4,
+      "unfulfilled": 18,
+      "production_ready": false
+    },
+    {
+      "app": "buy",
+      "partial": 14,
+      "pending": 4,
+      "unfulfilled": 18,
+      "production_ready": false
+    },
+    {
+      "app": "clear",
+      "partial": 14,
+      "pending": 4,
+      "unfulfilled": 18,
+      "production_ready": false
+    },
+    {
+      "app": "deal",
+      "partial": 14,
+      "pending": 4,
+      "unfulfilled": 18,
+      "production_ready": false
+    },
+    {
+      "app": "desk",
+      "partial": 14,
+      "pending": 4,
+      "unfulfilled": 18,
+      "production_ready": false
+    },
+    {
+      "app": "grant",
+      "partial": 14,
+      "pending": 4,
+      "unfulfilled": 18,
+      "production_ready": false
+    },
+    {
+      "app": "guard",
+      "partial": 14,
+      "pending": 4,
+      "unfulfilled": 18,
+      "production_ready": false
+    },
+    {
+      "app": "hire",
+      "partial": 14,
+      "pending": 4,
+      "unfulfilled": 18,
+      "production_ready": false
+    },
+    {
+      "app": "pay",
+      "partial": 14,
+      "pending": 4,
+      "unfulfilled": 18,
+      "production_ready": false
+    },
+    {
+      "app": "post",
+      "partial": 14,
+      "pending": 4,
+      "unfulfilled": 18,
+      "production_ready": false
+    },
+    {
+      "app": "quote",
+      "partial": 14,
+      "pending": 4,
+      "unfulfilled": 18,
+      "production_ready": false
+    },
+    {
+      "app": "reach",
+      "partial": 14,
+      "pending": 4,
+      "unfulfilled": 18,
+      "production_ready": false
+    },
+    {
+      "app": "renew",
+      "partial": 14,
+      "pending": 4,
+      "unfulfilled": 18,
+      "production_ready": false
+    },
+    {
+      "app": "roster",
+      "partial": 14,
+      "pending": 4,
+      "unfulfilled": 18,
+      "production_ready": false
+    },
+    {
+      "app": "shift",
+      "partial": 14,
+      "pending": 4,
+      "unfulfilled": 18,
+      "production_ready": false
+    },
+    {
+      "app": "sign",
+      "partial": 14,
+      "pending": 4,
+      "unfulfilled": 18,
+      "production_ready": false
+    },
+    {
+      "app": "sync",
+      "partial": 14,
+      "pending": 4,
+      "unfulfilled": 18,
+      "production_ready": false
+    },
+    {
+      "app": "vet",
+      "partial": 14,
+      "pending": 4,
+      "unfulfilled": 18,
+      "production_ready": false
+    }
+  ],
+  "typescript": "pass",
+  "write_guard_version_privacy_provider_audit": "18/18 passed",
+  "pinned_source_snapshots_verified": 108,
+  "completion_gate": {
+    "exit_code": 1,
+    "expected_refusal": true,
+    "production_ready": []
+  },
+  "migration": {
+    "shared_changed": false,
+    "existing_shared": [
+      "t020_human_authority.sql",
+      "t021_draft_origin.sql"
+    ],
+    "per_app": "004_draft_origins.sql",
+    "populated_synthetic_apps": [
+      "clear",
+      "reach",
+      "desk",
+      "hire",
+      "deal",
+      "grant",
+      "shift",
+      "sync",
+      "post",
+      "roster",
+      "quote",
+      "sign",
+      "guard",
+      "vet",
+      "asset"
+    ],
+    "passed": 15,
+    "historical_humans_inferred": false,
+    "production_data_restore": false,
+    "dba_approved": false,
+    "remaining_upgrade_fixture_databases": 0
+  },
+  "limitations": [
+    "Synthetic Matrix/model transports; machine-only origin tests deliberately seed synthetic job metadata.",
+    "Trust boundaries remain authenticated backend job context and platform identity mirrors; no privileged alias insertion or live propagation guarantee.",
+    "Internal write four-eyes checks are company-configured policy, not original-business-proposer separation or elevated entitlements.",
+    "All business authorization/source parity/provider/privacy/recovery/live acceptance gaps remain.",
+    "Historical image and DBA review evidence is not validation of current sources."
+  ],
+  "changed_source_bindings": [
+    {
+      "path": "apps/clear/manifest.json",
+      "sha256": "5d9aa28b54755dd66797cc70331341df72c2879d49b2ae5ec9a4582ae010b3a3"
+    },
+    {
+      "path": "apps/clear/migrations/migrate.json",
+      "sha256": "e6b408764466b132e4cfe043630e4892952b4ffe9a75ba26d63f9d485901336e"
+    },
+    {
+      "path": "apps/clear/migrations/004_draft_origins.sql",
+      "sha256": "2943267f9f59051667c258bb3af91cee95bcaa7076e4fbeda9df00a19218c57d"
+    },
+    {
+      "path": "apps/clear/src/capabilities/index.ts",
+      "sha256": "b448a2b09a6a4ba33ee403704c841322426fd3d165b663cffc8fd8771fab0c40"
+    },
+    {
+      "path": "apps/clear/tests/workflow.test.ts",
+      "sha256": "f9462a22f75a0465dcc398bdd656f655b765d69f5498c283836d7b1dc8375e93"
+    },
+    {
+      "path": "apps/clear/tests/authority.test.ts",
+      "sha256": "a35d7a18db56d802306bb1ca3b957d033186e4e65f2f5b3b38b0894fa465aed3"
+    },
+    {
+      "path": "apps/clear/tests/origins.test.ts",
+      "sha256": "ecde65d4102278dc417a8da20266ea375429058ef132d25d218c5e911c429b15"
+    },
+    {
+      "path": "apps/clear/tests/fixture.ts",
+      "sha256": "b0c71a7b52626d7cbe29214b8de0ee1e487395ab0a6b38005ea149916c912165"
+    },
+    {
+      "path": "apps/reach/manifest.json",
+      "sha256": "6235516fc80b768dd0e7bbe864b3812a66f53c6440d112eb8befd31591046d64"
+    },
+    {
+      "path": "apps/reach/migrations/migrate.json",
+      "sha256": "bcb0151683d9b1d7bdd2125409764f07df00d54581f7c2d5bebe0cf6e3d6e142"
+    },
+    {
+      "path": "apps/reach/migrations/004_draft_origins.sql",
+      "sha256": "ad699e0e3fab8532812afc91165a55f3a64f2e9ba254436e49c58f32e9c131bd"
+    },
+    {
+      "path": "apps/reach/src/capabilities/index.ts",
+      "sha256": "bb0d4df2844947c859120931da31d17ddd48ffd0e3a656b20b0c16d4b53c8eb1"
+    },
+    {
+      "path": "apps/reach/tests/workflow.test.ts",
+      "sha256": "4a0a3bf9610d0deb7c614dc423ff7b81cad110434e819332190effa54cab354b"
+    },
+    {
+      "path": "apps/reach/tests/authority.test.ts",
+      "sha256": "ed9a8930904589a87d54c1346a7eb135593d276e13d15b6c19c1dddf4d25a525"
+    },
+    {
+      "path": "apps/reach/tests/origins.test.ts",
+      "sha256": "ebe39becad2f72c10f19dac1e15290459357d93b5a1eda771dae37e2bbdfe863"
+    },
+    {
+      "path": "apps/reach/tests/fixture.ts",
+      "sha256": "dea5d978034e48fedb3a82b139fccba179911b986afcd0b67a888ce8487d7942"
+    },
+    {
+      "path": "apps/desk/manifest.json",
+      "sha256": "faff5278a10da055472d30f6e86e099d82d3a0ab69ff6b22a9503ae6c198c3ca"
+    },
+    {
+      "path": "apps/desk/migrations/migrate.json",
+      "sha256": "60a6159421e6f6605748df5cc79ccb77b3e4e65efdf0fa7be58d972752af9407"
+    },
+    {
+      "path": "apps/desk/migrations/004_draft_origins.sql",
+      "sha256": "eb5bf528bf8323e20c0ccf816c0c7bc20d2c1c57087ff9cec5f0c8bcdd15ee0f"
+    },
+    {
+      "path": "apps/desk/src/capabilities/index.ts",
+      "sha256": "24ba4ce93ec33b8508b6d4fcacdada300614ce4d8888db5642b1edae7294c30a"
+    },
+    {
+      "path": "apps/desk/tests/workflow.test.ts",
+      "sha256": "54edc370962d41f103013aba29c89e046c88b6d9805d0890875fa8a12c43bb80"
+    },
+    {
+      "path": "apps/desk/tests/authority.test.ts",
+      "sha256": "15d41328c805a50322d1e336f790d61975833fe9e2108d52d8e45f056aa47a3d"
+    },
+    {
+      "path": "apps/desk/tests/origins.test.ts",
+      "sha256": "e56362c02ef8813c58bcbf37667d7f3664397727ac666842c0de9d9e1f9eeac5"
+    },
+    {
+      "path": "apps/desk/tests/fixture.ts",
+      "sha256": "f46d87e6a8e200f80bef06770ac125ba1c2dbfeab44cdb9c811374d64dd178b7"
+    },
+    {
+      "path": "apps/hire/manifest.json",
+      "sha256": "fa4c948b477c80627aec8743013d872533e10daacca718e135494d980ab8c76d"
+    },
+    {
+      "path": "apps/hire/migrations/migrate.json",
+      "sha256": "89ef861dd9074987c052396aacaac601e1819e1e6e0478a78852c95dc046da41"
+    },
+    {
+      "path": "apps/hire/migrations/004_draft_origins.sql",
+      "sha256": "fc8e044611e6036f269a31aba68de30d248e04b6e52b5a925d87f567d9604576"
+    },
+    {
+      "path": "apps/hire/src/capabilities/index.ts",
+      "sha256": "2d559326cbf773728b9da6daf9a0465b7fc487ac0bda977d71afff8d74bd4f19"
+    },
+    {
+      "path": "apps/hire/tests/workflow.test.ts",
+      "sha256": "ea9d6fd5496d92a446d165e4c7e9316effcac64737a32a6f251ca99989a6e5ae"
+    },
+    {
+      "path": "apps/hire/tests/authority.test.ts",
+      "sha256": "33b4aa102c2a17af229aa11b9a945867e64953cde2e599b4e3a4d03c5ce5d020"
+    },
+    {
+      "path": "apps/hire/tests/origins.test.ts",
+      "sha256": "708bdbf0b73668d2115377c352ac1ebbcd1484698bb00e05c6eb304e84da2cea"
+    },
+    {
+      "path": "apps/hire/tests/fixture.ts",
+      "sha256": "4a4a6d3c1d23fbc5aa6980a7b1c068fa2d52130f50ac01cc3991e40b1d3c8376"
+    },
+    {
+      "path": "apps/deal/manifest.json",
+      "sha256": "b4168c128a4db7d782fb599233b18b98c1031bce85b159872887dc379b781727"
+    },
+    {
+      "path": "apps/deal/migrations/migrate.json",
+      "sha256": "659657ce6eaeff84dfde558c71d358a788688aedd2cf0ca1ddc33d05ca76f05f"
+    },
+    {
+      "path": "apps/deal/migrations/004_draft_origins.sql",
+      "sha256": "20fe3085d68188bc8fd530730e0faea0272d22137b4fe1bd633167ee2f53cf88"
+    },
+    {
+      "path": "apps/deal/src/capabilities/index.ts",
+      "sha256": "599313f876286c8de3191c92fa8c47e03dde02f450bd865740a68231644acac3"
+    },
+    {
+      "path": "apps/deal/tests/workflow.test.ts",
+      "sha256": "7110e10afcfd9f8629ceb271d19b77371d64de6e873a4d1020664824f0fefce9"
+    },
+    {
+      "path": "apps/deal/tests/authority.test.ts",
+      "sha256": "f7875231ae62ddd11fc1e2c6ba8bc3af8eff2289e355b57ded27178910ec5534"
+    },
+    {
+      "path": "apps/deal/tests/origins.test.ts",
+      "sha256": "cb78d07a3072f3218ab630a98ac0fb5ad5fd4d27c3582ea878730cf43c8a93bf"
+    },
+    {
+      "path": "apps/deal/tests/fixture.ts",
+      "sha256": "fcb38de1a2e11205eb55361e95da32ab7af82ab916e0e406aef851ec69ef44ba"
+    },
+    {
+      "path": "apps/grant/manifest.json",
+      "sha256": "3a9784225132c105a25da58758e3049fb7a00bee92f356d4f22c20280d9ca476"
+    },
+    {
+      "path": "apps/grant/migrations/migrate.json",
+      "sha256": "38b449b65debb552bacb942ab822836d1f71f7db3a3154a676aea3ac41eb8175"
+    },
+    {
+      "path": "apps/grant/migrations/004_draft_origins.sql",
+      "sha256": "1356ff9a106894dca5a15c0d0c0b89bc54e188e8772075154e6d853bee4b0ab9"
+    },
+    {
+      "path": "apps/grant/src/capabilities/index.ts",
+      "sha256": "237b44bf5c2cfadf6993219913d08930891a2f79d021e2d84ed21c8084eea7a1"
+    },
+    {
+      "path": "apps/grant/tests/workflow.test.ts",
+      "sha256": "906de0a17006c9e8b84a4c703a1608cf2955fb8ea2d0ae876cb943d2ab60d4ec"
+    },
+    {
+      "path": "apps/grant/tests/authority.test.ts",
+      "sha256": "38a48a44f8a0583bed9ecc70e8a940ffdce45e55062bbc2179e1838eb17729ad"
+    },
+    {
+      "path": "apps/grant/tests/origins.test.ts",
+      "sha256": "49630882d3c3115964e9650e8fa6d1315ab5bc3c09b53d550061e02902fb9242"
+    },
+    {
+      "path": "apps/grant/tests/fixture.ts",
+      "sha256": "a884b82f7aafb0e3685e2c350d027902c2d295a6dd1c9fa5bafcede5a68b925e"
+    },
+    {
+      "path": "apps/shift/manifest.json",
+      "sha256": "925a2e700899f7296c039b9c0476b5df86fe2a008b63435ab8f62fc6152cfefd"
+    },
+    {
+      "path": "apps/shift/migrations/migrate.json",
+      "sha256": "11b76a569cf330798ff3fbda28759d86e33f9582e3a11aaba1b93e848bdbba59"
+    },
+    {
+      "path": "apps/shift/migrations/004_draft_origins.sql",
+      "sha256": "0b14854c8a45c4fd762bc43c6565eba5e54d023c67a8ae4ad93fcf83c07e4d84"
+    },
+    {
+      "path": "apps/shift/src/capabilities/index.ts",
+      "sha256": "1d722400541b45af8674252eb6bcf87a552202fc5ce7d27f5e6ccc57e9613e1e"
+    },
+    {
+      "path": "apps/shift/tests/workflow.test.ts",
+      "sha256": "0f043a2731159e6e74be81b6d2376fa500bd21f32c6db16706e8fad8e7241eb7"
+    },
+    {
+      "path": "apps/shift/tests/authority.test.ts",
+      "sha256": "c194615afe55ee99c061c8cbaf5eebb2695fb5654d4f7addda50309577487572"
+    },
+    {
+      "path": "apps/shift/tests/origins.test.ts",
+      "sha256": "86917f2175dd63ef2a8a2b057785087c0a34189900f16445efd0b14379bfa6e2"
+    },
+    {
+      "path": "apps/shift/tests/fixture.ts",
+      "sha256": "dd3b0651d37b4fffbe9545667b57108e2b65cffb3502da968eeacba53ae94098"
+    },
+    {
+      "path": "apps/sync/manifest.json",
+      "sha256": "28e908919742c48fc0edd83e722dce67690f22a42accb8ec531a6ed415d4ea9c"
+    },
+    {
+      "path": "apps/sync/migrations/migrate.json",
+      "sha256": "a574c122986e2baf8bc7fce29bf7011687a721c639dac6fda4eee1055cb20acd"
+    },
+    {
+      "path": "apps/sync/migrations/004_draft_origins.sql",
+      "sha256": "81dece2a416528aed9690976cb6c93760d0b0a5449d925b8457bdc2dd92b7c35"
+    },
+    {
+      "path": "apps/sync/src/capabilities/index.ts",
+      "sha256": "18d29196d0871068d16138a25e237bd308153664037e6acd21f0ceab8028cbc0"
+    },
+    {
+      "path": "apps/sync/tests/workflow.test.ts",
+      "sha256": "41b1ff40545466c4d7e69847af48ed28cc3bb8ff3516e17535ec5e9c64c63e16"
+    },
+    {
+      "path": "apps/sync/tests/authority.test.ts",
+      "sha256": "1eccdfa8b1eb608b393bb26472de476b4598fc5460b5d5bfd5b7be3a395dc15a"
+    },
+    {
+      "path": "apps/sync/tests/origins.test.ts",
+      "sha256": "06a03a2585422ad0eeb4f694b5450fcee718874ab0744d104c4ee137d1ad95bc"
+    },
+    {
+      "path": "apps/sync/tests/fixture.ts",
+      "sha256": "bae67a231cbe480b51481bc44e8279fa650637fc2d8808f1ff49f7a7752f3576"
+    },
+    {
+      "path": "apps/post/manifest.json",
+      "sha256": "a0488ebff1e99cbd80f31b6a3be5a49045817e2f6f6a069375118206958b69d1"
+    },
+    {
+      "path": "apps/post/migrations/migrate.json",
+      "sha256": "58ca4f12cbf9a68b03cbe43f2c70b0e462445a7c8f7dbeb8d67ca98b3f74d2ee"
+    },
+    {
+      "path": "apps/post/migrations/004_draft_origins.sql",
+      "sha256": "6388427586312d3beacbe328a27993b50f2d5dc9e09435ed9ba241c583969d7a"
+    },
+    {
+      "path": "apps/post/src/capabilities/index.ts",
+      "sha256": "b0b1c03f9be75c40551869c476f29dd8394e0047439f234ed016c82f6d6c6108"
+    },
+    {
+      "path": "apps/post/tests/workflow.test.ts",
+      "sha256": "185316bce89453814a6fcb1c668421ab51b913f3a312d7c27ba6817f00617c4c"
+    },
+    {
+      "path": "apps/post/tests/authority.test.ts",
+      "sha256": "ba62485972d64a804d4496c72eaa481a4ebf8c45a002ca9243d8633df070e1da"
+    },
+    {
+      "path": "apps/post/tests/origins.test.ts",
+      "sha256": "f90ddd228761f4eb9c910b34baa011e36d8a94cf4cd40a8fee73681174e35ba5"
+    },
+    {
+      "path": "apps/post/tests/fixture.ts",
+      "sha256": "9c7fb5d63e104d17cf52bf46651d13b38c2321b2d43965bf94665151b382e9a3"
+    },
+    {
+      "path": "apps/roster/manifest.json",
+      "sha256": "09413235785add3fc488f0f96728c65d86745ab8376f17f7efe3e79b4b17255d"
+    },
+    {
+      "path": "apps/roster/migrations/migrate.json",
+      "sha256": "6387e9ca1091e2e19919ebd794ff54f188664f941db0a2c24f36ad5e2e445788"
+    },
+    {
+      "path": "apps/roster/migrations/004_draft_origins.sql",
+      "sha256": "1356ff9a106894dca5a15c0d0c0b89bc54e188e8772075154e6d853bee4b0ab9"
+    },
+    {
+      "path": "apps/roster/src/capabilities/index.ts",
+      "sha256": "fef955a8698319f653c0d842b7911ff8f1dd84161c834f31283af3090809eeef"
+    },
+    {
+      "path": "apps/roster/tests/workflow.test.ts",
+      "sha256": "9189126586d8b5eb3b3a8a54848e82a86a739174e690a378baabe51f83a08719"
+    },
+    {
+      "path": "apps/roster/tests/authority.test.ts",
+      "sha256": "51b74a58c037d5c2f2cbd834a605048d925e9a091a76260aaace3ec31428948c"
+    },
+    {
+      "path": "apps/roster/tests/origins.test.ts",
+      "sha256": "e0122dea2d66f3af28e0c234ed9afdff2573258992d450c40c1eba375a134c74"
+    },
+    {
+      "path": "apps/roster/tests/fixture.ts",
+      "sha256": "5bd0033dc08bc7ac798b8c7c614b564b3da2d5247efba04cfbea6d1fdeb1a933"
+    },
+    {
+      "path": "apps/quote/manifest.json",
+      "sha256": "03b6832304fc89216bbef24eb94bc81bba4e6152f9eafab9fd08f551a17f00ba"
+    },
+    {
+      "path": "apps/quote/migrations/migrate.json",
+      "sha256": "be35067ef00598b106a90770a69b8db2a6f54add73d0a462053b268ac118a66d"
+    },
+    {
+      "path": "apps/quote/migrations/004_draft_origins.sql",
+      "sha256": "20fe3085d68188bc8fd530730e0faea0272d22137b4fe1bd633167ee2f53cf88"
+    },
+    {
+      "path": "apps/quote/src/capabilities/index.ts",
+      "sha256": "988550ad926a2e76923ce0b9e0376cd5859d6c3d49488b608b684209ac3526ce"
+    },
+    {
+      "path": "apps/quote/tests/workflow.test.ts",
+      "sha256": "8554c53170117cb1966ccd16d8544b036a44b30e08561532bcd1086988043939"
+    },
+    {
+      "path": "apps/quote/tests/authority.test.ts",
+      "sha256": "987e49fa2dddef8476bc08a13d52060ee069c5836dae4cefa60bfa05c2351034"
+    },
+    {
+      "path": "apps/quote/tests/origins.test.ts",
+      "sha256": "1ecf98f85fa7974f82da270585c4672ddcabd9f50f544a0b3ee601f17f1908f5"
+    },
+    {
+      "path": "apps/quote/tests/fixture.ts",
+      "sha256": "95e8271f4a7ad9aa3caa61ff9f5b02b177aa0543fee480b731086dd4f71e4b40"
+    },
+    {
+      "path": "apps/sign/manifest.json",
+      "sha256": "9184065a9c6145b546cb21a2257ff1abbcc4d2f128ed7f0cfeb6c88535757d67"
+    },
+    {
+      "path": "apps/sign/migrations/migrate.json",
+      "sha256": "595966389daf240442e13cb0aca3ecca06b533778fd947ec5ce9082058569aaf"
+    },
+    {
+      "path": "apps/sign/migrations/004_draft_origins.sql",
+      "sha256": "d2a64479473a82086b96a8c73757cc6beaa69025c7e05267960e4c3613099e62"
+    },
+    {
+      "path": "apps/sign/src/capabilities/index.ts",
+      "sha256": "0a3e3166d143ea00e4f63dfd46f45f5f0ae1f0fceddca546cb601378cc0b05af"
+    },
+    {
+      "path": "apps/sign/tests/workflow.test.ts",
+      "sha256": "a255c8b77e259985f43c97fbf7fdc5d405f3d9db72f16e257b8cae460d0d41d2"
+    },
+    {
+      "path": "apps/sign/tests/authority.test.ts",
+      "sha256": "0fe8b1d9def6679013654516c63a84c8aae09b34bb17d1978bb4805410fb1aad"
+    },
+    {
+      "path": "apps/sign/tests/origins.test.ts",
+      "sha256": "e09f82063e562fb2e2f9675b05e0475f81153b1ffcdee139d70965e75a320575"
+    },
+    {
+      "path": "apps/sign/tests/fixture.ts",
+      "sha256": "06a5f1fd3cb9c06fc2b71d5b03bedf38c0b378085757d155640707e2fa5336e2"
+    },
+    {
+      "path": "apps/guard/manifest.json",
+      "sha256": "f51d161085ed2a9e59aa5827bfe8e785b15bd1902f8dafb89915cf3e5f7e3cba"
+    },
+    {
+      "path": "apps/guard/migrations/migrate.json",
+      "sha256": "6fe29e2e3dc937de7347a9bdfc827b05d0ba4a8f4a8b890be251f3751f84d2a8"
+    },
+    {
+      "path": "apps/guard/migrations/004_draft_origins.sql",
+      "sha256": "b2a29ce4d472fcaf492f096a1954656ccdc57a28e02757f7e360aea1e97253b4"
+    },
+    {
+      "path": "apps/guard/src/capabilities/index.ts",
+      "sha256": "99fe519cf2913c21ab9563dc7bbeea915a315b1cc9653ba25e80901935495031"
+    },
+    {
+      "path": "apps/guard/tests/workflow.test.ts",
+      "sha256": "688b4e31ac30ad71e0f4d7cb40605b5af602569bc39979a0809985d8743cd7fb"
+    },
+    {
+      "path": "apps/guard/tests/authority.test.ts",
+      "sha256": "dd598e86f1af42cae7210d18fb2df8443088cdf3657429a6a2bbb74488bb5f46"
+    },
+    {
+      "path": "apps/guard/tests/origins.test.ts",
+      "sha256": "00e4ee5db6ec0666c3469f3580c01fa399ba74b7fb0fe2277097c62d8d583140"
+    },
+    {
+      "path": "apps/guard/tests/fixture.ts",
+      "sha256": "7a2e0134d1ab7e4537188be9b8874537e097c546f07092a7d6005e64fe0d5164"
+    },
+    {
+      "path": "apps/vet/manifest.json",
+      "sha256": "3f434c6b434046bdce7332e82ec5ea628378d07798d79586b935115677509136"
+    },
+    {
+      "path": "apps/vet/migrations/migrate.json",
+      "sha256": "1f560462a7433ac06b6fe029d55a8137e1e65cff2846215dcc339044acb0c273"
+    },
+    {
+      "path": "apps/vet/migrations/004_draft_origins.sql",
+      "sha256": "5582fc1c20664d3be85556c9e74c66952c6f17fa7b4946e29f357154cabb4cb7"
+    },
+    {
+      "path": "apps/vet/src/capabilities/index.ts",
+      "sha256": "5439637cb87c2c3fee64848dc816ddd3c80adbfd4691c8d4bc393854a75245f6"
+    },
+    {
+      "path": "apps/vet/tests/workflow.test.ts",
+      "sha256": "7a0986c2308e8fcecd19f021adf4a513ad515f1d031677379253b673595887d1"
+    },
+    {
+      "path": "apps/vet/tests/authority.test.ts",
+      "sha256": "7879949e5324dfaa546f0ff277f1889efa00494b82c36077341f180a8544b8dc"
+    },
+    {
+      "path": "apps/vet/tests/origins.test.ts",
+      "sha256": "798685aefaebf1aca37ea4272ace29969a69b395f54397c82dc36bbfae0a8ab1"
+    },
+    {
+      "path": "apps/vet/tests/fixture.ts",
+      "sha256": "58353d0100bb525841b2c76adc4dd61c4e5c52762af4912a907101b42b4ccd84"
+    },
+    {
+      "path": "apps/asset/manifest.json",
+      "sha256": "1954e7b09c64e2480a03cdfa8fb52f218214bf52453961805cdbde87ee96d99a"
+    },
+    {
+      "path": "apps/asset/migrations/migrate.json",
+      "sha256": "144fb0c124fa4fe3da3f46a94fd2ec9c6c89d140136b803730f21cc84bddf570"
+    },
+    {
+      "path": "apps/asset/migrations/004_draft_origins.sql",
+      "sha256": "1356ff9a106894dca5a15c0d0c0b89bc54e188e8772075154e6d853bee4b0ab9"
+    },
+    {
+      "path": "apps/asset/src/capabilities/index.ts",
+      "sha256": "a7d4808cff8362462732aa14d85affe13d1bb77cebf17de35dbd67c9c3811e2a"
+    },
+    {
+      "path": "apps/asset/tests/workflow.test.ts",
+      "sha256": "456e0200ec35ed1cebf923f6d83641ef35e35d49f4e4a5f5099366f0d59eb01a"
+    },
+    {
+      "path": "apps/asset/tests/authority.test.ts",
+      "sha256": "7302e95549e588f56faf28ffe552fc5a8c192343abf9e813b2de487b5e1ba6da"
+    },
+    {
+      "path": "apps/asset/tests/origins.test.ts",
+      "sha256": "ad3265cd47e5285ef335042c45226b17e66606f91e643bb3d78320955211bf3e"
+    },
+    {
+      "path": "apps/asset/tests/fixture.ts",
+      "sha256": "145596e772f848cdd27d36cf753435739c888f915ae01029dd72e39ee58e3395"
+    },
+    {
+      "path": "packages/testkit/src/draft-origins.ts",
+      "sha256": "62ef088ff4685e2af84ada00a4ecf1068491bbd821455df239c4954b90f70fda"
+    },
+    {
+      "path": "packages/testkit/src/finance-authority.ts",
+      "sha256": "c30988102230e4d1893e6c642ee53afe2b02f74375610e63cc3ca5fdb54d631e"
+    },
+    {
+      "path": "packages/testkit/src/review-slice.ts",
+      "sha256": "abe4afe00f7288a48cdd18119a6d903f635339fe0a0c3cf14cad4f1e8697f560"
+    },
+    {
+      "path": "apps/grant/tests/dba-bundle.test.ts",
+      "sha256": "3dff262dfc90debd0855d0e7b6ae75a9505ed23df0060662b70bfceaad390a60"
+    },
+    {
+      "path": "scripts/fleet/tests/review-origin-migration.test.ts",
+      "sha256": "12d9f660f48067381b1de7109aafb97b134c7b3ca7a58d920f09fe94204f8b97"
+    }
+  ],
+  "provider_dispatch": false,
+  "production_ready": false
+}

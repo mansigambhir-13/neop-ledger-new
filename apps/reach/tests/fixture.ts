@@ -1,0 +1,2 @@
+// Synthetic domain inputs, never production data or a business-policy approval.
+export const fixture={"id":"reach","master":"audiences","table":"campaigns","noun":"campaign","fk":"audience_id","sample":{"channel":"email","recipients":51,"subject":null,"body":"Reviewed content, not a dispatched message"},"settings":{"recipient_limit":50},"expected":{"recipient_limit":50,"requires_elevated_approval":true},"invalid":{"recipients":1000001},"mutation":{"recipients":52}};

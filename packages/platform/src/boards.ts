@@ -1,15 +1,17 @@
+import {sqlIdent} from '@neop/pgkit';
 // v3 S1 · the platform writes THROUGH to each NEOP's own schema (WP v3 §4, §5, §11): the switchboard,
 // the install and the standing yeses live in <app>.switchboard, <app>.installs and <app>.grants (template
-// t010), and are read from there too. neos.switchboards / neos.grants are frozen legacy copies that nothing
-// reads to decide; neos.installs stays the platform's own record for what it still routes itself (the
-// gateway, the Matrix bridge, NeuralChat) and is written in the same call.
+// t010), and are read from there too; neos.installs is the platform's own record (what NeuralChat offers and
+// the desk lists) and is written in the same call. v3 S9: everything else the desk does to an app goes through
+// the app's own SECURITY DEFINER functions here too (cancel_job, set_schedule, list_schedules, job_transcript,
+// block_read — template t018): the platform has no other way into an app.
 //
 // How the platform reaches an app's schema: the platform pool's role (neos_app) is a member of neos_desk
 // WITH INHERIT FALSE (migratePlatform), so it holds none of the desk's rights until a transaction says
 // `SET LOCAL ROLE neos_desk`. SET LOCAL lasts until the end of that transaction only, so the same pool
 // works through PgBouncer in transaction mode; nothing is left on a pooled connection. neos_desk may write
-// switchboard and installs, read the board history and the grants, and call answer_proposal /
-// create_grant / revoke_grant / import_grant — nothing else in the app's schema (t010, pgkit deskGrantsSql).
+// switchboard and installs, read the board history and the grants, and call answer_proposal / answer_wait /
+// create_grant / revoke_grant / set_schedule and t018's functions — nothing else in the app's schema (pgkit deskGrantsSql).
 
 import { strictest, type Manifest, type Setting } from '@neop/contracts';
 import { assertIdent, DESK_ROLE, tx, type Pool, type PoolClient } from '@neop/pgkit';
@@ -61,7 +63,7 @@ export class AppBoards {
         await c.query<{ ok: boolean }>(
           `select case when to_regnamespace($1) is null then false when not has_schema_privilege($1, 'usage') then false
                        else to_regclass($2) is not null end as ok`,
-          [app, `${app}.switchboard_history`],
+          [app, `${sqlIdent(app)}.switchboard_history`],
         )
       ).rows[0]?.ok;
       return fn(c, ok ? app : null);
@@ -100,7 +102,7 @@ export class AppBoards {
       async (c, s) => {
         if (!s) return false;
         await c.query(
-          `insert into ${s}.installs as i (company_id, status, company_name, time_zone, installed_by, installed_at, updated_at)
+          `insert into ${sqlIdent(s)}.installs as i (company_id, status, company_name, time_zone, installed_by, installed_at, updated_at)
            values ($1, $2, $3, $4, $5, case when $2 = 'active' then now() end, now())
            on conflict (company_id) do update
              set status = excluded.status, company_name = excluded.company_name, time_zone = excluded.time_zone,
@@ -144,28 +146,28 @@ export class AppBoards {
       companyId,
       async (c, s) => {
         if (!s) return false;
-        const has = (await c.query<{ ok: boolean }>('select to_regclass($1) is not null as ok', [`${s}.people`])).rows[0]?.ok;
+        const has = (await c.query<{ ok: boolean }>('select to_regclass($1) is not null as ok', [`${sqlIdent(s)}.people`])).rows[0]?.ok;
         if (!has) return false;
-        const inst = await c.query(`select 1 from ${s}.installs where company_id = $1`, [companyId]);
+        const inst = await c.query(`select 1 from ${sqlIdent(s)}.installs where company_id = $1`, [companyId]);
         if (!inst.rowCount) return false;
         if (d.people) {
           const ids = d.people.map((p) => p.matrix_id);
-          await c.query(`delete from ${s}.people where company_id = $1 and not (matrix_id = any($2::text[]))`, [companyId, ids]);
+          await c.query(`delete from ${sqlIdent(s)}.people where company_id = $1 and not (matrix_id = any($2::text[]))`, [companyId, ids]);
           for (const p of d.people) {
             await c.query(
-              `insert into ${s}.people as p (company_id, matrix_id, user_id, name, role, chat_person, updated_at) values ($1, $2, $3, $4, $5, $6, now())
+              `insert into ${sqlIdent(s)}.people as p (company_id, matrix_id, user_id, name, role, chat_person, updated_at) values ($1, $2, $3, $4, $5, $6, now())
                on conflict (company_id, matrix_id) do update set user_id = excluded.user_id, name = excluded.name, role = excluded.role, chat_person = excluded.chat_person, updated_at = now()
                  where (p.user_id, p.name, p.role, p.chat_person) is distinct from (excluded.user_id, excluded.name, excluded.role, excluded.chat_person)`,
               [companyId, p.matrix_id, p.user_id, p.name, p.role, p.chat_person],
             );
           }
         }
-        if (d.acted_for && (await c.query<{ ok: boolean }>('select to_regclass($1) is not null as ok', [`${s}.acted_for`])).rows[0]?.ok) {
+        if (d.acted_for && (await c.query<{ ok: boolean }>('select to_regclass($1) is not null as ok', [`${sqlIdent(s)}.acted_for`])).rows[0]?.ok) {
           const ids = d.acted_for.map((p) => p.user_id);
-          await c.query(`delete from ${s}.acted_for where company_id = $1 and not (user_id = any($2::text[]))`, [companyId, ids]);
+          await c.query(`delete from ${sqlIdent(s)}.acted_for where company_id = $1 and not (user_id = any($2::text[]))`, [companyId, ids]);
           for (const p of d.acted_for) {
             await c.query(
-              `insert into ${s}.acted_for as p (company_id, user_id, name, role, updated_at) values ($1, $2, $3, $4, now())
+              `insert into ${sqlIdent(s)}.acted_for as p (company_id, user_id, name, role, updated_at) values ($1, $2, $3, $4, now())
                on conflict (company_id, user_id) do update set name = excluded.name, role = excluded.role, updated_at = now()
                  where (p.name, p.role) is distinct from (excluded.name, excluded.role)`,
               [companyId, p.user_id, p.name, p.role],
@@ -174,20 +176,20 @@ export class AppBoards {
         }
         if (d.agent_senders || d.agent_acts_for) {
           await c.query(
-            `update ${s}.installs set agent_senders = coalesce($2::text[], agent_senders), agent_acts_for = coalesce($3::jsonb, agent_acts_for), updated_at = now()
+            `update ${sqlIdent(s)}.installs set agent_senders = coalesce($2::text[], agent_senders), agent_acts_for = coalesce($3::jsonb, agent_acts_for), updated_at = now()
               where company_id = $1 and (agent_senders, agent_acts_for) is distinct from (coalesce($2::text[], agent_senders), coalesce($3::jsonb, agent_acts_for))`,
             [companyId, d.agent_senders ?? null, d.agent_acts_for ? JSON.stringify(d.agent_acts_for) : null],
           );
         }
-        if (d.company_slug) await c.query(`update ${s}.installs set company_slug = $2 where company_id = $1 and company_slug is distinct from $2`, [companyId, d.company_slug]);
+        if (d.company_slug) await c.query(`update ${sqlIdent(s)}.installs set company_slug = $2 where company_id = $1 and company_slug is distinct from $2`, [companyId, d.company_slug]);
         if (d.identity) {
-          if (d.identity.matrix_user !== undefined) await c.query(`update ${s}.installs set matrix_user = $2, updated_at = now() where company_id = $1`, [companyId, d.identity.matrix_user]);
-          if (d.identity.room_ids) await c.query(`update ${s}.installs set room_ids = $2::text[], updated_at = now() where company_id = $1`, [companyId, d.identity.room_ids]);
+          if (d.identity.matrix_user !== undefined) await c.query(`update ${sqlIdent(s)}.installs set matrix_user = $2, updated_at = now() where company_id = $1`, [companyId, d.identity.matrix_user]);
+          if (d.identity.room_ids) await c.query(`update ${sqlIdent(s)}.installs set room_ids = $2::text[], updated_at = now() where company_id = $1`, [companyId, d.identity.room_ids]);
           // v3 S6 (template t015): the company's bus room and the other apps on it — written by rooms-setup.
           if (d.identity.bus_room_id !== undefined || d.identity.bus_peers !== undefined) {
             if (!(await hasColumn(c, s, 'installs', 'bus_room_id'))) throw Object.assign(new Error(`${app} has no bus room columns (template t015) on this database`), { status: 409, code: 'no_bus_columns' });
-            if (d.identity.bus_room_id !== undefined) await c.query(`update ${s}.installs set bus_room_id = $2, updated_at = now() where company_id = $1`, [companyId, d.identity.bus_room_id]);
-            if (d.identity.bus_peers !== undefined) await c.query(`update ${s}.installs set bus_peers = $2::jsonb, updated_at = now() where company_id = $1`, [companyId, JSON.stringify(d.identity.bus_peers)]);
+            if (d.identity.bus_room_id !== undefined) await c.query(`update ${sqlIdent(s)}.installs set bus_room_id = $2, updated_at = now() where company_id = $1`, [companyId, d.identity.bus_room_id]);
+            if (d.identity.bus_peers !== undefined) await c.query(`update ${sqlIdent(s)}.installs set bus_peers = $2::jsonb, updated_at = now() where company_id = $1`, [companyId, JSON.stringify(d.identity.bus_peers)]);
           }
         }
         return true;
@@ -203,12 +205,12 @@ export class AppBoards {
   ): Promise<{ matrix_user: string | null; room_ids: string[]; agent_senders: string[]; agent_acts_for: Record<string, string>; bus_room_id?: string | null; bus_peers?: Record<string, string> } | null> {
     return this.asDesk(app, companyId, async (c, s) => {
       if (!s) return null;
-      const has = (await c.query<{ ok: boolean }>('select to_regclass($1) is not null as ok', [`${s}.people`])).rows[0]?.ok;
+      const has = (await c.query<{ ok: boolean }>('select to_regclass($1) is not null as ok', [`${sqlIdent(s)}.people`])).rows[0]?.ok;
       if (!has) return null;
       // bus_room_id / bus_peers (t015) are read through to_jsonb, so a schema before t015 still answers.
       const row = (
         await c.query(
-          `select matrix_user, room_ids, agent_senders, agent_acts_for, to_jsonb(i)->>'bus_room_id' as bus_room_id, to_jsonb(i)->'bus_peers' as bus_peers from ${s}.installs i where company_id = $1`,
+          `select matrix_user, room_ids, agent_senders, agent_acts_for, to_jsonb(i)->>'bus_room_id' as bus_room_id, to_jsonb(i)->'bus_peers' as bus_peers from ${sqlIdent(s)}.installs i where company_id = $1`,
           [companyId],
         )
       ).rows[0];
@@ -220,14 +222,14 @@ export class AppBoards {
 
   /** Is the app installed for the company, as its own schema says? null when the app has no schema here. */
   async installStatus(app: string, companyId: string): Promise<string | null> {
-    return this.asDesk(app, companyId, async (c, s) => (s ? ((await c.query<{ status: string }>(`select status from ${s}.installs where company_id = $1`, [companyId])).rows[0]?.status ?? 'none') : null));
+    return this.asDesk(app, companyId, async (c, s) => (s ? ((await c.query<{ status: string }>(`select status from ${sqlIdent(s)}.installs where company_id = $1`, [companyId])).rows[0]?.status ?? 'none') : null));
   }
 
   /** create_grant, as the desk (the function validates the limits and the expiry again). */
   async createGrant(app: string, companyId: string, g: { ability_key: string; limits: Record<string, unknown>; expires_at: Date; by: string }): Promise<string> {
     return this.asDesk(app, companyId, async (c, s) => {
       if (!s) throw Object.assign(new Error(`${app} has no schema on this database`), { status: 409, code: 'no_app_schema' });
-      return (await c.query<{ id: string }>(`select ${s}.create_grant($1, $2::jsonb, $3, $4) as id`, [g.ability_key, JSON.stringify(g.limits), g.expires_at, g.by])).rows[0]!.id;
+      return (await c.query<{ id: string }>(`select ${sqlIdent(s)}.create_grant($1, $2::jsonb, $3, $4) as id`, [g.ability_key, JSON.stringify(g.limits), g.expires_at, g.by])).rows[0]!.id;
     });
   }
 
@@ -235,9 +237,9 @@ export class AppBoards {
   async revokeGrant(app: string, companyId: string, id: string, by: string): Promise<{ changed: boolean; ability_key: string } | null> {
     return this.asDesk(app, companyId, async (c, s) => {
       if (!s) return null;
-      const has = await c.query(`select 1 from ${s}.grants where grant_id = $1`, [id]);
+      const has = await c.query(`select 1 from ${sqlIdent(s)}.grants where grant_id = $1`, [id]);
       if (!has.rowCount) return null;
-      const r = (await c.query<{ r: { changed: boolean; ability_key: string } }>(`select ${s}.revoke_grant($1, $2) as r`, [id, by])).rows[0]!.r;
+      const r = (await c.query<{ r: { changed: boolean; ability_key: string } }>(`select ${sqlIdent(s)}.revoke_grant($1, $2) as r`, [id, by])).rows[0]!.r;
       return r;
     });
   }
@@ -249,11 +251,11 @@ export class AppBoards {
       return (
         await c.query(
           `select g.grant_id as id, $1::text as app_key, g.ability_key, g.limits, g.status, g.expires_at, g.created_at, g.suspended_reason, g.created_by,
-                  (select count(*)::int from ${s}.grant_uses u where u.grant_id = g.grant_id) as uses,
-                  (select coalesce(sum(u.amount_minor), 0)::bigint from ${s}.grant_uses u
+                  (select count(*)::int from ${sqlIdent(s)}.grant_uses u where u.grant_id = g.grant_id) as uses,
+                  (select coalesce(sum(u.amount_minor), 0)::bigint from ${sqlIdent(s)}.grant_uses u
                     where u.grant_id = g.grant_id and u.at >= (date_trunc('month', now() at time zone $2) at time zone $2)) as used_this_month_minor,
-                  (select max(u.at) from ${s}.grant_uses u where u.grant_id = g.grant_id) as last_used_at
-             from ${s}.grants g`,
+                  (select max(u.at) from ${sqlIdent(s)}.grant_uses u where u.grant_id = g.grant_id) as last_used_at
+             from ${sqlIdent(s)}.grants g`,
           [app, timeZone],
         )
       ).rows;
@@ -279,7 +281,7 @@ export class AppBoards {
       async (c, s) => {
         if (!s) throw Object.assign(new Error(`${app} has no schema on this database: the answer cannot be recorded`), { status: 409, code: 'no_app_schema' });
         const r = await c.query<{ r: { status: string; idempotent: boolean; job_id: string; refused?: string } }>(
-          `select ${s}.answer_proposal($1, $2, $3, $4, $5, $6) as r`,
+          `select ${sqlIdent(s)}.answer_proposal($1, $2, $3, $4, $5, $6) as r`,
           [a.proposal_id, a.fingerprint_seen, a.decision, a.by, a.feedback ?? null, a.roles ?? null],
         );
         return r.rows[0]!.r; // a fingerprint refusal commits its proposal_events row and is reported by the caller
@@ -317,11 +319,31 @@ export class AppBoards {
       app,
       companyId,
       async (c, s) => {
-        const fn = s ? (await c.query<{ ok: boolean }>('select to_regprocedure($1) is not null as ok', [`${s}.answer_wait(uuid, jsonb, text, text)`])).rows[0]?.ok : false;
+        const fn = s ? (await c.query<{ ok: boolean }>('select to_regprocedure($1) is not null as ok', [`${sqlIdent(s)}.answer_wait(uuid, jsonb, text, text)`])).rows[0]?.ok : false;
         if (!s || !fn) throw Object.assign(new Error(`${app} has no answer_wait on this database: the answer cannot be recorded`), { status: 409, code: 'no_app_schema' });
-        return (await c.query(`select ${s}.answer_wait($1, $2::jsonb, $3, $4) as r`, [a.wait_id, JSON.stringify(a.answers), a.by, a.via])).rows[0]!.r;
+        return (await c.query(`select ${sqlIdent(s)}.answer_wait($1, $2::jsonb, $3, $4) as r`, [a.wait_id, JSON.stringify(a.answers), a.by, a.via])).rows[0]!.r;
       },
       a.by,
+    );
+  }
+
+  /**
+   * v3 S9 (template t018) · the functions that replaced the gateway's platform doors, called as the desk under the
+   * company: `cancel_job`, `set_schedule` / `list_schedules`, `job_transcript`, `block_read`. Each throws
+   * `no_app_schema` (409) when the app has no such function on this database; a refusal the function raises comes back
+   * as the database error (message `<code>: …`, with its SQLSTATE).
+   */
+  async deskCall<T>(app: string, companyId: string, fn: string, signature: string, args: unknown[], by?: string): Promise<T> {
+    return this.asDesk(
+      app,
+      companyId,
+      async (c, s) => {
+        const ok = s ? (await c.query<{ ok: boolean }>('select to_regprocedure($1) is not null as ok', [`${sqlIdent(s)}.${fn}(${signature})`])).rows[0]?.ok : false;
+        if (!s || !ok) throw Object.assign(new Error(`${app} has no ${fn} on this database (template t018 or later)`), { status: 409, code: 'no_app_schema' });
+        const params = args.map((_, i) => `$${i + 1}`).join(', ');
+        return (await c.query<{ r: T }>(`select ${sqlIdent(s)}.${fn}(${params}) as r`, args)).rows[0]!.r;
+      },
+      by,
     );
   }
 
@@ -334,7 +356,7 @@ export class AppBoards {
         await c.query(
           `select at, ability_key, jsonb_build_object('grant_id', grant_id, 'proposal_id', proposal_id, 'fingerprint', fingerprint,
                     'amount_minor', amount_minor, 'currency', currency, 'job_id', job_id) as detail
-             from ${s}.grant_uses where job_id = $1 order by at`,
+             from ${sqlIdent(s)}.grant_uses where job_id = $1 order by at`,
           [jobId],
         )
       ).rows;
@@ -345,7 +367,7 @@ export class AppBoards {
   async history(app: string, companyId: string, limit = 50): Promise<(BoardDoc & { updated_at: Date; updated_by: string | null })[]> {
     return this.asDesk(app, companyId, async (c, s) => {
       if (!s) return [];
-      const rows = (await c.query<{ version: number; line: string; op: string; after: any; changed_by: string | null; at: Date }>(`select version, line, op, after, changed_by, at from ${s}.switchboard_history order by id`)).rows;
+      const rows = (await c.query<{ version: number; line: string; op: string; after: any; changed_by: string | null; at: Date }>(`select version, line, op, after, changed_by, at from ${sqlIdent(s)}.switchboard_history order by id`)).rows;
       const cur: BoardDoc = { version: 0, settings: {}, rules: [], budget: {}, approvals: {} };
       const out: (BoardDoc & { updated_at: Date; updated_by: string | null })[] = [];
       for (const h of rows) {
@@ -379,11 +401,11 @@ export class AppBoards {
 
 /** Read one company's board inside a desk transaction. */
 export async function readBoard(c: PoolClient, s: string, companyId: string): Promise<BoardDoc> {
-  const rows = (await c.query<{ line: string; setting: Setting; caps: any; rules: any; approvers: any }>(`select line, setting, caps, rules, approvers from ${s}.switchboard where company_id = $1`, [companyId])).rows;
+  const rows = (await c.query<{ line: string; setting: Setting; caps: any; rules: any; approvers: any }>(`select line, setting, caps, rules, approvers from ${sqlIdent(s)}.switchboard where company_id = $1`, [companyId])).rows;
   const v = (
     await c.query<{ v: number }>(
-      `select greatest(coalesce((select max(version) from ${s}.switchboard where company_id = $1), 0),
-                       coalesce((select max(version) from ${s}.switchboard_history where company_id = $1), 0))::int as v`,
+      `select greatest(coalesce((select max(version) from ${sqlIdent(s)}.switchboard where company_id = $1), 0),
+                       coalesce((select max(version) from ${sqlIdent(s)}.switchboard_history where company_id = $1), 0))::int as v`,
       [companyId],
     )
   ).rows[0]!.v;
@@ -407,12 +429,12 @@ export async function readBoard(c: PoolClient, s: string, companyId: string): Pr
  * switch is never written looser than the line's floor (a floor that tightened since pulls it up).
  */
 export async function writeBoard(c: PoolClient, s: string, companyId: string, by: string, next: Omit<BoardDoc, 'version'>, meta: (line: string) => LineMeta, replace: { version: number } | null): Promise<void> {
-  const cur = (await c.query<{ line: string; setting: string; approvers: any; floor: string | null }>(`select line, setting, approvers, floor from ${s}.switchboard where company_id = $1`, [companyId])).rows;
+  const cur = (await c.query<{ line: string; setting: string; approvers: any; floor: string | null }>(`select line, setting, approvers, floor from ${sqlIdent(s)}.switchboard where company_id = $1`, [companyId])).rows;
   const have = new Map(cur.map((r) => [r.line, r]));
   const version = replace?.version ?? null;
   // The company row: rules, caps, the default approver policy. Always written, so the save is a version.
   await c.query(
-    `insert into ${s}.switchboard as t (company_id, line, kind, floor, setting, caps, rules, approvers, updated_by, version)
+    `insert into ${sqlIdent(s)}.switchboard as t (company_id, line, kind, floor, setting, caps, rules, approvers, updated_by, version)
      values ($1, '*', 'company', null, 'on', $2::jsonb, $3::jsonb, $4::jsonb, $5, $6)
      on conflict (company_id, line) do update
        set caps = excluded.caps, rules = excluded.rules, approvers = excluded.approvers, updated_by = excluded.updated_by,
@@ -429,7 +451,7 @@ export async function writeBoard(c: PoolClient, s: string, companyId: string, by
     const prev = have.get(line);
     if (!replace && prev && prev.setting === setting && JSON.stringify(prev.approvers ?? null) === JSON.stringify(approvers)) continue;
     await c.query(
-      `insert into ${s}.switchboard as t (company_id, line, kind, floor, setting, approvers, updated_by, version)
+      `insert into ${sqlIdent(s)}.switchboard as t (company_id, line, kind, floor, setting, approvers, updated_by, version)
        values ($1, $2, $3, $4, $5, $6::jsonb, $7, $8)
        on conflict (company_id, line) do update
          set setting = excluded.setting, approvers = excluded.approvers, updated_by = excluded.updated_by,
@@ -438,128 +460,20 @@ export async function writeBoard(c: PoolClient, s: string, companyId: string, by
     );
   }
   if (replace) {
-    await c.query(`delete from ${s}.switchboard where company_id = $1 and line <> '*' and not (line = any($2::text[]))`, [companyId, [...lines]]);
+    await c.query(`delete from ${sqlIdent(s)}.switchboard where company_id = $1 and line <> '*' and not (line = any($2::text[]))`, [companyId, [...lines]]);
   }
 }
 
-export interface BackfillReport {
-  app: string;
-  company_id: string;
-  install: 'written' | 'kept' | 'none';
-  board: 'written' | 'kept';
-  board_version: number;
-  grants: number;
-}
-
-/**
- * Copy what the platform held before S1 — neos.installs, the latest neos.switchboards version and
- * neos.grants (with their uses from neos.audit 'grant.used') — into each installed app's own schema.
- * Idempotent, and never overwrites the truth with a stale copy:
- *   · an install row is written when missing, or completed when it is a t009 mirror (no company name);
- *   · a board is replaced only when the platform's version is newer than the app's, or the app's rows are
- *     t009 mirrors (no company row '*' and no history); the app's lines then stamp the platform's version;
- *   · a grant is written when missing (or completing a t009 mirror row); uses are keyed by proposal.
- * Scope with `app` and/or `company`. Apps without a NEOP schema on this database are skipped.
- * `db` must be able to SET ROLE neos_desk (the platform pool, or an admin connection).
- */
-export async function backfillBoards(db: Pool, opts: { app?: string; company?: string; log?: (msg: string, extra?: Record<string, unknown>) => void } = {}): Promise<BackfillReport[]> {
-  const log = opts.log ?? (() => {});
-  const boards = new AppBoards(db, log);
-  const apps = (
-    await db.query<{ key: string; manifest: Manifest }>(
-      "select key, manifest from neos.apps where status <> 'platform' and key ~ '^[a-z][a-z0-9_]{0,40}$' and ($1::text is null or key = $1) order by key",
-      [opts.app ?? null],
-    )
-  ).rows;
-  const out: BackfillReport[] = [];
-  for (const a of apps) {
-    const companies = (
-      await db.query<{ company_id: string; name: string; time_zone: string; status: string | null; installed_by: string | null }>(
-        `select co.id as company_id, co.name, co.time_zone, i.status, i.installed_by::text as installed_by
-           from neos.companies co
-           left join neos.installs i on i.company_id = co.id and i.app_key = $1
-          where ($2::uuid is null or co.id = $2)
-            and (i.company_id is not null
-                 or exists (select 1 from neos.switchboards s where s.company_id = co.id and s.app_key = $1)
-                 or exists (select 1 from neos.grants g where g.company_id = co.id and g.app_key = $1))
-          order by co.id`,
-        [a.key, opts.company ?? null],
-      )
-    ).rows;
-    for (const co of companies) {
-      const legacy = (
-        await db.query<{ version: number; settings: any; rules: any; budget: any; approvals: any; updated_by: string | null }>(
-          'select version, settings, rules, budget, approvals, updated_by::text as updated_by from neos.switchboards where company_id = $1 and app_key = $2 order by version desc limit 1',
-          [co.company_id, a.key],
-        )
-      ).rows[0];
-      const grants = (
-        await db.query(
-          `select g.id::text as grant_id, g.ability_key, g.limits, g.expires_at, g.status, 'user:' || g.created_by::text as created_by, g.created_at, g.suspended_reason,
-                  coalesce((select jsonb_agg(jsonb_build_object('proposal_id', x.detail->>'proposal_id', 'job_id', x.detail->>'job_id', 'fingerprint', x.detail->>'fingerprint',
-                                                                'amount_minor', x.detail->'amount_minor', 'ability_key', x.ability_key, 'at', x.at) order by x.id)
-                              from neos.audit x where x.action = 'grant.used' and x.detail->>'grant_id' = g.id::text), '[]'::jsonb) as uses
-             from neos.grants g where g.company_id = $1 and g.app_key = $2 order by g.created_at`,
-          [co.company_id, a.key],
-        )
-      ).rows;
-      // v3 S7: installed packages' lines are in the app's manifest (`packages`, written by `neos install`).
-      const pkgs = (a.manifest?.packages ?? []).flatMap((p) => (p.abilities ?? []).map((o) => ({ key: String(o.key), kind: String(o.kind), floor: o.floor as Setting })));
-      const meta = lineMetaFrom(a.manifest, pkgs);
-      const rep = await boards.asDesk(a.key, co.company_id, async (c, s): Promise<BackfillReport | null> => {
-        if (!s) return null;
-        const r: BackfillReport = { app: a.key, company_id: co.company_id, install: 'none', board: 'kept', board_version: 0, grants: 0 };
-        // The install.
-        if (co.status) {
-          const cur = (await c.query<{ company_name: string | null }>(`select company_name from ${s}.installs where company_id = $1`, [co.company_id])).rows[0];
-          if (!cur || cur.company_name === null) {
-            await c.query(
-              `insert into ${s}.installs as i (company_id, status, company_name, time_zone, installed_by, installed_at, updated_at)
-               values ($1, $2, $3, $4, $5, now(), now())
-               on conflict (company_id) do update
-                 set status = excluded.status, company_name = excluded.company_name, time_zone = excluded.time_zone,
-                     installed_by = excluded.installed_by, installed_at = coalesce(i.installed_at, excluded.installed_at), updated_at = now()`,
-              [co.company_id, ['active', 'removed', 'suspended'].includes(co.status) ? co.status : 'removed', co.name, co.time_zone, co.installed_by ? `user:${co.installed_by}` : null],
-            );
-            r.install = 'written';
-          } else r.install = 'kept';
-        }
-        // The board.
-        const mine = await readBoard(c, s, co.company_id);
-        const fresh = (await c.query<{ n: number }>(`select (select count(*) from ${s}.switchboard where company_id = $1 and line = '*') + (select count(*) from ${s}.switchboard_history where company_id = $1) as n`, [co.company_id])).rows[0]!.n;
-        const lv = legacy?.version ?? 0;
-        if (lv > mine.version || Number(fresh) === 0) {
-          // An approver policy for a line that is no longer a write of the app (the manifest moved on) is dropped.
-          const approvals = Object.fromEntries(Object.entries((legacy?.approvals ?? {}) as Record<string, ApproverPolicyDoc>).filter(([k]) => k === '*' || meta(k).kind === 'write'));
-          const next = { settings: legacy?.settings ?? {}, rules: legacy?.rules ?? [], budget: legacy?.budget ?? {}, approvals };
-          await writeBoard(c, s, co.company_id, legacy?.updated_by ? `user:${legacy.updated_by}` : 'platform:backfill', next, meta, { version: Math.max(lv, 1) });
-          r.board = 'written';
-        }
-        r.board_version = (await readBoard(c, s, co.company_id)).version;
-        // The grants and their uses.
-        for (const g of grants) {
-          const { uses, ...grant } = g;
-          const wrote = (await c.query<{ ok: boolean }>(`select ${s}.import_grant($1::jsonb, $2::jsonb) as ok`, [JSON.stringify(grant), JSON.stringify(uses)])).rows[0]!.ok;
-          if (wrote) r.grants++;
-        }
-        return r;
-      }, 'platform:backfill');
-      if (rep) out.push(rep);
-    }
-  }
-  if (out.length) log('boards backfilled', { rows: out.filter((r) => r.install === 'written' || r.board === 'written' || r.grants > 0).length });
-  return out;
-}
-
-/**
- * What each line of an app's board is at a company: the app's own abilities and doors from its manifest,
- * package abilities from the company's registry installs, skills. Unknown lines have no kind and no floor.
- */
 async function hasColumn(c: PoolClient, schema: string, table: string, column: string): Promise<boolean> {
   return !!(await c.query('select 1 from information_schema.columns where table_schema = $1 and table_name = $2 and column_name = $3', [schema, table, column])).rowCount;
 }
 
 export function lineMetaFrom(manifest: Manifest | null | undefined, packageAbilities: { key: string; kind: string; floor: Setting }[]): (line: string) => LineMeta {
+  const owned = new Set([...(manifest?.abilities ?? []).map((a) => a.key), ...packageAbilities.map((a) => a.key)]);
+  const pinnedRequirements = new Set([
+    ...(manifest?.registry_skills ?? []).flatMap((s) => s.requires ?? []),
+    ...(manifest?.packages ?? []).flatMap((p) => [...(p.requires ?? []), ...(p.skills ?? []).flatMap((s) => s.requires ?? [])]),
+  ]);
   return (line) => {
     if (line.startsWith('door:')) {
       const d = (manifest?.doors ?? []).find((x) => x.key === line.slice(5));
@@ -570,9 +484,11 @@ export function lineMetaFrom(manifest: Manifest | null | undefined, packageAbili
     if (own) return { kind: own.kind, floor: own.floor };
     const pk = packageAbilities.find((a) => a.key === line);
     if (pk) return { kind: pk.kind, floor: pk.floor };
-    // v3 S6: a `uses` line (an ability of another app this one borrows) is the company's own on/off switch.
+    // v3 S6/S7: a declared `uses` line, or an external requirement of a build-pinned package/skill, is the
+    // company's own borrowed on/off switch. A pin makes the line available; it does not turn the line on.
     const u = (manifest?.uses ?? []).find((x) => x.ability === line && x.ability !== 'tasks.open');
     if (u) return { kind: 'borrowed', floor: (u.floor as Setting | undefined) ?? null };
+    if (!owned.has(line) && pinnedRequirements.has(line)) return { kind: 'borrowed', floor: null };
     return { kind: null, floor: null };
   };
 }

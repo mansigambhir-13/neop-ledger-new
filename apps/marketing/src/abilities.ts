@@ -5,6 +5,20 @@ import type { ExecCtx, ReadAbility, ReadCtx, WriteAbility } from '@neop/template
 
 const S = 'marketing';
 
+/**
+ * v3 S9 · a read the NEOS screens use is ONE SQL function the app declared in its migration file (read_<x>, registered
+ * in marketing.declared_reads): the desk runs it through marketing.block_read(), and this handler runs the same function —
+ * so a screen and the assistant always see one answer.
+ */
+function declared(fn: string): ReadAbility {
+  return {
+    kind: 'read',
+    async run(a: unknown, ctx: ReadCtx) {
+      return (await ctx.db.query<{ r: unknown }>(`select marketing.${fn}($1::jsonb) as r`, [JSON.stringify(a ?? {})])).rows[0]!.r;
+    },
+  };
+}
+
 export const campaignsList: ReadAbility = {
   kind: 'read',
   async run(a: { status?: string }, ctx: ReadCtx) {
@@ -23,25 +37,7 @@ export const campaignsList: ReadAbility = {
   },
 };
 
-export const statsRead: ReadAbility = {
-  kind: 'read',
-  async run(a: { from: string; to: string; channel?: string }, ctx: ReadCtx) {
-    const r = await ctx.db.query<{ channel: string; impressions: number; clicks: number; leads: number; days: number }>(
-      `select channel, sum(impressions)::int as impressions, sum(clicks)::int as clicks, sum(leads)::int as leads, count(*)::int as days
-         from ${S}.channel_stats where day between $1 and $2 and ($3::text is null or channel = $3) group by channel order by channel`,
-      [a.from, a.to, a.channel ?? null],
-    );
-    const totals = r.rows.reduce((t, x) => ({ impressions: t.impressions + x.impressions, clicks: t.clicks + x.clicks, leads: t.leads + x.leads }), { impressions: 0, clicks: 0, leads: 0 });
-    const days = r.rows.reduce((s, x) => s + x.days, 0);
-    return {
-      generatedAt: new Date().toISOString(),
-      empty: days === 0,
-      sources: { entries: days, entry_ids: [], basis: `daily channel stats ${a.from}..${a.to}` },
-      rows: r.rows.map(({ days: _d, ...x }) => x),
-      totals,
-    };
-  },
-};
+export const statsRead: ReadAbility = declared('read_stats');
 
 async function byRef(db: PoolClient, table: string, ref: string) {
   return (await db.query(`select * from ${S}.${table} where reference = $1`, [ref])).rows[0] ?? null;

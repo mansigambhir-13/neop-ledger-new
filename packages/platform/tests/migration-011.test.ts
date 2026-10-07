@@ -53,7 +53,7 @@ describe('011_platform_gaps on populated data', () => {
       await c.query(`insert into neos.registry_installs (company_id, host_app, entry_key, pinned_version, status) values ($1, 'ledger', 'nep-gst', '1.0.0', 'active')`, [co]);
       const before = (await c.query('select (select count(*) from neos.approvals) a, (select count(*) from neos.activity) v, (select md5(string_agg(t::text, \',\' order by id)) from neos.approvals t) h')).rows[0];
 
-      const applied = await migratePlatform(db.adminUrl);
+      const applied = await migratePlatform(db.adminUrl, undefined, { through: '011' });
       expect(applied.map((m) => m.name)[0]).toBe('011_platform_gaps.sql'); // then any later file
 
       const after = (await c.query('select (select count(*) from neos.approvals) a, (select count(*) from neos.activity) v')).rows[0];

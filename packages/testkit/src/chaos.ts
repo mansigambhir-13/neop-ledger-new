@@ -69,24 +69,38 @@ export async function chaosRun(P: Pilot, o: { jobs: number; restarts: number; in
   };
 }
 
-/** N concurrent tasks.open calls through the gateway; returns latency percentiles in ms. */
+/**
+ * N concurrent typed tasks pushed to the app's own appservice, as the homeserver would push NeuralChat's events (v3 S9:
+ * the only way in); each is timed until the app has opened its job (the "on it"). Returns latency percentiles in ms.
+ */
 export async function ackLoad(P: Pilot, n: number) {
+  if (!P.hs || !P.neuralchatUser) throw new Error('ackLoad needs the appservice road with NeuralChat (bootPilot defaults)');
+  const room = P.appRooms[P.backend.core.key];
+  if (!room) throw new Error(`no room bound for ${P.backend.core.key}`);
+  const slug = (await P.platform.db.query<{ slug: string }>('select slug from neos.companies where id = $1', [P.company.id])).rows[0]!.slug;
+  const person = (await P.platform.db.query<{ matrix_user_id: string | null }>('select matrix_user_id from neos.users where id = $1', [P.admin.id])).rows[0]?.matrix_user_id ?? P.neuralchatPerson(P.admin.id);
   const lat: number[] = [];
+  const tasks: string[] = [];
   await Promise.all(
     Array.from({ length: n }, async () => {
       const t0 = performance.now();
-      const r = await P.platform.gateway.call({
-        caller: 'platform',
-        app: P.backend.core.key,
-        endpoint: 'tasks.open',
-        company_id: P.company.id,
-        body: { task_id: randomUUID(), ask: 'load: ack only', requester: `user:${P.admin.id}` },
-        idem_key: `load:${randomUUID()}`,
+      const task = randomUUID();
+      tasks.push(task);
+      const r = await P.hs!.pushTyped({
+        room_id: room,
+        sender: P.neuralchatUser!,
+        type: 'neos.neop.task',
+        content: { body: 'load: ack only', task_id: task, company: slug, on_behalf_of: person, text: 'load: ack only' },
+        to: P.backend.core.key,
       });
-      if (r.status !== 200) throw new Error(`tasks.open ${r.status}`);
+      if (r.status !== 200) throw new Error(`appservice push ${r.status}`);
+      // An appservice transaction is acknowledged only after the backend handled the event and committed openJob.
+      // Do not add 200 competing verification queries to the latency being measured.
       lat.push(performance.now() - t0);
     }),
   );
+  const opened = await P.backend.core.runnerPool.query(`select count(*)::int n from ${P.backend.core.key}.jobs where task_id = any($1)`, [tasks]);
+  if (opened.rows[0].n !== n) throw new Error(`only ${opened.rows[0].n}/${n} Matrix tasks opened a job`);
   lat.sort((a, b) => a - b);
   const pct = (p: number) => lat[Math.min(lat.length - 1, Math.floor((p / 100) * lat.length))]!;
   return { n, p50: pct(50), p95: pct(95), p99: pct(99), max: lat[lat.length - 1]! };

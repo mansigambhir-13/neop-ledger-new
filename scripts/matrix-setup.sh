@@ -10,8 +10,8 @@
 # NEOP rooms (v3 §8, B7): invite-only (private_chat preset), NEVER end-to-end encrypted (audit needs the plaintext;
 # we run the server — the platform refuses to bind a room with m.room.encryption), and power levels where only
 # people reach the level of neos.neop.approve (50): the app's identity @neop_<app>_<company>, the reasoning agent
-# @neuralchat_<company> and other NEOPs sit at 10. The appservice registration reserves BOTH @neop_.* and
-# @neuralchat_.* as exclusive namespaces (appservice road only), so nobody can register a look-alike name.
+# @neuralchat_<company> and other NEOPs sit at 10. Separate registrations reserve @neop_ledger_.* and
+# @neuralchat_.* exclusively (appservice road only), so nobody can register a look-alike name.
 set -euo pipefail
 F=${1:?compose file}; PROJ=${2:-neops}; NAME=${3:-acme.example}; MODE=${4:-${MATRIX_MODE:-appservice}}
 
@@ -36,14 +36,19 @@ JSON
   echo "Bind it (admin): POST /api/chat/rooms {\"app\": \"$APP\", \"room_id\": \"<room_id above>\"} — the platform checks the settings again."
   exit 0
 fi
-DIR=$(cd "$(dirname "$F")" && pwd); SEC="$DIR/secrets"
+DIR=$(cd "$(dirname "$F")" && pwd); SEC=${NEOS_SECRETS_DIR:-$DIR/secrets}
 mkdir -p "$SEC"
+SEC=$(cd "$SEC" && pwd)
 for t in matrix_hs_token matrix_as_token; do [ -s "$SEC/$t" ] || { head -c 32 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 40 > "$SEC/$t"; chmod 600 "$SEC/$t"; }; done
-# The client road's token file must exist for compose; it stays empty (client off) until the operator fills it.
+# Client mode requires operator-issued tokens; an empty placeholder never enables a client.
 [ -e "$SEC/matrix_ledger_token" ] || { : > "$SEC/matrix_ledger_token"; chmod 600 "$SEC/matrix_ledger_token"; }
 # v3 S4 (NEOP_PRESENCE=appservice): Ledger's OWN appservice tokens — never the platform's. Always present, so compose starts.
 for t in matrix_ledger_hs_token matrix_ledger_as_token; do [ -s "$SEC/$t" ] || { head -c 32 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 40 > "$SEC/$t"; chmod 600 "$SEC/$t"; }; done
-PRESENCE=${NEOP_PRESENCE:-off}
+PRESENCE=${NEOP_PRESENCE:-appservice}
+if [ "$MODE" = appservice ] && [ "$PRESENCE" != appservice ]; then
+  echo "appservice setup requires NEOP_PRESENCE=appservice (the Matrix-only default)" >&2
+  exit 1
+fi
 VOL="${PROJ}_synapse-data"
 docker volume create "$VOL" >/dev/null
 docker run --rm -v "$VOL:/data" -e SYNAPSE_SERVER_NAME="$NAME" -e SYNAPSE_REPORT_STATS=no matrixdotorg/synapse:v1.139.0 generate >/dev/null
@@ -56,14 +61,15 @@ Matrix ready for $NAME (client road). As the operator, once the homeserver is up
        curl -s -XPOST http://127.0.0.1:8008/_matrix/client/v3/login -H 'content-type: application/json' \\
          -d '{"type":"m.login.password","identifier":{"type":"m.id.user","user":"ledger"},"password":"<password>"}' \\
          | sed -n 's/.*"access_token":"\\([^"]*\\)".*/\\1/p' > $SEC/matrix_ledger_token
-  3. start with MATRIX_MODE=client:  MATRIX_MODE=client docker compose -p $PROJ -f $F -f $DIR/compose.chat.yml up -d
-  4. allowlist who may DM @ledger:$NAME (admin):  PUT /api/chat/allowlist {app, matrix_id, kind: person|bridge, acts_for?}
+  3. create a separate NeuralChat account and token. Set both identities/token-file paths and the homeserver URL
+     in a private copy of deploy/production.env.example.
+  4. run scripts/deploy.sh with that env file; it uses compose.presence-client.yml.
+  5. allowlist who may DM @ledger:$NAME (admin):  PUT /api/chat/allowlist {app, matrix_id, kind: person|bridge, acts_for?}
 EOF
   exit 0
 fi
 
-# v3 S4: while Ledger speaks for itself (NEOP_PRESENCE=appservice), the platform's registration leaves @neop_ledger_.* to it.
-NEOP_RE='@neop_.*'; [ "$PRESENCE" = appservice ] && NEOP_RE='@neop_(?!ledger_).*'
+# v3 S9: the platform owns only NeuralChat; each NEOP owns its own exclusive registration.
 cat > "$SEC/appservice.yaml" <<YAML
 id: neos-chat-bridge
 url: http://platform:4000
@@ -73,8 +79,6 @@ sender_localpart: neos_bridge
 rate_limited: false
 namespaces:
   users:
-    - exclusive: true
-      regex: "$NEOP_RE"
     - exclusive: true
       regex: "@neuralchat_.*"
   rooms: []
@@ -93,7 +97,13 @@ namespaces:
     - exclusive: true
       regex: "@neop_ledger_.*"
   rooms: []
-  aliases: []
+  aliases:
+    # rooms-setup.ts creates these stable aliases as Ledger's virtual user. Synapse refuses an appservice-created
+    # alias unless the same registration reserves it.
+    - exclusive: true
+      regex: "#ledger-.*"
+    - exclusive: true
+      regex: "#neop-bus-.*"
 YAML
 chmod 600 "$SEC/appservice.yaml" "$SEC/appservice.ledger.yaml"
 docker run --rm -e PRESENCE="$PRESENCE" -v "$VOL:/data" -v "$SEC/appservice.yaml:/tmp/appservice.yaml:ro" -v "$SEC/appservice.ledger.yaml:/tmp/appservice.ledger.yaml:ro" --entrypoint sh matrixdotorg/synapse:v1.139.0 -c '

@@ -1,24 +1,23 @@
+import {sqlIdent, type PoolClient} from '@neop/pgkit';
 // THE GATE · talking to other apps · template-only (v3 §9 "Talking to other NEOPs", §10 "Borrowing one ability").
-// Three tools reach another app: a2a.request (hand it a task), a borrowed line (one of its abilities) and, on the
-// bus, a2a.answer (answer its question about a task this job handed it). Which road they take is the presence flag:
-//
-//   NEOP_PRESENCE on  — the bus road (V3 migration S6). A typed neos.neop.task / neos.neop.ask in the company's bus
-//                       room (#neop-bus-<co>), sent as this app's own Matrix name (runner/bus.ts). The job waits on
-//                       an `a2a_task` wait keyed by its bus thread (<schema>.bus_threads, t015); the other app's
-//                       `done` / `answer` readies it with the result as untrusted data; its `ask` wakes it with a
-//                       question this job answers with a2a.answer (or asks its person first, then relays). The chain
-//                       of apps travels in the task body (lineage, depth ≤ 3): refused here early, and by the callee.
-//   NEOP_PRESENCE off — the platform road (today, until S9): openA2A / the gateway call / borrowDescribe.
+// Three tools reach another app: a2a.request (hand it a task), a borrowed line (one of its abilities) and a2a.answer
+// (answer its question about a task this job handed it). There is one road (v3 S6; the only one since S9): a typed
+// neos.neop.task / neos.neop.ask in the company's bus room (#neop-bus-<co>), sent as this app's own Matrix name
+// (runner/bus.ts). The job waits on an `a2a_task` wait keyed by its bus thread (<schema>.bus_threads, t015); the other
+// app's `done` / `answer` readies it with the result as untrusted data; its `ask` wakes it with a question this job
+// answers with a2a.answer (or asks its person first, then relays). The chain of apps travels in the task body
+// (lineage, depth ≤ 3): refused here early, and by the callee. On the client road there is no bus: refused `no_bus`.
 //
 // The wait is always written BEFORE anything is sent (item 5): an answer that comes back faster than this call
-// returns finds the wait (and, on the bus, the thread row) already there.
+// returns finds the wait (and the thread row) already there.
 
 import { randomUUID } from 'node:crypto';
-import { canonicalize, sha256, type JobTokenClaims } from '@neop/contracts';
-import type { JobRow } from '../data/book.ts';
-import type { Gate, GateResult } from './gate.ts';
+import type { JobTokenClaims } from '@neop/contracts';
+import type { JobRow, WaitRow } from '../data/book.ts';
+import { prepareAnswerIntent, type AnswerThread } from '../data/answer-intents.ts';
+import { SessionLost, type Gate, type GateResult } from './gate.ts';
 
-/** a2a chains stop at this depth (the platform's rule in openA2ATask, now the callee's on the bus). */
+/** a2a chains stop at this depth (the callee's rule on the bus, checked here first). */
 export const A2A_MAX_DEPTH = 3;
 
 /** An a2a hand-off wait lasts this long before it wakes its job as EXPIRED (runner.expire). */
@@ -36,17 +35,16 @@ export async function a2aRequest(gate: Gate, claims: JobTokenClaims, job: JobRow
   return handOff(gate, claims, job, 'a2a.request', { target: args.app, ask: args.ask });
 }
 
-/** Open a task at another app and make this job wait on it (a2a.request, and borrowed writes). */
+/** Open a task at another app and make this job wait on it (a2a.request, and borrowed lines). */
 export async function handOff(gate: Gate, claims: JobTokenClaims, job: JobRow, toolKey: string, req: HandOff): Promise<GateResult> {
-  return gate.core.presenceOn ? busHandOff(gate, claims, job, toolKey, req) : platformHandOff(gate, claims, job, toolKey, req);
+  return busHandOff(gate, claims, job, toolKey, req);
 }
 
 // ── borrowed lines ──────────────────────────────────────────────────────────
 /**
- * A borrowed ability (v3 §10). A WRITE is never run here: the owner proposes it and a person says yes there. Off
- * presence: a read goes through the gateway as this app (recorded here with the gateway's request id, R4) and a
- * write is handed over as an a2a task. On presence: both are one typed ask carrying {ability, args} in the bus room;
- * the job waits for the owner's typed answer (a read at once, with no model there; a write after execution).
+ * A borrowed ability (v3 §10). Nothing runs here: a read or a write is one typed ask carrying {ability, args} in the bus
+ * room; the job waits for the owner's typed answer (a read at once, with no model there; a write after the owner's
+ * person approved it and the owner's runner carried it out). A write is never run here — the owner proposes it.
  */
 export async function borrow(gate: Gate, claims: JobTokenClaims, job: JobRow, key: string, args: unknown): Promise<GateResult> {
   const core = gate.core;
@@ -54,74 +52,10 @@ export async function borrow(gate: Gate, claims: JobTokenClaims, job: JobRow, ke
   const b = (await core.borrowed.list(claims.company_id, board)).find((x) => x.key === key);
   if (!b || b.setting === 'off') return gate.refuse(claims, key, 'switched_off', `${key} is not available to borrow here`);
   const v = core.borrowed.validators(b);
-  if (b.ability.kind === 'write' || core.presenceOn) {
-    // The card (if the model added one) is the owner's to write; only the inputs travel.
-    const { card: _card, ...inputs } = args && typeof args === 'object' && !Array.isArray(args) ? (args as Record<string, unknown>) : ({} as Record<string, unknown>);
-    if (!v.input(inputs)) return gate.refuse(claims, key, 'invalid_args', core.borrowed.errors(v.input));
-    return handOff(gate, claims, job, key, { target: b.owner, ask: `${b.ability.title} (${key})`, ability: key, args: inputs });
-  }
-  if (!v.input(args)) return gate.refuse(claims, key, 'invalid_args', core.borrowed.errors(v.input));
-  const idem = `${core.key}:borrow:${claims.sub}:${sha256(canonicalize({ key, args }))}`;
-  const res = await core.platform.gatewayCall({ company_id: claims.company_id, app: b.owner, endpoint: key, body: args, idem_key: idem });
-  if (res.status !== 200) {
-    // The owner's words are outside text: data for the model, never instruction (item 10).
-    return gate.refuse(claims, key, 'owner_refused', `${b.owner} answered ${res.status}`, { detail: res.body?.error?.message ?? 'refused', detail_source: b.owner });
-  }
-  const out = res.body?.result;
-  if (!v.output(out)) return gate.refuse(claims, key, 'contract_violation', `${b.owner} returned a result outside its schema`);
-  await core.company(claims.company_id, async (c) => {
-    await core.book.recordOperation(c, {
-      company_id: claims.company_id,
-      job_id: claims.sub,
-      caller: `assistant:${claims.sub}`,
-      ability_key: `borrow:${b.owner}:${key}`,
-      idempotency_key: idem,
-      outcome: 'answered',
-      gateway_request_id: res.request_id,
-      request: args,
-      result: out,
-      reason: `borrowed from ${b.owner}`,
-    });
-    await core.book.addStep(c, { company_id: claims.company_id, job_id: claims.sub, kind: 'ability', summary: `Asked ${b.owner}: ${b.ability.title}`, ability_key: key });
-  });
-  return { status: 'done', ability: key, output: out, untrusted: true };
-}
-
-// ── the platform road (NEOP_PRESENCE off; S9 deletes it) ───────────────────
-async function platformHandOff(gate: Gate, claims: JobTokenClaims, job: JobRow, toolKey: string, req: HandOff): Promise<GateResult> {
-  const core = gate.core;
-  const args = { app: req.target, ask: req.ask };
-  const wait = await core.company(claims.company_id, (c) =>
-    core.book.insertWait(c, { company_id: claims.company_id, job_id: claims.sub, kind: 'a2a_task', ref_id: null, expires_at_sql: A2A_WAIT }),
-  );
-  let res: { status: number; body: any };
-  try {
-    res = await core.platform.openA2A({
-      company_id: claims.company_id,
-      target: args.app,
-      ask: args.ask,
-      parent_task_id: job.task_id,
-      host_job_id: claims.sub,
-      ...(req.ability ? { ability: req.ability, args: req.args ?? {} } : {}),
-    });
-  } catch (e) {
-    res = { status: 502, body: { error: { code: 'a2a_unreachable', message: String(e) } } };
-  }
-  if (res.status !== 200) {
-    await core.company(claims.company_id, (c) =>
-      c.query(`update ${core.key}.waits set status = 'consumed', ready_at = now(), outcome = 'NOT_OPENED' where id = $1 and status = 'pending'`, [wait.id]),
-    );
-    return gate.refuse(claims, toolKey, res.body?.error?.code ?? 'a2a_refused', `the platform answered ${res.status}`, {
-      detail: res.body?.error?.message ?? null,
-      detail_source: 'platform',
-    });
-  }
-  const taskId = res.body.task_id as string;
-  await core.company(claims.company_id, async (c) => {
-    await c.query(`update ${core.key}.waits set ref_id = $2 where id = $1`, [wait.id, taskId]);
-    await parkOnApp(gate, c, claims, req, taskId, res.body.lineage);
-  });
-  return { status: 'waiting_on_app', app: args.app, task_id: taskId };
+  // The card (if the model added one) is the owner's to write; only the inputs travel.
+  const { card: _card, ...inputs } = args && typeof args === 'object' && !Array.isArray(args) ? (args as Record<string, unknown>) : ({} as Record<string, unknown>);
+  if (!v.input(inputs)) return gate.refuse(claims, key, 'invalid_args', core.borrowed.errors(v.input));
+  return handOff(gate, claims, job, key, { target: b.owner, ask: `${b.ability.title} (${key})`, ability: key, args: inputs });
 }
 
 /** The job now waits on the other app: what it was woken for is reported, the step written, a2a.requested emitted. */
@@ -140,12 +74,12 @@ async function parkOnApp(gate: Gate, c: import('@neop/pgkit').PoolClient, claims
   await core.book.emit(c, claims.company_id, 'a2a.requested', { job_id: claims.sub, task_id: taskId, target: req.target, lineage, ...(req.ability ? { ability: req.ability } : {}) }, `a2a:${taskId}`);
 }
 
-// ── the bus road (NEOP_PRESENCE on) ─────────────────────────────────────────
+// ── the bus road ──────────────────────────────────────────────────────────
 /** The chain this job is part of: the lineage of the bus task that opened it (none for a person's own ask). */
 async function lineageOf(gate: Gate, claims: JobTokenClaims): Promise<string[]> {
   const core = gate.core;
   const r = await core.company(claims.company_id, (c) =>
-    c.query<{ lineage: string[] }>(`select lineage from ${core.key}.bus_threads where direction = 'in' and kind = 'task' and job_id = $1 order by created_at limit 1`, [claims.sub]),
+    c.query<{ lineage: string[] }>(`select lineage from ${sqlIdent(core.key)}.bus_threads where direction = 'in' and kind = 'task' and job_id = $1 order by created_at limit 1`, [claims.sub]),
   );
   return Array.isArray(r.rows[0]?.lineage) ? r.rows[0]!.lineage : [];
 }
@@ -153,7 +87,7 @@ async function lineageOf(gate: Gate, claims: JobTokenClaims): Promise<string[]> 
 async function busHandOff(gate: Gate, claims: JobTokenClaims, job: JobRow, toolKey: string, req: HandOff): Promise<GateResult> {
   const core = gate.core;
   const bus = core.bus;
-  if (!bus) return gate.refuse(claims, toolKey, 'no_bus', 'this backend has no voice in the bus room (NEOP_PRESENCE is on but the bus road is not running here); nothing was sent');
+  if (!bus) return gate.refuse(claims, toolKey, 'no_bus', 'this backend has no voice in the bus room (it runs on the client road, or its bus road is not running); nothing was sent');
   const lineage = [...(await lineageOf(gate, claims)), core.key];
   if (req.target === core.key || lineage.slice(0, -1).includes(req.target)) {
     return gate.refuse(claims, toolKey, 'a2a_loop', `${req.target} is already in this chain (${[...lineage, req.target].join(' → ')}); nothing was sent`);
@@ -171,10 +105,11 @@ async function busHandOff(gate: Gate, claims: JobTokenClaims, job: JobRow, toolK
   const kind = req.ability ? 'call' : 'task';
   // The wait and the thread row first: an answer faster than this call finds both.
   const wait = await core.company(claims.company_id, async (c) => {
+    await core.book.getJob(c, claims.sub, true);
     const w = await core.book.insertWait(c, { company_id: claims.company_id, job_id: claims.sub, kind: 'a2a_task', ref_id: taskId, expires_at_sql: A2A_WAIT });
     await c.query(
-      `insert into ${core.key}.bus_threads (id, company_id, direction, kind, room_id, peer, peer_app, job_id, wait_id, task_id, ability, args, lineage, depth, status)
-       values ($1, $2, 'out', $3, $4, $5, $6, $7, $8, $13, $9, $10, $11, $12, 'sending')`,
+      `insert into ${sqlIdent(core.key)}.bus_threads (id, company_id, direction, kind, room_id, peer, peer_app, job_id, wait_id, task_id, ability, args, lineage, depth, status, answer_protocol)
+       values ($1, $2, 'out', $3, $4, $5, $6, $7, $8, $13, $9, $10, $11, $12, 'sending', 1)`,
       [taskId, claims.company_id, kind, peer.room, peer.mxid, req.target, claims.sub, w.id, req.ability ?? null, req.args ? JSON.stringify(req.args) : null, JSON.stringify(lineage), lineage.length, taskId],
     );
     return w;
@@ -192,8 +127,9 @@ async function busHandOff(gate: Gate, claims: JobTokenClaims, job: JobRow, toolK
     });
   } catch (e: any) {
     await core.company(claims.company_id, async (c) => {
-      await c.query(`update ${core.key}.waits set status = 'consumed', ready_at = now(), outcome = 'NOT_OPENED' where id = $1 and status = 'pending'`, [wait.id]);
-      await c.query(`update ${core.key}.bus_threads set status = 'not_opened', updated_at = now() where id = $1`, [taskId]);
+      await core.book.getJob(c, claims.sub, true);
+      await c.query(`update ${sqlIdent(core.key)}.bus_threads set status = 'not_opened', updated_at = now() where id = $1`, [taskId]);
+      await c.query(`update ${sqlIdent(core.key)}.waits set status = 'consumed', ready_at = now(), outcome = 'NOT_OPENED' where id = $1 and status = 'pending'`, [wait.id]);
     });
     return gate.refuse(claims, toolKey, e?.code ?? 'a2a_unreachable', `the task could not be sent in the bus room; nothing was asked of ${req.target}`, {
       detail: String(e?.message ?? e).slice(0, 300),
@@ -201,7 +137,8 @@ async function busHandOff(gate: Gate, claims: JobTokenClaims, job: JobRow, toolK
     });
   }
   await core.company(claims.company_id, async (c) => {
-    await c.query(`update ${core.key}.bus_threads set root_event_id = $2, status = case when status = 'sending' then 'open' else status end, updated_at = now() where id = $1`, [taskId, root]);
+    await core.book.getJob(c, claims.sub, true);
+    await c.query(`update ${sqlIdent(core.key)}.bus_threads set root_event_id = $2, status = case when status = 'sending' then 'open' else status end, updated_at = now() where id = $1`, [taskId, root]);
     await parkOnApp(gate, c, claims, req, taskId, lineage, { name: 'over the bus room', wait: wait.id });
   });
   return { status: 'waiting_on_app', app: req.target, task_id: taskId };
@@ -216,40 +153,78 @@ const ANSWER_KEY = /^[a-z][a-z0-9_]{0,39}$/;
  */
 export async function a2aAnswer(gate: Gate, claims: JobTokenClaims, _job: JobRow, args: any): Promise<GateResult> {
   const core = gate.core;
-  if (!core.presenceOn || !core.bus) return gate.refuse(claims, 'a2a.answer', 'not_available', 'a2a.answer is for questions asked in the bus room; this app is not on it');
-  if (typeof args?.task_id !== 'string' || !args.answers || typeof args.answers !== 'object' || Array.isArray(args.answers)) {
-    return gate.refuse(claims, 'a2a.answer', 'invalid_args', 'task_id and answers (an object: field key → value) are required');
+  if (!core.bus) return gate.refuse(claims, 'a2a.answer', 'not_available', 'a2a.answer is for questions asked in the bus room; this app is not on it');
+  if (typeof args?.task_id !== 'string' || typeof args.question_wait_id !== 'string'
+    || args.question_wait_id.length < 1 || args.question_wait_id.length > 200
+    || !args.answers || typeof args.answers !== 'object' || Array.isArray(args.answers)) {
+    return gate.refuse(claims, 'a2a.answer', 'invalid_args', 'task_id, question_wait_id (the exact peer wait ID, 1–200 characters) and answers (an object: field key → value) are required');
   }
+  // Capture the caller's intended question before awaiting anything. Never replace a missing/stale ID
+  // with the current thread question: the answer may have been prepared for a different question.
+  const taskId: string = args.task_id, expectedPeerWait: string = args.question_wait_id;
   const answers: Record<string, string | number | boolean> = {};
   for (const [k, v] of Object.entries(args.answers as Record<string, unknown>)) {
-    if (!ANSWER_KEY.test(k) || !['string', 'number', 'boolean'].includes(typeof v) || (typeof v === 'string' && v.length > 4000)) {
+    if (!ANSWER_KEY.test(k) || !['string', 'number', 'boolean'].includes(typeof v) || (typeof v === 'number' && !Number.isFinite(v)) || (typeof v === 'string' && v.length > 4000)) {
       return gate.refuse(claims, 'a2a.answer', 'invalid_args', `answers.${k} must be a short text, a number or true/false under a lower_snake_case key`);
     }
     answers[k] = v as string | number | boolean;
   }
   if (!Object.keys(answers).length || Object.keys(answers).length > 10) return gate.refuse(claims, 'a2a.answer', 'invalid_args', 'give 1 to 10 answers');
-  const row = (
-    await core.company(claims.company_id, (c) =>
-      c.query<{ id: string; peer: string; peer_app: string; room_id: string; root_event_id: string | null; question: any; status: string }>(
-        `select id, peer, peer_app, room_id, root_event_id, question, status from ${core.key}.bus_threads where id::text = $1 and direction = 'out' and job_id = $2`,
-        [args.task_id, claims.sub],
-      ),
-    )
-  ).rows[0];
-  if (!row || row.status !== 'open' || !row.root_event_id) return gate.refuse(claims, 'a2a.answer', 'unknown_task', `no open task ${args.task_id} of this job is waiting on an answer`);
-  if (!row.question?.wait_id) return gate.refuse(claims, 'a2a.answer', 'no_question', `${row.peer_app} has not asked anything about task ${row.id.slice(0, 8)}`);
+  // Pin the sending Matrix name, not credentials. The bus rechecks it immediately before sending.
+  const account = await core.bus.answerAccount(claims.company_id);
+  const requireOwner = async (c: PoolClient) => {
+    const live = await core.book.getJob(c, claims.sub, true);
+    if (!live || live.company_id !== claims.company_id || live.status !== 'RUNNING' || live.claimed_by !== claims.sid) {
+      throw new SessionLost('this session no longer holds the job');
+    }
+  };
+  // Prepare under the same job -> thread order as receipt/cancellation. The network send is outside locks.
+  const prepared = await core.company(claims.company_id, async c => {
+    await requireOwner(c);
+    const row = (await c.query<AnswerThread>(
+      `select id, peer, peer_app, room_id, root_event_id, question, status, answer_protocol from ${sqlIdent(core.key)}.bus_threads
+       where id::text=$1 and company_id=$2 and direction='out' and kind='task' and job_id=$3 for update`,
+      [taskId, claims.company_id, claims.sub])).rows[0];
+    if (!row || row.status !== 'open' || !row.root_event_id) return { ok: false as const,
+      code: 'unknown_task', reason: `no open task ${taskId} of this job is waiting on an answer` };
+    if (!row.question?.wait_id) return { ok: false as const,
+      code: 'no_question', reason: `${row.peer_app} has not asked anything about task ${row.id.slice(0, 8)}` };
+    if (row.question.wait_id !== expectedPeerWait) return { ok: false as const,
+      code: 'stale_question', reason: 'the peer question changed; this call sent no answer. Read the latest question and prepare an answer for its exact question_wait_id. Do not relabel an old answer as a reply to a new question.' };
+    // Only waits this session actually claimed can be reported by this answer. A newer wake is still owed,
+    // including one delivered before this preparation transaction or while the send is in flight.
+    const ready = await c.query<{ id: string }>(`select id from ${sqlIdent(core.key)}.waits
+      where company_id=$1 and job_id=$2 and status='ready' and claimed_by=$3`, [claims.company_id, claims.sub, claims.sid]);
+    const intent = await prepareAnswerIntent(core, c, claims.company_id, claims.sub, row, expectedPeerWait, answers, account);
+    if (!intent.ok) return intent;
+    return { ...intent, row, readyIds: ready.rows.map(w => w.id) };
+  });
+  if (!prepared.ok) return gate.refuse(claims, 'a2a.answer', prepared.code, prepared.reason);
+  const { row, wait, intent, readyIds } = prepared;
   const peerWait = String(row.question.wait_id);
-  // The job waits for the result again: its wait first (the next word may come fast), then the answer is sent.
-  const wait = await core.company(claims.company_id, (c) => core.book.insertWait(c, { company_id: claims.company_id, job_id: claims.sub, kind: 'a2a_task', ref_id: row.id, expires_at_sql: A2A_WAIT }));
   try {
-    await core.bus.answer(claims.company_id, { room: row.room_id, peer: row.peer, root: row.root_event_id }, { key: `bus:answer:${row.id}:${peerWait}`, wait_id: peerWait, answers });
+    await core.bus.answer(claims.company_id, { room: intent.room_id, peer: intent.peer, root: intent.root_event_id },
+      { key: `bus:answer:${row.id}:${peerWait}`, wait_id: peerWait, answers: intent.answers, account: intent.account });
   } catch (e: any) {
-    await core.company(claims.company_id, (c) => c.query(`update ${core.key}.waits set status = 'consumed', ready_at = now(), outcome = 'NOT_OPENED' where id = $1 and status = 'pending'`, [wait.id]));
-    return gate.refuse(claims, 'a2a.answer', 'a2a_unreachable', `the answer could not be sent in the bus room; ${row.peer_app} did not get it`, { detail: String(e?.message ?? e).slice(0, 300), detail_source: 'matrix' });
+    await core.company(claims.company_id, async c => {
+      await requireOwner(c);
+      // A send error cannot prove non-delivery. Preserve the same wait for a late result or exact retry.
+      await core.book.addStep(c, { company_id: claims.company_id, job_id: claims.sub, kind: 'system',
+        summary: `Answer delivery unconfirmed for task ${row.id.slice(0, 8)}; original intent and return wait retained.`,
+        output_ref: { answer_intent_id: intent.id, wait_id: wait.id, outcome: 'SEND_UNCONFIRMED' } });
+    });
+    return gate.refuse(claims, 'a2a.answer', 'a2a_unreachable', `could not confirm delivery of the answer to ${row.peer_app}; it may have received it. Do not assume non-delivery or send a different answer as a retry.`, { detail: String(e?.message ?? e).slice(0, 300), detail_source: 'matrix' });
   }
   await core.company(claims.company_id, async (c) => {
-    await c.query(`update ${core.key}.bus_threads set question = null, wait_id = $2, updated_at = now() where id = $1`, [row.id, wait.id]);
-    const consumed = await core.book.consumeReadyWaits(c, claims.sub, wait.id);
+    await requireOwner(c);
+    // A next question or terminal result may have arrived during the send. Never clear that newer question.
+    await c.query(`update ${sqlIdent(core.key)}.bus_threads
+      set question=case when question->>'wait_id'=$3 then null else question end,wait_id=$2,updated_at=now()
+      where id=$1 and company_id=$4 and job_id=$5 and direction='out' and kind='task'`,
+      [row.id, wait.id, peerWait, claims.company_id, claims.sub]);
+    const consumed = (await c.query<WaitRow>(`update ${sqlIdent(core.key)}.waits set status='consumed'
+      where company_id=$1 and job_id=$2 and id=any($3::uuid[]) and status='ready' and claimed_by=$4 returning *`,
+      [claims.company_id, claims.sub, readyIds, claims.sid])).rows;
     await core.book.markReported(c, claims.company_id, consumed, `assistant:${claims.sub}`, { answered_task: row.id });
     await core.book.setJobStatus(c, claims.sub, 'WAITING');
     await core.book.addStep(c, {
@@ -257,6 +232,7 @@ export async function a2aAnswer(gate: Gate, claims: JobTokenClaims, _job: JobRow
       job_id: claims.sub,
       kind: 'system',
       summary: `Answered ${row.peer_app}'s question about task ${row.id.slice(0, 8)} (${Object.keys(answers).join(', ')}); waiting for its result.`,
+      output_ref: { task_id: row.id, question_wait_id: peerWait, wait_id: wait.id, answer_intent_id: intent.id },
     });
   });
   return { status: 'waiting_on_app', app: row.peer_app, task_id: row.id };

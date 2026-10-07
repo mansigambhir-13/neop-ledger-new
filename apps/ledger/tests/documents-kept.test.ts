@@ -2,7 +2,7 @@
 // keeps the id". An attached file's bytes are stored (key ledger/<company>/<sha256>) before the
 // documents door reads them; ledger.documents_files links the id to its name, type, size and job;
 // a bill recorded from it keeps source_document; ledger.document.get gives metadata and a
-// short-lived link the platform serves to people (never bytes to the model). One company never
+// short-lived link the app's own files listener serves (never bytes to the model). One company never
 // sees another's files.
 import { cp, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
@@ -30,6 +30,12 @@ beforeAll(async () => {
   const co = await P.platform.createCompany('Beta Traders', 'Asia/Kolkata');
   const u = await P.platform.createUser(co.id, { name: 'Bea', email: 'bea@beta.example', role: 'admin' });
   await P.platform.installApp(co.id, 'ledger', u.id);
+  const slug = (await P.platform.db.query<{ slug: string }>('select slug from neos.companies where id = $1', [co.id])).rows[0]!.slug;
+  const server = P.neopUser!.split(':').slice(1).join(':');
+  const betaUser = `@neop_ledger_${slug}:${server}`;
+  const betaRoom = `!ledger-${slug}:${server}`;
+  await P.platform.setChatIdentity(co.id, 'ledger', { matrix_user: betaUser, room_ids: [betaRoom] }, `user:${u.id}`);
+  await P.waitFor(async () => P.hs!.joined.some((j) => j.room === betaRoom && j.user === betaUser), 'Beta Ledger joined its room');
   B = { id: co.id, token: u.token };
   adm = new pg.Pool({ connectionString: P.adminUrl, max: 2 });
 });
@@ -95,9 +101,9 @@ describe('source documents are kept', () => {
     expect(row.source_document).toBe(id);
   });
 
-  it('ledger.document.get: metadata, the bills that cite it and a short-lived link; the platform serves the bytes to a person', async () => {
+  it('ledger.document.get: metadata, the bills that cite it and a short-lived link; the app files listener serves the bytes', async () => {
     const id = sha(bill);
-    const r = await P.api('POST', '/api/apps/ledger/read/ledger.document.get', { sha256: id });
+    const r = await P.read('ledger.document.get', { sha256: id });
     expect(r.status).toBe(200);
     const res = r.body.result;
     expect(P.backend.core.validators.checkOutput('ledger.document.get', res)).toBeNull();
@@ -105,36 +111,32 @@ describe('source documents are kept', () => {
     expect(res.bills.map((b: { number: string }) => b.number)).toEqual(['QZ-1001']);
     // No bytes in what a reader (or the model) gets.
     expect(JSON.stringify(res)).not.toContain(bill.subarray(0, 32).toString('base64'));
-    expect(res.download.path).toMatch(new RegExp(`^/api/documents/ledger/${id}\\?exp=\\d+&sig=`));
+    expect(res.download.path).toMatch(new RegExp(`^/files/${P.company.id}/${id}\\?exp=\\d+&sig=`));
     expect(Date.parse(res.download.expires_at) - Date.now()).toBeLessThanOrEqual(documents.DOCUMENT_LINK_TTL_S * 1000);
 
-    const dl = await fetch(P.platformUrl + res.download.path, { headers: { authorization: `Bearer ${P.member.token}` } });
+    const files = `http://127.0.0.1:${P.backend.ports.files}`;
+    const dl = await fetch(files + res.download.path);
     expect(dl.status).toBe(200);
     expect(dl.headers.get('content-disposition')).toContain('attachment; filename="bill-quartz.pdf"');
     expect(dl.headers.get('x-content-type-options')).toBe('nosniff');
     expect(Buffer.from(await dl.arrayBuffer())).toEqual(bill);
-    // Signed-in people only; a tampered or expired link is refused by the app.
-    expect((await fetch(P.platformUrl + res.download.path)).status).toBe(401);
+    // The short-lived signed URL is the browser's bearer capability; a tampered or expired link is refused by the app.
     const tampered = res.download.path.replace(/exp=(\d+)/, (_: string, e: string) => `exp=${Number(e) + 3600}`);
-    expect((await fetch(P.platformUrl + tampered, { headers: { authorization: `Bearer ${P.admin.token}` } })).status).toBe(403);
+    expect((await fetch(files + tampered)).status).toBe(403);
     const old = documents.documentLink('ledger', P.company.id, id, Date.now() - 3_600_000)!;
-    const gone = await fetch(P.platformUrl + old.path, { headers: { authorization: `Bearer ${P.admin.token}` } });
+    const gone = await fetch(files + old.path);
     expect(gone.status).toBe(410);
-    const audit = (await P.platform.db.query("select outcome from neos.audit where action = 'document.download' and company_id = $1 order by id", [P.company.id])).rows.map((x) => x.outcome);
-    expect(audit).toEqual(['200', '403', '410']);
   });
 
-  it('company isolation: another company neither sees the file nor downloads it with the first company’s link; its own copy is its own', async () => {
+  it('company isolation: another company cannot mint a link for this file; its own copy is its own', async () => {
     const id = sha(bill);
-    const mine = (await P.api('POST', '/api/apps/ledger/read/ledger.document.get', { sha256: id })).body.result;
-    const theirs = await P.api('POST', '/api/apps/ledger/read/ledger.document.get', { sha256: id }, B.token);
+    const theirs = await P.read('ledger.document.get', { sha256: id }, { company: B.id });
     expect(theirs.status).toBe(200);
     expect(theirs.body.result).toMatchObject({ empty: true, document: null, bills: [], download: null });
-    const cross = await fetch(P.platformUrl + mine.download.path, { headers: { authorization: `Bearer ${B.token}` } });
-    expect(cross.status).toBe(403);
     // A link minted for Beta, for a file only Acme has: nothing to serve.
     const forged = documents.documentLink('ledger', B.id, id)!;
-    expect((await fetch(P.platformUrl + forged.path, { headers: { authorization: `Bearer ${B.token}` } })).status).toBe(404);
+    const files = `http://127.0.0.1:${P.backend.ports.files}`;
+    expect((await fetch(files + forged.path)).status).toBe(404);
     // Beta attaches the same file: a separate object and row, under Beta's key.
     await attach(B.token, bill, 'same-bill.pdf');
     expect(await readFile(path.join(filesDir, 'ledger', B.id, id))).toEqual(bill);

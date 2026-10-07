@@ -1,3 +1,4 @@
+import {sqlIdent} from '@neop/pgkit';
 // PRESENCE · who is who in Matrix, from this app's own schema only (v3 §9 "one name per app, per company";
 // §13 `identity.ts`). Never the platform API, never schema neos:
 //   · <schema>.installs.matrix_user — the app's own name at the company (@neop_<app>_<company> on the appservice
@@ -57,33 +58,33 @@ export class Identity {
   private cols = 'company_id, status, company_name, company_slug, matrix_user, room_ids, agent_senders, agent_acts_for, bus_room_id, bus_peers';
 
   async install(companyId: string): Promise<InstallIdentity | null> {
-    return (await this.pool.query<InstallIdentity>(`select ${this.cols} from ${this.s}.installs where company_id = $1`, [companyId])).rows[0] ?? null;
+    return (await this.pool.query<InstallIdentity>(`select ${this.cols} from ${sqlIdent(this.s)}.installs where company_id = $1`, [companyId])).rows[0] ?? null;
   }
 
   /** The active installs that speak as this Matrix name (one, normally). */
   async installsOf(matrixUser: string): Promise<InstallIdentity[]> {
-    return (await this.pool.query<InstallIdentity>(`select ${this.cols} from ${this.s}.installs where matrix_user = $1 and status = 'active'`, [matrixUser])).rows;
+    return (await this.pool.query<InstallIdentity>(`select ${this.cols} from ${sqlIdent(this.s)}.installs where matrix_user = $1 and status = 'active'`, [matrixUser])).rows;
   }
 
   /** The active install whose rooms (or bus room, v3 S6) include this one (the appservice road); null: not our room. */
   async installOfRoom(roomId: string): Promise<InstallIdentity | null> {
-    const rows = (await this.pool.query<InstallIdentity>(`select ${this.cols} from ${this.s}.installs where ($1 = any(room_ids) or bus_room_id = $1) and status = 'active' and matrix_user is not null`, [roomId])).rows;
+    const rows = (await this.pool.query<InstallIdentity>(`select ${this.cols} from ${sqlIdent(this.s)}.installs where ($1 = any(room_ids) or bus_room_id = $1) and status = 'active' and matrix_user is not null`, [roomId])).rows;
     return rows.length === 1 ? rows[0]! : null; // a room bound to two companies is nobody's
   }
 
   /** Every active install with a Matrix name (the appservice road serves them all). */
   async named(): Promise<InstallIdentity[]> {
-    return (await this.pool.query<InstallIdentity>(`select ${this.cols} from ${this.s}.installs where status = 'active' and matrix_user is not null`)).rows;
+    return (await this.pool.query<InstallIdentity>(`select ${this.cols} from ${sqlIdent(this.s)}.installs where status = 'active' and matrix_user is not null`)).rows;
   }
 
   /** Is this one of this app's own names (any company)? Our own echo is never acted on. */
   async isOurs(matrixId: string): Promise<boolean> {
-    return !!(await this.pool.query(`select 1 from ${this.s}.installs where matrix_user = $1 limit 1`, [matrixId])).rowCount;
+    return !!(await this.pool.query(`select 1 from ${sqlIdent(this.s)}.installs where matrix_user = $1 limit 1`, [matrixId])).rowCount;
   }
 
   async person(companyId: string, matrixId: string): Promise<Person | null> {
     const r = await this.pool.query<Person>(
-      `select user_id as id, company_id, coalesce(name, 'a person') as name, coalesce(role, 'member') as role, matrix_id, chat_person from ${this.s}.people where company_id = $1 and matrix_id = $2`,
+      `select user_id as id, company_id, coalesce(name, 'a person') as name, coalesce(role, 'member') as role, matrix_id, chat_person from ${sqlIdent(this.s)}.people where company_id = $1 and matrix_id = $2`,
       [companyId, matrixId],
     );
     return r.rows[0] ?? null;
@@ -91,15 +92,15 @@ export class Identity {
 
   async personById(companyId: string, userId: string): Promise<Person | null> {
     const r = await this.pool.query<Person>(
-      `select user_id as id, company_id, coalesce(name, 'a person') as name, coalesce(role, 'member') as role, matrix_id, chat_person from ${this.s}.people where company_id = $1 and user_id = $2 order by chat_person desc limit 1`,
+      `select user_id as id, company_id, coalesce(name, 'a person') as name, coalesce(role, 'member') as role, matrix_id, chat_person from ${sqlIdent(this.s)}.people where company_id = $1 and user_id = $2 order by chat_person desc limit 1`,
       [companyId, userId],
     );
     if (r.rows[0]) return r.rows[0];
     // t017: a person a bridge relays for need not have a Matrix id of their own.
-    const has = (await this.pool.query<{ ok: boolean }>('select to_regclass($1) is not null as ok', [`${this.s}.acted_for`])).rows[0]?.ok;
+    const has = (await this.pool.query<{ ok: boolean }>('select to_regclass($1) is not null as ok', [`${sqlIdent(this.s)}.acted_for`])).rows[0]?.ok;
     if (!has) return null;
     const a = await this.pool.query<Person>(
-      `select user_id as id, company_id, coalesce(name, 'a person') as name, coalesce(role, 'member') as role, null::text as matrix_id, false as chat_person from ${this.s}.acted_for where company_id = $1 and user_id = $2`,
+      `select user_id as id, company_id, coalesce(name, 'a person') as name, coalesce(role, 'member') as role, null::text as matrix_id, false as chat_person from ${sqlIdent(this.s)}.acted_for where company_id = $1 and user_id = $2`,
       [companyId, userId],
     );
     return a.rows[0] ?? null;

@@ -1,31 +1,5 @@
-/**
- * Gateway token (JWT, EdDSA, TTL 60 s). Every call into an app's L3 carries one.
- * The app verifies it against the gateway JWKS and never learns what a NEOS user
- * or role is beyond `sub`.
- */
-export const GATEWAY_ISSUER = 'neos-gateway';
-export const GATEWAY_TOKEN_TTL_S = 60;
+/** The contract version an app registers with (manifest.contract_version). */
 export const CONTRACT_VERSION = '1';
-
-export interface GatewayClaims {
-  iss: typeof GATEWAY_ISSUER;
-  /** The target app key. */
-  aud: string;
-  /** Caller: `user:<uuid>`, `app:<key>` or `platform`. */
-  sub: string;
-  /** Null only for platform-wide calls such as outbox reads. */
-  company_id: string | null;
-  /** The L3 endpoint or ability key this token is good for. */
-  ability: string;
-  /** The ability version the caller was offered (an ability call: the app's manifest or its pinned package). */
-  ability_version?: string;
-  idem_key: string;
-  jti: string;
-  /** Switchboard version at mint time; the gate refetches when newer than its cache. */
-  sb_version?: number;
-  iat?: number;
-  exp?: number;
-}
 
 /**
  * Job token: minted by the runner, verified by the gate. Scoped to one job, one

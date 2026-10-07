@@ -1,0 +1,588 @@
+{
+  "app": "roster",
+  "name": "Roster",
+  "subject": "Roster: internal leave draft preparation",
+  "description": "V3 Roster internal review slice. No business authorization, provider execution or production certification.",
+  "version": "0.2.0",
+  "contract_version": "1",
+  "abilities": [
+    {
+      "key": "roster.employees.list",
+      "version": "1.0.0",
+      "title": "List employees",
+      "description": "List employees. Persisted company evidence, not a business approval or external effect.",
+      "kind": "read",
+      "floor": "on",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1000000
+          }
+        },
+        "required": []
+      },
+      "output": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "generatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "empty": {
+            "type": "boolean"
+          },
+          "sources": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "entries": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 1000
+              },
+              "entry_ids": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "minItems": 0,
+                "maxItems": 1000
+              },
+              "basis": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200,
+                "pattern": "\\S"
+              }
+            },
+            "required": [
+              "entries",
+              "entry_ids",
+              "basis"
+            ]
+          },
+          "rows": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "source_id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 64,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+                },
+                "name": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200,
+                  "pattern": "\\S"
+                },
+                "category": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "minLength": 1,
+                  "maxLength": 120,
+                  "pattern": "\\S"
+                },
+                "version": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 2147483647
+                }
+              },
+              "required": [
+                "id",
+                "source_id",
+                "name",
+                "category",
+                "version"
+              ]
+            },
+            "minItems": 0,
+            "maxItems": 1000
+          },
+          "next_offset": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0,
+            "maximum": 1001000
+          }
+        },
+        "required": [
+          "generatedAt",
+          "empty",
+          "sources",
+          "rows",
+          "next_offset"
+        ]
+      }
+    },
+    {
+      "key": "roster.requests.list",
+      "version": "1.0.0",
+      "title": "List requests",
+      "description": "List requests. Persisted company evidence, not a business approval or external effect.",
+      "kind": "read",
+      "floor": "on",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1000000
+          }
+        },
+        "required": []
+      },
+      "output": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "generatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "empty": {
+            "type": "boolean"
+          },
+          "sources": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "entries": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 1000
+              },
+              "entry_ids": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "minItems": 0,
+                "maxItems": 1000
+              },
+              "basis": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200,
+                "pattern": "\\S"
+              }
+            },
+            "required": [
+              "entries",
+              "entry_ids",
+              "basis"
+            ]
+          },
+          "rows": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "source_id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 64,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+                },
+                "employee_id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "type": {
+                  "type": "string",
+                  "enum": [
+                    "annual",
+                    "sick",
+                    "unpaid"
+                  ]
+                },
+                "half_days": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 730
+                },
+                "notes": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "minLength": 1,
+                  "maxLength": 500,
+                  "pattern": "\\S"
+                },
+                "requires_elevated_approval": {
+                  "type": "boolean"
+                },
+                "input_hash": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$"
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "draft",
+                    "cancelled"
+                  ]
+                },
+                "created_at": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "cancelled_at": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "external_completed": {
+                  "const": false
+                }
+              },
+              "required": [
+                "id",
+                "source_id",
+                "employee_id",
+                "type",
+                "half_days",
+                "notes",
+                "requires_elevated_approval",
+                "input_hash",
+                "status",
+                "created_at",
+                "cancelled_at",
+                "external_completed"
+              ]
+            },
+            "minItems": 0,
+            "maxItems": 1000
+          },
+          "next_offset": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0,
+            "maximum": 1001000
+          }
+        },
+        "required": [
+          "generatedAt",
+          "empty",
+          "sources",
+          "rows",
+          "next_offset"
+        ]
+      }
+    },
+    {
+      "key": "roster.employees.import",
+      "version": "1.1.0",
+      "title": "Import employees",
+      "description": "Import employees. Internal records only; no business authorization or external execution.",
+      "kind": "write",
+      "floor": "ask_first",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "employees": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "source_id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 64,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+                },
+                "name": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200,
+                  "pattern": "\\S"
+                },
+                "category": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "minLength": 1,
+                  "maxLength": 120,
+                  "pattern": "\\S"
+                }
+              },
+              "required": [
+                "source_id",
+                "name",
+                "category"
+              ]
+            },
+            "minItems": 1,
+            "maxItems": 1000
+          }
+        },
+        "required": [
+          "employees"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "required": [
+          "outcome"
+        ],
+        "properties": {
+          "outcome": {
+            "type": "string"
+          }
+        }
+      },
+      "effects": {
+        "external": false
+      },
+      "verifyWith": "Immutable transaction receipt with ability-bound request checksum, stored atomically with the company-scoped record change."
+    },
+    {
+      "key": "roster.leave.prepare",
+      "version": "1.1.0",
+      "title": "Prepare an internal leave draft",
+      "description": "Prepare an internal leave draft. Internal records only; no business authorization or external execution.",
+      "kind": "write",
+      "floor": "on",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "source_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+          },
+          "employee_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "annual",
+              "sick",
+              "unpaid"
+            ]
+          },
+          "half_days": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 730
+          },
+          "notes": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1,
+            "maxLength": 500,
+            "pattern": "\\S"
+          }
+        },
+        "required": [
+          "source_id",
+          "employee_id",
+          "type",
+          "half_days",
+          "notes"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "required": [
+          "outcome"
+        ],
+        "properties": {
+          "outcome": {
+            "type": "string"
+          }
+        }
+      },
+      "effects": {
+        "external": false
+      },
+      "verifyWith": "Immutable transaction receipt with ability-bound request checksum, stored atomically with the company-scoped record change."
+    },
+    {
+      "key": "roster.leave.cancel",
+      "version": "1.1.0",
+      "title": "Cancel an internal leave draft",
+      "description": "Cancel an internal leave draft. Internal records only; no business authorization or external execution.",
+      "kind": "write",
+      "floor": "ask_first",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "input_hash": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "review": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "source_id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64,
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+              },
+              "employee_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "annual",
+                  "sick",
+                  "unpaid"
+                ]
+              },
+              "half_days": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 730
+              },
+              "notes": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "minLength": 1,
+                "maxLength": 500,
+                "pattern": "\\S"
+              },
+              "requires_elevated_approval": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "source_id",
+              "employee_id",
+              "type",
+              "half_days",
+              "notes",
+              "requires_elevated_approval"
+            ]
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "required": [
+          "outcome"
+        ],
+        "properties": {
+          "outcome": {
+            "type": "string"
+          }
+        }
+      },
+      "effects": {
+        "external": false
+      },
+      "verifyWith": "Immutable transaction receipt with ability-bound request checksum, stored atomically with the company-scoped record change."
+    }
+  ],
+  "doors": [],
+  "uses": [],
+  "skills": [
+    {
+      "key": "prepare-review",
+      "path": "src/agent/skills/prepare-review/SKILL.md",
+      "requires": [
+        "roster.employees.list",
+        "roster.requests.list",
+        "roster.leave.prepare"
+      ]
+    }
+  ],
+  "packages": [],
+  "blocks": [
+    "blocks/drafts.json"
+  ],
+  "personal_data": [
+    {
+      "table": "employees",
+      "columns": [
+        "source_id",
+        "name",
+        "category"
+      ],
+      "subject_key": "id"
+    },
+    {
+      "table": "requests",
+      "columns": [
+        "source_id",
+        "type",
+        "notes",
+        "source_snapshot"
+      ],
+      "subject_key": "employee_id"
+    },
+    {
+      "table": "draft_origins",
+      "columns": [
+        "draft_id",
+        "job_id",
+        "input_hash"
+      ],
+      "subject_key": "proposer_user_id"
+    }
+  ]
+}

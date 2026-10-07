@@ -19,7 +19,7 @@ let P: Pilot;
 const running: PresenceClient[] = [];
 const db = () => P.backend.core.runnerPool;
 beforeAll(async () => {
-  P = await bootPilot({ presence: 'client' });
+  P = await bootPilot({ presence: 'client', neuralchat: false });
   expect((await P.api('PUT', `/api/users/${P.admin.id}/chat`, { matrix_user_id: PRIYA })).status).toBe(200);
   for (const e of [
     { app: 'ledger', matrix_id: PRIYA, kind: 'person' },
@@ -107,21 +107,19 @@ describe('questions on the NEOP’s client road', () => {
     expect(priya[1]!.content.body).toMatch(/^That answer was not recorded: this question is answered/);
   });
 
-  it('a job asked from the desk: its question is put in the asking person’s own DM, and her reply there answers it', async () => {
+  it('a desk ask with no NeuralChat Matrix road fails closed: no hidden delivery path opens a job or speaks in the person’s DM', async () => {
     const hs = fakeClientHomeserver({ me: ME });
     await client(hs);
     const priyaDm = await dmWith(hs, PRIYA);
-    const woke: string[] = [];
-    askingBrain(woke);
+    const before = await jobs();
     const r = await P.api('POST', '/api/ask', { text: 'Record the deposit, please', app: 'ledger' });
-    const [shown] = await notices(hs, priyaDm, 1, 'the question in Priya’s DM');
-    expect(shown!.content.body).toMatch(/^Question: Ledger needs an answer/);
-    hs.say(priyaDm, PRIYA, text('1010', replyTo(shown!)));
-    await P.waitFor(async () => (await P.task(r.body.task_id)).task.status === 'COMPLETED', 'completed');
-    expect(woke[0]).toContain('answered (chat)');
-    // Shown once, however many ticks pass.
+    expect(r.status).toBe(200);
+    expect(r.body).toMatchObject({ status: 'FAILED', job_id: null });
+    const task = await P.task(r.body.task_id);
+    expect(task.task.last_error).toMatch(/NeuralChat has no Matrix road/);
     await new Promise((res) => setTimeout(res, 300));
-    expect(hs.notices(priyaDm).filter((n) => n.content.body.startsWith('Question:'))).toHaveLength(1);
+    expect(await jobs()).toBe(before);
+    expect(hs.notices(priyaDm)).toEqual([]);
   });
 });
 

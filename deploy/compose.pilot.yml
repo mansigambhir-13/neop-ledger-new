@@ -1,10 +1,9 @@
 # NEOS + Ledger on one customer VM (D2). Network policy is the wall, not convention:
 #   db      postgres/pgbouncer ↔ platform, app backends, llm-proxy, migrate  (never an agent)
-#   l3      platform (gateway) ↔ app backends' L3                  (the only way into an app)
 #   agent   each agent ↔ its own backend's gate                    (internal: no egress)
 #   llm     agents ↔ llm-proxy                                     (session tokens only)
-#   ctl     llm-proxy ↔ platform (JWKS)                            (agents are not on it)
 #   web     operator console (BFF) ↔ platform desk API          (the browser's only way in)
+#   files   browser/ops ↔ backend's signed-file listener (published on loopback)
 #   outbound llm-proxy, backends ↔ egress-proxy                 (internal: their only way out)
 #   egress  egress-proxy → the internet, allow-listed hosts only (NEOS_EGRESS_ALLOW)
 #   telemetry services → otel-collector; prometheus → platform /metrics, <app>-metrics
@@ -35,7 +34,7 @@ x-egress-env: &egress-env
   NODE_USE_ENV_PROXY: "1"
   HTTP_PROXY: http://egress-proxy:3128
   HTTPS_PROXY: http://egress-proxy:3128
-  NO_PROXY: localhost,127.0.0.1,platform,llm-proxy,otel-collector,ledger-l3,ledger-gate,ledger-agent-rpc,ledger-agent,ledger-backend,ledger-metrics,pgbouncer,postgres
+  NO_PROXY: localhost,127.0.0.1,platform,llm-proxy,otel-collector,ledger-files,ledger-gate,ledger-agent-rpc,ledger-agent,ledger-backend,ledger-metrics,pgbouncer,postgres,synapse
 
 services:
   postgres:
@@ -109,19 +108,19 @@ services:
     depends_on: { pgbouncer: { condition: service_healthy } }
     environment:
       NEOS_DB_URL_FILE: /run/secrets/neos_app_url
-      NEOS_VAULT_KEYS_FILE: /run/secrets/vault_keys
       NEOS_METRICS_TOKEN_FILE: /run/secrets/metrics_token
-      # Keyrings rewrite themselves on rotation, so they live on a volume, not in a read-only secret.
-      NEOS_GATEWAY_KEY_PATH: /var/lib/neos/keys/gateway-key.json
+      # NeuralChat's router sessions use this persisted key; the proxy holds only its public half.
+      NEOS_SIGNING_KEY_PATH: /run/secrets/platform_signing_key
       NEOS_REGISTRY_KEY_PATH: /var/lib/neos/keys/registry-key.json
       NEOS_LLM_PROXY_URL: http://llm-proxy:4200
       # NeuralChat picks the app with this model through the proxy (keyword fallback if unset or down).
       NEOS_ROUTER_MODEL: ${NEOS_ROUTER_MODEL:-claude-sonnet-5}
       PORT: "4000"
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
-    secrets: [neos_app_url, vault_keys, metrics_token]
+      <<: *egress-env
+    secrets: [neos_app_url, platform_signing_key, metrics_token]
     volumes: [platform-keys:/var/lib/neos/keys]
-    networks: [db, l3, ctl, chat, web, edge, telemetry]
+    networks: [db, chat, web, edge, outbound, telemetry]
     ports: ["127.0.0.1:${NEOS_PLATFORM_PORT:-4000}:4000"]
     healthcheck: { test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4000/live').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"], interval: 10s, timeout: 5s, retries: 12 }
 
@@ -129,10 +128,9 @@ services:
     <<: *node
     build: { context: .., dockerfile: deploy/platform.Dockerfile }
     command: ["tsx", "apps/ledger/scripts/llm-proxy.ts"]
-    depends_on: { platform: { condition: service_healthy } }
+    depends_on: { pgbouncer: { condition: service_healthy } }
     environment:
       NEOS_DB_URL_FILE: /run/secrets/neos_app_url
-      NEOS_PLATFORM_URL: http://platform:4000
       # Anthropic by default. OpenRouter: URL=https://openrouter.ai/api, AUTH=bearer, MODEL_PREFIX=anthropic/
       NEOP_LLM_UPSTREAM_URL: ${NEOP_LLM_UPSTREAM_URL:-https://api.anthropic.com}
       NEOP_LLM_UPSTREAM_AUTH: ${NEOP_LLM_UPSTREAM_AUTH:-x-api-key}
@@ -145,22 +143,20 @@ services:
       <<: *egress-env
     secrets: [neos_app_url, llm_upstream_key, llm_runner_keys]
     # The provider is reached through egress-proxy (outbound); no route of its own to the internet.
-    networks: [db, llm, ctl, outbound, telemetry]
+    networks: [db, llm, outbound, telemetry]
 
   ledger-backend:
     <<: *node
     build: { context: .., dockerfile: deploy/backend.Dockerfile }
     command: ["tsx", "apps/ledger/scripts/backend.ts"]
-    depends_on: { platform: { condition: service_healthy } }
+    depends_on: { pgbouncer: { condition: service_healthy } }
     environment:
       NEOP_APP_DB_URL_FILE: /run/secrets/ledger_app_url
       NEOP_RUNNER_DB_URL_FILE: /run/secrets/ledger_runner_url
       NEOP_DIRECT_DB_URL_FILE: /run/secrets/ledger_direct_url
-      NEOP_SERVICE_SECRET_FILE: /run/secrets/ledger_service_secret
       NEOP_JOB_TOKEN_SECRET_FILE: /run/secrets/ledger_job_token_secret
       NEOS_PKG_PW_KEY_LEDGER_FILE: /run/secrets/ledger_pkg_pw_key
       NEOP_METRICS_TOKEN_FILE: /run/secrets/metrics_token
-      NEOS_PLATFORM_URL: http://platform:4000
       NEOP_AGENT_URL: http://ledger-agent-rpc:4103
       NEOP_GATE_URL: http://ledger-gate:4102
       # v3 §12: door credentials, read per (app, company) per call from the read-only mount below.
@@ -173,31 +169,32 @@ services:
       # plus NEOP_S3_ENDPOINT, NEOP_S3_BUCKET, NEOP_S3_REGION, NEOP_S3_ACCESS_KEY_ID_FILE, NEOP_S3_SECRET_ACCESS_KEY_FILE.
       NEOP_DOCUMENTS_BACKEND: local
       NEOP_DOCUMENTS_DIR: /var/lib/neop/files
-      L3_PORT: "4101"
+      FILES_PORT: "4101"
       GATE_PORT: "4102"
-      L3_HOST: ledger-l3
+      FILES_HOST: ledger-files
       GATE_HOST: ledger-gate
+      NEOP_FILES_PUBLIC_URL: ${NEOP_FILES_PUBLIC_URL:?set NEOP_FILES_PUBLIC_URL to the TLS URL for Ledger files}
       # Metrics relay for Prometheus, bound on the telemetry network only (alias ledger-metrics).
       METRICS_HOST: ledger-metrics
       METRICS_PORT: "9464"
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
       <<: *egress-env
-    secrets: [ledger_app_url, ledger_runner_url, ledger_direct_url, ledger_service_secret, ledger_job_token_secret, ledger_pkg_pw_key, ledger_llm_signing_key, metrics_token]
+    secrets: [ledger_app_url, ledger_runner_url, ledger_direct_url, ledger_job_token_secret, ledger_pkg_pw_key, ledger_llm_signing_key, metrics_token]
     volumes:
-      - ledger-packages:/var/lib/neop/packages
       - ledger-files:/var/lib/neop/files
       # The door secret store, read-only, this backend only (never the agent, never web).
       - "${NEOS_SECRETS_DIR:-./secrets}/doors:/run/secrets/doors:ro"
-    # L3 listens only on the l3 network (alias ledger-l3) and the gate only on the agent network
-    # (alias ledger-gate): the gateway alone reaches L3; the agent alone reaches the gate.
+    # The signed-file listener is isolated on `files` and published on loopback for the TLS proxy; the gate is
+    # isolated on the agent network. There is no platform ↔ app runtime network (v3 S9).
     # outbound: the email and GST doors reach their providers through egress-proxy only.
     networks:
       db: {}
-      l3: { aliases: [ledger-l3] }
+      files: { aliases: [ledger-files] }
       agent-ledger: { aliases: [ledger-gate] }
       outbound: {}
       telemetry: { aliases: [ledger-metrics] }
-    healthcheck: { test: ["CMD", "node", "-e", "fetch('http://ledger-l3:4101/l3/ready').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"], interval: 10s, timeout: 5s, retries: 12 }
+    ports: ["127.0.0.1:${NEOP_FILES_PORT:-4101}:4101"]
+    healthcheck: { test: ["CMD", "node", "-e", "fetch('http://ledger-files:4101/ready').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"], interval: 10s, timeout: 5s, retries: 12 }
 
   ledger-agent:
     <<: *node
@@ -229,6 +226,29 @@ services:
     networks: [web, edge]
     ports: ["127.0.0.1:${NEOS_WEB_PORT:-4780}:4780"]
     healthcheck: { test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4780/healthz').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"], interval: 10s, timeout: 5s, retries: 12 }
+
+  # Read-only release gate, invoked by deploy.sh with `docker compose run`. It is never a long-running service.
+  # Its profile keeps it out of `up`; the extra networks/secrets exist only for the verifier's explicit checks.
+  verify:
+    profiles: [verify]
+    build: { context: .., dockerfile: deploy/platform.Dockerfile }
+    command: ["tsx", "scripts/verify-install.ts", "ledger"]
+    restart: "no"
+    environment:
+      NEOS_ENV: production
+      NEOS_DB_URL_FILE: /run/secrets/neos_app_url
+      NEOP_RUNNER_DB_URL_FILE: /run/secrets/ledger_runner_url
+      NEOS_PLATFORM_URL: http://platform:4000
+      NEOP_FILES_URL: http://ledger-files:4101
+      NEOP_PRESENCE: client
+      NEOP_MATRIX_HOMESERVER_URL: ${MATRIX_HOMESERVER_URL:-http://matrix.invalid}
+      NEOP_MATRIX_CLIENT_ACCOUNTS: '[{"account":"${LEDGER_MXID:-@pending:invalid}","token_file":"/run/secrets/matrix_ledger_token"}]'
+      NEOS_NEURALCHAT_MATRIX: client
+      MATRIX_HOMESERVER_URL: ${MATRIX_HOMESERVER_URL:-http://matrix.invalid}
+      MATRIX_NEURALCHAT_ACCOUNTS: '[{"account":"${NEURALCHAT_MXID:-@pending:invalid}","company":"${NEOS_CHAT_COMPANY:-pending}","token_file":"/run/secrets/matrix_neuralchat_token"}]'
+      <<: *egress-env
+    secrets: [neos_app_url, ledger_runner_url, matrix_ledger_token, matrix_neuralchat_token]
+    networks: [db, files, outbound]
 
   # The stack's only door to the internet (plan: egress allow-lists). Exact host names; add the
   # company's GST Suvidha Provider with NEOS_GSP_HOST, anything else deliberately with NEOS_EGRESS_EXTRA.
@@ -299,22 +319,21 @@ services:
 
 networks:
   db: { internal: true }
-  l3: { internal: true }
+  files: { internal: true }
   agent-ledger: { internal: true }
   llm: { internal: true }
-  ctl: { internal: true }
   chat: { internal: true }
   telemetry: { internal: true }
   web: { internal: true }
   outbound: { internal: true }
   obs: { internal: true }
-  edge: {}
+  # Published loopback ports remain host-reachable, but containers on `edge` get no direct internet route.
+  edge: { internal: true }
   egress: {}
 
 volumes:
   pgdata: {}
   platform-keys: {}
-  ledger-packages: {}
   # Kept source documents (attachments); back up with pgdata — the rows name these files.
   ledger-files: {}
   backups: {}
@@ -331,7 +350,7 @@ secrets:
   pw_ledger_app: { file: "${NEOS_SECRETS_DIR:-./secrets}/pw_ledger_app" }
   pw_ledger_runner: { file: "${NEOS_SECRETS_DIR:-./secrets}/pw_ledger_runner" }
   neos_app_url: { file: "${NEOS_SECRETS_DIR:-./secrets}/neos_app_url" }
-  vault_keys: { file: "${NEOS_SECRETS_DIR:-./secrets}/vault_keys" }
+  platform_signing_key: { file: "${NEOS_SECRETS_DIR:-./secrets}/platform_signing_key" }
   metrics_token: { file: "${NEOS_SECRETS_DIR:-./secrets}/metrics_token" }
   backup_doors_key: { file: "${NEOS_SECRETS_DIR:-./secrets}/backup_doors_key" }
   llm_runner_keys: { file: "${NEOS_SECRETS_DIR:-./secrets}/llm_runner_keys" }
@@ -342,7 +361,8 @@ secrets:
   ledger_direct_url: { file: "${NEOS_SECRETS_DIR:-./secrets}/ledger_direct_url" }
   pgbouncer_ini: { file: "${NEOS_SECRETS_DIR:-./secrets}/pgbouncer_ini" }
   pgbouncer_userlist: { file: "${NEOS_SECRETS_DIR:-./secrets}/pgbouncer_userlist" }
-  ledger_service_secret: { file: "${NEOS_SECRETS_DIR:-./secrets}/ledger_service_secret" }
   ledger_job_token_secret: { file: "${NEOS_SECRETS_DIR:-./secrets}/ledger_job_token_secret" }
   ledger_pkg_pw_key: { file: "${NEOS_SECRETS_DIR:-./secrets}/ledger_pkg_pw_key" }
+  matrix_ledger_token: { file: "${NEOS_SECRETS_DIR:-./secrets}/matrix_ledger_token" }
+  matrix_neuralchat_token: { file: "${NEOS_SECRETS_DIR:-./secrets}/matrix_neuralchat_token" }
   grafana_admin: { file: "${NEOS_SECRETS_DIR:-./secrets}/grafana_admin" }

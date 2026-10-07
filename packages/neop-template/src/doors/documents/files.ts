@@ -1,8 +1,10 @@
+import {sqlIdent} from '@neop/pgkit';
 // SOURCE DOCUMENTS KEPT (WP §11). A file a person attaches is stored — bytes in the document
 // store under `<schema>/<company_id>/<sha256>`, a row in `<schema>.documents_files` naming it —
 // before the documents door extracts its text. A write based on it can carry the sha256
-// (`source_document`), and a person can download the original through the platform with a
-// short-lived link. The assistant sees text and ids, never the bytes.
+// (`source_document`), and a person can download the original from this backend's own files
+// listener (files/listener.ts) with a short-lived signed link. The assistant sees text and ids,
+// never the bytes; the platform never fetches them (v3 S9).
 
 import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 import type { PoolClient } from '@neop/pgkit';
@@ -65,7 +67,7 @@ export async function keepUploads(core: Core, companyId: string, uploads: Docume
 /** The row that links a stored file to the job it came in with (company-scoped transaction). */
 export async function recordFile(db: PoolClient, schema: string, companyId: string, jobId: string | null, f: KeptFile): Promise<void> {
   await db.query(
-    `insert into ${schema}.documents_files (company_id, sha256, filename, content_type, bytes, store, store_key, job_id)
+    `insert into ${sqlIdent(schema)}.documents_files (company_id, sha256, filename, content_type, bytes, store, store_key, job_id)
      values ($1, $2, $3, $4, $5, $6, $7, $8) on conflict do nothing`,
     [companyId, f.sha256, f.filename, f.content_type, f.bytes, f.store, f.store_key, jobId],
   );
@@ -89,7 +91,7 @@ export async function fileMeta(db: PoolClient, schema: string, sha256: string): 
     `select sha256, (array_agg(filename order by stored_at))[1] as filename, (array_agg(content_type order by stored_at))[1] as content_type,
             max(bytes)::int as bytes, (array_agg(store order by stored_at))[1] as store, (array_agg(store_key order by stored_at))[1] as store_key,
             min(stored_at) as stored_at, coalesce(array_agg(job_id order by stored_at) filter (where job_id is not null), '{}') as job_ids
-       from ${schema}.documents_files where sha256 = $1 group by sha256`,
+       from ${sqlIdent(schema)}.documents_files where sha256 = $1 group by sha256`,
     [sha256],
   );
   const row = r.rows[0];
@@ -98,14 +100,20 @@ export async function fileMeta(db: PoolClient, schema: string, sha256: string): 
 
 // ── short-lived download links ─────────────────────────────────────────────
 // The link is signed by the backend that stores the file (a key derived from its job-token
-// secret, which never leaves it) and checked by that same backend when the platform fetches the
-// bytes on a person's behalf. It names one company, one file and an expiry.
+// secret, which never leaves it) and checked by that same backend's files listener when a
+// person's browser follows it. It names one company, one file and an expiry.
 
 const linkKeys = new Map<string, Buffer>();
+const publicBases = new Map<string, string>();
 
-/** Called by startBackend: the key this app's links are signed and checked with. */
-export function registerDocumentLinkKey(schema: string, secret: string): void {
+/**
+ * Called by startBackend: the key this app's links are signed and checked with, and where a person's browser reaches
+ * this backend's files listener (NEOP_FILES_PUBLIC_URL; unset, a link carries its path only).
+ */
+export function registerDocumentLinkKey(schema: string, secret: string, publicUrl?: string | null): void {
   linkKeys.set(schema, createHmac('sha256', secret).update('neop-documents-link-v1').digest());
+  if (publicUrl) publicBases.set(schema, publicUrl.replace(/\/$/, ''));
+  else publicBases.delete(schema);
 }
 
 export const DOCUMENT_LINK_TTL_S = 600;
@@ -113,12 +121,17 @@ export const DOCUMENT_LINK_TTL_S = 600;
 const linkMac = (key: Buffer, schema: string, companyId: string, sha256: string, exp: number) =>
   createHmac('sha256', key).update(`${schema}:${companyId.toLowerCase()}:${sha256}:${exp}`).digest('base64url');
 
-/** `/api/documents/<schema>/<sha256>?exp=…&sig=…` — served by the platform to a signed-in person of that company. */
-export function documentLink(schema: string, companyId: string, sha256: string, now = Date.now()): { path: string; expires_at: string } | null {
+/**
+ * `/files/<company>/<sha256>?exp=…&sig=…` on this backend's files listener (and the full `url` when its public address
+ * is configured) — for a person of that company to download the original within DOCUMENT_LINK_TTL_S.
+ */
+export function documentLink(schema: string, companyId: string, sha256: string, now = Date.now()): { path: string; url: string | null; expires_at: string } | null {
   const key = linkKeys.get(schema);
   if (!key) return null;
   const exp = Math.floor(now / 1000) + DOCUMENT_LINK_TTL_S;
-  return { path: `/api/documents/${schema}/${sha256}?exp=${exp}&sig=${linkMac(key, schema, companyId, sha256, exp)}`, expires_at: new Date(exp * 1000).toISOString() };
+  const path = `/files/${companyId.toLowerCase()}/${sha256}?exp=${exp}&sig=${linkMac(key, schema, companyId, sha256, exp)}`;
+  const base = publicBases.get(schema);
+  return { path, url: base ? `${base}${path}` : null, expires_at: new Date(exp * 1000).toISOString() };
 }
 
 export function verifyDocumentLink(schema: string, companyId: string, sha256: string, exp: unknown, sig: unknown, now = Date.now()): 'ok' | 'expired' | 'bad' {

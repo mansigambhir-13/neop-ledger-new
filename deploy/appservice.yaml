@@ -8,10 +8,8 @@ sender_localpart: neos_bridge
 rate_limited: false
 namespaces:
   users:
-    # One chat user per app per company: @neop_<app>_<company>:server
-    - exclusive: true
-      regex: "@neop_.*"
-    # v3 §8 (A11): the reasoning agent's names (@neuralchat_<company>:server) are reserved too, so nobody can
+    # v3 S9: the platform owns only NeuralChat; Ledger has its own registration.
+    # The reasoning agent's names (@neuralchat_<company>:server) are reserved, so nobody can
     # register a look-alike of it. Appservice road only — the client road has no appservice registration.
     - exclusive: true
       regex: "@neuralchat_.*"

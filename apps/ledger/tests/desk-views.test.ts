@@ -2,7 +2,7 @@
 //   A4  neos_desk (NOLOGIN) reads neos.v_pending_approvals and neos.v_activity — built by neos.refresh_desk_views()
 //       over every registered app schema at registration — and nothing else. Reconciliation: the proposals the
 //       union view shows as waiting are exactly the desk's PENDING cards (v3 S2: neos.v_desk_cards, the apps' own
-//       rows — neos.approvals is frozen and stays empty), before and after a yes.
+//       rows — the former neos.approvals table is gone), before and after a yes.
 //   A6  every app's app/runner role reads neos_registry (apps, abilities, doors, uses, skills, packages) and nothing
 //       else in neos.
 import pg from 'pg';
@@ -78,20 +78,21 @@ describe('A4 · the desk’s union views', () => {
     await P.waitFor(async () => (await P.desk()).find((x) => x.id === first.id)?.status === 'EXECUTED', 'executed');
     await P.waitFor(async () => JSON.stringify(await pendingInView()) === JSON.stringify(await pendingInDesk()) && true, 'the view agrees after the yes');
     expect((await pendingInView()).some((k) => k.includes(first.proposal_id))).toBe(false);
-    // the platform wrote no approval state of its own (neos.approvals is frozen, 020)
-    expect((await c.query('select count(*)::int n from neos.approvals')).rows[0].n).toBe(0);
+    // S9: the platform writes no approval state of its own; the former projection table is gone.
+    expect((await c.query("select to_regclass('neos.approvals') as r")).rows[0].r).toBeNull();
   });
 
   it('v_activity has both apps’ steps; neos_desk reads nothing else', async () => {
     const act = await as('neos_desk', "select app_key, count(*)::int n from neos.v_activity group by 1 order by 1");
     expect(act.map((r) => r.app_key)).toEqual(['ledger', 'marketing']);
     expect(act.every((r) => r.n > 0)).toBe(true);
-    for (const t of ['neos.approvals', 'neos.tasks', 'neos.users', 'neos.vault_secrets', 'ledger.proposals', 'marketing.jobs']) expect(await denied('neos_desk', `select 1 from ${t} limit 1`), t).toBe('42501');
+    for (const t of ['neos.users', 'ledger.proposals', 'marketing.jobs']) expect(await denied('neos_desk', `select 1 from ${t} limit 1`), t).toBe('42501');
+    for (const t of ['neos.approvals', 'neos.tasks', 'neos.vault_secrets']) expect(['42P01', '42501'], t).toContain(await denied('neos_desk', `select 1 from ${t} limit 1`));
   });
 
   it('a newly registered app joins the views at registration', async () => {
     const m = (await c.query("select manifest from neos.apps where key = 'ledger'")).rows[0].manifest;
-    await P.platform.registerApp({ key: 'zeta', l3_url: 'http://127.0.0.1:9', manifest: { ...m, app: 'zeta', name: 'Zeta', abilities: [], uses: [], skills: [], blocks: [], personal_data: undefined }, service_secret: 'z'.repeat(32) });
+    await P.platform.registerApp({ key: 'zeta', manifest: { ...m, app: 'zeta', name: 'Zeta', abilities: [], uses: [], skills: [], blocks: [], personal_data: undefined }, service_secret: 'z'.repeat(32) });
     const def = (await c.query("select pg_get_viewdef('neos.v_activity'::regclass) d")).rows[0].d as string;
     expect(def).toContain("desk_activity('zeta'::text)");
     // no schema for zeta here: it contributes no rows, and nothing breaks
@@ -110,7 +111,8 @@ describe('A6 · the registry schema', () => {
       expect(await as(role, "select owner_app, ability from neos_registry.uses where app = 'marketing' and ability = 'ledger.expense.record'")).toEqual([{ owner_app: 'ledger', ability: 'ledger.expense.record' }]);
       await as(role, 'select * from neos_registry.skills');
       await as(role, 'select * from neos_registry.packages');
-      for (const t of ['neos.apps', 'neos.registry_entries', 'neos.approvals', 'neos.tasks', 'neos.vault_secrets', 'neos.v_pending_approvals', 'neos.v_desk_cards']) expect(await denied(role, `select 1 from ${t} limit 1`), `${role} ${t}`).toBe('42501');
+      for (const t of ['neos.apps', 'neos.registry_entries', 'neos.v_pending_approvals', 'neos.v_desk_cards']) expect(await denied(role, `select 1 from ${t} limit 1`), `${role} ${t}`).toBe('42501');
+      for (const t of ['neos.approvals', 'neos.tasks', 'neos.vault_secrets']) expect(['42P01', '42501'], `${role} ${t}`).toContain(await denied(role, `select 1 from ${t} limit 1`));
       expect((await c.query("select has_schema_privilege($1, 'neos', 'usage') as u", [role])).rows[0].u).toBe(false);
     }
   });

@@ -2,7 +2,8 @@
 // the agent holds only a session token scoped to one job session, one company
 // and one app with a budget. v3 (S8): an app's runner mints that token itself
 // with a key only this proxy trusts for that app (`runnerKeys`, public halves);
-// platform-signed tokens (JWKS) are still accepted for the platform's own use. Every call reserves its
+// v3 (S9): so does the platform for NeuralChat's routing model (principal `neuralchat`,
+// its public half in the same map) — there is no platform JWKS any more. Every call reserves its
 // worst case against the job budget and the company-app daily cap before
 // going upstream, then settles the real usage. Over budget → 402, before any
 // upstream call. The proxy is the single meter (S9): the per-job budget is
@@ -11,8 +12,8 @@
 // (GET /v1/spend), never from the agent's own report.
 
 import { Hono } from 'hono';
-import { createLocalJWKSet, createRemoteJWKSet, decodeJwt, jwtVerify, type JWTVerifyGetKey } from 'jose';
-import type { Pool } from '@neop/pgkit';
+import { createLocalJWKSet, decodeJwt, jwtVerify, type JWTVerifyGetKey } from 'jose';
+import type { Pool, PoolClient } from '@neop/pgkit';
 import { Tracer } from '@neop/contracts';
 
 export interface Price {
@@ -24,11 +25,10 @@ export interface Price {
 
 export interface ProxyConfig {
   db: Pool;
-  /** Keys that sign session tokens: the gateway keyring in-process, or the platform's JWKS URL. Optional once only runners mint. */
-  jwks?: (() => { keys: any[] }) | string;
   /**
    * v3: each app's runner signs its own sessions. app key → public Ed25519 JWKs (or a getter, for rotation).
    * A token issued `neop-runner:<app>` verifies only against that app's keys and must carry `sub` = `app:<app>`.
+   * The platform's routing model is the principal `neuralchat` here, with the platform's public key. Nothing else verifies.
    */
   runnerKeys?: Record<string, any[]> | (() => Record<string, any[]>);
   upstream: {
@@ -66,19 +66,6 @@ export function llmProxyApp(cfg: ProxyConfig): Hono {
   const app = new Hono();
   const ceiling = cfg.maxTokensCeiling ?? 8_192;
   const tracer = new Tracer('neos-llm-proxy');
-  let keySet: JWTVerifyGetKey | null = null;
-  let keysAt = 0;
-  const remote = typeof cfg.jwks === 'string' ? createRemoteJWKSet(new URL(cfg.jwks), { cacheMaxAge: 60_000 }) : null;
-  const keys = (): JWTVerifyGetKey => {
-    if (remote) return remote;
-    if (!cfg.jwks) throw new Error('no platform JWKS configured');
-    if (!keySet || Date.now() - keysAt > 30_000) {
-      keySet = createLocalJWKSet((cfg.jwks as () => { keys: any[] })());
-      keysAt = Date.now();
-    }
-    return keySet;
-  };
-
   const runnerSets = new Map<string, { at: number; set: JWTVerifyGetKey }>();
   const runnerKeys = (app: string): JWTVerifyGetKey | null => {
     const all = typeof cfg.runnerKeys === 'function' ? cfg.runnerKeys() : cfg.runnerKeys;
@@ -104,9 +91,7 @@ export function llmProxyApp(cfg: ProxyConfig): Hono {
         const { payload } = await jwtVerify(token, set, { issuer: iss, audience: 'llm-proxy', algorithms: ['EdDSA'], subject: `app:${app}` });
         return payload as unknown as SessionClaims;
       }
-      if (!cfg.jwks) return null;
-      const { payload } = await jwtVerify(token, keys(), { issuer: 'neos-gateway', audience: 'llm-proxy', algorithms: ['EdDSA'] });
-      return payload as unknown as SessionClaims;
+      return null;
     } catch {
       return null;
     }
@@ -187,8 +172,11 @@ export function llmProxyApp(cfg: ProxyConfig): Hono {
   }
 
   async function settle(s: SessionClaims, app: string, est: number, model: string, inTok: number, outTok: number, cost: number, outcome: 'settled' | 'upstream_error') {
-    const c = await cfg.db.connect();
+    let c: PoolClient | null = null;
     try {
+      // A streaming provider may finish while the process is shutting down. Pool acquisition is part of settlement
+      // and must be contained too: an ended pool must not escape as an unhandled background rejection.
+      c = await cfg.db.connect();
       await c.query('begin');
       const day = (await c.query<{ d: string }>(`select (now() at time zone $1)::date::text as d`, [s.tz])).rows[0]!.d;
       // Actual cost never exceeds the reservation (max_tokens is enforced upstream), so this cannot break the caps.
@@ -204,10 +192,10 @@ export function llmProxyApp(cfg: ProxyConfig): Hono {
       );
       await c.query('commit');
     } catch (e) {
-      await c.query('rollback').catch(() => {});
+      await c?.query('rollback').catch(() => {});
       cfg.log?.('llm settle failed', e);
     } finally {
-      c.release();
+      c?.release();
     }
   }
 

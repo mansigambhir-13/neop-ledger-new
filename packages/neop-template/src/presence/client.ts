@@ -1,3 +1,4 @@
+import {sqlIdent} from '@neop/pgkit';
 // PRESENCE · THE CLIENT ROAD (NEOP_PRESENCE=client) — the ordinary-account /sync road NeuralChat #143 uses today,
 // now in the NEOP's own backend (ported from packages/platform/src/bridge/client-sync.ts). One ordinary account
 // per company (e.g. @ledger:acme.example) with an operator-issued access token read from a secret file; the
@@ -19,6 +20,7 @@ import { readFileSync } from 'node:fs';
 import { isTypedEventType } from '@neop/contracts';
 import type { Inbound, Road } from '../runner/inbound.ts';
 import { claimInbound } from './events.ts';
+import { downloadMedia } from './files.ts';
 import type { Identity } from './identity.ts';
 import { stripReplyFallback } from './lexicon.ts';
 
@@ -59,7 +61,11 @@ export type FetchLike = (url: string, init?: { method?: string; headers?: Record
 export class MatrixClientHttp {
   readonly base: string;
   private readonly token: string;
-  private readonly fetchImpl: FetchLike;
+  readonly fetchImpl: FetchLike;
+  /** The account's own token (the media download road needs it; never logged). */
+  get accessToken(): string {
+    return this.token;
+  }
   constructor(o: { homeserverUrl: string; accessToken: string; fetchImpl?: FetchLike }) {
     this.base = o.homeserverUrl.replace(/\/+$/, '');
     this.token = o.accessToken;
@@ -157,6 +163,7 @@ export class PresenceClient {
   private loop: Promise<void> | null = null;
   private replyTimer: NodeJS.Timeout | null = null;
   private replying = false;
+  private processing: Promise<void> = Promise.resolve();
   private readonly startedAt = Date.now();
   private readonly direct = new Map<string, string>(); // room → the peer it was seen 1:1 with
 
@@ -171,6 +178,14 @@ export class PresenceClient {
 
   private log(msg: string, extra: Record<string, unknown> = {}): void {
     this.host.log(`client: ${msg}`, { account: this.account ?? this.cfg.account ?? null, ...extra });
+  }
+
+  /** A recipient can reply before Matrix returns the send receipt. Finish recording outbound
+   * card/question bindings before interpreting the next inbound message for this account. */
+  private serialized<T>(run: () => Promise<T>): Promise<T> {
+    const next = this.processing.then(run);
+    this.processing = next.then(() => {}, () => {});
+    return next;
   }
 
   status(): ClientStatus {
@@ -205,14 +220,14 @@ export class PresenceClient {
     this.companyId = installs[0]!.company_id;
     const row = (
       await this.host.db.query<{ company_id: string; road: string; next_batch: string | null }>(
-        `insert into ${this.host.schema}.presence_accounts (account, company_id, road) values ($1, $2, 'client')
+        `insert into ${sqlIdent(this.host.schema)}.presence_accounts (account, company_id, road) values ($1, $2, 'client')
          on conflict (account) do update set stopped_reason = null, updated_at = now() returning company_id, road, next_batch`,
         [who, this.companyId],
       )
     ).rows[0]!;
     if (row.company_id !== this.companyId) {
       // The name moved to another company: its cursor and DMs belong to the old install. Start clean for the new one.
-      await this.host.db.query(`update ${this.host.schema}.presence_accounts set company_id = $2, next_batch = null where account = $1`, [who, this.companyId]);
+      await this.host.db.query(`update ${sqlIdent(this.host.schema)}.presence_accounts set company_id = $2, next_batch = null where account = $1`, [who, this.companyId]);
       row.next_batch = null;
     }
     this.cursor = row.next_batch;
@@ -227,6 +242,9 @@ export class PresenceClient {
       },
       async sendEvent(room, type, content, txnId) {
         return self.guardSend(() => http.sendEvent(room, type, content, txnId));
+      },
+      async download(mxc, max) {
+        return downloadMedia({ homeserverUrl: http.base, token: http.accessToken, fetchImpl: http.fetchImpl as any }, mxc, max);
       },
     };
     this.host.register(this.road);
@@ -285,7 +303,7 @@ export class PresenceClient {
     };
     this.log(`STOPPED — ${why[reason] ?? reason}; fix it and restart (no retries, no login, no logout)`, { reason, ...extra });
     if (this.account && this.companyId) {
-      await this.host.db.query(`update ${this.host.schema}.presence_accounts set stopped_reason = $2, updated_at = now() where account = $1`, [this.account, reason]).catch(() => {});
+      await this.host.db.query(`update ${sqlIdent(this.host.schema)}.presence_accounts set stopped_reason = $2, updated_at = now() where account = $1`, [this.account, reason]).catch(() => {});
     }
   }
 
@@ -325,7 +343,7 @@ export class PresenceClient {
   private async saveCursor(next: string): Promise<void> {
     if (typeof next !== 'string') return;
     this.cursor = next;
-    await this.host.db.query(`update ${this.host.schema}.presence_accounts set next_batch = $2, updated_at = now() where account = $1`, [this.account, next]);
+    await this.host.db.query(`update ${sqlIdent(this.host.schema)}.presence_accounts set next_batch = $2, updated_at = now() where account = $1`, [this.account, next]);
   }
 
   private async batch(res: any, skipTimeline: boolean): Promise<void> {
@@ -370,11 +388,11 @@ export class PresenceClient {
 
   private async recordDm(peer: string, room: string): Promise<void> {
     const s = this.host.schema;
-    await this.host.db.query(`delete from ${s}.presence_dms where account = $1 and room_id = $2 and peer <> $3`, [this.account, room, peer]);
+    await this.host.db.query(`delete from ${sqlIdent(s)}.presence_dms where account = $1 and room_id = $2 and peer <> $3`, [this.account, room, peer]);
     await this.host.db.query(
-      `insert into ${s}.presence_dms (company_id, account, peer, room_id) values ($1,$2,$3,$4)
+      `insert into ${sqlIdent(s)}.presence_dms (company_id, account, peer, room_id) values ($1,$2,$3,$4)
        on conflict (account, peer) do update set room_id = excluded.room_id, company_id = excluded.company_id, recorded_at = now()
-        where ${s}.presence_dms.room_id <> excluded.room_id or ${s}.presence_dms.company_id <> excluded.company_id`,
+        where ${sqlIdent(s)}.presence_dms.room_id <> excluded.room_id or ${sqlIdent(s)}.presence_dms.company_id <> excluded.company_id`,
       [this.companyId, this.account, peer, room],
     );
   }
@@ -396,6 +414,10 @@ export class PresenceClient {
 
   /** What a message means (runner/inbound.ts), once it is known to be fresh, from an allowed sender, in their DM. */
   private async onEvent(room: string, ev: SyncEvent): Promise<void> {
+    return this.serialized(() => this.handleEvent(room, ev));
+  }
+
+  private async handleEvent(room: string, ev: SyncEvent): Promise<void> {
     const c = ev.content ?? {};
     const typed = isTypedEventType(ev.type);
     if (!typed) {
@@ -444,12 +466,15 @@ export class PresenceClient {
 
   /** Owed replies, and questions to put in people's own DMs. */
   async replyTick(): Promise<number> {
-    if (this.replying || this.stopped || !this.road) return 0;
+    const road = this.road;
+    if (this.replying || this.stopped || !road) return 0;
     this.replying = true;
     try {
-      let n = await this.host.inbound.replyTick(this.road, () => this.stopping);
-      if (!this.stopping) n += await this.host.inbound.questionsTick(this.road);
-      return n;
+      return await this.serialized(async () => {
+        let n = await this.host.inbound.replyTick(road, () => this.stopping);
+        if (!this.stopping) n += await this.host.inbound.questionsTick(road);
+        return n;
+      });
     } catch (e: any) {
       if (!e?.fatal) this.log('reply not sent yet — will retry with the same transaction', { e: String(e?.message ?? e).slice(0, 200) });
       return 0;

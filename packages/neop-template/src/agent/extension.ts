@@ -5,6 +5,7 @@
 import { Agent, type AgentTool } from '@mariozechner/pi-agent-core';
 import type { Model } from '@mariozechner/pi-ai';
 import { Tracer, type Span } from '@neop/contracts';
+import { strictToolArguments } from './arguments.ts';
 import type { JobBundle } from './bundle.ts';
 import { jobMessage, systemPrompt, untrusted } from './prompt.ts';
 
@@ -73,12 +74,15 @@ export async function runSession(bundle: JobBundle, token: string, gateUrl: stri
   let capped = false;
   let calls = 0;
 
+  // The harness may coerce booleans/numbers/nulls. Validate the original model
+  // arguments first so missing evidence cannot silently become false or zero.
   const tools: AgentTool<any>[] = bundle.tools.map((t) => ({
     name: t.name,
     label: t.title,
     description: t.description,
     parameters: t.input as any,
     executionMode: 'sequential',
+    prepareArguments: strictToolArguments(t.input),
     execute: async (_id: string, params: unknown) => {
       let r: any;
       const toolSpan = tracer.start(`agent.tool ${t.key}`, session);

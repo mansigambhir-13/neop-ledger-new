@@ -1,7 +1,8 @@
-// migration-023.test · proof on populated data (WP §11) for 023_neuralchat_matrix.sql (v3 S5): a platform database
-// migrated through 021 and filled with tasks in every status (with attachments, results, room tasks) upgrades with every
-// row kept as it was and every existing task on the gateway road; the Matrix road's columns and tables are in place and
-// the platform's role may use them. (NeuralChat posting typed tasks end to end: apps/ledger/tests/neuralchat-matrix.test.ts.)
+// migration-023.test · proof on populated data (WP §11) for the 023–024 V3 expand set: a database migrated through
+// 022 and filled with tasks in every status (with attachments, results, room tasks) upgrades with every row kept as it
+// was and every existing task on the gateway road; the Matrix road's columns and tables are in place, the retired L3
+// address is optional while the destructive 025 contraction is withheld, and the platform's role may use the new
+// shape. (NeuralChat posting typed tasks end to end: apps/ledger/tests/neuralchat-matrix.test.ts.)
 import { cp, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -33,7 +34,7 @@ afterAll(async () => {
 const manifest = { app: 'ledger', name: 'Ledger', abilities: [], doors: [], uses: [] };
 
 describe('023 on a populated platform database', () => {
-  it('023 applies forward on a populated platform database (tasks kept on the gateway road; the Matrix road columns and tables in place)', async () => {
+  it('023–024 apply forward on a populated platform database (rows kept; Matrix shape present; V3 apps need no L3 address)', async () => {
     await bootstrapFamily(db.adminUrl, 'neos', { runner: false });
     const first = await migrate({ adminUrl: db.adminUrl, schema: 'neos', sources: { dir: dir022 }, tenantLint: false });
     expect(first.at(-1)!.name).toBe('022_registry_pins.sql');
@@ -51,10 +52,16 @@ describe('023 on a populated platform database', () => {
     const snap = async () => (await c.query('select md5(string_agg(t::text, \',\' order by id)) t, count(*)::int n from (select id, company_id, app_key, requester, ask, status, origin, attachments, result, job_id, created_at from neos.tasks) t')).rows[0];
     const before = await snap();
 
-    const applied = await migratePlatform(db.adminUrl);
-    expect(applied.map((m) => m.name)).toEqual(['023_neuralchat_matrix.sql']);
+    const applied = await migratePlatform(db.adminUrl, undefined, { through: '024' });
+    expect(applied.map((m) => m.name)).toEqual(['023_neuralchat_matrix.sql', '024_s9_expand.sql']);
     expect(await snap()).toEqual(before); // every task as it was
     expect(before.n).toBe(21);
+    // Existing legacy addresses are not rewritten; new V3 principals/apps can omit an address before 024 drops it.
+    expect((await c.query("select l3_url from neos.apps where key = 'ledger'")).rows[0].l3_url).toBe('http://l3');
+    await c.query(
+      "insert into neos.apps (key, manifest, contract_version, service_secret_hash, status) values ('neuralchat', '{}', '1', 'h', 'platform')",
+    );
+    expect((await c.query("select l3_url from neos.apps where key = 'neuralchat'")).rows[0].l3_url).toBeNull();
     // Every task that existed is on the gateway road; nothing is marked delivered in Matrix.
     expect((await c.query("select road, count(*)::int n, count(matrix_event_id)::int m, count(delivered_at)::int d from neos.tasks group by road")).rows).toEqual([{ road: 'gateway', n: 21, m: 0, d: 0 }]);
     await expect(c.query("update neos.tasks set road = 'bus' where true")).rejects.toMatchObject({ code: '23514' });
@@ -74,6 +81,6 @@ describe('023 on a populated platform database', () => {
       await app.end();
     }
     // A re-run is a no-op.
-    expect(await migratePlatform(db.adminUrl)).toEqual([]);
+    expect(await migratePlatform(db.adminUrl, undefined, { through: '024' })).toEqual([]);
   });
 });

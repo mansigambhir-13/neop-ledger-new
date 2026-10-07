@@ -1,3 +1,4 @@
+import {sqlIdent} from './roles.ts';
 // Company-scoped uninstall (WP §11: "uninstalling is a company-scoped delete the DBA runs from
 // one script"). Every table in the app's schema that carries company_id — the template's standard
 // tables, the app's own, and installed packages' nep_* tables — loses that company's rows, children
@@ -35,10 +36,10 @@ export async function purgeCompany(adminUrl: string, schema: string, companyId: 
     await c.query("select set_config('neos.company_id', $1, true)", [companyId]);
     const counts: Record<string, number> = {};
     for (const t of order) {
-      const before = (await c.query<{ n: number }>(`select count(*)::int as n from ${schema}.${t} where company_id = $1`, [companyId])).rows[0]!.n;
+      const before = (await c.query<{ n: number }>(`select count(*)::int as n from ${sqlIdent(schema)}.${t} where company_id = $1`, [companyId])).rows[0]!.n;
       if (!dryRun && before) {
-        const r = await c.query(`delete from ${schema}.${t} where company_id = $1`, [companyId]);
-        if (r.rowCount !== before) throw new Error(`${schema}.${t}: counted ${before} rows, deleted ${r.rowCount}; nothing was removed`);
+        const r = await c.query(`delete from ${sqlIdent(schema)}.${t} where company_id = $1`, [companyId]);
+        if (r.rowCount !== before) throw new Error(`${sqlIdent(schema)}.${t}: counted ${before} rows, deleted ${r.rowCount}; nothing was removed`);
       }
       counts[t] = before;
     }

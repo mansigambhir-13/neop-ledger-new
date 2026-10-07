@@ -1,0 +1,289 @@
+{
+  "app": "buy",
+  "production_ready": false,
+  "assessment": "Implementation checkpoint, not a release attestation. All statuses are scoped; no group is fully certified.",
+  "requirements": [
+    {
+      "id": "transport.matrix",
+      "status": "partial_implementation",
+      "evidence": [
+        "scripts/fleet/testing/packaged-jobs.ts",
+        "docs/FLEET-V3-CHECKPOINT-8.md",
+        "apps/buy/tests/domain.test.ts",
+        "apps/buy/tests/conformance.test.ts",
+        "apps/buy/tests/workflow.test.ts",
+        "scripts/fleet/tests/runtime-jobs.test.ts",
+        "docs/FLEET-V3-CHECKPOINT-6.md"
+      ],
+      "remaining": "Typed tasks/decisions, thread binding and event redelivery are exercised through fake-Matrix HTTP with actual host processes and both packaged runtimes. Still required: real homeserver/client-road acceptance, outages, membership races and broader per-app event scenarios."
+    },
+    {
+      "id": "identity.company",
+      "status": "partial_implementation",
+      "evidence": [
+        "scripts/fleet/testing/packaged-jobs.ts",
+        "docs/FLEET-V3-CHECKPOINT-8.md",
+        "apps/buy/tests/domain.test.ts",
+        "apps/buy/tests/conformance.test.ts",
+        "apps/buy/tests/workflow.test.ts",
+        "scripts/fleet/tests/runtime-jobs.test.ts",
+        "docs/FLEET-V3-CHECKPOINT-6.md",
+        "apps/buy/tests/authority.test.ts",
+        "docs/FLEET-V3-CHECKPOINT-9.md",
+        "apps/buy/tests/origins.test.ts",
+        "docs/FLEET-V3-CHECKPOINT-10.md"
+      ],
+      "remaining": "Host-process and packaged-job tests reject unknown senders, wrong companies/rooms and bridge approval. Still required: live sender/membership changes, spoofing edge cases and complete business entitlements."
+    },
+    {
+      "id": "jobs.durable",
+      "status": "partial_implementation",
+      "evidence": [
+        "scripts/fleet/testing/packaged-jobs.ts",
+        "docs/FLEET-V3-CHECKPOINT-8.md",
+        "apps/buy/tests/domain.test.ts",
+        "apps/buy/tests/conformance.test.ts",
+        "apps/buy/tests/workflow.test.ts",
+        "scripts/fleet/tests/runtime-jobs.test.ts",
+        "docs/FLEET-V3-CHECKPOINT-6.md"
+      ],
+      "remaining": "Host-process and packaged jobs test waiting-state backend SIGKILL and fresh-worker recovery, persisted wake proof/transcripts, distinct model sessions and replay dedupe. Still required: active-session/in-flight-effect crashes, lease/heartbeat expiry, outages and broader concurrent recovery."
+    },
+    {
+      "id": "switchboard.enforced",
+      "status": "partial_implementation",
+      "evidence": [
+        "apps/buy/tests/domain.test.ts",
+        "apps/buy/tests/conformance.test.ts",
+        "apps/buy/tests/workflow.test.ts",
+        "apps/buy/tests/authority.test.ts",
+        "docs/FLEET-V3-CHECKPOINT-9.md"
+      ],
+      "remaining": "Internal writes recheck current role/four-eyes policy and switch-off inside the write transaction; policy mutation is serialized until commit. Still required: complete business cap/recipient/rule boundaries, live policy propagation and broader per-app scenarios."
+    },
+    {
+      "id": "approval.exact_content",
+      "status": "partial_implementation",
+      "evidence": [
+        "scripts/fleet/testing/packaged-jobs.ts",
+        "docs/FLEET-V3-CHECKPOINT-8.md",
+        "apps/buy/tests/domain.test.ts",
+        "apps/buy/tests/conformance.test.ts",
+        "apps/buy/tests/workflow.test.ts",
+        "scripts/fleet/tests/runtime-jobs.test.ts",
+        "docs/FLEET-V3-CHECKPOINT-6.md",
+        "apps/buy/tests/authority.test.ts",
+        "docs/FLEET-V3-CHECKPOINT-9.md",
+        "apps/buy/tests/approval-lifecycle.test.ts",
+        "packages/neop-template/migrations/t022_answer_deadline.sql",
+        "docs/FLEET-V3-CHECKPOINT-12.md"
+      ],
+      "remaining": "Internal imports now also test superseded immutable content, fresh-card approval, pending/approved withdrawal, late-withdrawal refusal and yes/no/change deadline races on proposal/job locks. Existing fixture host/image evidence remains historically scoped. Still required: complete domain-specific approval transitions, broader policy changes, other wait types and real UI/transport acceptance."
+    },
+    {
+      "id": "approval.authority",
+      "status": "partial_implementation",
+      "evidence": [
+        "apps/buy/tests/authority.test.ts",
+        "docs/FLEET-V3-CHECKPOINT-9.md",
+        "packages/neop-template/migrations/t020_human_authority.sql",
+        "apps/buy/tests/origins.test.ts",
+        "docs/FLEET-V3-CHECKPOINT-10.md"
+      ],
+      "remaining": "Internal settings/import/cancel writes retain checkpoint 9's current-human/policy guard. New drafts now store immutable creating-job, original linked/represented human (or explicit nonhuman), and exact draft-hash provenance. This is NOT payment/PO/renewal authorization: original-proposer separation in business decisions, elevated entitlements, reviewed policy/content attestation, rejection/supersession and live identity/revocation propagation remain. Historical drafts have no origin row; no human is inferred. All eighteen now opt in to the internal authority/origin prerequisites (checkpoint 11), not business authorization."
+    },
+    {
+      "id": "runner.effect_once",
+      "status": "partial_implementation",
+      "evidence": [
+        "apps/buy/tests/domain.test.ts",
+        "apps/buy/tests/conformance.test.ts",
+        "apps/buy/tests/workflow.test.ts"
+      ],
+      "remaining": "Concurrent runners, crash between effect and receipt, uncertain provider reconciliation, grant suspension and wake-order tests."
+    },
+    {
+      "id": "waiting.lifecycle",
+      "status": "partial_implementation",
+      "evidence": [
+        "apps/buy/tests/approval-lifecycle.test.ts",
+        "packages/testkit/src/approval-lifecycle.ts",
+        "docs/FLEET-V3-CHECKPOINT-12.md",
+        "packages/neop-template/migrations/t023_input_deadline.sql",
+        "docs/FLEET-V3-CHECKPOINT-13.md",
+        "apps/buy/tests/input-lifecycle.test.ts",
+        "packages/testkit/src/input-lifecycle.ts",
+        "packages/neop-template/src/runner/runner.ts",
+        "apps/buy/tests/timer-lifecycle.test.ts",
+        "packages/testkit/src/timer-lifecycle.ts",
+        "docs/FLEET-V3-CHECKPOINT-14.md",
+        "apps/buy/tests/bus-result-lifecycle.test.ts",
+        "packages/testkit/src/bus-result-lifecycle.ts",
+        "packages/neop-template/src/runner/bus.ts",
+        "docs/FLEET-V3-CHECKPOINT-15.md",
+        "apps/buy/tests/bus-question-lifecycle.test.ts",
+        "packages/testkit/src/bus-question-lifecycle.ts",
+        "docs/FLEET-V3-CHECKPOINT-16.md",
+        "apps/buy/tests/bus-answer-lifecycle.test.ts",
+        "packages/testkit/src/bus-answer-lifecycle.ts",
+        "packages/neop-template/src/gate/a2a.ts",
+        "docs/FLEET-V3-CHECKPOINT-17.md",
+        "packages/neop-template/src/agent/context.ts",
+        "packages/neop-template/src/agent/prompt.ts",
+        "packages/neop-template/tests/a2a-answer-contract.test.ts",
+        "docs/FLEET-V3-CHECKPOINT-18.md",
+        "packages/neop-template/src/data/answer-intents.ts",
+        "packages/neop-template/migrations/t024_answer_intents.sql",
+        "scripts/fleet/tests/answer-intent-migration.test.ts",
+        "docs/FLEET-V3-CHECKPOINT-19.md"
+      ],
+      "remaining": "Checkpoints 12–18 retain scoped approval/input/timer and bus result/question/answer evidence, expected peer-question identity and escaped pending context. Checkpoint 19 persists immutable tenant/job/thread/question/answer content and one return wait; exact retries reuse that live wait, changed content/routes are refused, uncertainty retains the wait, and fresh assistants recover prepared answers. Twenty-one new synthetic cases per app and four representative populated upgrades cover this bounded path. Historical threads stay protocol 0 and are refused without inferred content; no automatic replay or production row promotion. Still required: semantic human-input/question provenance, peer deadlines/late results, generic dependencies/mixed-wait lock ordering, early questions before root persistence, local-input/other ingress atomicity, audited historical recovery and retention/erasure of immutable content, multi-host/in-flight effects, token/endpoint-rotation replay behavior and real Matrix/model/UI acceptance. Concurrent exact sends still rely on transport transaction keys; local checks cannot unsend in-flight messages. Earlier Pay wake-count/Ledger presence intermittents remain unexplained. No new shipping borrowing, business/provider or source-parity capability; refresh artifacts and coordinate t024, v2 senders/receivers and t023 workers before release."
+    },
+    {
+      "id": "database.boundary",
+      "status": "partial_implementation",
+      "evidence": [
+        "apps/buy/tests/domain.test.ts",
+        "apps/buy/tests/conformance.test.ts",
+        "apps/buy/tests/workflow.test.ts",
+        "scripts/fleet/tests/fleet-isolation.test.ts"
+      ],
+      "remaining": "Cross-schema/tenant/DDL/role escape tests with populated data and DBA grants review."
+    },
+    {
+      "id": "database.migrations",
+      "status": "partial_implementation",
+      "evidence": [
+        "apps/buy/tests/domain.test.ts",
+        "apps/buy/tests/conformance.test.ts",
+        "apps/buy/tests/workflow.test.ts",
+        "apps/buy/scripts/backend.ts",
+        "apps/buy/scripts/agent.ts",
+        "scripts/fleet/tests/runtime-config.test.ts",
+        "scripts/fleet/tests/runtime-process.test.ts",
+        "deploy/fleet/backend.Dockerfile",
+        "scripts/fleet/packaging/backend-context.ts",
+        "scripts/fleet/tests/backend-context.test.ts",
+        "scripts/fleet/packaging/check-backend-images.ts",
+        "docs/FLEET-V3-CHECKPOINT-7.md",
+        "apps/buy/tests/authority.test.ts",
+        "docs/FLEET-V3-CHECKPOINT-9.md",
+        "scripts/fleet/tests/finance-authority-migration.test.ts",
+        "apps/buy/tests/origins.test.ts",
+        "docs/FLEET-V3-CHECKPOINT-10.md",
+        "scripts/fleet/tests/finance-origin-migration.test.ts",
+        "packages/neop-template/migrations/t022_answer_deadline.sql",
+        "scripts/fleet/tests/answer-deadline-migration.test.ts",
+        "docs/FLEET-V3-CHECKPOINT-12.md",
+        "packages/neop-template/migrations/t023_input_deadline.sql",
+        "docs/FLEET-V3-CHECKPOINT-13.md",
+        "scripts/fleet/tests/input-deadline-migration.test.ts"
+      ],
+      "remaining": "t020 and t021/004 forward changes were separately rehearsed on populated synthetic V3 books; existing drafts/jobs/settings/receipts remain unchanged and origins are not retrospectively guessed. Reapply, RLS and ACLs are tested. Still required: reviewed legacy conversion, production-data restore/backup recovery and DBA approval. Earlier images and pre-t021 DBA bundles are historical. Shared t022 additionally has populated synthetic upgrade/privilege preservation coverage for Pay, Buy, Renew and Grant (four representative books, not eighteen production restores). Refresh all DBA bundles and artifacts for t022; DBA approval remains outstanding. Shared t023 additionally preserves populated synthetic input history and function ownership/ACLs in Pay, Buy, Renew and Grant. This is four representative upgrades, not legacy conversion or production-data restore/DBA approval. Refresh all artifacts and DBA bundles through t023. Checkpoint 19 adds shared t024: four representative populated synthetic upgrades preserve historical rows, mark them protocol 0, and test immutable intent constraints/RLS/narrow grants. This is not a production restore or legacy conversion. Refresh all DBA bundles/images through t024; review index/lock impact and an audited owner-approved plan for historical threads."
+    },
+    {
+      "id": "values.domain",
+      "status": "partial_implementation",
+      "evidence": [
+        "apps/buy/tests/domain.test.ts",
+        "apps/buy/tests/conformance.test.ts",
+        "apps/buy/tests/workflow.test.ts"
+      ],
+      "remaining": "Boundary/rounding/state domain tests plus SQL constraint and source parity evidence."
+    },
+    {
+      "id": "privacy.retention",
+      "status": "partial_implementation",
+      "evidence": [
+        "apps/buy/manifest.json",
+        "apps/buy/tests/origins.test.ts",
+        "docs/FLEET-V3-CHECKPOINT-10.md"
+      ],
+      "remaining": "Origin records tag proposer subject identity and draft/job/hash linkage without copying identity into result receipts or model outputs. Origins remain immutable; generic erasure cannot silently rewrite them. Still required: reviewed retention, access/export/erasure and recovery policy for both origin and existing snapshot/history data. No legal/privacy or erasure certification. Checkpoint 19 adds immutable bus_answer_intents.answers, which may contain personal data. A SQL comment flags this new storage, but subject discovery, manifest tagging, export and retention/erasure/replay-window policy are not implemented or certified. Generic nulling/deletion is intentionally blocked; no retention period is invented."
+    },
+    {
+      "id": "sharing.registry",
+      "status": "pending",
+      "evidence": [],
+      "remaining": "Signature/hash/dependency/retirement/injection tests; no runtime row-to-code or document-to-skill path."
+    },
+    {
+      "id": "doors.credentials",
+      "status": "pending",
+      "evidence": [],
+      "remaining": "Provider-specific idempotency/read-back, scoped credentials, off/revoke and live sandbox certification."
+    },
+    {
+      "id": "assistant.isolation",
+      "status": "partial_implementation",
+      "evidence": [
+        "scripts/fleet/testing/packaged-jobs.ts",
+        "docs/FLEET-V3-CHECKPOINT-8.md",
+        "apps/buy/scripts/backend.ts",
+        "apps/buy/scripts/agent.ts",
+        "scripts/fleet/tests/runtime-config.test.ts",
+        "scripts/fleet/tests/runtime-process.test.ts",
+        "deploy/fleet/agent.Dockerfile",
+        "scripts/fleet/packaging/agent-context.ts",
+        "scripts/fleet/tests/agent-context.test.ts",
+        "scripts/fleet/packaging/check-agent-images.ts",
+        "docs/FLEET-V3-CHECKPOINT-5.md",
+        "scripts/fleet/tests/runtime-jobs.test.ts",
+        "docs/FLEET-V3-CHECKPOINT-6.md",
+        "deploy/fleet/backend.Dockerfile",
+        "scripts/fleet/packaging/backend-context.ts",
+        "scripts/fleet/tests/backend-context.test.ts",
+        "scripts/fleet/packaging/check-backend-images.ts",
+        "docs/FLEET-V3-CHECKPOINT-7.md",
+        "docs/FLEET-V3-CHECKPOINT-9.md",
+        "docs/FLEET-V3-CHECKPOINT-10.md"
+      ],
+      "remaining": "Separate own-app Linux ARM64 backend and keyless-assistant images now complete persisted internal-draft jobs via signed model sessions and fixture transports. Per-app gate/model reachability and file/ingress/database denial canaries pass. Still required: production egress/host/metadata isolation, other targets/providers, active-session recovery and live model acceptance. Checkpoints 9/10 change shared runtime/template sources: checkpoint 5/7/8 images and packaged results are historical, not validation of this code; refresh both artifacts and packaged tests before release."
+    },
+    {
+      "id": "honesty.ui",
+      "status": "partial_implementation",
+      "evidence": [
+        "apps/buy/tests/domain.test.ts",
+        "apps/buy/tests/conformance.test.ts",
+        "apps/buy/tests/workflow.test.ts"
+      ],
+      "remaining": "Read schema contracts, actual NEOS UI rendering, all failure/unknown/partial-output cases."
+    },
+    {
+      "id": "source.parity",
+      "status": "pending",
+      "evidence": [],
+      "remaining": "Pinned source and scenario-by-scenario review; domain owners sign off full workflow."
+    },
+    {
+      "id": "release.acceptance",
+      "status": "partial_implementation",
+      "evidence": [
+        "scripts/fleet/testing/packaged-jobs.ts",
+        "docs/FLEET-V3-CHECKPOINT-8.md",
+        "apps/buy/scripts/backend.ts",
+        "apps/buy/scripts/agent.ts",
+        "scripts/fleet/tests/runtime-config.test.ts",
+        "scripts/fleet/tests/runtime-process.test.ts",
+        "deploy/fleet/agent.Dockerfile",
+        "scripts/fleet/packaging/agent-context.ts",
+        "scripts/fleet/tests/agent-context.test.ts",
+        "scripts/fleet/packaging/check-agent-images.ts",
+        "docs/FLEET-V3-CHECKPOINT-5.md",
+        "scripts/fleet/tests/runtime-jobs.test.ts",
+        "docs/FLEET-V3-CHECKPOINT-6.md",
+        "deploy/fleet/backend.Dockerfile",
+        "scripts/fleet/packaging/backend-context.ts",
+        "scripts/fleet/tests/backend-context.test.ts",
+        "scripts/fleet/packaging/check-backend-images.ts",
+        "docs/FLEET-V3-CHECKPOINT-7.md",
+        "docs/FLEET-V3-CHECKPOINT-9.md",
+        "docs/FLEET-V3-CHECKPOINT-10.md",
+        "docs/FLEET-V3-CHECKPOINT-12.md"
+      ],
+      "remaining": "Standalone runtimes, local assistant/backend images, Linux sandbox probes and persisted jobs through both images are locally tested. Still required: appservice/secret/storage/network manifests, active/in-flight recovery tests, SBOM/license/vulnerability/provenance review, manifest-bound attestation, live Matrix/model/door/UI/load/recovery and owner sign-offs. Checkpoints 9/10 change shared runtime/template sources: checkpoint 5/7/8 images and packaged results are historical, not validation of this code; refresh both artifacts and packaged tests before release. Checkpoint 12 adds shared t022; earlier image/DBA-bundle evidence is not validation of this migration. Checkpoint 19 adds t024 and the content-bound answer protocol. Drain old answer senders/assistant sessions and refresh matched artifacts; old backends bypass the new protocol. Do not bulk-promote historical protocol-0 threads. Preserve v2, receiver and t023 worker coordination; mixed-version rolling compatibility remains uncertified."
+    }
+  ],
+  "local_checkpoint_evidence": "docs/FLEET-V3-CHECKPOINT-19.md"
+}

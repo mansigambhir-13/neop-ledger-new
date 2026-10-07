@@ -1,6 +1,6 @@
 // network.test · the deploy topology keeps every model away from data and keys.
 // Static check of deploy/compose.pilot.yml; the runtime probe (scripts/netcheck.sh: containers
-// up, the agent cannot open a socket to Postgres, the vault or the internet; the egress proxy
+// up, the agent cannot open a socket to Postgres, the platform or the internet; the egress proxy
 // passes allowed hosts and refuses others) runs against built images in CI (job `netcheck`).
 import { execFileSync } from 'node:child_process';
 import { mkdtempSync, readdirSync, readFileSync, statSync } from 'node:fs';
@@ -74,23 +74,24 @@ describe('network policy', () => {
     expect(holders).toEqual(['backup', ...backends].sort());
     expect(mounts('backup')).toEqual(['${NEOS_SECRETS_DIR:-./secrets}/doors:/run/secrets/doors:ro']);
     expect(svc.backup!.environment).toMatchObject({ NEOS_BACKUP_DOORS_DIR: '/run/secrets/doors', NEOS_BACKUP_DOORS_KEY_FILE: '/run/secrets/backup_doors_key' });
-    // The platform's vault key is still the platform's alone (it is deprecated with v3; S9 removes it).
-    expect(Object.keys(svc).filter((k) => /vault_keys|VAULT/.test(envKeys(k)))).toEqual(['platform']);
+    // v3 S9 removed the service-secret vault entirely.
+    expect(Object.keys(svc).filter((k) => /vault_keys|VAULT/.test(envKeys(k)))).toEqual([]);
   });
 
-  it('the llm network joins agents and the proxy only; only the platform reaches L3 and chat', () => {
+  it('the llm network joins agents and the proxy only; files and Matrix have explicit owners; L3/ctl are gone', () => {
     expect(members('llm')).toEqual(['ledger-agent', 'llm-proxy']);
-    expect(members('l3')).toEqual(['ledger-backend', 'platform']);
+    expect(members('files')).toEqual(['ledger-backend', 'verify']);
     expect(members('chat')).toEqual(['platform', 'synapse']);
-    expect(members('ctl')).toEqual(['llm-proxy', 'platform']);
+    expect(compose.networks.l3).toBeUndefined();
+    expect(compose.networks.ctl).toBeUndefined();
   });
 
-  it('only the egress proxy touches the internet; the LLM proxy and backends go out through it alone', () => {
+  it('only the egress proxy touches the internet; Matrix, LLM and door traffic go through it alone', () => {
     expect(members('egress')).toEqual(['egress-proxy']);
     expect(svc['egress-proxy']!.networks.sort()).toEqual(['egress', 'outbound']);
-    expect(members('outbound')).toEqual(['egress-proxy', 'ledger-backend', 'llm-proxy']);
+    expect(members('outbound')).toEqual(['egress-proxy', 'ledger-backend', 'llm-proxy', 'platform', 'verify']);
     expect(compose.networks.outbound.internal).toBe(true);
-    for (const s of ['llm-proxy', ...backends]) {
+    for (const s of ['platform', 'llm-proxy', ...backends, 'verify']) {
       // Internal networks only: no route of their own to the internet.
       for (const n of svc[s]!.networks) expect(compose.networks[n].internal, `${s} on ${n}`).toBe(true);
       const env = svc[s]!.environment!;
@@ -109,7 +110,7 @@ describe('network policy', () => {
     expect(svc.pgbouncer!.networks).toEqual(['db']);
   });
 
-  it('the console reaches only the platform, holds no credential, and is the only other published port', () => {
+  it('the console reaches only the platform, holds no credential, and every published port is loopback-only', () => {
     expect(members('web')).toEqual(['platform', 'web']);
     expect(svc.web!.networks.sort()).toEqual(['edge', 'web']);
     // The desk is a test harness: it only starts with the `test` profile.
@@ -118,16 +119,18 @@ describe('network policy', () => {
     expect(svc.web!.environment?.NEOS_ENV).toBe('test');
     expect(envKeys('web')).not.toMatch(/DB_URL|SECRET|TOKEN|KEY|app_url|runner_url/i);
     const published = Object.entries(svc).filter(([, s]: any) => s.ports?.length).map(([k]) => k).sort();
-    expect(published).toEqual(['grafana', 'platform', 'web']);
+    expect(published).toEqual(['grafana', 'ledger-backend', 'platform', 'web']);
     // Loopback only; TLS and the outside world are the reverse proxy's job.
     for (const k of published) for (const p of (svc as any)[k].ports) expect(p, k).toMatch(/^127\.0\.0\.1:/);
   });
 
-  it('L3 listens only on the gateway network, the gate only on the agent network, the agent only on its own', () => {
+  it('signed files listen only on the files network, the gate only on the agent network, and runtime has no platform credential', () => {
     const b = (raw['ledger-backend']!.networks as any);
-    expect(b.l3.aliases).toEqual(['ledger-l3']);
+    expect(b.files.aliases).toEqual(['ledger-files']);
     expect(b['agent-ledger'].aliases).toEqual(['ledger-gate']);
-    expect(svc['ledger-backend']!.environment).toMatchObject({ L3_HOST: 'ledger-l3', GATE_HOST: 'ledger-gate' });
+    expect(svc['ledger-backend']!.environment).toMatchObject({ FILES_HOST: 'ledger-files', GATE_HOST: 'ledger-gate' });
+    expect(envKeys('ledger-backend')).not.toMatch(/NEOS_PLATFORM_URL|SERVICE_SECRET/i);
+    expect(svc.platform!.networks).not.toContain('files');
     expect((raw['ledger-agent']!.networks as any)['agent-ledger'].aliases).toEqual(['ledger-agent-rpc']);
     expect(svc['ledger-agent']!.environment).toMatchObject({ HOST: 'ledger-agent-rpc', NEOP_ALLOWED_GATE: 'http://ledger-gate:4102' });
   });
@@ -150,9 +153,9 @@ describe('network policy', () => {
     expect(readFileSync(path.join(ROOT, 'deploy/backup.Dockerfile'), 'utf8')).toMatch(/postgresql-client-17/);
   });
 
-  it('observability: its own profile; the scraper never joins l3, Grafana reaches only its data sources', () => {
+  it('observability: its own profile; the scraper never joins files, Grafana reaches only its data sources', () => {
     for (const s of ['otel-collector', 'jaeger', 'prometheus', 'grafana']) expect(svc[s]!.profiles, s).toEqual(['observability']);
-    expect(members('l3')).not.toContain('prometheus');
+    expect(members('files')).not.toContain('prometheus');
     expect(svc.prometheus!.networks.sort()).toEqual(['obs', 'telemetry']);
     expect(svc.grafana!.networks.sort()).toEqual(['edge', 'obs']);
     expect(members('obs')).toEqual(['grafana', 'jaeger', 'prometheus']);
@@ -173,7 +176,8 @@ describe('network policy', () => {
 });
 
 describe('overlays', () => {
-  const overlay = (f: string) => parse(readFileSync(path.join(ROOT, 'deploy', f), 'utf8'), { merge: true }).services as Record<string, any>;
+  // Compose merge tags retain their values in this static YAML view.
+  const overlay = (f: string) => parse(readFileSync(path.join(ROOT, 'deploy', f), 'utf8').replace(/!(?:override|reset)\s+/g, ''), { merge: true }).services as Record<string, any>;
 
   it('the dedicated-DB overlay keeps the second cluster and its backup on the db network only', () => {
     const o = overlay('compose.dedicated-ledger.yml');
@@ -189,6 +193,39 @@ describe('overlays', () => {
     expect(o['llm-proxy'].environment.NEOP_LLM_UPSTREAM_URL).toBe('http://fakes:4900');
     expect(o['egress-proxy'].environment.NEOS_EGRESS_ALLOW.split(',')).toContain('fakes');
     expect(o['llm-proxy'].networks).toBeUndefined(); // same internal-only networks as production
+  });
+
+  it('the production Matrix overlay gives NeuralChat and Ledger different accounts and token secrets', () => {
+    const o = overlay('compose.presence-client.yml');
+    expect(o.platform.environment).toMatchObject({ NEOS_NEURALCHAT_MATRIX: 'client', MATRIX_HOMESERVER_URL: '${MATRIX_HOMESERVER_URL:?set MATRIX_HOMESERVER_URL}' });
+    expect(o['ledger-backend'].environment).toMatchObject({ NEOP_PRESENCE: 'client', NEOP_MATRIX_HOMESERVER_URL: '${MATRIX_HOMESERVER_URL:?set MATRIX_HOMESERVER_URL}' });
+    expect(o.platform.environment.MATRIX_NEURALCHAT_ACCOUNTS).toContain('/run/secrets/matrix_neuralchat_token');
+    expect(o['ledger-backend'].environment.NEOP_MATRIX_CLIENT_ACCOUNTS).toContain('/run/secrets/matrix_ledger_token');
+    expect(o.platform.secrets).toContain('matrix_neuralchat_token');
+    expect(o.platform.secrets).not.toContain('matrix_ledger_token');
+    expect(o['ledger-backend'].secrets).toContain('matrix_ledger_token');
+    expect(o['ledger-backend'].secrets).not.toContain('matrix_neuralchat_token');
+  });
+
+  it('the local Matrix overlay uses separate appservice registrations with non-overlapping token files', () => {
+    const o = overlay('compose.chat.yml');
+    expect(o.synapse.profiles).toEqual([]);
+    expect(o.platform.environment).toMatchObject({ NEOS_NEURALCHAT_MATRIX: 'appservice', MATRIX_HS_TOKEN_FILE: '/run/secrets/matrix_hs_token', MATRIX_AS_TOKEN_FILE: '/run/secrets/matrix_as_token' });
+    expect(o['ledger-backend'].environment).toMatchObject({ NEOP_PRESENCE: 'appservice', NEOP_MATRIX_HS_TOKEN_FILE: '/run/secrets/matrix_ledger_hs_token', NEOP_MATRIX_AS_TOKEN_FILE: '/run/secrets/matrix_ledger_as_token' });
+    expect(o.platform.secrets).not.toContain('matrix_ledger_hs_token');
+    expect(o['ledger-backend'].secrets).not.toContain('matrix_hs_token');
+    expect(o.verify.environment).toMatchObject({ NEOP_PRESENCE: 'appservice', NEOS_NEURALCHAT_MATRIX: 'appservice' });
+    expect(o.verify.secrets).toEqual(['neos_app_url', 'ledger_runner_url']);
+    const registration = parse(readFileSync(path.join(ROOT, 'deploy/appservice.ledger.yaml'), 'utf8'));
+    const platformRegistration = parse(readFileSync(path.join(ROOT, 'deploy/appservice.yaml'), 'utf8'));
+    expect(platformRegistration.namespaces.users).toEqual([{ exclusive: true, regex: '@neuralchat_.*' }]);
+    expect(registration.namespaces.aliases).toEqual([
+      { exclusive: true, regex: '#ledger-.*' },
+      { exclusive: true, regex: '#neop-bus-.*' },
+    ]);
+    const setup = readFileSync(path.join(ROOT, 'scripts/matrix-setup.sh'), 'utf8');
+    expect(setup).toContain('regex: "#ledger-.*"');
+    expect(setup).toContain('regex: "#neop-bus-.*"');
   });
 });
 
@@ -275,15 +312,18 @@ describe('gen-secrets (D2 dedicated-DB tier)', () => {
     expect(ini).toContain('neos_ledger = host=pg-ledger port=5433 dbname=neos');
   });
 
-  it('v3 (S8): a session-signing key per app for its backend, the public halves for the proxy, and a doors/ store', () => {
+  it('v3 (S8): private session-signing keys stay with their issuers and only public halves reach the proxy', () => {
     const s = gen();
     const priv = JSON.parse(s('ledger_llm_signing_key'));
     expect(priv).toMatchObject({ kty: 'OKP', crv: 'Ed25519', alg: 'EdDSA' });
     expect(priv.d).toBeTruthy();
     const pub = JSON.parse(s('llm_runner_keys'));
-    expect(Object.keys(pub)).toEqual(['ledger']);
+    expect(Object.keys(pub)).toEqual(['neuralchat', 'ledger']);
     expect(pub.ledger).toEqual([{ kty: 'OKP', crv: 'Ed25519', x: priv.x, kid: priv.kid, alg: 'EdDSA' }]);
     expect(pub.ledger[0].d).toBeUndefined();
+    const ring = JSON.parse(s('platform_signing_key'));
+    expect(pub.neuralchat).toEqual([ring.keys.find((k: any) => k.state === 'active').publicJwk]);
+    expect(pub.neuralchat[0].d).toBeUndefined();
     expect(Buffer.from(s('backup_doors_key'), 'base64')).toHaveLength(32);
   });
 

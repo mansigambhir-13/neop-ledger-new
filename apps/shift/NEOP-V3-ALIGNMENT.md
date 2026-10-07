@@ -1,0 +1,8 @@
+# Shift — pinned template alignment
+
+Pin: `neos-neop-template@94db804f94403c15ad1279e6d30dcecc7c078b82` (`0.8.16`).
+Status: assessed gap; **0/12 alignment gates verified**; `full_parity=false`.
+
+Shift is an internal change draft slice. It lacks a template frontend/source lifecycle, change/collision authority, apply/rollback provider, independent verification and production acceptance.
+
+Adoption must bind exact target, version, scope and window and retain recoverable rollback evidence.

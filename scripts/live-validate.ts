@@ -1,11 +1,12 @@
-// Live validation of a deployed NEOP stack, through the person-facing API only (never the DB).
+// Live validation of a deployed NEOP stack, through the person-facing API and Matrix jobs only (never the DB).
 // It runs with the stack's REAL model, so it caps spend (task cost from /api/tasks/:id and the app's
 // usage today), gives the assistant one precise instruction per change, and bounds every job.
 //
-//   NEOS_PLATFORM_URL=http://127.0.0.1:4500 NEOS_TOKEN_FILE=<admin token> [NEOS_MEMBER_TOKEN_FILE=<member token>] \
+//   NEOS_PLATFORM_URL=http://127.0.0.1:4500 NEOP_FILES_PUBLIC_URL=http://127.0.0.1:4501 \
+//     NEOS_TOKEN_FILE=<admin token> [NEOS_MEMBER_TOKEN_FILE=<member token>] \
 //     pnpm exec tsx scripts/live-validate.ts [--app ledger] [--only reads,writes,governance,questions,documents,schedules,blocks] \
-//       [--out docs/LIVE-VALIDATION.md] [--budget-usd 12] [--email-to you@company.example] [--gst]
-//       [--job-timeout-s 360] [--poll-ms 2000] [--schedule-lead-min 2] [--expect-road matrix|gateway]
+//       [--out docs/LIVE-VALIDATION.md] [--budget-usd 12] [--email-to you@company.example] [--gst] [--files-url URL]
+//       [--job-timeout-s 360] [--poll-ms 2000] [--schedule-lead-min 2] [--expect-road matrix]
 //
 // Sections (each yields PASS / FAIL / SKIPPED rows with evidence): reads, writes, governance, questions,
 // documents, schedules, blocks. Output: a markdown report and a JSON copy (same path, .json). Exit 1 on any FAIL.
@@ -38,6 +39,8 @@ export interface Row {
 
 export interface Options {
   baseUrl: string;
+  /** The app-owned files listener. Required when document links are path-only. */
+  filesUrl?: string;
   adminToken: string;
   memberToken?: string;
   app: string;
@@ -60,11 +63,9 @@ export interface Options {
   /** Override "now" (tests). */
   now?: () => Date;
   /**
-   * v3 S5 (--expect-road matrix|gateway): the road every task must have taken — 'matrix' when the app runs with NEOP
-   * presence and NeuralChat posts typed tasks as its own identity; 'gateway' for a presence-off install. A task that
-   * went the other way fails its check (its status reads WRONG_ROAD).
+   * v3 S9 (--expect-road matrix): the road every task must have taken. A task that went another way fails its check.
    */
-  expectRoad?: 'matrix' | 'gateway';
+  expectRoad?: 'matrix';
   log?: (line: string) => void;
 }
 
@@ -535,10 +536,9 @@ export class LiveValidator {
       income: accounts.some((a) => a.code === '4000' && a.type === 'income') ? '4000' : pick((a) => a.type === 'income', '4000'),
       budget: accounts.some((a) => a.code === '6400') ? '6400' : pick((a) => a.type === 'expense', '6400'),
     };
-    // v3 (S8): door credentials live in the backend's secret store, which this remote check cannot see: the operator
-    // names the connected doors (--doors / NEOS_VALIDATE_DOORS). The deprecated vault listing still counts.
-    const vault = await this.api('GET', '/api/vault');
-    this.s.vaultDoors = new Set([...(vault.body?.doors ?? []).map((x: any) => x.door), ...(this.o.doors ?? [])]);
+    // v3 (S8): door credentials live in the backend's secret store, which this remote check cannot inspect. The
+    // operator explicitly names the connected doors; there is no platform vault API.
+    this.s.connectedDoors = new Set(this.o.doors ?? []);
     const mem = this.o.memberToken ? await this.api('GET', '/api/me', undefined, this.o.memberToken) : null;
     this.s.memberOk = mem?.status === 200 && mem.body.role === 'member';
     if (this.o.memberToken && !this.s.memberOk) this.notes.push(`The member token did not sign in as a member (${mem?.status} ${mem?.body?.role ?? ''}); member checks are skipped.`);
@@ -547,8 +547,45 @@ export class LiveValidator {
   private ability(key: string): Ability | undefined {
     return this.abilities.find((a) => a.key === key);
   }
-  private read(key: string, args: unknown, token?: string) {
-    return this.api('POST', `/api/apps/${this.o.app}/read/${key}`, args, token);
+  private async read(key: string, args: unknown, token?: string) {
+    const direct = await this.api('POST', `/api/apps/${this.o.app}/read/${key}`, args, token);
+    // S9 deliberately exposes only migration-declared screen reads through <app>.block_read(). Every other read is
+    // still a real app ability, but the production road to it is a Matrix job. Run that road and recover the exact
+    // tool result from the app-owned audit transcript; do not add a platform-to-app API to make validation easier.
+    if (token || direct.status !== 403 || direct.body?.error?.code !== 'not_declared' || this.ability(key)?.kind !== 'read') return direct;
+    if (this.overBudget()) return { status: 429, body: { error: { code: 'validation_budget', message: 'live-validation budget reached' } } };
+    const run = await this.runJob(`Read ${key} once and report exactly what the tool returns.\nTOOL: ${key}\nARGS: ${JSON.stringify(args)}\nCARD: none`);
+    if (run.status !== 'COMPLETED' || !run.task_id) return { status: 502, body: { error: { code: 'matrix_read_failed', message: this.jobEvidence(run) } } };
+    let transcript: any = null;
+    for (let i = 0; i < 20; i++) {
+      const r = await this.api('GET', `/api/tasks/${run.task_id}/transcript`);
+      if (r.status === 200 && r.body?.sessions?.length) {
+        transcript = r.body;
+        break;
+      }
+      await sleep(100);
+    }
+    if (!transcript) return { status: 502, body: { error: { code: 'matrix_read_transcript_missing', message: `no transcript for task ${run.task_id}` } } };
+    const strings: string[] = [];
+    const collect = (v: unknown) => {
+      if (typeof v === 'string') strings.push(v);
+      else if (Array.isArray(v)) v.forEach(collect);
+      else if (v && typeof v === 'object') Object.values(v).forEach(collect);
+    };
+    collect(transcript.sessions);
+    const start = `<data source="${key}" trust="untrusted">\n`;
+    for (const s of strings.reverse()) {
+      const at = s.indexOf(start);
+      if (at < 0) continue;
+      const end = s.indexOf('\n</data>', at + start.length);
+      if (end < 0) continue;
+      try {
+        return { status: 200, body: { result: JSON.parse(s.slice(at + start.length, end)) } };
+      } catch (e) {
+        return { status: 502, body: { error: { code: 'matrix_read_bad_result', message: String(e) } } };
+      }
+    }
+    return { status: 502, body: { error: { code: 'matrix_read_result_missing', message: `${key} has no result in task ${run.task_id}` } } };
   }
   private async result(key: string, args: unknown): Promise<any> {
     const r = await this.read(key, args);
@@ -661,7 +698,7 @@ export class LiveValidator {
       await sleep(this.o.pollMs);
     }
     await this.refreshUsage();
-    const road = run.detail?.task?.road ?? 'gateway';
+    const road = run.detail?.task?.road ?? 'unknown';
     if (this.o.expectRoad && road !== this.o.expectRoad) {
       run.error = `the task took the ${road} road, not ${this.o.expectRoad}`;
       run.status = 'WRONG_ROAD';
@@ -705,7 +742,7 @@ export class LiveValidator {
     }
     if (opts.external) {
       const door = opts.external;
-      if (!this.doors.has(door) || !this.s.vaultDoors.has(door)) {
+      if (!this.doors.has(door) || !this.s.connectedDoors.has(door)) {
         this.add(section, label, 'SKIPPED', `the ${door} door is not connected (not named in --doors / NEOS_VALIDATE_DOORS)`);
         return { ok: false, approval: null, run: null };
       }
@@ -1058,7 +1095,9 @@ export class LiveValidator {
     const G: Section = 'governance';
     const sb0 = (await this.api('GET', `/api/switchboards/${app}`)).body;
     // (a) A read switched off leaves the registry and is refused; switched back it returns.
-    const readKey = this.ability('ledger.budget.remaining') ? 'ledger.budget.remaining' : this.abilities.find((a) => a.kind === 'read' && a.setting === 'on')?.key;
+    // Use a migration-declared screen read so "off" is observed synchronously by block_read; non-screen reads are
+    // exercised through Matrix above and disappear from a new job's tool bundle when switched off.
+    const readKey = this.ability('ledger.report.pnl') ? 'ledger.report.pnl' : this.abilities.find((a) => a.kind === 'read' && a.setting === 'on')?.key;
     if (readKey) {
       const prev = sb0?.settings?.[readKey] ?? null;
       const args = readCases(this.d, this.chart)[readKey]?.[0] ?? {};
@@ -1265,7 +1304,8 @@ export class LiveValidator {
     const ok1 = !cp && amt === 25000 && card?.ability_key === 'ledger.bill.record' && run.status === 'COMPLETED' && bills.length === 0;
     this.add(D, 'a bill proposal whose card matches the attached file, declined', ok1 ? 'PASS' : 'FAIL', `${cp ?? `card "${String(card.card.what).slice(0, 80)}" · ${number} · ₹${amt / 100} · source_document ${sha.slice(0, 12)}…`} · ${declined} · bills recorded: ${bills.length} · ${this.jobEvidence(run)}`, run.cost);
 
-    // The file is kept, and downloads byte for byte; only to a signed-in person.
+    // The file is kept and downloads byte for byte. The short-lived signed URL is the browser's bearer capability;
+    // without that signature the app-owned files listener must refuse the request.
     const g = await this.checkRead('ledger.document.get', { sha256: sha });
     const doc = g.result?.document;
     if (g.problem || !doc) {
@@ -1276,13 +1316,21 @@ export class LiveValidator {
     const keptOk = doc.sha256 === sha && Number(doc.bytes) === bytes.length && g.result.download?.path;
     this.add(D, 'the file is kept (ledger.document.get)', keptOk ? 'PASS' : 'FAIL', `${doc.filename} · ${doc.bytes} bytes · ${doc.content_type} · store ${doc.store ?? '?'} · link ${g.result.download?.path ? 'issued' : 'missing'}`);
     if (!g.result.download?.path) return;
-    const base = this.o.baseUrl.replace(/\/$/, '');
-    const dl = await fetch(base + g.result.download.path, { headers: { authorization: `Bearer ${this.o.adminToken}` } }).catch((e) => ({ status: 0, arrayBuffer: async () => new ArrayBuffer(0), e }) as any);
+    const link = String(g.result.download.path);
+    const downloadUrl = /^https?:\/\//i.test(link) ? link : this.o.filesUrl ? this.o.filesUrl.replace(/\/$/, '') + (link.startsWith('/') ? link : `/${link}`) : null;
+    if (!downloadUrl) {
+      this.add(D, 'download is identical (sha256)', 'FAIL', 'the app issued a path-only download link but NEOP_FILES_PUBLIC_URL / --files-url is not set');
+      this.add(D, 'unsigned download refused', 'FAIL', 'download endpoint could not be resolved');
+      return;
+    }
+    const dl = await fetch(downloadUrl).catch((e) => ({ status: 0, arrayBuffer: async () => new ArrayBuffer(0), e }) as any);
     const got = Buffer.from(await dl.arrayBuffer());
     const same = dl.status === 200 && createHash('sha256').update(got).digest('hex') === sha;
     this.add(D, 'download is identical (sha256)', same ? 'PASS' : 'FAIL', `HTTP ${dl.status} · ${got.length} bytes · sha256 ${createHash('sha256').update(got).digest('hex').slice(0, 16)}… (want ${sha.slice(0, 16)}…)`);
-    const anon = await fetch(base + g.result.download.path).catch(() => ({ status: 0 }) as Response);
-    this.add(D, 'unauthenticated download refused', anon.status === 401 ? 'PASS' : 'FAIL', `HTTP ${anon.status} (want 401)`);
+    const unsigned = new URL(downloadUrl);
+    unsigned.search = '';
+    const noSig = await fetch(unsigned).catch(() => ({ status: 0 }) as Response);
+    this.add(D, 'unsigned download refused', noSig.status === 403 ? 'PASS' : 'FAIL', `HTTP ${noSig.status} (want 403)`);
   }
 
   // ── 6. schedules ───────────────────────────────────────────────────────────
@@ -1442,6 +1490,7 @@ export function parseArgs(argv: string[], env: NodeJS.ProcessEnv): Options {
   for (const s of only) if (!(SECTIONS as readonly string[]).includes(s)) throw new Error(`--only: unknown section ${s} (${SECTIONS.join(', ')})`);
   return {
     baseUrl: (env.NEOS_PLATFORM_URL ?? 'http://127.0.0.1:4500').replace(/\/$/, ''),
+    filesUrl: (flag('files-url') ?? env.NEOP_FILES_PUBLIC_URL ?? env.NEOP_FILES_URL)?.replace(/\/$/, ''),
     adminToken,
     memberToken: tokenFrom(env.NEOS_MEMBER_TOKEN_FILE, env.NEOS_MEMBER_TOKEN),
     app: flag('app') ?? 'ledger',
@@ -1455,7 +1504,13 @@ export function parseArgs(argv: string[], env: NodeJS.ProcessEnv): Options {
     pollMs: Number(flag('poll-ms') ?? 2000),
     scheduleLeadMin: Number(flag('schedule-lead-min') ?? 2),
     repoRoot: REPO_ROOT,
-    ...(flag('expect-road') ? { expectRoad: flag('expect-road') === 'matrix' ? ('matrix' as const) : ('gateway' as const) } : {}),
+    ...(flag('expect-road')
+      ? flag('expect-road') === 'matrix'
+        ? { expectRoad: 'matrix' as const }
+        : (() => {
+            throw new Error('--expect-road must be matrix (V3 has no other road)');
+          })()
+      : {}),
   };
 }
 

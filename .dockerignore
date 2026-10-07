@@ -7,3 +7,6 @@ docs/source
 **/*.log
 .env
 deploy/secrets
+reference
+.pnpm-store
+.claude

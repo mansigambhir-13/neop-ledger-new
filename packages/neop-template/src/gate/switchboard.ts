@@ -1,3 +1,4 @@
+import {sqlIdent} from '@neop/pgkit';
 import { strictest, type Manifest, type ManifestAbility, type Setting } from '@neop/contracts';
 import { assertIdent, withCompany, type Pool } from '@neop/pgkit';
 import { forcedAskFirst, parseRules, type Rule } from '../domain/rules.ts';
@@ -62,10 +63,10 @@ export async function loadBoard(pool: Pool, schema: string, companyId: string): 
   assertIdent(schema);
   const r = await pool.query<{ sb: any[] | null; version: number; install: any | null }>(
     `select (select json_agg(json_build_object('line', s.line, 'setting', s.setting, 'caps', s.caps, 'rules', s.rules, 'approvers', s.approvers))
-               from ${schema}.switchboard s where s.company_id = $1) as sb,
-            greatest(coalesce((select max(version) from ${schema}.switchboard where company_id = $1), 0),
-                     coalesce((select max(version) from ${schema}.switchboard_history where company_id = $1), 0))::int as version,
-            (select row_to_json(i) from (select status, company_name, time_zone from ${schema}.installs where company_id = $1) i) as install`,
+               from ${sqlIdent(schema)}.switchboard s where s.company_id = $1) as sb,
+            greatest(coalesce((select max(version) from ${sqlIdent(schema)}.switchboard where company_id = $1), 0),
+                     coalesce((select max(version) from ${sqlIdent(schema)}.switchboard_history where company_id = $1), 0))::int as version,
+            (select row_to_json(i) from (select status, company_name, time_zone from ${sqlIdent(schema)}.installs where company_id = $1) i) as install`,
     [companyId],
   );
   const row = r.rows[0]!;
@@ -176,17 +177,17 @@ export class SwitchboardCache {
     const s = this.schema;
     const manifest = `jsonb_to_recordset($1::jsonb) as l(line text, kind text, floor text)`;
     const stale = `where s.line = l.line and (s.kind is distinct from l.kind or s.floor is distinct from l.floor
-                                   or ${s}.setting_rank(s.setting) < ${s}.setting_rank(l.floor))`;
+                                   or ${sqlIdent(s)}.setting_rank(s.setting) < ${sqlIdent(s)}.setting_rank(l.floor))`;
     const json = JSON.stringify(lines);
-    const companies = (await runnerPool.query<{ company_id: string }>(`select distinct s.company_id from ${s}.switchboard s, ${manifest} ${stale}`, [json])).rows;
+    const companies = (await runnerPool.query<{ company_id: string }>(`select distinct s.company_id from ${sqlIdent(s)}.switchboard s, ${manifest} ${stale}`, [json])).rows;
     let n = 0;
     // One company per transaction: a board version (and its history) belongs to one company.
     for (const { company_id } of companies) {
       n += await withCompany(runnerPool, company_id, async (c) => {
         const r = await c.query(
-          `update ${s}.switchboard s
+          `update ${sqlIdent(s)}.switchboard s
               set kind = l.kind, floor = l.floor,
-                  setting = case when ${s}.setting_rank(s.setting) < ${s}.setting_rank(l.floor) then l.floor else s.setting end,
+                  setting = case when ${sqlIdent(s)}.setting_rank(s.setting) < ${sqlIdent(s)}.setting_rank(l.floor) then l.floor else s.setting end,
                   updated_by = 'app:${s}'
              from ${manifest} ${stale} and s.company_id = $2`,
           [json, company_id],

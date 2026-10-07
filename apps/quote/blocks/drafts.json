@@ -1,0 +1,49 @@
+{
+  "block": "page",
+  "title": "Quote drafts",
+  "description": "Internal review only; not business approval or external completion.",
+  "nav": {
+    "label": "Quote",
+    "icon": "table",
+    "order": 1
+  },
+  "children": [
+    {
+      "block": "table",
+      "source": {
+        "ability": "quote.quotes.list"
+      },
+      "rows": "/rows",
+      "columns": [
+        {
+          "label": "source id",
+          "path": "/source_id"
+        },
+        {
+          "label": "amount minor",
+          "path": "/amount_minor"
+        },
+        {
+          "label": "currency",
+          "path": "/currency"
+        },
+        {
+          "label": "band",
+          "path": "/band"
+        },
+        {
+          "label": "notes",
+          "path": "/notes"
+        },
+        {
+          "label": "status",
+          "path": "/status"
+        },
+        {
+          "label": "requires elevated approval",
+          "path": "/requires_elevated_approval"
+        }
+      ]
+    }
+  ]
+}

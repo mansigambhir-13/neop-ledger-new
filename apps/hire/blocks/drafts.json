@@ -1,0 +1,49 @@
+{
+  "block": "page",
+  "title": "Hire drafts",
+  "description": "Internal review only; not business approval or external completion.",
+  "nav": {
+    "label": "Hire",
+    "icon": "table",
+    "order": 1
+  },
+  "children": [
+    {
+      "block": "table",
+      "source": {
+        "ability": "hire.offers.list"
+      },
+      "rows": "/rows",
+      "columns": [
+        {
+          "label": "source id",
+          "path": "/source_id"
+        },
+        {
+          "label": "salary minor",
+          "path": "/salary_minor"
+        },
+        {
+          "label": "currency",
+          "path": "/currency"
+        },
+        {
+          "label": "role",
+          "path": "/role"
+        },
+        {
+          "label": "review limit minor",
+          "path": "/review_limit_minor"
+        },
+        {
+          "label": "status",
+          "path": "/status"
+        },
+        {
+          "label": "requires elevated approval",
+          "path": "/requires_elevated_approval"
+        }
+      ]
+    }
+  ]
+}

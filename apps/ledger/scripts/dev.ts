@@ -1,5 +1,5 @@
 // One-command local Ledger pilot: migrates, seeds a demo company, and starts the
-// platform (:4700), the Ledger backend (L3 :4701, gate :4702) and the agent
+// platform (:4700), the Ledger backend (files :4701, gate :4702) and the agent
 // pool (:4703) in one process (base port: NEOP_DEV_PORT_BASE).
 //   NEOP_LLM_UPSTREAM_KEY=sk-ant-...  keyless agent through the platform LLM proxy (recommended)
 //   NEOP_LLM_VIRTUAL_KEY=...          direct model access from the agent (quick local only)
@@ -8,8 +8,8 @@ import { randomBytes } from 'node:crypto';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { adminUrlFromEnv, roleUrl } from '@neop/pgkit';
-import { hashSecret, loadOrCreateSigningKeys, migratePlatform, startPlatform, VaultCipher } from '@neop/platform';
-import { doorSecretPaths, FileSecretStore, generateLlmSigningKey, migrateApp, startBackend } from '@neop/template';
+import { hashSecret, loadOrCreateSigningKeys, migratePlatform, neuralChatConfigFromEnv, startPlatform } from '@neop/platform';
+import { doorSecretPaths, FileSecretStore, generateLlmSigningKey, migrateApp, presenceConfigFromEnv, startBackend } from '@neop/template';
 import { modelFromEnv, proxyModel, startAgentWorker } from '@neop/template/agent';
 import { ledgerApp, LEDGER_ROOT, manifest, seedLedger } from '../src/index.ts';
 
@@ -39,13 +39,7 @@ await migratePlatform(adminUrl, log);
 const app = await ledgerApp();
 await migrateApp(adminUrl, app, log);
 
-const keys = await loadOrCreateSigningKeys(path.join(varDir, 'gateway-key.json'));
-const vaultFile = path.join(varDir, 'vault-keys.json');
-const vaultKeys = await readFile(vaultFile, 'utf8').then(JSON.parse).catch(async () => {
-  const k = VaultCipher.generate();
-  await writeFile(vaultFile, JSON.stringify(k), { mode: 0o600 });
-  return k;
-});
+const keys = await loadOrCreateSigningKeys(path.join(varDir, 'platform-signing-key.json'));
 // v3 (S8): the runner mints its assistants' LLM session tokens with this key; the proxy trusts its public half.
 const llmKeyFile = path.join(varDir, 'ledger-llm-signing-key.json');
 const llmKey = await readFile(llmKeyFile, 'utf8').then(JSON.parse).catch(async () => {
@@ -58,14 +52,13 @@ const doorsDir = path.join(varDir, 'doors');
 const plat = await startPlatform({
   dbUrl: roleUrl(adminUrl, 'neos_app'),
   keys,
-  vaultKeys,
+  neuralchat: neuralChatConfigFromEnv(process.env),
   registryKeys: await loadOrCreateSigningKeys(path.join(varDir, 'registry-key.json')),
   llm: upstreamKey ? { upstream: { baseUrl: process.env.NEOP_LLM_UPSTREAM_URL ?? 'https://api.anthropic.com', apiKey: upstreamKey }, runnerKeys: { ledger: [llmKey.publicJwk] } } : undefined,
   port: BASE,
   log,
 });
 const p = plat.platform;
-await p.rekeyVault();
 
 const worker = await startAgentWorker({
   poolSize: 5,
@@ -74,14 +67,11 @@ const worker = await startAgentWorker({
   allowedGates: [`http://127.0.0.1:${BASE + 2}`],
   onEnd: (j, r) => log(`session ${j.slice(0, 8)} ended: ${r}`),
 });
-const serviceSecret = await persistent('ledger-service-secret');
 const backend = await startBackend(
   app,
   {
     appDbUrl: roleUrl(adminUrl, 'ledger_app'),
     runnerDbUrl: roleUrl(adminUrl, 'ledger_runner'),
-    platformUrl: plat.url,
-    serviceSecret,
     jobTokenSecret: await persistent('ledger-job-token-secret'),
     agentUrl: `http://127.0.0.1:${worker.port}`,
     gateUrl: `http://127.0.0.1:${BASE + 2}`,
@@ -89,11 +79,13 @@ const backend = await startBackend(
     runnerId: 'dev-runner',
     secrets: new FileSecretStore({ root: doorsDir, app: 'ledger' }),
     llm: upstreamKey ? { proxyUrl: `${plat.url}/llm`, signingKey: llmKey.privateJwk } : undefined,
+    presence: presenceConfigFromEnv(process.env),
+    files: { publicUrl: process.env.NEOP_FILES_PUBLIC_URL ?? `http://127.0.0.1:${BASE + 1}` },
     log,
   },
-  { l3Port: BASE + 1, gatePort: BASE + 2 },
+  { filesPort: BASE + 1, gatePort: BASE + 2 },
 );
-await p.registerApp({ key: 'ledger', l3_url: `http://127.0.0.1:${backend.ports.l3}`, manifest, service_secret: serviceSecret, blocks: app.blocks });
+await p.registerApp({ key: 'ledger', manifest, blocks: app.blocks });
 
 // Demo company (idempotent).
 let co = (await p.db.query<{ id: string }>("select id from neos.companies where name = 'Acme Traders'")).rows[0];

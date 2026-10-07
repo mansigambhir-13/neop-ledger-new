@@ -15,8 +15,9 @@
 //   NEOS_COMPOSE_FILE                   the rendered compose config (docker compose config): only the backend
 //                                       mounts the doors; no agent, no web
 //   NEOP_LLM_UPSTREAM_KEY[_FILE]        the LLM proxy's provider key — present, never read (run where the proxy's env is)
-//   MATRIX_MODE=client + MATRIX_HOMESERVER_URL + MATRIX_CLIENT_ACCOUNTS[_FILE]   each account's token: whoami
-//   NEOP_PRESENCE=client + NEOP_MATRIX_HOMESERVER_URL + NEOP_MATRIX_ACCOUNT + NEOP_MATRIX_TOKEN_FILE   the app's own account: whoami
+//   NEOS_NEURALCHAT_MATRIX=client + MATRIX_HOMESERVER_URL + MATRIX_NEURALCHAT_ACCOUNTS[_FILE]   NeuralChat tokens: whoami
+//   NEOP_PRESENCE=client + NEOP_MATRIX_HOMESERVER_URL + NEOP_MATRIX_CLIENT_ACCOUNTS[_FILE]       the app's tokens: whoami
+//   NEOP_FILES_URL                     the backend's browser/ops listener (GET /ready)
 //   NEOS_ENV=production                 an app registered without a conformance attestation is a FAIL (else a WARN)
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
@@ -25,8 +26,8 @@ import { fileURLToPath } from 'node:url';
 import { createPool, familyRoles, schemaDrift, shippedMigrations, type AppliedMigration, type PoolClient } from '@neop/pgkit';
 
 type Pool = ReturnType<typeof createPool>;
-import { attestationProblem, chatClientConfigFromEnv, MatrixClientHttp } from '@neop/platform';
-import { appMigrationSources, DEFAULT_DOOR_SECRETS_DIR, doorSecretPaths, type AppDefinition } from '@neop/template';
+import { attestationProblem, neuralChatConfigFromEnv } from '@neop/platform';
+import { appMigrationSources, DEFAULT_DOOR_SECRETS_DIR, doorSecretPaths, MatrixClientHttp, presenceConfigFromEnv, type AppDefinition } from '@neop/template';
 import { parse as parseYaml } from 'yaml';
 
 type Manifest = AppDefinition['manifest'];
@@ -141,9 +142,9 @@ export async function verifyInstall(o: {
   };
 
   let companyId: string | null = null;
-  let appRow: { l3_url: string; manifest: Manifest; status: string; conformance: unknown } | null = null;
+  let appRow: { manifest: Manifest; status: string; conformance: unknown } | null = null;
   await check(`platform: ${o.app} is registered, active and attested`, async () => {
-    const [r] = await q<{ l3_url: string; manifest: Manifest; status: string; conformance: unknown }>('select l3_url, manifest, status, conformance from neos.apps where key = $1', [o.app]);
+    const [r] = await q<{ manifest: Manifest; status: string; conformance: unknown }>('select manifest, status, conformance from neos.apps where key = $1', [o.app]);
     must(r, `${o.app} is not registered (tsx scripts/ops.ts register-app …)`);
     appRow = r!;
     must(r!.status === 'active', `status ${r!.status}`);
@@ -301,6 +302,10 @@ export async function verifyInstall(o: {
     }
     const off = (d: string) => (m.doors ?? []).find((x) => x.key === d)?.floor === 'off' || sb?.settings?.[`door:${d}`] === 'off';
     const connected = declared.filter((d) => !off(d));
+    // Production's verifier deliberately does not mount this store: v3 §12 limits it to the backend (and the
+    // encrypted-backup job). Operators may run this check in the backend's environment; otherwise the static
+    // compose check below still proves that no agent or web process can see it.
+    if (!env.NEOP_DOOR_SECRETS_DIR) throw new Skip('the read-only verifier is not a door-secret holder; check from the backend environment when required');
     const root = env.NEOP_DOOR_SECRETS_DIR ?? DEFAULT_DOOR_SECRETS_DIR;
     must(existsSync(root), `no secret store at ${root} — run this where the backend's doors mount is (NEOP_DOOR_SECRETS_DIR)`);
     const missing: string[] = [];
@@ -351,55 +356,64 @@ export async function verifyInstall(o: {
       must(existsSync(file) && statSync(file).size > 0, `NEOP_LLM_UPSTREAM_KEY_FILE names ${file}, which is missing or empty`);
       return `in ${path.basename(file)}`;
     }
-    must(env.NEOP_LLM_UPSTREAM_KEY, 'NEOP_LLM_UPSTREAM_KEY (or _FILE) is not set here — run this where the LLM proxy’s environment is');
-    return 'set';
+    if (env.NEOP_LLM_UPSTREAM_KEY) return 'set';
+    // Do not give this inspector the provider key merely to prove that the proxy has it. The deploy preflight checks
+    // the source file is non-empty; here the rendered topology proves only the proxy receives the named secret.
+    const composeFile = env.NEOS_COMPOSE_FILE;
+    must(composeFile && existsSync(composeFile), 'NEOP_LLM_UPSTREAM_KEY (or _FILE) is not set and NEOS_COMPOSE_FILE is unavailable');
+    const services = (parseYaml(readFileSync(composeFile!, 'utf8'), { merge: true })?.services ?? {}) as Record<string, any>;
+    const proxy = services['llm-proxy'];
+    must(proxy, 'rendered compose has no llm-proxy service');
+    must(proxy.environment?.NEOP_LLM_UPSTREAM_KEY_FILE === '/run/secrets/llm_upstream_key', 'llm-proxy does not name its provider-key secret');
+    const held = (proxy.secrets ?? []).map((s: any) => (typeof s === 'string' ? s : s.source));
+    must(held.includes('llm_upstream_key'), 'llm-proxy does not mount llm_upstream_key');
+    return 'configured on llm-proxy only';
   });
-  await check('backend: /l3/ready, reached as the platform reaches it', async () => {
-    if (!appRow) throw new Skip('the app is not registered');
-    const base = (appRow as { l3_url: string }).l3_url.replace(/\/+$/, '');
+  await check('backend: files/ops /ready', async () => {
+    const base = (env.NEOP_FILES_URL ?? env.NEOP_FILES_PUBLIC_URL ?? '').replace(/\/+$/, '');
+    must(base, 'NEOP_FILES_URL (or NEOP_FILES_PUBLIC_URL) is not set');
     let r;
     try {
-      r = await get(`${base}/l3/ready`);
+      r = await get(`${base}/ready`);
     } catch (e) {
       throw new Error(`nothing answers at ${base}: ${(e as Error).message}`);
     }
-    must(r.ok, `${base}/l3/ready answered ${r.status} — the backend cannot reach its database`);
+    must(r.ok, `${base}/ready answered ${r.status} — the backend cannot reach its database`);
     return base;
   });
   // v3 S4: with NEOP_PRESENCE=client the app's backend holds its own account (the platform holds none for it).
   await check('matrix: the app\'s own account token valid (whoami, NEOP_PRESENCE=client)', async () => {
-    if ((env.NEOP_PRESENCE ?? 'off') !== 'client') throw new Skip(`NEOP_PRESENCE=${env.NEOP_PRESENCE ?? 'off'}`);
-    const hs = env.NEOP_MATRIX_HOMESERVER_URL;
-    const account = env.NEOP_MATRIX_ACCOUNT;
-    const tokenFile = env.NEOP_MATRIX_TOKEN_FILE;
-    must(hs && account && tokenFile, 'NEOP_MATRIX_HOMESERVER_URL, NEOP_MATRIX_ACCOUNT and NEOP_MATRIX_TOKEN_FILE must be set');
-    must(existsSync(tokenFile!), `${account}: token file ${tokenFile} is missing`);
-    const http = new MatrixClientHttp({ homeserverUrl: hs!, account: account!, accessToken: readFileSync(tokenFile!, 'utf8').trim(), fetchImpl: o.fetchImpl as any });
-    let who: string;
-    try {
-      who = await http.whoami();
-    } catch (e) {
-      throw new Error(`${account}: the homeserver refused the token (${(e as Error).message}) — ask the Matrix operator for a new one`);
+    if ((env.NEOP_PRESENCE ?? 'client') !== 'client') throw new Skip(`NEOP_PRESENCE=${env.NEOP_PRESENCE}`);
+    const cfg = presenceConfigFromEnv(env);
+    const seen: string[] = [];
+    for (const a of cfg.client!.accounts) {
+      must(a.tokenFile && existsSync(a.tokenFile), `${a.account ?? 'account'}: token file ${a.tokenFile ?? '(none)'} is missing`);
+      const http = new MatrixClientHttp({ homeserverUrl: cfg.homeserverUrl!, accessToken: readFileSync(a.tokenFile!, 'utf8').trim(), fetchImpl: o.fetchImpl as any });
+      const who = await http.whoami().catch((e) => {
+        throw new Error(`${a.account ?? 'account'}: the homeserver refused the token (${(e as Error).message}) — ask the Matrix operator for a new one`);
+      });
+      if (a.account) must(who === a.account, `${a.account}: the token belongs to ${who}`);
+      seen.push(who);
     }
-    must(who === account, `${account}: the token belongs to ${who}`);
-    return who;
+    return seen.join(', ');
   });
-  await check('matrix: client tokens valid (whoami)', async () => {
-    if ((env.MATRIX_MODE ?? 'appservice') !== 'client') throw new Skip(`MATRIX_MODE=${env.MATRIX_MODE ?? 'appservice'}`);
-    const cfg = chatClientConfigFromEnv(env);
-    const mine = cfg!.accounts.filter((a) => a.app === o.app && (!companyId || a.company === companyId || a.company === o.company));
-    must(mine.length, `no MATRIX_CLIENT_ACCOUNTS entry for ${o.app} at ${o.company}`);
+  await check('matrix: NeuralChat client token valid (whoami)', async () => {
+    if (env.NEOS_NEURALCHAT_MATRIX !== 'client') throw new Skip(`NEOS_NEURALCHAT_MATRIX=${env.NEOS_NEURALCHAT_MATRIX ?? '(unset)'}`);
+    const cfg = neuralChatConfigFromEnv(env);
+    if (cfg.road !== 'client') throw new Skip(`NEOS_NEURALCHAT_MATRIX=${cfg.road}`);
+    const mine = cfg.accounts.filter((a) => !companyId || a.company === companyId || a.company === o.company);
+    must(mine.length, `no MATRIX_NEURALCHAT_ACCOUNTS entry for ${o.company}`);
     const seen: string[] = [];
     for (const a of mine) {
       must(a.tokenFile && existsSync(a.tokenFile), `${a.account}: token file ${a.tokenFile ?? '(none)'} is missing`);
-      const http = new MatrixClientHttp({ homeserverUrl: cfg!.homeserverUrl, account: a.account, accessToken: readFileSync(a.tokenFile!, 'utf8').trim(), fetchImpl: (o.fetchImpl ?? cfg!.fetchImpl) as any });
+      const http = new MatrixClientHttp({ homeserverUrl: cfg.homeserverUrl, accessToken: readFileSync(a.tokenFile!, 'utf8').trim(), fetchImpl: o.fetchImpl as any });
       let who: string;
       try {
         who = await http.whoami();
       } catch (e) {
         throw new Error(`${a.account}: the homeserver refused the token (${(e as Error).message}) — ask the Matrix operator for a new one`);
       }
-      must(who === a.account, `${a.account}: the token belongs to ${who}`);
+      if (a.account) must(who === a.account, `${a.account}: the token belongs to ${who}`);
       seen.push(who);
     }
     return seen.join(', ');

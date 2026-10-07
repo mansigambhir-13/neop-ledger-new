@@ -63,7 +63,7 @@ export function onShutdown(stop: () => Promise<void>, deadlineMs = 10_000): void
 
 /**
  * The address to listen on. A container sits on several networks; binding to the IP behind a
- * network-specific alias (e.g. `ledger-l3`, set only on the l3 network) means the port is not
+ * network-specific alias (e.g. `ledger-gate`, set only on the agent network) means the port is not
  * reachable from the others — the network policy is enforced by the listener, not just by DNS.
  */
 export async function bindAddress(name: string, fallback = '0.0.0.0'): Promise<string> {

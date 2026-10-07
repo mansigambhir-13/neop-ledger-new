@@ -10,7 +10,7 @@ import path from 'node:path';
 import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { bootstrapFamily, createPool, createTestDatabase, migrate, roleUrl } from '@neop/pgkit';
-import { drainApprovals, migratePlatform, PLATFORM_MIGRATIONS } from '../src/index.ts';
+import { migratePlatform, PLATFORM_MIGRATIONS } from '../src/index.ts';
 
 let db: { adminUrl: string; drop: () => Promise<void> };
 let dir019 = '';
@@ -72,8 +72,8 @@ describe('020 on a populated platform database', () => {
     const approvals = async () => (await c.query('select md5(string_agg(a::text, \',\' order by id)) h, count(*)::int n from neos.approvals a')).rows[0];
     const before = await approvals();
 
-    const applied = await migratePlatform(db.adminUrl);
-    expect(applied.map((m) => m.name)).toEqual(['020_approvals_frozen.sql', '021_open_questions.sql', '022_registry_pins.sql', '023_neuralchat_matrix.sql']); // 021 (S3), 022 (S7), 023 (S5) follow; their own proofs are migration-021.test.ts, registry-v3.test.ts (023: migration-023.test.ts)
+    const applied = await migratePlatform(db.adminUrl, undefined, { through: '020' });
+    expect(applied.map((m) => m.name)).toEqual(['020_approvals_frozen.sql']); // applied through 020; each later file has its own proof (021: migration-021.test.ts, 022: registry-v3.test.ts, 023–024: migration-023.test.ts, 025: migration-025.test.ts)
     expect(await approvals()).toEqual(before); // every approval row as it was
 
     // Card ids are proposal ids now, everywhere a card was shown; a typed card's sent-key follows.
@@ -98,14 +98,14 @@ describe('020 on a populated platform database', () => {
       // The desk's cards: the view is in place and readable by the platform and the desk (no app schema here: no rows).
       expect((await app.query('select count(*)::int n from neos.v_desk_cards')).rows[0].n).toBe(0);
       expect((await c.query("select pg_get_viewdef('neos.v_desk_cards'::regclass) d")).rows[0].d).toContain("desk_cards('ledger'::text)");
-      // The drain reports what it cannot hand over (no ledger schema on this database) and writes no approval row.
-      const drained = await drainApprovals(app);
-      expect(drained.map((r) => r.result).sort()).toEqual(Array(6).fill('no_schema'));
+      // The S2 drain (deleted in S9 with the table) handed these to their apps' answer_proposal() at the S2 deploy; 020
+      // itself keeps every row as it was. 024 refuses to drop the table while any answered row was never handed over
+      // (packages/platform/tests/migration-025.test.ts).
       expect(await approvals()).toEqual(before);
     } finally {
       await app.end();
     }
     // A re-run is a no-op.
-    expect(await migratePlatform(db.adminUrl)).toEqual([]);
+    expect(await migratePlatform(db.adminUrl, undefined, { through: '020' })).toEqual([]);
   });
 });

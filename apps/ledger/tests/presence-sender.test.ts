@@ -28,7 +28,7 @@ describe('in the NEOP’s own room (appservice): only a linked person of this co
   const PRIYA = '@priya:acme.example';
   const BOB = '@bob:acme.example';
   beforeAll(async () => {
-    P = await bootPilot({ presence: 'appservice' });
+    P = await bootPilot({ presence: 'appservice', neuralchat: false });
     expect((await P.api('PUT', '/api/chat/presence', { app: 'ledger', room_ids: [ROOM] })).status).toBe(200);
     expect((await P.api('PUT', `/api/users/${P.admin.id}/chat`, { matrix_user_id: PRIYA })).status).toBe(200);
     await otherCompany(P, BOB); // a real, linked person — of another company
@@ -71,7 +71,7 @@ describe('in a DM (the NEOP’s client road): senders and their classes', () => 
   const running: PresenceClient[] = [];
   const db = () => P.backend.core.runnerPool;
   beforeAll(async () => {
-    P = await bootPilot({ presence: 'client' });
+    P = await bootPilot({ presence: 'client', neuralchat: false });
     expect((await P.api('PUT', `/api/users/${P.admin.id}/chat`, { matrix_user_id: PRIYA })).status).toBe(200);
     for (const e of [
       { app: 'ledger', matrix_id: PRIYA, kind: 'person' },

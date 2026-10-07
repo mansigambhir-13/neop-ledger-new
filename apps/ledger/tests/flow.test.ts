@@ -54,7 +54,7 @@ describe('platform user flow', () => {
       throw new Error(`${e.message}: task ${(await P.task(r.body.task_id)).task.status}, job ${job.status}, proposal ${pr?.status}, dead ${JSON.stringify(dl)}`);
     });
     const conv = await P.api('GET', `/api/conversations/${r.body.conversation_id}`);
-    expect(conv.body.messages.map((m: any) => m.kind)).toEqual(['message', 'handoff', 'ack', 'waiting', 'result']);
+    expect(conv.body.messages.map((m: any) => m.kind)).toEqual(['message', 'handoff', 'ack', 'waiting', 'step', 'step', 'result']);
     expect(conv.body.messages.at(-1).body).toBe('Close pack sent to cfo@acme.example.');
 
     // (7.8) the approval's trail reads ASKED → ANSWERED → DONE → RESUMED → REPORTED.
@@ -103,17 +103,11 @@ describe('platform user flow', () => {
     await P.waitFor(async () => (await P.api('GET', `/api/conversations/${r.body.conversation_id}`)).body.messages.some((m: any) => m.kind === 'result'), 'result');
   });
 
-  it('a platform bug on one outbox event parks it and the rest keep flowing', async () => {
-    const dl = await P.platform.db.query('select count(*)::int as n from neos.outbox_dead_letters');
-    expect(dl.rows[0].n).toBe(0); // nothing so far in this file failed to apply
-    // Inject an event the platform cannot apply (task id that does not parse as a uuid).
-    await P.backend.core.runnerPool.query(`insert into ledger.outbox (company_id, event_type, payload) values ($1, 'job.acknowledged', '{"task_id":"not-a-uuid","job_id":"x"}')`, [P.company.id]);
-    P.setBrain((v) => (v.calls === 0 ? call('ledger.report.pnl', { from: '2026-08-01', to: '2026-08-31' }) : finish('ok')));
-    const r = await P.api('POST', '/api/ask', { text: 'P&L for August 2026' });
-    await P.waitFor(async () => (await P.task(r.body.task_id)).task.status === 'COMPLETED', 'later events still applied');
-    const parked = await P.platform.db.query('select event_type, error from neos.outbox_dead_letters');
-    expect(parked.rows).toHaveLength(1);
-    expect(parked.rows[0].event_type).toBe('job.acknowledged');
+  it('the app owns its outbox and the deleted platform projection/dead-letter road cannot return', async () => {
+    const gone = await P.platform.db.query("select to_regclass('neos.outbox_dead_letters') as dead, to_regclass('neos.outbox_cursors') as cursors, to_regclass('neos.activity') as activity");
+    expect(gone.rows[0]).toEqual({ dead: null, cursors: null, activity: null });
+    const own = await P.backend.core.runnerPool.query("select count(*)::int as n from ledger.outbox where company_id = $1", [P.company.id]);
+    expect(own.rows[0].n).toBeGreaterThan(0);
   });
 });
 

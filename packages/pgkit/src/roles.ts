@@ -25,6 +25,12 @@ export function assertIdent(name: string): void {
   if (!/^[a-z][a-z0-9_]{0,40}$/.test(name)) throw new Error(`invalid identifier: ${name}`);
 }
 
+/** SQL identifier, not an app ID, role-name suffix, path or notification channel. */
+export function sqlIdent(name: string): string {
+  assertIdent(name);
+  return `"${name}"`;
+}
+
 export function rolePassword(role: string): string {
   const name = `NEOS_PW_${role.toUpperCase()}`;
   const file = process.env[`${name}_FILE`];
@@ -105,6 +111,8 @@ export async function bootstrapFamily(adminUrl: string, schema: string, opts: { 
     // PgBouncer, which drops per-connection startup settings (S8).
     // WP v3 §11 step 9: an app's roles resolve names in their own schema only (search_path = <schema>).
     // Every query the template writes is schema-qualified; this makes an unqualified name mean the app's own table.
+    // roleDefaults uses a SQL string literal here (SET's identifier grammar);
+    // embedding double quotes in that literal would name a different schema.
     const home = withRunner ? [`search_path=${schema}`] : [];
     for (const r of withRunner ? [roles.app, roles.runner] : [roles.app]) await roleDefaults(client, r, home);
     const db = (await client.query<{ db: string }>('select current_database() as db')).rows[0]!.db;
@@ -179,30 +187,35 @@ export function deskGrantsSql(schema: string): string {
   const s = schema;
   return (
     `do $$ begin\n` +
-    `  if exists (select 1 from pg_roles where rolname = '${DESK_ROLE}') and to_regclass('${s}.switchboard_history') is not null\n` +
-    `     and to_regprocedure('${s}.create_grant(text, jsonb, timestamptz, text, uuid)') is not null then\n` +
-    `    grant usage on schema ${s} to ${DESK_ROLE};\n` +
-    `    grant select, insert, update, delete on ${s}.switchboard, ${s}.installs to ${DESK_ROLE};\n` +
-    `    grant select on ${s}.switchboard_history, ${s}.grants, ${s}.grant_uses to ${DESK_ROLE};\n` +
+    `  if exists (select 1 from pg_roles where rolname = '${DESK_ROLE}') and to_regclass('${sqlIdent(s)}.switchboard_history') is not null\n` +
+    `     and to_regprocedure('${sqlIdent(s)}.create_grant(text, jsonb, timestamptz, text, uuid)') is not null then\n` +
+    `    grant usage on schema ${sqlIdent(s)} to ${DESK_ROLE};\n` +
+    `    grant select, insert, update, delete on ${sqlIdent(s)}.switchboard, ${sqlIdent(s)}.installs to ${DESK_ROLE};\n` +
+    `    grant select on ${sqlIdent(s)}.switchboard_history, ${sqlIdent(s)}.grants, ${sqlIdent(s)}.grant_uses to ${DESK_ROLE};\n` +
     // t011 replaced answer_proposal's signature (a sixth, defaulted argument: the person's roles).
-    `    if to_regprocedure('${s}.answer_proposal(uuid, text, text, text, text, text[])') is not null then\n` +
-    `      grant execute on function ${s}.answer_proposal(uuid, text, text, text, text, text[]) to ${DESK_ROLE};\n` +
+    `    if to_regprocedure('${sqlIdent(s)}.answer_proposal(uuid, text, text, text, text, text[])') is not null then\n` +
+    `      grant execute on function ${sqlIdent(s)}.answer_proposal(uuid, text, text, text, text, text[]) to ${DESK_ROLE};\n` +
     `    else\n` +
-    `      grant execute on function ${s}.answer_proposal(uuid, text, text, text, text) to ${DESK_ROLE};\n` +
+    `      grant execute on function ${sqlIdent(s)}.answer_proposal(uuid, text, text, text, text) to ${DESK_ROLE};\n` +
     `    end if;\n` +
     // t013 (v3 S3): an answer to a job's question, through the one function.
-    `    if to_regprocedure('${s}.answer_wait(uuid, jsonb, text, text)') is not null then\n` +
-    `      grant execute on function ${s}.answer_wait(uuid, jsonb, text, text) to ${DESK_ROLE};\n` +
+    `    if to_regprocedure('${sqlIdent(s)}.answer_wait(uuid, jsonb, text, text)') is not null then\n` +
+    `      grant execute on function ${sqlIdent(s)}.answer_wait(uuid, jsonb, text, text) to ${DESK_ROLE};\n` +
     `    end if;\n` +
-    `    grant execute on function ${s}.create_grant(text, jsonb, timestamptz, text, uuid),\n` +
-    `      ${s}.revoke_grant(uuid, text), ${s}.set_schedule(uuid, text, text, jsonb, boolean), ${s}.board_version_for(uuid, integer),\n` +
-    `      ${s}.import_grant(jsonb, jsonb) to ${DESK_ROLE};\n` +
+    `    grant execute on function ${sqlIdent(s)}.create_grant(text, jsonb, timestamptz, text, uuid),\n` +
+    `      ${sqlIdent(s)}.revoke_grant(uuid, text), ${sqlIdent(s)}.set_schedule(uuid, text, text, jsonb, boolean), ${sqlIdent(s)}.board_version_for(uuid, integer),\n` +
+    `      ${sqlIdent(s)}.import_grant(jsonb, jsonb) to ${DESK_ROLE};\n` +
     // v3 S4 (template t012): who a Matrix id is at the company, written through by the platform.
-    `    if to_regclass('${s}.people') is not null then\n` +
-    `      grant select, insert, update, delete on ${s}.people to ${DESK_ROLE};\n` +
+    `    if to_regclass('${sqlIdent(s)}.people') is not null then\n` +
+    `      grant select, insert, update, delete on ${sqlIdent(s)}.people to ${DESK_ROLE};\n` +
     `    end if;\n` +
-    `    if to_regclass('${s}.acted_for') is not null then\n` +
-    `      grant select, insert, update, delete on ${s}.acted_for to ${DESK_ROLE};\n` +
+    `    if to_regclass('${sqlIdent(s)}.acted_for') is not null then\n` +
+    `      grant select, insert, update, delete on ${sqlIdent(s)}.acted_for to ${DESK_ROLE};\n` +
+    `    end if;\n` +
+    // v3 S9 (template t018): what the gateway used to carry — cancel, schedules, transcripts, block reads.
+    `    if to_regprocedure('${sqlIdent(s)}.block_read(text, jsonb)') is not null then\n` +
+    `      grant execute on function ${sqlIdent(s)}.cancel_job(uuid, text, text), ${sqlIdent(s)}.list_schedules(), ${sqlIdent(s)}.job_transcript(uuid),\n` +
+    `        ${sqlIdent(s)}.block_read(text, jsonb) to ${DESK_ROLE};\n` +
     `    end if;\n` +
     `  end if;\n` +
     `end $$;`
@@ -220,7 +233,7 @@ export async function applyDeskGrants(adminUrlOrClient: string | pg.Client, sche
       await c.query<{ ok: boolean }>(
         `select exists (select 1 from pg_roles where rolname = $1) and exists (select 1 from pg_roles where rolname = $2)
                 and to_regclass($3) is not null as ok`,
-        [DESK_ROLE, familyRoles(schema).migrator, `${schema}.switchboard_history`],
+        [DESK_ROLE, familyRoles(schema).migrator, `${sqlIdent(schema)}.switchboard_history`],
       )
     ).rows[0]?.ok;
     if (!ready) return false;

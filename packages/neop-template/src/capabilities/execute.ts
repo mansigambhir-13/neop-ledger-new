@@ -1,3 +1,4 @@
+import {sqlIdent} from '@neop/pgkit';
 // The approved path. The only way an approved thing ever happens, whether the
 // yes came from a person (answer_proposal() → the runner, runner/waits.ts) or
 // from a grant a person wrote (inline in the gate). No model, no platform and
@@ -184,8 +185,8 @@ async function refusalAtEffectTime(core: Core, c: PoolClient, p: ProposalRow): P
   const ev = (
     await c.query<{ fingerprint_seen: string | null; expired: boolean }>(
       `select e.fingerprint_seen, p.expires_at <= now() as expired
-         from ${core.key}.proposals p
-         left join lateral (select fingerprint_seen from ${core.key}.proposal_events
+         from ${sqlIdent(core.key)}.proposals p
+         left join lateral (select fingerprint_seen from ${sqlIdent(core.key)}.proposal_events
                              where proposal_id = p.id and event in ('answered:yes', 'approved_by_grant') order by id desc limit 1) e on true
         where p.id = $1`,
       [p.id],

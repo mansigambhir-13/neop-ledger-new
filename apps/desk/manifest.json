@@ -1,0 +1,740 @@
+{
+  "app": "desk",
+  "name": "Desk",
+  "subject": "Desk: internal refund draft preparation",
+  "description": "V3 Desk internal review slice. No business authorization, provider execution or production certification.",
+  "version": "0.2.0",
+  "contract_version": "1",
+  "abilities": [
+    {
+      "key": "desk.settings.get",
+      "version": "1.0.0",
+      "title": "Read review settings",
+      "description": "Read review settings. Persisted company evidence, not a business approval or external effect.",
+      "kind": "read",
+      "floor": "on",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {},
+        "required": []
+      },
+      "output": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "generatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "empty": {
+            "type": "boolean"
+          },
+          "sources": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "entries": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 1000
+              },
+              "entry_ids": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "minItems": 0,
+                "maxItems": 1000
+              },
+              "basis": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200,
+                "pattern": "\\S"
+              }
+            },
+            "required": [
+              "entries",
+              "entry_ids",
+              "basis"
+            ]
+          },
+          "rows": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "currency": {
+                  "type": "string",
+                  "pattern": "^[A-Z]{3}$"
+                },
+                "review_limit_minor": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "minimum": 0,
+                  "maximum": 1000000000000
+                }
+              },
+              "required": [
+                "currency",
+                "review_limit_minor"
+              ]
+            },
+            "minItems": 0,
+            "maxItems": 1000
+          },
+          "next_offset": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0,
+            "maximum": 1001000
+          }
+        },
+        "required": [
+          "generatedAt",
+          "empty",
+          "sources",
+          "rows",
+          "next_offset"
+        ]
+      }
+    },
+    {
+      "key": "desk.tickets.list",
+      "version": "1.0.0",
+      "title": "List tickets",
+      "description": "List tickets. Persisted company evidence, not a business approval or external effect.",
+      "kind": "read",
+      "floor": "on",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1000000
+          }
+        },
+        "required": []
+      },
+      "output": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "generatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "empty": {
+            "type": "boolean"
+          },
+          "sources": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "entries": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 1000
+              },
+              "entry_ids": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "minItems": 0,
+                "maxItems": 1000
+              },
+              "basis": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200,
+                "pattern": "\\S"
+              }
+            },
+            "required": [
+              "entries",
+              "entry_ids",
+              "basis"
+            ]
+          },
+          "rows": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "source_id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 64,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+                },
+                "name": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200,
+                  "pattern": "\\S"
+                },
+                "category": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "minLength": 1,
+                  "maxLength": 120,
+                  "pattern": "\\S"
+                },
+                "version": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 2147483647
+                }
+              },
+              "required": [
+                "id",
+                "source_id",
+                "name",
+                "category",
+                "version"
+              ]
+            },
+            "minItems": 0,
+            "maxItems": 1000
+          },
+          "next_offset": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0,
+            "maximum": 1001000
+          }
+        },
+        "required": [
+          "generatedAt",
+          "empty",
+          "sources",
+          "rows",
+          "next_offset"
+        ]
+      }
+    },
+    {
+      "key": "desk.refunds.list",
+      "version": "1.0.0",
+      "title": "List refunds",
+      "description": "List refunds. Persisted company evidence, not a business approval or external effect.",
+      "kind": "read",
+      "floor": "on",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1000000
+          }
+        },
+        "required": []
+      },
+      "output": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "generatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "empty": {
+            "type": "boolean"
+          },
+          "sources": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "entries": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 1000
+              },
+              "entry_ids": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "minItems": 0,
+                "maxItems": 1000
+              },
+              "basis": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200,
+                "pattern": "\\S"
+              }
+            },
+            "required": [
+              "entries",
+              "entry_ids",
+              "basis"
+            ]
+          },
+          "rows": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "source_id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 64,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+                },
+                "ticket_id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "amount_minor": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 1000000000000
+                },
+                "currency": {
+                  "type": "string",
+                  "pattern": "^[A-Z]{3}$"
+                },
+                "reason": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "minLength": 1,
+                  "maxLength": 500,
+                  "pattern": "\\S"
+                },
+                "requires_elevated_approval": {
+                  "type": "boolean"
+                },
+                "review_limit_minor": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "minimum": 0,
+                  "maximum": 1000000000000
+                },
+                "input_hash": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$"
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "draft",
+                    "cancelled"
+                  ]
+                },
+                "created_at": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "cancelled_at": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "external_completed": {
+                  "const": false
+                }
+              },
+              "required": [
+                "id",
+                "source_id",
+                "ticket_id",
+                "amount_minor",
+                "currency",
+                "reason",
+                "requires_elevated_approval",
+                "review_limit_minor",
+                "input_hash",
+                "status",
+                "created_at",
+                "cancelled_at",
+                "external_completed"
+              ]
+            },
+            "minItems": 0,
+            "maxItems": 1000
+          },
+          "next_offset": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0,
+            "maximum": 1001000
+          }
+        },
+        "required": [
+          "generatedAt",
+          "empty",
+          "sources",
+          "rows",
+          "next_offset"
+        ]
+      }
+    },
+    {
+      "key": "desk.settings.update",
+      "version": "1.1.0",
+      "title": "Update review settings",
+      "description": "Update review settings. Internal records only; no business authorization or external execution.",
+      "kind": "write",
+      "floor": "ask_first",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "currency": {
+            "type": "string",
+            "pattern": "^[A-Z]{3}$"
+          },
+          "review_limit_minor": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0,
+            "maximum": 1000000000000
+          }
+        },
+        "required": [
+          "currency",
+          "review_limit_minor"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "required": [
+          "outcome"
+        ],
+        "properties": {
+          "outcome": {
+            "type": "string"
+          }
+        }
+      },
+      "effects": {
+        "external": false
+      },
+      "verifyWith": "Immutable transaction receipt with ability-bound request checksum, stored atomically with the company-scoped record change."
+    },
+    {
+      "key": "desk.tickets.import",
+      "version": "1.1.0",
+      "title": "Import tickets",
+      "description": "Import tickets. Internal records only; no business authorization or external execution.",
+      "kind": "write",
+      "floor": "ask_first",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "tickets": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "source_id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 64,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+                },
+                "name": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200,
+                  "pattern": "\\S"
+                },
+                "category": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "minLength": 1,
+                  "maxLength": 120,
+                  "pattern": "\\S"
+                }
+              },
+              "required": [
+                "source_id",
+                "name",
+                "category"
+              ]
+            },
+            "minItems": 1,
+            "maxItems": 1000
+          }
+        },
+        "required": [
+          "tickets"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "required": [
+          "outcome"
+        ],
+        "properties": {
+          "outcome": {
+            "type": "string"
+          }
+        }
+      },
+      "effects": {
+        "external": false
+      },
+      "verifyWith": "Immutable transaction receipt with ability-bound request checksum, stored atomically with the company-scoped record change."
+    },
+    {
+      "key": "desk.refund.prepare",
+      "version": "1.1.0",
+      "title": "Prepare an internal refund draft",
+      "description": "Prepare an internal refund draft. Internal records only; no business authorization or external execution.",
+      "kind": "write",
+      "floor": "on",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "source_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+          },
+          "ticket_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "amount_minor": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1000000000000
+          },
+          "currency": {
+            "type": "string",
+            "pattern": "^[A-Z]{3}$"
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1,
+            "maxLength": 500,
+            "pattern": "\\S"
+          }
+        },
+        "required": [
+          "source_id",
+          "ticket_id",
+          "amount_minor",
+          "currency",
+          "reason"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "required": [
+          "outcome"
+        ],
+        "properties": {
+          "outcome": {
+            "type": "string"
+          }
+        }
+      },
+      "effects": {
+        "external": false
+      },
+      "verifyWith": "Immutable transaction receipt with ability-bound request checksum, stored atomically with the company-scoped record change."
+    },
+    {
+      "key": "desk.refund.cancel",
+      "version": "1.1.0",
+      "title": "Cancel an internal refund draft",
+      "description": "Cancel an internal refund draft. Internal records only; no business authorization or external execution.",
+      "kind": "write",
+      "floor": "ask_first",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "input_hash": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "review": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "source_id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64,
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+              },
+              "ticket_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "amount_minor": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 1000000000000
+              },
+              "currency": {
+                "type": "string",
+                "pattern": "^[A-Z]{3}$"
+              },
+              "reason": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "minLength": 1,
+                "maxLength": 500,
+                "pattern": "\\S"
+              },
+              "requires_elevated_approval": {
+                "type": "boolean"
+              },
+              "review_limit_minor": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "minimum": 0,
+                "maximum": 1000000000000
+              }
+            },
+            "required": [
+              "source_id",
+              "ticket_id",
+              "amount_minor",
+              "currency",
+              "reason",
+              "requires_elevated_approval",
+              "review_limit_minor"
+            ]
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "required": [
+          "outcome"
+        ],
+        "properties": {
+          "outcome": {
+            "type": "string"
+          }
+        }
+      },
+      "effects": {
+        "external": false
+      },
+      "verifyWith": "Immutable transaction receipt with ability-bound request checksum, stored atomically with the company-scoped record change."
+    }
+  ],
+  "doors": [],
+  "uses": [],
+  "skills": [
+    {
+      "key": "prepare-review",
+      "path": "src/agent/skills/prepare-review/SKILL.md",
+      "requires": [
+        "desk.settings.get",
+        "desk.tickets.list",
+        "desk.refunds.list",
+        "desk.refund.prepare"
+      ]
+    }
+  ],
+  "packages": [],
+  "blocks": [
+    "blocks/drafts.json"
+  ],
+  "personal_data": [
+    {
+      "table": "tickets",
+      "columns": [
+        "source_id",
+        "name",
+        "category"
+      ],
+      "subject_key": "id"
+    },
+    {
+      "table": "refunds",
+      "columns": [
+        "source_id",
+        "currency",
+        "reason",
+        "source_snapshot"
+      ],
+      "subject_key": "ticket_id"
+    },
+    {
+      "table": "draft_origins",
+      "columns": [
+        "draft_id",
+        "job_id",
+        "input_hash"
+      ],
+      "subject_key": "proposer_user_id"
+    }
+  ]
+}

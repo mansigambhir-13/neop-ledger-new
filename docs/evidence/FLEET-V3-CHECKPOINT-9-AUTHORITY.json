@@ -1,0 +1,432 @@
+{
+  "checkpoint": 9,
+  "date": "2026-10-01",
+  "branch": "rebuild/fleet-v3",
+  "starting_commit": "569cff2b5d5b75ccf73d1fe8e8a0776edcfe9056",
+  "scope": "Opt-in transaction-time authority for existing Pay/Buy/Renew internal settings/import/cancel writes; not business authorization or external dispatch",
+  "full_regression": {
+    "path": "/Users/mansi.gambhir/Documents/Codex/2026-09-28/lo/work/fleet-v3-checkpoint-9-tests.json",
+    "sha256": "cc64b271923d7d318d0517927890158074c10b86cf67a14f563623d8ca1960e4",
+    "passed": 1480,
+    "failed": 0,
+    "skipped": 2,
+    "files": 168,
+    "success": true,
+    "start_time": "2026-10-01T10:52:20.008Z",
+    "duration_seconds": 542.85
+  },
+  "final_targeted": {
+    "path": "/Users/mansi.gambhir/Documents/Codex/2026-09-28/lo/work/fleet-authority-9-final-targeted.json",
+    "sha256": "8300ac52bc4a1e15966039407327a1ba71d928f7b42d4b942b04b53be4632210",
+    "passed": 57,
+    "failed": 0,
+    "skipped": 0,
+    "files": 4,
+    "success": true,
+    "start_time": "2026-10-01T10:51:35.613Z",
+    "duration_seconds": 13.28,
+    "overlaps_full_regression": true
+  },
+  "historical_pre_final_fix": {
+    "path": "/Users/mansi.gambhir/Documents/Codex/2026-09-28/lo/work/fleet-v3-checkpoint-9-tests-first.json",
+    "sha256": "2507653100cd9cf77c711ee3e084bc644c96b4dee82c04b9c29e770dd52a2687",
+    "passed": 1477,
+    "failed": 0,
+    "skipped": 2,
+    "files": 168,
+    "success": true,
+    "start_time": "2026-10-01T10:46:26.619Z",
+    "duration_seconds": 309.98,
+    "covers_final_sources": false
+  },
+  "earlier_finance_subset": {
+    "path": "/Users/mansi.gambhir/Documents/Codex/2026-09-28/lo/work/fleet-authority-9-targeted.json",
+    "sha256": "c2986ce0f151a48d2e0533a1712908c9f8c90cf2546f0290ff00cffa843601b3",
+    "passed": 134,
+    "failed": 0,
+    "skipped": 0,
+    "files": 13,
+    "success": true,
+    "start_time": "2026-10-01T10:45:00.974Z",
+    "overlaps_full_regression": true,
+    "covers_final_sources": false
+  },
+  "typescript": "pass",
+  "pinned_source_snapshots_verified": 108,
+  "completion_gate": {
+    "exit_code": 1,
+    "production_ready": [],
+    "expected_refusal": true
+  },
+  "catalog_rerun": {
+    "passed": 6,
+    "overlaps_full_regression": true
+  },
+  "apps": [
+    {
+      "app": "pay",
+      "manifest_version": "0.2.0",
+      "authority_tests": [
+        {
+          "name": "pay transaction-time human authority records current human identity and policy with the atomic internal receipt",
+          "status": "passed"
+        },
+        {
+          "name": "pay transaction-time human authority enforces configured four-eyes at answer time and accepts a distinct eligible person",
+          "status": "passed"
+        },
+        {
+          "name": "pay transaction-time human authority rechecks the approver role after the answer and before the write",
+          "status": "passed"
+        },
+        {
+          "name": "pay transaction-time human authority refuses an approver whose identity link was removed after answering",
+          "status": "passed"
+        },
+        {
+          "name": "pay transaction-time human authority refuses a requester whose current human role is unknown",
+          "status": "passed"
+        },
+        {
+          "name": "pay transaction-time human authority rechecks a tightened role policy after the person already said yes",
+          "status": "passed"
+        },
+        {
+          "name": "pay transaction-time human authority refuses self-approval when four-eyes was enabled after the answer",
+          "status": "passed"
+        },
+        {
+          "name": "pay transaction-time human authority rechecks switch-off even after the runner performed its earlier checks",
+          "status": "passed"
+        },
+        {
+          "name": "pay transaction-time human authority refuses approval that expires while waiting for the human identity lock",
+          "status": "passed"
+        },
+        {
+          "name": "pay transaction-time human authority rejects malformed database policy instead of silently allowing a write",
+          "status": "passed"
+        },
+        {
+          "name": "pay transaction-time human authority ignores standing grants for writes that require a person",
+          "status": "passed"
+        },
+        {
+          "name": "pay transaction-time human authority rejects a direct handler call with a forged caller and no approved job",
+          "status": "passed"
+        },
+        {
+          "name": "pay transaction-time human authority requires the handler arguments to equal the content that was approved",
+          "status": "passed"
+        },
+        {
+          "name": "pay transaction-time human authority read-back and replay preserve an already committed receipt after revocation",
+          "status": "passed"
+        },
+        {
+          "name": "pay transaction-time human authority holds the identity guard until the internal write commits",
+          "status": "passed"
+        },
+        {
+          "name": "pay transaction-time human authority holds the policy guard until the internal write commits",
+          "status": "passed"
+        },
+        {
+          "name": "pay transaction-time human authority binds the stored yes actor, not just an approval-shaped row",
+          "status": "passed"
+        },
+        {
+          "name": "pay transaction-time human authority rejects a forged company/job/reference even when the caller claims to be a runner",
+          "status": "passed"
+        }
+      ],
+      "production_ready": false
+    },
+    {
+      "app": "buy",
+      "manifest_version": "0.2.0",
+      "authority_tests": [
+        {
+          "name": "buy transaction-time human authority records current human identity and policy with the atomic internal receipt",
+          "status": "passed"
+        },
+        {
+          "name": "buy transaction-time human authority enforces configured four-eyes at answer time and accepts a distinct eligible person",
+          "status": "passed"
+        },
+        {
+          "name": "buy transaction-time human authority rechecks the approver role after the answer and before the write",
+          "status": "passed"
+        },
+        {
+          "name": "buy transaction-time human authority refuses an approver whose identity link was removed after answering",
+          "status": "passed"
+        },
+        {
+          "name": "buy transaction-time human authority refuses a requester whose current human role is unknown",
+          "status": "passed"
+        },
+        {
+          "name": "buy transaction-time human authority rechecks a tightened role policy after the person already said yes",
+          "status": "passed"
+        },
+        {
+          "name": "buy transaction-time human authority refuses self-approval when four-eyes was enabled after the answer",
+          "status": "passed"
+        },
+        {
+          "name": "buy transaction-time human authority rechecks switch-off even after the runner performed its earlier checks",
+          "status": "passed"
+        },
+        {
+          "name": "buy transaction-time human authority refuses approval that expires while waiting for the human identity lock",
+          "status": "passed"
+        },
+        {
+          "name": "buy transaction-time human authority rejects malformed database policy instead of silently allowing a write",
+          "status": "passed"
+        },
+        {
+          "name": "buy transaction-time human authority ignores standing grants for writes that require a person",
+          "status": "passed"
+        },
+        {
+          "name": "buy transaction-time human authority rejects a direct handler call with a forged caller and no approved job",
+          "status": "passed"
+        },
+        {
+          "name": "buy transaction-time human authority requires the handler arguments to equal the content that was approved",
+          "status": "passed"
+        },
+        {
+          "name": "buy transaction-time human authority read-back and replay preserve an already committed receipt after revocation",
+          "status": "passed"
+        },
+        {
+          "name": "buy transaction-time human authority holds the identity guard until the internal write commits",
+          "status": "passed"
+        },
+        {
+          "name": "buy transaction-time human authority holds the policy guard until the internal write commits",
+          "status": "passed"
+        },
+        {
+          "name": "buy transaction-time human authority binds the stored yes actor, not just an approval-shaped row",
+          "status": "passed"
+        },
+        {
+          "name": "buy transaction-time human authority rejects a forged company/job/reference even when the caller claims to be a runner",
+          "status": "passed"
+        }
+      ],
+      "production_ready": false
+    },
+    {
+      "app": "renew",
+      "manifest_version": "0.2.0",
+      "authority_tests": [
+        {
+          "name": "renew transaction-time human authority records current human identity and policy with the atomic internal receipt",
+          "status": "passed"
+        },
+        {
+          "name": "renew transaction-time human authority enforces configured four-eyes at answer time and accepts a distinct eligible person",
+          "status": "passed"
+        },
+        {
+          "name": "renew transaction-time human authority rechecks the approver role after the answer and before the write",
+          "status": "passed"
+        },
+        {
+          "name": "renew transaction-time human authority refuses an approver whose identity link was removed after answering",
+          "status": "passed"
+        },
+        {
+          "name": "renew transaction-time human authority refuses a requester whose current human role is unknown",
+          "status": "passed"
+        },
+        {
+          "name": "renew transaction-time human authority rechecks a tightened role policy after the person already said yes",
+          "status": "passed"
+        },
+        {
+          "name": "renew transaction-time human authority refuses self-approval when four-eyes was enabled after the answer",
+          "status": "passed"
+        },
+        {
+          "name": "renew transaction-time human authority rechecks switch-off even after the runner performed its earlier checks",
+          "status": "passed"
+        },
+        {
+          "name": "renew transaction-time human authority refuses approval that expires while waiting for the human identity lock",
+          "status": "passed"
+        },
+        {
+          "name": "renew transaction-time human authority rejects malformed database policy instead of silently allowing a write",
+          "status": "passed"
+        },
+        {
+          "name": "renew transaction-time human authority ignores standing grants for writes that require a person",
+          "status": "passed"
+        },
+        {
+          "name": "renew transaction-time human authority rejects a direct handler call with a forged caller and no approved job",
+          "status": "passed"
+        },
+        {
+          "name": "renew transaction-time human authority requires the handler arguments to equal the content that was approved",
+          "status": "passed"
+        },
+        {
+          "name": "renew transaction-time human authority read-back and replay preserve an already committed receipt after revocation",
+          "status": "passed"
+        },
+        {
+          "name": "renew transaction-time human authority holds the identity guard until the internal write commits",
+          "status": "passed"
+        },
+        {
+          "name": "renew transaction-time human authority holds the policy guard until the internal write commits",
+          "status": "passed"
+        },
+        {
+          "name": "renew transaction-time human authority binds the stored yes actor, not just an approval-shaped row",
+          "status": "passed"
+        },
+        {
+          "name": "renew transaction-time human authority rejects a forged company/job/reference even when the caller claims to be a runner",
+          "status": "passed"
+        }
+      ],
+      "production_ready": false
+    }
+  ],
+  "migration": {
+    "file": "packages/neop-template/migrations/t020_human_authority.sql",
+    "populated_fixture_apps": [
+      "pay",
+      "buy",
+      "renew"
+    ],
+    "tests_passed": 3,
+    "production_data_restore": false,
+    "dba_approved": false
+  },
+  "artifact_status": "Checkpoint 5/7/8 images and packaged results are historical. Shared source changes require both artifact refresh and new packaged acceptance.",
+  "changed_source_bindings": [
+    {
+      "path": "apps/buy/manifest.json",
+      "sha256": "36de5d9c3e693fa3db850460c879b9846ae6fd39096f82e878a05f247cc59fcc"
+    },
+    {
+      "path": "apps/buy/src/capabilities/index.ts",
+      "sha256": "b803d8b381dec2d09d6778350f55f552a360ce3f4494be00ca588003622f4e3c"
+    },
+    {
+      "path": "apps/buy/tests/authority.test.ts",
+      "sha256": "27948bcf4b141f04d690120778f592774b46c28cd12742e71d1f14cfe1685e51"
+    },
+    {
+      "path": "apps/buy/tests/workflow.test.ts",
+      "sha256": "85da9a8d2f0e3212439b96f7055c67d0ca92999b58c26056641b3a7a07ef4249"
+    },
+    {
+      "path": "apps/grant/tests/dba-bundle.test.ts",
+      "sha256": "cc49e5278f137ae3ef0df1b98cddf9230cc1b653107ea59de5338aac6921c631"
+    },
+    {
+      "path": "apps/ledger/tests/approved-path.test.ts",
+      "sha256": "85c53f53455093361dde28591b74ea08da1693dde6b8ac1ea0520d454d329ce0"
+    },
+    {
+      "path": "apps/ledger/tests/board-db.test.ts",
+      "sha256": "5f38e0b866b57d88bd189390a6c88e9f628424cfadf493e5266634c3c3095b51"
+    },
+    {
+      "path": "apps/ledger/tests/desk-functions.test.ts",
+      "sha256": "6d81e9cca0f1c74718c538b01d66169e860aec4e02465530d3659745bfbf58cf"
+    },
+    {
+      "path": "apps/ledger/tests/migration.test.ts",
+      "sha256": "f1ab31b7f138c7f4df704b09094bbf6215098af6200e09c912daefd818464f64"
+    },
+    {
+      "path": "apps/ledger/tests/v3-conformance.test.ts",
+      "sha256": "ae5388ee36eaabbf1906adcbdfa988df47afeeb3519ed13adee0d1e0d154c82a"
+    },
+    {
+      "path": "apps/pay/manifest.json",
+      "sha256": "50f66d0ae285e4a18c7f62773889013147542d28671becf7fc31d17b36d2e555"
+    },
+    {
+      "path": "apps/pay/src/capabilities/index.ts",
+      "sha256": "5d86216826415d436014b32cc37a9761467bf425fe78610b23bab28e54b366f0"
+    },
+    {
+      "path": "apps/pay/tests/authority.test.ts",
+      "sha256": "2ae101f18e72ccca4fa015dde30ed65370f443515577be99dc3ff6fb112ff1a2"
+    },
+    {
+      "path": "apps/pay/tests/workflow.test.ts",
+      "sha256": "ec613b86cbadd2ae64d2da8f26cbfcc7ffceba1c63fe24f8ee491999d796ded5"
+    },
+    {
+      "path": "apps/renew/manifest.json",
+      "sha256": "6ebc7bc65c3de83d8cc3f0b0bb0d2f2780be063aa5bca34fc4285afe65af6163"
+    },
+    {
+      "path": "apps/renew/src/capabilities/index.ts",
+      "sha256": "3444a539b2a5f54c2e18989093ffcdfea0baf0f3a3e132413752ac0f5b207c7b"
+    },
+    {
+      "path": "apps/renew/tests/authority.test.ts",
+      "sha256": "df5e4d057b120a043204f00085335983735774238dff04d9749a3b437ad33642"
+    },
+    {
+      "path": "apps/renew/tests/workflow.test.ts",
+      "sha256": "2b8de73918c7417eaf0bc73943e1ee45e318c16234af2f9444a4b223ea515fa2"
+    },
+    {
+      "path": "packages/neop-template/migrations/migrate.json",
+      "sha256": "75d360d5e60b626df14e67364d73d539832d10685100144c4a56385029d3ad94"
+    },
+    {
+      "path": "packages/neop-template/migrations/t020_human_authority.sql",
+      "sha256": "904aceb9ae45d16c10d3f18a2af7faa97f940c808bb7fda32eb8fd40e00db2a2"
+    },
+    {
+      "path": "packages/neop-template/src/data/human-authority.ts",
+      "sha256": "1a356215a15031fca8ae783a8d40448e57de7578d973917339908b1e3f98780f"
+    },
+    {
+      "path": "packages/neop-template/src/gate/gate.ts",
+      "sha256": "70e889c1bb53e03323819f4191ff00c994b5671080a965266781a431d91a9b15"
+    },
+    {
+      "path": "packages/neop-template/src/index.ts",
+      "sha256": "90dd20717ec22f812e04561d5bfcca388ac28cc4ac472c3da045a350e0450476"
+    },
+    {
+      "path": "packages/neop-template/src/types.ts",
+      "sha256": "a43809bc2efece81691d63ae58f647b5e6447f2609d91a9a36fb366d82dd329a"
+    },
+    {
+      "path": "packages/testkit/src/draft-slice.ts",
+      "sha256": "e3cb77d65fa4f47a8e594743490d58fe18ba83a0737e5e918f6530a7de098986"
+    },
+    {
+      "path": "packages/testkit/src/finance-authority.ts",
+      "sha256": "1138519551168a6b07d81f70f36187fec60fa63c93887af67dc8c994ebdd76e3"
+    },
+    {
+      "path": "packages/testkit/src/index.ts",
+      "sha256": "8bb6edc200ee4b077fe0332ad1a4dde49b516f99ac766785f8097109bb5608c6"
+    },
+    {
+      "path": "scripts/fleet/tests/finance-authority-migration.test.ts",
+      "sha256": "8beae6f1a46371186cef0efe6b4c219800cb5c9b0be770ebbc5f6d3ce2d2c7d6"
+    }
+  ],
+  "provider_dispatch": false,
+  "production_ready": false
+}

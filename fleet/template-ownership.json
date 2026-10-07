@@ -1,0 +1,349 @@
+{
+  "schema_version": 1,
+  "upstream": {
+    "repository": "https://github.com/NEOS-Ecosystem/neos-neop-template",
+    "commit": "94db804f94403c15ad1279e6d30dcecc7c078b82",
+    "template_version": "0.8.16",
+    "rules_sha256": "14cb7afc0de6ceda640e91f6baf994cef701c9a12e523d04fd0dd7f4e1c48aa0"
+  },
+  "mappings": [
+    {
+      "path": "src/app.mjs",
+      "owner": "app",
+      "state": "adapter_required",
+      "strategy": "typed_app_contract",
+      "fleet_paths": ["apps/{app}/manifest.json", "apps/{app}/src/index.ts"],
+      "note": "Introduce one typed app declaration as the source for both fleet and upstream-compatible manifests."
+    },
+    {
+      "path": "src/capabilities/abilities.mjs",
+      "owner": "app",
+      "state": "adapter_required",
+      "strategy": "typed_app_contract",
+      "fleet_paths": ["apps/{app}/src/capabilities/index.ts", "apps/{app}/manifest.json"],
+      "note": "Existing capabilities are typed but are not yet emitted through the upstream declaration contract."
+    },
+    {
+      "path": "src/capabilities/views.mjs",
+      "owner": "app",
+      "seed": true,
+      "state": "adapter_required",
+      "strategy": "typed_app_contract",
+      "fleet_paths": ["apps/{app}/blocks", "apps/{app}/manifest.json"],
+      "note": "Map declared reads and blocks to the upstream view contract without adding write paths."
+    },
+    {
+      "path": "src/capabilities/sources.mjs",
+      "owner": "app",
+      "seed": true,
+      "state": "adapter_required",
+      "strategy": "typed_app_contract",
+      "fleet_paths": ["apps/{app}/src/data", "apps/{app}/manifest.json"],
+      "note": "Adopt the source lifecycle and count/provenance contract through a typed adapter."
+    },
+    {
+      "path": "src/capabilities/reads/**",
+      "owner": "app",
+      "state": "mapped",
+      "strategy": "app_owned",
+      "fleet_paths": ["apps/{app}/src/capabilities", "apps/{app}/src/data"],
+      "note": "Read capabilities remain app-owned and must retain company-safe declared-read behavior."
+    },
+    {
+      "path": "src/capabilities/writes/**",
+      "owner": "app",
+      "state": "mapped",
+      "strategy": "app_owned",
+      "fleet_paths": ["apps/{app}/src/capabilities", "apps/{app}/src/domain"],
+      "note": "Write capabilities remain app-owned behind the shared gate and durable runner."
+    },
+    {
+      "path": "src/agent/DOMAIN.md",
+      "owner": "app",
+      "state": "mapped",
+      "strategy": "documented_deviation",
+      "fleet_paths": ["apps/{app}/src/agent/SYSTEM.md"],
+      "note": "The fleet names the app-owned domain/system prompt SYSTEM.md."
+    },
+    {
+      "path": "src/agent/skills/*/SKILL.md",
+      "owner": "app",
+      "state": "mapped",
+      "strategy": "app_owned",
+      "fleet_paths": ["apps/{app}/src/agent/skills/*/SKILL.md"],
+      "note": "App-owned reviewed skills stay app-owned and cannot be loaded from runtime data."
+    },
+    {
+      "path": "src/doors/index.mjs",
+      "owner": "template",
+      "state": "mapped",
+      "strategy": "shared_runtime",
+      "fleet_paths": ["packages/neop-template/src/doors"],
+      "note": "Door registration is shared runtime behavior."
+    },
+    {
+      "path": "src/doors/**",
+      "owner": "app",
+      "state": "adapter_required",
+      "strategy": "app_owned",
+      "fleet_paths": ["apps/{app}/src/doors", "apps/{app}/manifest.json"],
+      "note": "App door declarations need a typed per-app contract even when the app currently has no door."
+    },
+    {
+      "path": "src/domain/proposals.mjs",
+      "owner": "template",
+      "state": "mapped",
+      "strategy": "shared_runtime",
+      "fleet_paths": ["packages/neop-template/src/gate", "packages/neop-template/src/data/book.ts"],
+      "note": "Proposal storage and transitions are shared and preserve exact-content human authority."
+    },
+    {
+      "path": "src/domain/rules.mjs",
+      "owner": "template",
+      "state": "mapped",
+      "strategy": "shared_runtime",
+      "fleet_paths": ["packages/neop-template/src/gate", "packages/neop-template/src/core.ts"],
+      "note": "Shared gate and switchboard code own template-level rules."
+    },
+    {
+      "path": "src/domain/**",
+      "owner": "app",
+      "state": "mapped",
+      "strategy": "app_owned",
+      "fleet_paths": ["apps/{app}/src/domain"],
+      "note": "Business rules remain app-owned pure domain code."
+    },
+    {
+      "path": "src/packages/README.md",
+      "owner": "template",
+      "state": "mapped",
+      "strategy": "shared_runtime",
+      "fleet_paths": ["packages/neop-template/src/packages"],
+      "note": "The shared host owns the package boundary and documentation."
+    },
+    {
+      "path": "src/packages/**",
+      "owner": "installer",
+      "state": "mapped",
+      "strategy": "installer_boundary",
+      "fleet_paths": ["packages/neop-template/src/packages", "packages/platform/src/registry.ts"],
+      "note": "Installed packages remain hash-bound installer output, never app-authored runtime code."
+    },
+    {
+      "path": "src/**",
+      "owner": "template",
+      "state": "mapped",
+      "strategy": "shared_runtime",
+      "fleet_paths": ["packages/neop-template/src", "packages/platform/src"],
+      "note": "Template-owned runtime behavior is centralized in shared packages."
+    },
+    {
+      "path": "migrations/checksum.mjs",
+      "owner": "template",
+      "state": "mapped",
+      "strategy": "shared_runtime",
+      "fleet_paths": ["packages/pgkit/src/migrate.ts"],
+      "note": "Shared migration code enforces immutable checksums and drift refusal."
+    },
+    {
+      "path": "migrations/*_standard*.sql",
+      "owner": "template",
+      "render": true,
+      "migration": true,
+      "state": "conflict",
+      "strategy": "forward_migration",
+      "fleet_paths": ["packages/neop-template/migrations/t*.sql", "apps/{app}/migrations"],
+      "note": "Upstream standard migrations must be cross-walked into new forward fleet migrations; applied numbering cannot be replaced."
+    },
+    {
+      "path": "migrations/**",
+      "owner": "app",
+      "state": "mapped",
+      "strategy": "app_owned",
+      "fleet_paths": ["apps/{app}/migrations"],
+      "note": "App migrations remain app-owned, immutable and forward-only."
+    },
+    {
+      "path": "blocks/**",
+      "owner": "app",
+      "state": "mapped",
+      "strategy": "app_owned",
+      "fleet_paths": ["apps/{app}/blocks"],
+      "note": "Blocks remain app-owned data-only UI declarations."
+    },
+    {
+      "path": "tests/app.fixture.mjs",
+      "owner": "app",
+      "state": "mapped",
+      "strategy": "compatibility_test",
+      "fleet_paths": ["apps/{app}/tests/fixture.ts", "apps/{app}/tests/fixtures.ts"],
+      "note": "App fixtures remain app-owned with TypeScript naming variants."
+    },
+    {
+      "path": "tests/app/**",
+      "owner": "app",
+      "state": "mapped",
+      "strategy": "compatibility_test",
+      "fleet_paths": ["apps/{app}/tests"],
+      "note": "Domain and workflow tests remain app-owned."
+    },
+    {
+      "path": "tests/**",
+      "owner": "template",
+      "state": "adapter_required",
+      "strategy": "compatibility_test",
+      "fleet_paths": ["packages/neop-template/tests", "scripts/fleet/tests", "packages/testkit/src"],
+      "note": "Build an explicit compatibility harness for every applicable upstream standard invariant."
+    },
+    {
+      "path": "deploy/compose.app.yaml",
+      "owner": "app",
+      "seed": true,
+      "state": "adapter_required",
+      "strategy": "shared_deployment",
+      "fleet_paths": ["fleet/catalog.json", "deploy/fleet"],
+      "note": "Generate app-specific environment overlays from the typed declaration."
+    },
+    {
+      "path": "deploy/**",
+      "owner": "template",
+      "render": true,
+      "state": "adapter_required",
+      "strategy": "shared_deployment",
+      "fleet_paths": ["deploy/fleet", "scripts/fleet/packaging"],
+      "note": "Add the frontend artifact and normalized one-app bridge while keeping the database backend-only."
+    },
+    {
+      "path": "scripts/**",
+      "owner": "template",
+      "state": "adapter_required",
+      "strategy": "shared_runtime",
+      "fleet_paths": ["scripts/fleet", "scripts/migrate.ts", "scripts/verify-install.ts"],
+      "note": "Map setup, manifest, verification and provider scripts to shared fleet commands."
+    },
+    {
+      "path": "docs/NEOP-V3-ALIGNMENT.md",
+      "owner": "app",
+      "seed": true,
+      "state": "mapped",
+      "strategy": "app_owned",
+      "fleet_paths": ["apps/{app}/NEOP-V3-ALIGNMENT.md"],
+      "note": "Every catalogued app owns an alignment record."
+    },
+    {
+      "path": "docs/BUILDING-A-NEOP.md",
+      "owner": "template",
+      "state": "adapter_required",
+      "strategy": "documented_deviation",
+      "fleet_paths": ["docs/FLEET-V3-RUNTIME.md", "docs/TEMPLATE-ALIGNMENT-PLAN.md"],
+      "note": "Publish one fleet construction guide after the compatibility substrate stabilizes."
+    },
+    {
+      "path": "docs/CHATGPT-PLAN-PROVIDER.md",
+      "owner": "template",
+      "state": "conflict",
+      "strategy": "documented_deviation",
+      "fleet_paths": ["packages/platform/src/llm", "apps/ledger/scripts/llm-proxy.ts"],
+      "note": "Security must decide how the local broker maps to the fleet's short-lived keyless model proxy."
+    },
+    {
+      "path": "docs/NEOP-WHOLE-PICTURE-v3.md",
+      "owner": "template",
+      "state": "mapped",
+      "strategy": "documented_deviation",
+      "fleet_paths": ["fleet/requirements.json"],
+      "note": "The pinned governing specification is represented by its reviewed requirement inventory and digest."
+    },
+    {
+      "path": ".env.example",
+      "owner": "template",
+      "render": true,
+      "state": "adapter_required",
+      "strategy": "shared_deployment",
+      "fleet_paths": ["deploy/production.env.example", "scripts/fleet/runtime/config.ts"],
+      "note": "Generate per-process settings from typed declarations and preserve strict credential placement."
+    },
+    {
+      "path": ".gitignore",
+      "owner": "template",
+      "state": "mapped",
+      "strategy": "repository_policy",
+      "fleet_paths": [".gitignore"],
+      "note": "The monorepo owns one shared ignore policy."
+    },
+    {
+      "path": ".dockerignore",
+      "owner": "template",
+      "state": "mapped",
+      "strategy": "repository_policy",
+      "fleet_paths": [".dockerignore"],
+      "note": "The monorepo owns one shared build-context policy."
+    },
+    {
+      "path": "manifest.json",
+      "owner": "generated",
+      "state": "conflict",
+      "strategy": "generated_contract",
+      "fleet_paths": ["apps/{app}/manifest.json"],
+      "note": "Current manifests are stored app artifacts; a deterministic dual-contract emitter is required."
+    },
+    {
+      "path": "template.json",
+      "owner": "template",
+      "state": "adapter_required",
+      "strategy": "repository_policy",
+      "fleet_paths": ["fleet/template-alignment.json", "fleet/template-ownership.json"],
+      "note": "The monorepo records the pinned template and ownership crosswalk centrally."
+    },
+    {
+      "path": "frontend/server.mjs",
+      "owner": "template",
+      "render": true,
+      "state": "missing",
+      "strategy": "shared_frontend",
+      "fleet_paths": ["packages/neop-frontend/server"],
+      "note": "Create the shared no-login frontend server and authenticated backend proxy."
+    },
+    {
+      "path": "frontend/next.config.mjs",
+      "owner": "template",
+      "state": "missing",
+      "strategy": "shared_frontend",
+      "fleet_paths": ["packages/neop-frontend/next.config.mjs"],
+      "note": "Create shared base-path-aware frontend build configuration."
+    },
+    {
+      "path": "frontend/lib/**",
+      "owner": "template",
+      "state": "missing",
+      "strategy": "shared_frontend",
+      "fleet_paths": ["packages/neop-frontend/lib"],
+      "note": "Create shared no-login API, source and screen helpers."
+    },
+    {
+      "path": "frontend/**",
+      "owner": "app",
+      "state": "missing",
+      "strategy": "app_owned",
+      "fleet_paths": ["apps/{app}/frontend"],
+      "note": "Each app needs app-owned screens using the shared frontend shell."
+    },
+    {
+      "path": "dev/apps.fixtures.json",
+      "owner": "app",
+      "seed": true,
+      "state": "adapter_required",
+      "strategy": "development_fixture",
+      "fleet_paths": ["packages/testkit/src", "apps/{app}/tests/fixture.ts", "apps/{app}/tests/fixtures.ts"],
+      "note": "Provide one typed development app-directory fixture contract."
+    },
+    {
+      "path": "**",
+      "owner": "app",
+      "state": "mapped",
+      "strategy": "app_owned",
+      "fleet_paths": ["apps/{app}"],
+      "note": "Unmatched app-specific files stay app-owned."
+    }
+  ]
+}

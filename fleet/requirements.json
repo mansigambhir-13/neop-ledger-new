@@ -1,0 +1,178 @@
+{
+  "schema_version": 1,
+  "governing_spec": {
+    "file": "NEOP-WHOLE-PICTURE-v3.md",
+    "provided_path": "/Users/mansi.gambhir/Downloads/NEOP-WHOLE-PICTURE-v3.md",
+    "sha256": "a82aedf79fd9ecd4fd4e792a92daa81226d34dfaff4a998cb37394d9ee4ffedb"
+  },
+  "requirements": [
+    {
+      "id": "transport.matrix",
+      "v3_sections": [
+        1,
+        8,
+        9
+      ],
+      "requirement": "All agent/person ingress and A2A use typed threaded Matrix events; no gateway, bridge or platform-to-app API.",
+      "verification": "Per-app typed ingress, sender, correlation, redelivery and real homeserver acceptance."
+    },
+    {
+      "id": "identity.company",
+      "v3_sections": [
+        8,
+        9
+      ],
+      "requirement": "Per-company Matrix identities, exclusive namespaces, invite-only unencrypted rooms, event-class power levels and fail-safe sender checks.",
+      "verification": "Sender spoofing, wrong company/room, unknown sender, agent approval and membership-race tests."
+    },
+    {
+      "id": "jobs.durable",
+      "v3_sections": [
+        1,
+        3,
+        7
+      ],
+      "requirement": "Runner opens/deduplicates jobs, acknowledges before model work, persists every step and resumes fresh assistants from the book.",
+      "verification": "Kill/restart, outbox dedupe, heartbeat, thread correlation and job-token tests."
+    },
+    {
+      "id": "switchboard.enforced",
+      "v3_sections": [
+        4,
+        10
+      ],
+      "requirement": "Every own/borrowed/door/skill line is company-scoped; off is hidden and refused; floors only tighten; caps and company rules are enforced.",
+      "verification": "Off-on both SQL/assistant paths, mid-job changes, cap/recipient and rule-boundary tests."
+    },
+    {
+      "id": "approval.exact_content",
+      "v3_sections": [
+        5,
+        6
+      ],
+      "requirement": "Human-only fingerprint-bound, expiring proposals use one row/function for room and Desk; changed drafts require a fresh yes.",
+      "verification": "Stale/replay/expiry/reject/supersede/withdraw tests and real UI acceptance."
+    },
+    {
+      "id": "approval.authority",
+      "v3_sections": [
+        5,
+        8
+      ],
+      "requirement": "Preserve source segregation-of-duties and elevated approver entitlements without trusting assistant-supplied actor claims.",
+      "verification": "Bind verified Matrix/Desk human to proposer and permission records, deny self/unknown/ineligible approvers at execution."
+    },
+    {
+      "id": "runner.effect_once",
+      "v3_sections": [
+        5,
+        6,
+        7
+      ],
+      "requirement": "Runner executes approved content once, reads it back before waking a fresh assistant, uses claim locks and polling as truth.",
+      "verification": "Concurrent runners, crash between effect and receipt, uncertain provider reconciliation, grant suspension and wake-order tests."
+    },
+    {
+      "id": "waiting.lifecycle",
+      "v3_sections": [
+        5,
+        7
+      ],
+      "requirement": "Input/approval/time/dependency/A2A waits have durable correlation, deadlines, stale-answer refusal and cancellation behavior.",
+      "verification": "Lost notification, delayed answer, expiry, double claim, wrong sender/thread and dependency failure tests."
+    },
+    {
+      "id": "database.boundary",
+      "v3_sections": [
+        11,
+        12
+      ],
+      "requirement": "One PostgreSQL schema per app; restricted app/runner roles, company filters/RLS, tenant-safe relations; Desk uses DBA views/functions.",
+      "verification": "Cross-schema/tenant/DDL/role escape tests with populated data and DBA grants review."
+    },
+    {
+      "id": "database.migrations",
+      "v3_sections": [
+        11,
+        13
+      ],
+      "requirement": "DBA-only forward migrations and data conversions, checksum/schema-drift boot refusal, populated upgrade and recovery evidence.",
+      "verification": "Legacy restore-to-V3 transformation plus app boot mismatch and backup restore; DBA-reviewed bundle."
+    },
+    {
+      "id": "values.domain",
+      "v3_sections": [
+        11,
+        13
+      ],
+      "requirement": "Pure subject logic, integer money/time with explicit units, UUIDs, checked states and unknowns represented as null.",
+      "verification": "Boundary/rounding/state domain tests plus SQL constraint and source parity evidence."
+    },
+    {
+      "id": "privacy.retention",
+      "v3_sections": [
+        11,
+        12
+      ],
+      "requirement": "Tag personal columns; own-schema object keys and vectors; implement subject access, retention and erasure with evidence integrity.",
+      "verification": "Reviewed data map, retention decision, erasure/export tests, object ACL and restore tests."
+    },
+    {
+      "id": "sharing.registry",
+      "v3_sections": [
+        10
+      ],
+      "requirement": "Read-only signed/pinned registry declarations, Matrix borrowing, all-requirements skill loading and hash-verified build-time packages.",
+      "verification": "Signature/hash/dependency/retirement/injection tests; no runtime row-to-code or document-to-skill path."
+    },
+    {
+      "id": "doors.credentials",
+      "v3_sections": [
+        4,
+        12,
+        13
+      ],
+      "requirement": "Credentials remain backend-only, per app/company/call; disabled doors cannot borrow credentials or cause effects.",
+      "verification": "Provider-specific idempotency/read-back, scoped credentials, off/revoke and live sandbox certification."
+    },
+    {
+      "id": "assistant.isolation",
+      "v3_sections": [
+        2,
+        13,
+        14
+      ],
+      "requirement": "Separate credential-free assistant and backend builds; gate-only tools; no DB, shell, filesystem or unrestricted network bypass.",
+      "verification": "Build inspection and actual network boundary probes for each app image."
+    },
+    {
+      "id": "honesty.ui",
+      "v3_sections": [
+        1,
+        13,
+        14,
+        16
+      ],
+      "requirement": "Data-only blocks and declared SQL give the same facts as the assistant: source/time/empty/null, no invented success or capability.",
+      "verification": "Read schema contracts, actual NEOS UI rendering, all failure/unknown/partial-output cases."
+    },
+    {
+      "id": "source.parity",
+      "v3_sections": [
+        13,
+        16
+      ],
+      "requirement": "Every legacy business behavior has a reviewed implementation, explicit retirement or tracked unimplemented requirement.",
+      "verification": "Pinned source and scenario-by-scenario review; domain owners sign off full workflow."
+    },
+    {
+      "id": "release.acceptance",
+      "v3_sections": [
+        13,
+        16
+      ],
+      "requirement": "All per-app release suites and operational/live acceptance pass; templates are shared, production is not inferred from test scaffolds.",
+      "verification": "Manifest-bound clean-commit attestation, Matrix/model/mailbox/door/UI/load/recovery and operational owner sign-offs."
+    }
+  ]
+}

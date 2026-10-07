@@ -30,14 +30,16 @@ describe('a question from the callee goes back to the app that asked, in the thr
     const MKT = P.neopUsers.marketing!;
     const ledgerSaw: string[] = [];
     const marketingSaw: string[] = [];
-    let taskId = '';
     P.setBrain((v) => {
       if (isMarketing(v)) {
         marketingSaw.push(v.job);
         if (v.job.includes('answered the task you handed it')) return finish('Ledger booked it against the cost centre you named.');
-        if (v.job.includes('You asked:')) return v.calls === 0 ? t('a2a.answer', { task_id: taskId, answers: { cost_centre: 'digital' } }) : { text: 'waiting' };
+        if (v.job.includes('You asked:')) {
+          const [context] = JSON.parse(/<data source="a2a.pending_questions" trust="untrusted">\n([\s\S]*?)\n<\/data>/.exec(v.job)![1]!);
+          return v.calls === 0 ? t('a2a.answer', { task_id: context.task_id, question_wait_id: context.question_wait_id,
+            answers: { cost_centre: 'digital' } }) : { text: 'waiting' };
+        }
         if (v.job.includes('asks a question')) {
-          taskId = /a2a_answer \(task_id ([0-9a-f-]{36})/.exec(v.job)![1]!;
           // Marketing does not know the cost centre: it asks its own person, then relays.
           return v.calls === 0 ? t('job.ask', { text: 'Which cost centre should Ledger use?', why: 'Ledger needs it to check the Q4 budget.', fields: [{ key: 'cost_centre', label: 'Cost centre' }] }) : { text: 'waiting' };
         }

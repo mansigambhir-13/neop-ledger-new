@@ -1,0 +1,6 @@
+{
+  "migrations": [
+    { "file": "002_payroll.sql", "baseline": true, "tables": ["settings", "employees", "timesheets", "pay_runs", "payslips", "write_receipts"] },
+    { "file": "003_declared_reads.sql", "baseline": true, "tables": ["declared_reads"] }
+  ]
+}
