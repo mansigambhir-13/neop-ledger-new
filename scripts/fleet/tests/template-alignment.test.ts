@@ -69,8 +69,9 @@ function commitFixture(root: string) {
 function passingReport(root: string, app: string, gate: GateId) {
   const testFile = templateGateTestFile(app, gate);
   return {
-    numTotalTestSuites: 1,
-    numPassedTestSuites: 1,
+    // Vitest counts both the file-level suite and nested describe blocks here.
+    numTotalTestSuites: 2,
+    numPassedTestSuites: 2,
     numFailedTestSuites: 0,
     numPendingTestSuites: 0,
     numTotalTests: 1,

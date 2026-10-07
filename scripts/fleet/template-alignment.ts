@@ -236,8 +236,8 @@ export function validateVitestGateReport(value: unknown, root: string, testFile:
   exactNumber(value.numFailedTests, 0, 'gate runner failed test count');
   exactNumber(value.numPendingTests, 0, 'gate runner pending/skipped test count');
   exactNumber(value.numTodoTests, 0, 'gate runner todo test count');
-  exactNumber(value.numTotalTestSuites, 1, 'gate runner total suite count');
-  exactNumber(value.numPassedTestSuites, 1, 'gate runner passed suite count');
+  if (typeof value.numTotalTestSuites !== 'number' || value.numTotalTestSuites < 1) fail('gate runner report must execute at least one suite');
+  exactNumber(value.numPassedTestSuites, value.numTotalTestSuites, 'gate runner passed suite count');
   exactNumber(value.numFailedTestSuites, 0, 'gate runner failed suite count');
   exactNumber(value.numPendingTestSuites, 0, 'gate runner pending suite count');
   if (!Array.isArray(value.testResults) || value.testResults.length !== 1 || !isObject(value.testResults[0])) fail('gate runner report must contain exactly one test file result');
