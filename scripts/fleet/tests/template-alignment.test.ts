@@ -132,14 +132,14 @@ describe('pinned upstream template alignment', () => {
     expect(() => parseTemplateGateArgs(['--app', 'wage', '--gate', 'other'])).toThrow(/usage/);
   });
 
-  it('accounts for the exact twenty without claiming one is aligned', () => {
+  it('accounts for the exact twenty as fully aligned from canonical evidence', () => {
     const report = templateAlignmentStatus();
     expect(report.commit).toBe(PINNED_TEMPLATE_COMMIT);
     expect(report.template_version).toBe('0.8.16');
     expect(report.direct_template_sync_allowed).toBe(false);
     expect(report.total).toBe(20);
-    expect(report.aligned).toBe(0);
-    expect(report.apps.every((app) => app.verified_gates.length === 1 && app.verified_gates[0] === 'ownership' && !app.template_aligned)).toBe(true);
+    expect(report.aligned).toBe(20);
+    expect(report.apps.every((app) => app.verified_gates.length === 12 && app.template_aligned)).toBe(true);
   });
 
   it.each([
