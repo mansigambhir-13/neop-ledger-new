@@ -46,7 +46,7 @@ A template upgrade requires a new reviewed commit, archive digest, compatibility
 | Runtime/domain ports present | 20 |
 | Pinned legacy source mappings | 18 |
 | Template-aligned apps | 0 |
-| Verified gates | 0 of 240 |
+| Verified gates | 20 of 240 (ownership for every catalogued app) |
 | Ownership gate suites implemented | 20 of 20 |
 | Production-ready apps | 0 |
 | Default verification | 316 files passed; 4,031 tests passed; 2 conditional skips |
@@ -100,7 +100,7 @@ Every gate receives a real suite named in `fleet/template-alignment.json`, for e
 - zero failed, skipped, pending or todo assertions for that gate;
 - reviewed compatibility exceptions.
 
-Schema v2 of the alignment registry is fail closed: it accepts only canonical evidence-file references, hashes the raw single-suite Vitest report, recomputes the app/shared source digest and checks that source against the recorded ancestor commit. No gate evidence has been admitted yet.
+Schema v2 of the alignment registry is fail closed: it accepts only canonical evidence-file references, hashes the raw single-suite Vitest report, recomputes the app/shared source digest and checks that source against the recorded ancestor commit. The ownership gate is now admitted for all twenty apps; the other 220 app/gate combinations remain open.
 
 ## Execution roadmap
 

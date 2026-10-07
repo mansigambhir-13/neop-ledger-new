@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "app": "hire",
+  "gate": "ownership",
+  "template_commit": "94db804f94403c15ad1279e6d30dcecc7c078b82",
+  "source_commit": "da3106c1aad6d20e0e2aaaaa91ff2b75edea7022",
+  "source_sha256": "0dcf5850752bc4cb3a1c6916c84f4b268a1bae8286bd4204fd297e8ed9cb5a46",
+  "test_file": "apps/hire/tests/template-ownership.test.ts",
+  "runner": {
+    "kind": "vitest-json-v1",
+    "command": [
+      "pnpm",
+      "exec",
+      "vitest",
+      "run",
+      "apps/hire/tests/template-ownership.test.ts",
+      "--maxWorkers=1",
+      "--reporter=json",
+      "--outputFile=docs/evidence/template-alignment/hire/ownership.vitest.json"
+    ],
+    "report": "docs/evidence/template-alignment/hire/ownership.vitest.json",
+    "report_sha256": "3c2ce642461695b87025e327606800103fbb9dd73f1ba9a9be85c1f169c7b8d6"
+  }
+}

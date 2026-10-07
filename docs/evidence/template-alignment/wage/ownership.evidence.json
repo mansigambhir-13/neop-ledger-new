@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "app": "wage",
+  "gate": "ownership",
+  "template_commit": "94db804f94403c15ad1279e6d30dcecc7c078b82",
+  "source_commit": "da3106c1aad6d20e0e2aaaaa91ff2b75edea7022",
+  "source_sha256": "8c277b73580a1e9084af9cf7a964cb2511de30289a43bb8df5a66f841128e362",
+  "test_file": "apps/wage/tests/template-ownership.test.ts",
+  "runner": {
+    "kind": "vitest-json-v1",
+    "command": [
+      "pnpm",
+      "exec",
+      "vitest",
+      "run",
+      "apps/wage/tests/template-ownership.test.ts",
+      "--maxWorkers=1",
+      "--reporter=json",
+      "--outputFile=docs/evidence/template-alignment/wage/ownership.vitest.json"
+    ],
+    "report": "docs/evidence/template-alignment/wage/ownership.vitest.json",
+    "report_sha256": "6f2f376ad0787b4ada6c9122eee4e27baba288f976b0d57f4aa25a07a6c4576b"
+  }
+}

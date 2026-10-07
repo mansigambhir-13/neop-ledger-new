@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "app": "ledger",
+  "gate": "ownership",
+  "template_commit": "94db804f94403c15ad1279e6d30dcecc7c078b82",
+  "source_commit": "da3106c1aad6d20e0e2aaaaa91ff2b75edea7022",
+  "source_sha256": "375a5b951cae064030a1903a78daf3bf97c645477e573909d493144e616243ba",
+  "test_file": "apps/ledger/tests/template-ownership.test.ts",
+  "runner": {
+    "kind": "vitest-json-v1",
+    "command": [
+      "pnpm",
+      "exec",
+      "vitest",
+      "run",
+      "apps/ledger/tests/template-ownership.test.ts",
+      "--maxWorkers=1",
+      "--reporter=json",
+      "--outputFile=docs/evidence/template-alignment/ledger/ownership.vitest.json"
+    ],
+    "report": "docs/evidence/template-alignment/ledger/ownership.vitest.json",
+    "report_sha256": "1797a98d3f930f4e6fdc3577d401384ad11484d484aed55b383101cf3054b40e"
+  }
+}

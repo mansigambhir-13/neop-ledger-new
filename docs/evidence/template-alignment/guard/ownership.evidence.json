@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "app": "guard",
+  "gate": "ownership",
+  "template_commit": "94db804f94403c15ad1279e6d30dcecc7c078b82",
+  "source_commit": "da3106c1aad6d20e0e2aaaaa91ff2b75edea7022",
+  "source_sha256": "502685aab1256e7ce6d58ce93592ac4a2b76d66814bc5603eb5be48d40416eb0",
+  "test_file": "apps/guard/tests/template-ownership.test.ts",
+  "runner": {
+    "kind": "vitest-json-v1",
+    "command": [
+      "pnpm",
+      "exec",
+      "vitest",
+      "run",
+      "apps/guard/tests/template-ownership.test.ts",
+      "--maxWorkers=1",
+      "--reporter=json",
+      "--outputFile=docs/evidence/template-alignment/guard/ownership.vitest.json"
+    ],
+    "report": "docs/evidence/template-alignment/guard/ownership.vitest.json",
+    "report_sha256": "88f1da332ec36003082d08d5a22f53f3babf103989136d032f823ca94e17740d"
+  }
+}

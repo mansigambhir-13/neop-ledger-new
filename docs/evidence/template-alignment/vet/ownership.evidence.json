@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "app": "vet",
+  "gate": "ownership",
+  "template_commit": "94db804f94403c15ad1279e6d30dcecc7c078b82",
+  "source_commit": "da3106c1aad6d20e0e2aaaaa91ff2b75edea7022",
+  "source_sha256": "4f64e2edc23e06752a8427994dd53f4b67dddd553bc3a0e7d91065e94a005f12",
+  "test_file": "apps/vet/tests/template-ownership.test.ts",
+  "runner": {
+    "kind": "vitest-json-v1",
+    "command": [
+      "pnpm",
+      "exec",
+      "vitest",
+      "run",
+      "apps/vet/tests/template-ownership.test.ts",
+      "--maxWorkers=1",
+      "--reporter=json",
+      "--outputFile=docs/evidence/template-alignment/vet/ownership.vitest.json"
+    ],
+    "report": "docs/evidence/template-alignment/vet/ownership.vitest.json",
+    "report_sha256": "fab606f83437c27db26fde7828549852426859dab4d3bb14e96ee0968272d4f7"
+  }
+}
