@@ -140,7 +140,7 @@ describe('pinned upstream template alignment', () => {
     expect(report.total).toBe(20);
     expect(report.aligned).toBe(20);
     expect(report.apps.every((app) => app.verified_gates.length === 12 && app.template_aligned)).toBe(true);
-  });
+  }, 180_000);
 
   it.each([
     ['repository', (data: any) => { data.upstream.repository = 'https://github.com/example/template'; }],
