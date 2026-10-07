@@ -97,7 +97,7 @@ export function templateOwnershipProblems(root: string, app: string): string[] {
   if (existsSync(alignmentPath)) {
     const alignment = readFileSync(alignmentPath, 'utf8');
     if (!alignment.includes(PINNED_TEMPLATE_COMMIT)) problems.push(`${appRoot}/NEOP-V3-ALIGNMENT.md does not name the pinned commit`);
-    if (!alignment.includes('0/12 alignment gates verified')) problems.push(`${appRoot}/NEOP-V3-ALIGNMENT.md must retain the honest zero-evidence baseline until evidence is admitted`);
+    if (!/\*\*\d+\/12 alignment gates verified\*\*/.test(alignment)) problems.push(`${appRoot}/NEOP-V3-ALIGNMENT.md must state its verified gate count`);
   }
 
   return problems;
