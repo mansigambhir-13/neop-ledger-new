@@ -9,6 +9,7 @@ COPY --chown=node:node runtime/package.json ./package.json
 ARG NEOP_APP
 COPY --chown=node:node entries/${NEOP_APP}.mjs ./entry.mjs
 ENV NEOS_ENV=production NODE_ENV=production NODE_NO_WARNINGS=1 HOST=0.0.0.0 PORT=4103 NEOP_APP=${NEOP_APP}
+RUN chmod -R a+rX /srv
 USER node
 EXPOSE 4103
 HEALTHCHECK --interval=15s --timeout=3s --retries=3 CMD ["node", "-e", "fetch('http://127.0.0.1:4103/live').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]

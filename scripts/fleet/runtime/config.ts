@@ -73,7 +73,7 @@ export function database(env: NodeJS.ProcessEnv, name: string, role: string): { 
 export function forbiddenAgentSettings(env: NodeJS.ProcessEnv): string[] {
   return Object.keys(env).filter(name => env[name] !== undefined && (
     /SECRET|TOKEN|PASSWORD|CREDENTIAL|API_KEY|PRIVATE_KEY|ACCESS_KEY|_FILE$/i.test(name) ||
-    /^(?:DATABASE_URL|DB_URL|PG[A-Z_]+|NEOS_(?:ADMIN|PW|PKG|REGISTRY)|NEOP_(?:APP_DB|RUNNER_DB|DIRECT_DB|DOOR|MATRIX|REGISTRY|LLM_(?:SIGNING|BASE_URL|VIRTUAL_KEY|PROXY_URL)))/.test(name)
+    /^(?:DATABASE_URL|DB_URL|PG[A-Z_]+|NEOS_(?:ADMIN|PW|PKG|REGISTRY)|NEOP_(?:APP_DB|RUNNER_DB|DIRECT_DB|DOOR|MATRIX|REGISTRY|FRONTEND_KEY|LLM_(?:SIGNING|BASE_URL|VIRTUAL_KEY|PROXY_URL)))/.test(name)
   )).sort();
 }
 

@@ -63,7 +63,7 @@ describe.each(FLEET_APPS)('%s persisted multi-process draft jobs', app => {
   async function bootBackend() {
     backend = processes.launch(app, 'backend', {
       NEOP_APP_DB_URL: roleUrl(db.adminUrl, `${app}_app`), NEOP_RUNNER_DB_URL: roleUrl(db.adminUrl, `${app}_runner`),
-      NEOP_JOB_TOKEN_SECRET: 'multi-process-fixture-only-'.repeat(3),
+      NEOP_JOB_TOKEN_SECRET: 'synthetic-multi-process-fixture-only-'.repeat(3),
       NEOP_GATE_URL: gate.url, NEOP_AGENT_URL: agent.url, POOL_SIZE: '2',
       FILES_HOST: '127.0.0.1', GATE_HOST: '127.0.0.1', APPSERVICE_HOST: '127.0.0.1', FILES_PORT: '0', GATE_PORT: '0', APPSERVICE_PORT: '0',
       NEOP_PRESENCE: 'appservice', NEOP_MATRIX_HOMESERVER_URL: hs.url, NEOP_MATRIX_AS_TOKEN: MATRIX.asToken, NEOP_MATRIX_HS_TOKEN: MATRIX.hsToken,

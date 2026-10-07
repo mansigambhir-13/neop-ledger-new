@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "template_commit": "94db804f94403c15ad1279e6d30dcecc7c078b82",
+  "apps": [
+    "ledger", "wage", "clear", "reach", "desk", "hire", "deal", "buy", "grant", "shift",
+    "sync", "post", "roster", "quote", "sign", "guard", "vet", "pay", "asset", "renew"
+  ],
+  "contract": {
+    "declaration": "apps/{app}/app.declaration.json",
+    "fleet_manifest": "apps/{app}/manifest.json",
+    "template_manifest": "apps/{app}/manifest.template.json",
+    "compose": "deploy/fleet/generated/{app}.compose.yaml",
+    "fixture": "apps/{app}/tests/fixture.ts"
+  }
+}

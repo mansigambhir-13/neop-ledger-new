@@ -19,6 +19,8 @@ export { buildPackage } from './packages/build.ts';
 export { applyPackageGrants, packageBootstrapSql, packageGrantsSql, packageRole } from './packages/migrate.ts';
 export { EMPTY_LOCK, LOCK_FILE, PACKAGES_DIR, packageContentHash, packageSlug, readLock, readLockSync, renderLock, skillContentHash, verifyInstalledPackage, verifyLockSignature, type LockedPackage, type LockedSkill, type LockSignature, type PackagesLock } from './packages/lock.ts';
 export { appendJsonArray, hostMigrationSql, httpRegistrySource, installEntry, InstallError, parseSpec, removeEntry, setJsonArray, unpackFiles, type InstallOptions, type InstallResult, type RegistryEntry, type RegistrySource, type RemoveResult } from './packages/install.ts';
+export { assertGeneratedManifestsFresh, declarationContentHash, declarationProblems, fleetManifest, readAppDeclaration, stableJson, templateManifest, FLEET_DECLARATION_SCHEMA_VERSION, FLEET_TEMPLATE_COMMIT, FLEET_TEMPLATE_REPOSITORY, FLEET_TEMPLATE_VERSION, type AppDeclaration, type TemplateManifest } from './declaration.ts';
+export { appReleaseContentHash, appReleaseProblems, createAppRelease, FileAppReleaseRegistry, installAppRelease, signAppRelease, verifyAppRelease, APP_RELEASE_SCHEMA_VERSION, AppReleaseError, type AppRelease, type AppReleaseFile, type AppReleaseRegistry, type SignedAppRelease } from './app-release.ts';
 export { hasSelftest, PackageSelftestError, selftestPackage } from './packages/selftest.ts';
 export type { PackageBundle, PackageManifest } from './packages/types.ts';
 export { EmailDoor } from './doors/email.ts';

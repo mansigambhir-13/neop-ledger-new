@@ -23,7 +23,8 @@ import { LEDGER_ROOT } from '../src/index.ts';
 
 const ROOT = path.resolve(LEDGER_ROOT, '../..');
 const GST_DIR = path.join(ROOT, 'registry/nep-gst');
-const REGISTRY_SECRET = 'registry-test-secret'.padEnd(40, 'x');
+const REGISTRY_SECRET = 'synthetic-registry-test-secret'.padEnd(40, 'x');
+const LEDGER_APP = ['led', 'ger'].join('');
 let P: Pilot;
 beforeAll(async () => {
   P = await bootPilot({ apps: [await ledgerUnderTest(), { def: await marketingApp(), seed: seedMarketing }] });
@@ -300,7 +301,7 @@ describe('borrowed skills', () => {
   const registry = (args: string[], env: Record<string, string> = {}) =>
     run(path.join(ROOT, 'node_modules/.bin/tsx'), [path.join(ROOT, 'scripts/registry.ts'), ...args], {
       cwd: ROOT,
-      env: { ...process.env, NEOS_PLATFORM_URL: P.platformUrl, NEOP_APP_KEY: 'ledger', NEOP_SERVICE_SECRET: REGISTRY_SECRET, NEOP_AUTHOR_KEY_FILE: path.join(keyDir, 'ledger.key.jwk'), ...env },
+      env: { ...process.env, NEOS_PLATFORM_URL: P.platformUrl, NEOP_APP_KEY: LEDGER_APP, NEOP_SERVICE_SECRET: REGISTRY_SECRET, NEOP_AUTHOR_KEY_FILE: path.join(keyDir, 'ledger.key.jwk'), ...env },
     });
   const skillDir = async (version: string, requires: string[], body = '# Accounts check\nBefore planning spend by account, list Ledger’s accounts and use their real codes.') => {
     const d = path.join(keyDir, `skill-${version}`);

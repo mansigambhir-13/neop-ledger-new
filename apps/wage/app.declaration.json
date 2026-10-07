@@ -1,0 +1,1055 @@
+{
+  "schema_version": 1,
+  "template": {
+    "repository": "https://github.com/NEOS-Ecosystem/neos-neop-template",
+    "commit": "94db804f94403c15ad1279e6d30dcecc7c078b82",
+    "version": "0.8.16"
+  },
+  "role": "payroll preparation and human-reviewed internal release",
+  "kit": "NEOS V3",
+  "catalogue_id": "ne-wage",
+  "icon": {
+    "emoji": "💷"
+  },
+  "category": "finance",
+  "manifest": {
+    "app": "wage",
+    "name": "Wage",
+    "subject": "payroll preparation and human-reviewed internal release",
+    "description": "V3 Wage first vertical slice: employee master, explicit timesheets, reviewed deductions, immutable gross-to-net runs and gated internal release. Not a bank payment or statutory payroll certification.",
+    "version": "0.1.0",
+    "contract_version": "1",
+    "abilities": [
+      {
+        "key": "wage.settings.get",
+        "version": "1.0.0",
+        "title": "Read payroll settings",
+        "description": "Read payroll settings from Wage’s own company-scoped record book, with source and generation time.",
+        "kind": "read",
+        "floor": "on",
+        "input": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {},
+          "required": []
+        },
+        "output": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "generatedAt": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "empty": {
+              "type": "boolean"
+            },
+            "sources": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "entries": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 5000
+                },
+                "entry_ids": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "minItems": 0,
+                  "maxItems": 5000
+                },
+                "basis": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200
+                }
+              },
+              "required": [
+                "entries",
+                "entry_ids",
+                "basis"
+              ]
+            },
+            "rows": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "currency": {
+                    "type": "string",
+                    "pattern": "^[A-Z]{3}$"
+                  },
+                  "deductions": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 64
+                        },
+                        "kind": {
+                          "enum": [
+                            "percent",
+                            "fixed"
+                          ]
+                        },
+                        "rate_bps": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 10000
+                        },
+                        "amount_minor": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 1000000000000
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "kind",
+                        "rate_bps",
+                        "amount_minor"
+                      ]
+                    },
+                    "minItems": 0,
+                    "maxItems": 200
+                  }
+                },
+                "required": [
+                  "currency",
+                  "deductions"
+                ]
+              },
+              "minItems": 0,
+              "maxItems": 5000
+            }
+          },
+          "required": [
+            "generatedAt",
+            "empty",
+            "sources",
+            "rows"
+          ]
+        }
+      },
+      {
+        "key": "wage.employees.list",
+        "version": "1.0.0",
+        "title": "List employees",
+        "description": "List employees from Wage’s own company-scoped record book, with source and generation time.",
+        "kind": "read",
+        "floor": "on",
+        "input": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {},
+          "required": []
+        },
+        "output": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "generatedAt": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "empty": {
+              "type": "boolean"
+            },
+            "sources": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "entries": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 5000
+                },
+                "entry_ids": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "minItems": 0,
+                  "maxItems": 5000
+                },
+                "basis": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200
+                }
+              },
+              "required": [
+                "entries",
+                "entry_ids",
+                "basis"
+              ]
+            },
+            "rows": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "source_id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 64,
+                    "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+                  },
+                  "name": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "comp_type": {
+                    "enum": [
+                      "salary",
+                      "hourly"
+                    ]
+                  },
+                  "rate_minor": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 1000000000000
+                  },
+                  "currency": {
+                    "type": "string",
+                    "pattern": "^[A-Z]{3}$"
+                  },
+                  "status": {
+                    "enum": [
+                      "active",
+                      "terminated"
+                    ]
+                  }
+                },
+                "required": [
+                  "id",
+                  "source_id",
+                  "name",
+                  "comp_type",
+                  "rate_minor",
+                  "currency",
+                  "status"
+                ]
+              },
+              "minItems": 0,
+              "maxItems": 5000
+            }
+          },
+          "required": [
+            "generatedAt",
+            "empty",
+            "sources",
+            "rows"
+          ]
+        }
+      },
+      {
+        "key": "wage.timesheets.list",
+        "version": "1.0.0",
+        "title": "List period timesheets",
+        "description": "List period timesheets from Wage’s own company-scoped record book, with source and generation time.",
+        "kind": "read",
+        "floor": "on",
+        "input": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "period": {
+              "type": "string",
+              "pattern": "^\\d{4}-(0[1-9]|1[0-2])$"
+            }
+          },
+          "required": [
+            "period"
+          ]
+        },
+        "output": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "generatedAt": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "empty": {
+              "type": "boolean"
+            },
+            "sources": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "entries": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 5000
+                },
+                "entry_ids": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "minItems": 0,
+                  "maxItems": 5000
+                },
+                "basis": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200
+                }
+              },
+              "required": [
+                "entries",
+                "entry_ids",
+                "basis"
+              ]
+            },
+            "rows": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "period": {
+                    "type": "string",
+                    "pattern": "^\\d{4}-(0[1-9]|1[0-2])$"
+                  },
+                  "employee_id": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "minutes": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 60000
+                  }
+                },
+                "required": [
+                  "id",
+                  "period",
+                  "employee_id",
+                  "minutes"
+                ]
+              },
+              "minItems": 0,
+              "maxItems": 5000
+            }
+          },
+          "required": [
+            "generatedAt",
+            "empty",
+            "sources",
+            "rows"
+          ]
+        }
+      },
+      {
+        "key": "wage.payroll.list",
+        "version": "1.0.0",
+        "title": "List payroll runs",
+        "description": "List payroll runs from Wage’s own company-scoped record book, with source and generation time.",
+        "kind": "read",
+        "floor": "on",
+        "input": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "period": {
+              "type": "string",
+              "pattern": "^\\d{4}-(0[1-9]|1[0-2])$"
+            }
+          },
+          "required": []
+        },
+        "output": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "generatedAt": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "empty": {
+              "type": "boolean"
+            },
+            "sources": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "entries": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 5000
+                },
+                "entry_ids": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "minItems": 0,
+                  "maxItems": 5000
+                },
+                "basis": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200
+                }
+              },
+              "required": [
+                "entries",
+                "entry_ids",
+                "basis"
+              ]
+            },
+            "rows": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "period": {
+                    "type": "string",
+                    "pattern": "^\\d{4}-(0[1-9]|1[0-2])$"
+                  },
+                  "currency": {
+                    "type": "string",
+                    "pattern": "^[A-Z]{3}$"
+                  },
+                  "headcount": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 5000
+                  },
+                  "gross_minor": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 1000000000000
+                  },
+                  "deductions_minor": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 1000000000000
+                  },
+                  "net_minor": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 1000000000000
+                  },
+                  "input_hash": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{64}$"
+                  },
+                  "status": {
+                    "enum": [
+                      "prepared",
+                      "released",
+                      "superseded"
+                    ]
+                  },
+                  "prepared_at": {
+                    "type": "string",
+                    "format": "date-time"
+                  },
+                  "transitioned_at": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "format": "date-time"
+                  },
+                  "paid": {
+                    "const": false
+                  }
+                },
+                "required": [
+                  "id",
+                  "period",
+                  "currency",
+                  "headcount",
+                  "gross_minor",
+                  "deductions_minor",
+                  "net_minor",
+                  "input_hash",
+                  "status",
+                  "prepared_at",
+                  "transitioned_at",
+                  "paid"
+                ]
+              },
+              "minItems": 0,
+              "maxItems": 5000
+            }
+          },
+          "required": [
+            "generatedAt",
+            "empty",
+            "sources",
+            "rows"
+          ]
+        }
+      },
+      {
+        "key": "wage.payslips.list",
+        "version": "1.0.0",
+        "title": "List immutable payslips",
+        "description": "List immutable payslips from Wage’s own company-scoped record book, with source and generation time.",
+        "kind": "read",
+        "floor": "on",
+        "input": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "run_id": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          "required": [
+            "run_id"
+          ]
+        },
+        "output": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "generatedAt": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "empty": {
+              "type": "boolean"
+            },
+            "sources": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "entries": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 5000
+                },
+                "entry_ids": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "minItems": 0,
+                  "maxItems": 5000
+                },
+                "basis": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200
+                }
+              },
+              "required": [
+                "entries",
+                "entry_ids",
+                "basis"
+              ]
+            },
+            "rows": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "run_id": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "employee_id": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "gross_minor": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 1000000000000
+                  },
+                  "deductions_minor": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 1000000000000
+                  },
+                  "net_minor": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 1000000000000
+                  },
+                  "minutes": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ],
+                    "minimum": 0,
+                    "maximum": 60000
+                  },
+                  "deduction_capped": {
+                    "type": "boolean"
+                  },
+                  "currency": {
+                    "type": "string",
+                    "pattern": "^[A-Z]{3}$"
+                  }
+                },
+                "required": [
+                  "id",
+                  "run_id",
+                  "employee_id",
+                  "gross_minor",
+                  "deductions_minor",
+                  "net_minor",
+                  "minutes",
+                  "deduction_capped",
+                  "currency"
+                ]
+              },
+              "minItems": 0,
+              "maxItems": 5000
+            }
+          },
+          "required": [
+            "generatedAt",
+            "empty",
+            "sources",
+            "rows"
+          ]
+        }
+      },
+      {
+        "key": "wage.settings.update",
+        "version": "1.0.0",
+        "title": "Set reviewed payroll currency and deduction rules",
+        "description": "Set reviewed payroll currency and deduction rules. Does not contact an external system.",
+        "kind": "write",
+        "floor": "ask_first",
+        "input": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "currency": {
+              "type": "string",
+              "pattern": "^[A-Z]{3}$"
+            },
+            "deductions": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 64
+                  },
+                  "kind": {
+                    "enum": [
+                      "percent",
+                      "fixed"
+                    ]
+                  },
+                  "rate_bps": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 10000
+                  },
+                  "amount_minor": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 1000000000000
+                  }
+                },
+                "required": [
+                  "id",
+                  "kind",
+                  "rate_bps",
+                  "amount_minor"
+                ]
+              },
+              "minItems": 0,
+              "maxItems": 200
+            }
+          },
+          "required": [
+            "currency",
+            "deductions"
+          ]
+        },
+        "output": {
+          "type": "object",
+          "required": [
+            "outcome"
+          ],
+          "properties": {
+            "outcome": {
+              "type": "string"
+            }
+          }
+        },
+        "effects": {
+          "external": false
+        },
+        "verifyWith": "Immutable transaction receipt matching the exact request checksum, written atomically with the domain change."
+      },
+      {
+        "key": "wage.employees.import",
+        "version": "1.0.0",
+        "title": "Import employee master",
+        "description": "Import employee master. Does not contact an external system.",
+        "kind": "write",
+        "floor": "ask_first",
+        "input": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "employees": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "source_id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 64,
+                    "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+                  },
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200,
+                    "pattern": "\\S"
+                  },
+                  "comp_type": {
+                    "enum": [
+                      "salary",
+                      "hourly"
+                    ]
+                  },
+                  "rate_minor": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 1000000000000
+                  },
+                  "currency": {
+                    "type": "string",
+                    "pattern": "^[A-Z]{3}$"
+                  },
+                  "status": {
+                    "enum": [
+                      "active",
+                      "terminated"
+                    ]
+                  }
+                },
+                "required": [
+                  "source_id",
+                  "name",
+                  "comp_type",
+                  "rate_minor",
+                  "currency",
+                  "status"
+                ]
+              },
+              "minItems": 1,
+              "maxItems": 5000
+            }
+          },
+          "required": [
+            "employees"
+          ]
+        },
+        "output": {
+          "type": "object",
+          "required": [
+            "outcome"
+          ],
+          "properties": {
+            "outcome": {
+              "type": "string"
+            }
+          }
+        },
+        "effects": {
+          "external": false
+        },
+        "verifyWith": "Immutable transaction receipt matching the exact request checksum, written atomically with the domain change."
+      },
+      {
+        "key": "wage.timesheets.import",
+        "version": "1.0.0",
+        "title": "Import explicit worked minutes",
+        "description": "Import explicit worked minutes. Does not contact an external system.",
+        "kind": "write",
+        "floor": "ask_first",
+        "input": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "period": {
+              "type": "string",
+              "pattern": "^\\d{4}-(0[1-9]|1[0-2])$"
+            },
+            "entries": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "source_id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 64,
+                    "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+                  },
+                  "minutes": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 60000
+                  }
+                },
+                "required": [
+                  "source_id",
+                  "minutes"
+                ]
+              },
+              "minItems": 1,
+              "maxItems": 5000
+            }
+          },
+          "required": [
+            "period",
+            "entries"
+          ]
+        },
+        "output": {
+          "type": "object",
+          "required": [
+            "outcome"
+          ],
+          "properties": {
+            "outcome": {
+              "type": "string"
+            }
+          }
+        },
+        "effects": {
+          "external": false
+        },
+        "verifyWith": "Immutable transaction receipt matching the exact request checksum, written atomically with the domain change."
+      },
+      {
+        "key": "wage.payroll.prepare",
+        "version": "1.0.0",
+        "title": "Prepare an immutable payroll run",
+        "description": "Prepare an immutable payroll run. Does not contact an external system.",
+        "kind": "write",
+        "floor": "on",
+        "input": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "period": {
+              "type": "string",
+              "pattern": "^\\d{4}-(0[1-9]|1[0-2])$"
+            }
+          },
+          "required": [
+            "period"
+          ]
+        },
+        "output": {
+          "type": "object",
+          "required": [
+            "outcome"
+          ],
+          "properties": {
+            "outcome": {
+              "type": "string"
+            }
+          }
+        },
+        "effects": {
+          "external": false
+        },
+        "verifyWith": "Immutable transaction receipt matching the exact request checksum, written atomically with the domain change."
+      },
+      {
+        "key": "wage.payroll.release",
+        "version": "1.0.0",
+        "title": "Release a reviewed payroll run internally",
+        "description": "Release a reviewed payroll run internally. Internal authorization only; no bank transfer or statutory filing. Never reports paid.",
+        "kind": "write",
+        "floor": "ask_first",
+        "input": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "run_id": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "input_hash": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            "amount_minor": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 1000000000000
+            },
+            "currency": {
+              "type": "string",
+              "pattern": "^[A-Z]{3}$"
+            }
+          },
+          "required": [
+            "run_id"
+          ]
+        },
+        "output": {
+          "type": "object",
+          "required": [
+            "outcome"
+          ],
+          "properties": {
+            "outcome": {
+              "type": "string"
+            }
+          }
+        },
+        "effects": {
+          "external": false,
+          "money": true,
+          "amount_minor": "/amount_minor",
+          "currency": "/currency"
+        },
+        "verifyWith": "Immutable transaction receipt matching the exact request checksum, written atomically with the domain change."
+      },
+      {
+        "key": "wage.payroll.reopen",
+        "version": "1.0.0",
+        "title": "Supersede an unreleased payroll run",
+        "description": "Supersede an unreleased payroll run. Does not contact an external system.",
+        "kind": "write",
+        "floor": "ask_first",
+        "input": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "run_id": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "input_hash": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            "amount_minor": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 1000000000000
+            },
+            "currency": {
+              "type": "string",
+              "pattern": "^[A-Z]{3}$"
+            }
+          },
+          "required": [
+            "run_id"
+          ]
+        },
+        "output": {
+          "type": "object",
+          "required": [
+            "outcome"
+          ],
+          "properties": {
+            "outcome": {
+              "type": "string"
+            }
+          }
+        },
+        "effects": {
+          "external": false
+        },
+        "verifyWith": "Immutable transaction receipt matching the exact request checksum, written atomically with the domain change."
+      }
+    ],
+    "doors": [],
+    "uses": [],
+    "skills": [
+      {
+        "key": "run-payroll",
+        "path": "src/agent/skills/run-payroll/SKILL.md",
+        "requires": [
+          "wage.settings.get",
+          "wage.employees.list",
+          "wage.timesheets.list",
+          "wage.payroll.prepare",
+          "wage.payroll.list",
+          "wage.payslips.list",
+          "wage.payroll.release"
+        ]
+      }
+    ],
+    "packages": [],
+    "blocks": [
+      "blocks/payroll.json",
+      "blocks/employees.json",
+      "blocks/form.prepare.json"
+    ],
+    "personal_data": [
+      {
+        "table": "employees",
+        "columns": [
+          "name",
+          "rate_minor"
+        ],
+        "subject_key": "id"
+      },
+      {
+        "table": "payslips",
+        "columns": [
+          "gross_minor",
+          "deductions_minor",
+          "net_minor",
+          "minutes"
+        ],
+        "subject_key": "employee_id"
+      }
+    ]
+  }
+}

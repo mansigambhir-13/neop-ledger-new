@@ -1,0 +1,1348 @@
+{
+  "id": "wage",
+  "name": "Wage",
+  "role": "payroll preparation and human-reviewed internal release",
+  "kit": "NEOS V3",
+  "version": "0.1.0",
+  "catalogueId": "ne-wage",
+  "icon": {
+    "emoji": "💷"
+  },
+  "category": "finance",
+  "persistence": "schema",
+  "schema": "wage",
+  "migrations": "migrations/",
+  "doors": [],
+  "uses": [],
+  "talksTo": {
+    "asks": [],
+    "uses": [],
+    "offers": [
+      "wage.settings.get",
+      "wage.employees.list",
+      "wage.timesheets.list",
+      "wage.payroll.list",
+      "wage.payslips.list",
+      "wage.settings.update",
+      "wage.employees.import",
+      "wage.timesheets.import",
+      "wage.payroll.prepare",
+      "wage.payroll.release",
+      "wage.payroll.reopen"
+    ],
+    "line": "ask_app",
+    "dueMinutes": 1440
+  },
+  "packages": [],
+  "files": true,
+  "fileStore": {
+    "route": "/api/v1/files",
+    "store": "schema",
+    "tables": [
+      "files",
+      "file_blobs"
+    ],
+    "key": "<schema>/<company>/<id>",
+    "types": [
+      "text/csv",
+      "application/json",
+      "application/pdf"
+    ],
+    "maxKb": 5120
+  },
+  "matrix": {
+    "account": "NEOP_MATRIX_CLIENT_ACCOUNTS",
+    "mode": "client",
+    "direct_messages_only": true
+  },
+  "rooms": {
+    "direct_messages": "1:1 with Wage's account, from users on the install allowlist"
+  },
+  "events": [
+    "neos.neop.task",
+    "neos.neop.ask",
+    "neos.neop.answer",
+    "neos.neop.propose",
+    "neos.neop.approve",
+    "neos.neop.done",
+    "neos.neop.note"
+  ],
+  "valueClasses": {
+    "money": "integer minor units + ISO currency",
+    "unknown": "NULL",
+    "personalData": [
+      "employees.name · employees.rate_minor",
+      "payslips.gross_minor · payslips.deductions_minor · payslips.net_minor · payslips.minutes"
+    ]
+  },
+  "scopes": [
+    "wage.read",
+    "wage.write"
+  ],
+  "keys": {
+    "employees": "id",
+    "payslips": "employee_id",
+    "operations": "idempotency_key"
+  },
+  "tables": {
+    "employees": "(company_id, id); personal: name, rate_minor",
+    "payslips": "(company_id, employee_id); personal: gross_minor, deductions_minor, net_minor, minutes",
+    "standard": "jobs · steps · waits · proposals · grants · operations · facts · switchboard · installs · config · notices · schedules · files · file_blobs · source_status · demo_rows"
+  },
+  "sources": [],
+  "switchboard": {
+    "floor": {
+      "wage.settings.update": "ask",
+      "wage.employees.import": "ask",
+      "wage.timesheets.import": "ask",
+      "wage.payroll.release": "ask",
+      "wage.payroll.reopen": "ask"
+    }
+  },
+  "capabilities": [
+    {
+      "id": "wage.settings.get",
+      "method": "GET",
+      "scope": "wage.read",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {},
+        "required": []
+      },
+      "output": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "generatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "empty": {
+            "type": "boolean"
+          },
+          "sources": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "entries": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 5000
+              },
+              "entry_ids": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "minItems": 0,
+                "maxItems": 5000
+              },
+              "basis": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              }
+            },
+            "required": [
+              "entries",
+              "entry_ids",
+              "basis"
+            ]
+          },
+          "rows": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "currency": {
+                  "type": "string",
+                  "pattern": "^[A-Z]{3}$"
+                },
+                "deductions": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 64
+                      },
+                      "kind": {
+                        "enum": [
+                          "percent",
+                          "fixed"
+                        ]
+                      },
+                      "rate_bps": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 10000
+                      },
+                      "amount_minor": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 1000000000000
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "kind",
+                      "rate_bps",
+                      "amount_minor"
+                    ]
+                  },
+                  "minItems": 0,
+                  "maxItems": 200
+                }
+              },
+              "required": [
+                "currency",
+                "deductions"
+              ]
+            },
+            "minItems": 0,
+            "maxItems": 5000
+          }
+        },
+        "required": [
+          "generatedAt",
+          "empty",
+          "sources",
+          "rows"
+        ]
+      }
+    },
+    {
+      "id": "wage.employees.list",
+      "method": "GET",
+      "scope": "wage.read",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {},
+        "required": []
+      },
+      "output": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "generatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "empty": {
+            "type": "boolean"
+          },
+          "sources": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "entries": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 5000
+              },
+              "entry_ids": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "minItems": 0,
+                "maxItems": 5000
+              },
+              "basis": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              }
+            },
+            "required": [
+              "entries",
+              "entry_ids",
+              "basis"
+            ]
+          },
+          "rows": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "source_id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 64,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+                },
+                "name": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "comp_type": {
+                  "enum": [
+                    "salary",
+                    "hourly"
+                  ]
+                },
+                "rate_minor": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 1000000000000
+                },
+                "currency": {
+                  "type": "string",
+                  "pattern": "^[A-Z]{3}$"
+                },
+                "status": {
+                  "enum": [
+                    "active",
+                    "terminated"
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "source_id",
+                "name",
+                "comp_type",
+                "rate_minor",
+                "currency",
+                "status"
+              ]
+            },
+            "minItems": 0,
+            "maxItems": 5000
+          }
+        },
+        "required": [
+          "generatedAt",
+          "empty",
+          "sources",
+          "rows"
+        ]
+      }
+    },
+    {
+      "id": "wage.timesheets.list",
+      "method": "GET",
+      "scope": "wage.read",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "period": {
+            "type": "string",
+            "pattern": "^\\d{4}-(0[1-9]|1[0-2])$"
+          }
+        },
+        "required": [
+          "period"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "generatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "empty": {
+            "type": "boolean"
+          },
+          "sources": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "entries": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 5000
+              },
+              "entry_ids": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "minItems": 0,
+                "maxItems": 5000
+              },
+              "basis": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              }
+            },
+            "required": [
+              "entries",
+              "entry_ids",
+              "basis"
+            ]
+          },
+          "rows": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "period": {
+                  "type": "string",
+                  "pattern": "^\\d{4}-(0[1-9]|1[0-2])$"
+                },
+                "employee_id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "minutes": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 60000
+                }
+              },
+              "required": [
+                "id",
+                "period",
+                "employee_id",
+                "minutes"
+              ]
+            },
+            "minItems": 0,
+            "maxItems": 5000
+          }
+        },
+        "required": [
+          "generatedAt",
+          "empty",
+          "sources",
+          "rows"
+        ]
+      }
+    },
+    {
+      "id": "wage.payroll.list",
+      "method": "GET",
+      "scope": "wage.read",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "period": {
+            "type": "string",
+            "pattern": "^\\d{4}-(0[1-9]|1[0-2])$"
+          }
+        },
+        "required": []
+      },
+      "output": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "generatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "empty": {
+            "type": "boolean"
+          },
+          "sources": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "entries": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 5000
+              },
+              "entry_ids": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "minItems": 0,
+                "maxItems": 5000
+              },
+              "basis": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              }
+            },
+            "required": [
+              "entries",
+              "entry_ids",
+              "basis"
+            ]
+          },
+          "rows": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "period": {
+                  "type": "string",
+                  "pattern": "^\\d{4}-(0[1-9]|1[0-2])$"
+                },
+                "currency": {
+                  "type": "string",
+                  "pattern": "^[A-Z]{3}$"
+                },
+                "headcount": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 5000
+                },
+                "gross_minor": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 1000000000000
+                },
+                "deductions_minor": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 1000000000000
+                },
+                "net_minor": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 1000000000000
+                },
+                "input_hash": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$"
+                },
+                "status": {
+                  "enum": [
+                    "prepared",
+                    "released",
+                    "superseded"
+                  ]
+                },
+                "prepared_at": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "transitioned_at": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "paid": {
+                  "const": false
+                }
+              },
+              "required": [
+                "id",
+                "period",
+                "currency",
+                "headcount",
+                "gross_minor",
+                "deductions_minor",
+                "net_minor",
+                "input_hash",
+                "status",
+                "prepared_at",
+                "transitioned_at",
+                "paid"
+              ]
+            },
+            "minItems": 0,
+            "maxItems": 5000
+          }
+        },
+        "required": [
+          "generatedAt",
+          "empty",
+          "sources",
+          "rows"
+        ]
+      }
+    },
+    {
+      "id": "wage.payslips.list",
+      "method": "GET",
+      "scope": "wage.read",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "run_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "run_id"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "generatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "empty": {
+            "type": "boolean"
+          },
+          "sources": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "entries": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 5000
+              },
+              "entry_ids": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "minItems": 0,
+                "maxItems": 5000
+              },
+              "basis": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              }
+            },
+            "required": [
+              "entries",
+              "entry_ids",
+              "basis"
+            ]
+          },
+          "rows": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "run_id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "employee_id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "gross_minor": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 1000000000000
+                },
+                "deductions_minor": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 1000000000000
+                },
+                "net_minor": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 1000000000000
+                },
+                "minutes": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "minimum": 0,
+                  "maximum": 60000
+                },
+                "deduction_capped": {
+                  "type": "boolean"
+                },
+                "currency": {
+                  "type": "string",
+                  "pattern": "^[A-Z]{3}$"
+                }
+              },
+              "required": [
+                "id",
+                "run_id",
+                "employee_id",
+                "gross_minor",
+                "deductions_minor",
+                "net_minor",
+                "minutes",
+                "deduction_capped",
+                "currency"
+              ]
+            },
+            "minItems": 0,
+            "maxItems": 5000
+          }
+        },
+        "required": [
+          "generatedAt",
+          "empty",
+          "sources",
+          "rows"
+        ]
+      }
+    },
+    {
+      "id": "wage.settings.update",
+      "method": "POST",
+      "scope": "wage.write",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "currency": {
+            "type": "string",
+            "pattern": "^[A-Z]{3}$"
+          },
+          "deductions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 64
+                },
+                "kind": {
+                  "enum": [
+                    "percent",
+                    "fixed"
+                  ]
+                },
+                "rate_bps": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 10000
+                },
+                "amount_minor": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 1000000000000
+                }
+              },
+              "required": [
+                "id",
+                "kind",
+                "rate_bps",
+                "amount_minor"
+              ]
+            },
+            "minItems": 0,
+            "maxItems": 200
+          }
+        },
+        "required": [
+          "currency",
+          "deductions"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "required": [
+          "outcome"
+        ],
+        "properties": {
+          "outcome": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "id": "wage.employees.import",
+      "method": "POST",
+      "scope": "wage.write",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "employees": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "source_id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 64,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+                },
+                "name": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200,
+                  "pattern": "\\S"
+                },
+                "comp_type": {
+                  "enum": [
+                    "salary",
+                    "hourly"
+                  ]
+                },
+                "rate_minor": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 1000000000000
+                },
+                "currency": {
+                  "type": "string",
+                  "pattern": "^[A-Z]{3}$"
+                },
+                "status": {
+                  "enum": [
+                    "active",
+                    "terminated"
+                  ]
+                }
+              },
+              "required": [
+                "source_id",
+                "name",
+                "comp_type",
+                "rate_minor",
+                "currency",
+                "status"
+              ]
+            },
+            "minItems": 1,
+            "maxItems": 5000
+          }
+        },
+        "required": [
+          "employees"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "required": [
+          "outcome"
+        ],
+        "properties": {
+          "outcome": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "id": "wage.timesheets.import",
+      "method": "POST",
+      "scope": "wage.write",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "period": {
+            "type": "string",
+            "pattern": "^\\d{4}-(0[1-9]|1[0-2])$"
+          },
+          "entries": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "source_id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 64,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+                },
+                "minutes": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 60000
+                }
+              },
+              "required": [
+                "source_id",
+                "minutes"
+              ]
+            },
+            "minItems": 1,
+            "maxItems": 5000
+          }
+        },
+        "required": [
+          "period",
+          "entries"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "required": [
+          "outcome"
+        ],
+        "properties": {
+          "outcome": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "id": "wage.payroll.prepare",
+      "method": "POST",
+      "scope": "wage.write",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "period": {
+            "type": "string",
+            "pattern": "^\\d{4}-(0[1-9]|1[0-2])$"
+          }
+        },
+        "required": [
+          "period"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "required": [
+          "outcome"
+        ],
+        "properties": {
+          "outcome": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "id": "wage.payroll.release",
+      "method": "POST",
+      "scope": "wage.write",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "run_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "input_hash": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "amount_minor": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1000000000000
+          },
+          "currency": {
+            "type": "string",
+            "pattern": "^[A-Z]{3}$"
+          }
+        },
+        "required": [
+          "run_id"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "required": [
+          "outcome"
+        ],
+        "properties": {
+          "outcome": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "id": "wage.payroll.reopen",
+      "method": "POST",
+      "scope": "wage.write",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "run_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "input_hash": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "amount_minor": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1000000000000
+          },
+          "currency": {
+            "type": "string",
+            "pattern": "^[A-Z]{3}$"
+          }
+        },
+        "required": [
+          "run_id"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "required": [
+          "outcome"
+        ],
+        "properties": {
+          "outcome": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  ],
+  "abilities": [
+    {
+      "line": "wage.settings.get",
+      "kind": "ability",
+      "from": "own",
+      "floor": "on",
+      "skill": "run-payroll",
+      "offers": "Read payroll settings from Wage’s own company-scoped record book, with source and generation time.",
+      "read": true,
+      "capability": "wage.settings.get",
+      "cappable": false
+    },
+    {
+      "line": "wage.employees.list",
+      "kind": "ability",
+      "from": "own",
+      "floor": "on",
+      "skill": "run-payroll",
+      "offers": "List employees from Wage’s own company-scoped record book, with source and generation time.",
+      "read": true,
+      "capability": "wage.employees.list",
+      "cappable": false
+    },
+    {
+      "line": "wage.timesheets.list",
+      "kind": "ability",
+      "from": "own",
+      "floor": "on",
+      "skill": "run-payroll",
+      "offers": "List period timesheets from Wage’s own company-scoped record book, with source and generation time.",
+      "read": true,
+      "capability": "wage.timesheets.list",
+      "cappable": false
+    },
+    {
+      "line": "wage.payroll.list",
+      "kind": "ability",
+      "from": "own",
+      "floor": "on",
+      "skill": "run-payroll",
+      "offers": "List payroll runs from Wage’s own company-scoped record book, with source and generation time.",
+      "read": true,
+      "capability": "wage.payroll.list",
+      "cappable": false
+    },
+    {
+      "line": "wage.payslips.list",
+      "kind": "ability",
+      "from": "own",
+      "floor": "on",
+      "skill": "run-payroll",
+      "offers": "List immutable payslips from Wage’s own company-scoped record book, with source and generation time.",
+      "read": true,
+      "capability": "wage.payslips.list",
+      "cappable": false
+    },
+    {
+      "line": "wage.settings.update",
+      "kind": "ability",
+      "from": "own",
+      "floor": "ask",
+      "skill": null,
+      "offers": "Set reviewed payroll currency and deduction rules. Does not contact an external system.",
+      "read": false,
+      "capability": "wage.settings.update",
+      "cappable": false
+    },
+    {
+      "line": "wage.employees.import",
+      "kind": "ability",
+      "from": "own",
+      "floor": "ask",
+      "skill": null,
+      "offers": "Import employee master. Does not contact an external system.",
+      "read": false,
+      "capability": "wage.employees.import",
+      "cappable": false
+    },
+    {
+      "line": "wage.timesheets.import",
+      "kind": "ability",
+      "from": "own",
+      "floor": "ask",
+      "skill": null,
+      "offers": "Import explicit worked minutes. Does not contact an external system.",
+      "read": false,
+      "capability": "wage.timesheets.import",
+      "cappable": false
+    },
+    {
+      "line": "wage.payroll.prepare",
+      "kind": "ability",
+      "from": "own",
+      "floor": "on",
+      "skill": "run-payroll",
+      "offers": "Prepare an immutable payroll run. Does not contact an external system.",
+      "read": false,
+      "capability": "wage.payroll.prepare",
+      "cappable": false,
+      "floorReason": "the effect is internal and is verified from the company record book"
+    },
+    {
+      "line": "wage.payroll.release",
+      "kind": "ability",
+      "from": "own",
+      "floor": "ask",
+      "skill": "run-payroll",
+      "offers": "Release a reviewed payroll run internally. Internal authorization only; no bank transfer or statutory filing. Never reports paid.",
+      "read": false,
+      "capability": "wage.payroll.release",
+      "cappable": false
+    },
+    {
+      "line": "wage.payroll.reopen",
+      "kind": "ability",
+      "from": "own",
+      "floor": "ask",
+      "skill": null,
+      "offers": "Supersede an unreleased payroll run. Does not contact an external system.",
+      "read": false,
+      "capability": "wage.payroll.reopen",
+      "cappable": false
+    },
+    {
+      "line": "ask_app",
+      "kind": "ability",
+      "from": "own",
+      "floor": "on",
+      "skill": null,
+      "offers": "ask another installed app for information or a pinned ability",
+      "read": true,
+      "capability": null,
+      "cappable": false
+    },
+    {
+      "line": "notify_person",
+      "kind": "ability",
+      "from": "own",
+      "floor": "on",
+      "skill": null,
+      "offers": "send one rate-limited notice to an allowlisted person",
+      "read": false,
+      "capability": null,
+      "cappable": false,
+      "floorReason": "a notice changes no company record and cannot carry an approval"
+    }
+  ],
+  "schedules": [],
+  "skills": [
+    {
+      "id": "run-payroll",
+      "name": "Run Payroll",
+      "offers": "Run Payroll",
+      "requires": [
+        "wage.settings.get",
+        "wage.employees.list",
+        "wage.timesheets.list",
+        "wage.payroll.prepare",
+        "wage.payroll.list",
+        "wage.payslips.list",
+        "wage.payroll.release"
+      ]
+    }
+  ],
+  "blocks": [
+    {
+      "id": "payroll",
+      "kind": "page",
+      "title": "Payroll",
+      "file": "blocks/payroll.json"
+    },
+    {
+      "id": "employees",
+      "kind": "page",
+      "title": "Employees",
+      "file": "blocks/employees.json"
+    },
+    {
+      "id": "form.prepare",
+      "kind": "form",
+      "title": "Prepare payroll",
+      "file": "blocks/form.prepare.json"
+    }
+  ],
+  "runtime": {
+    "run": {
+      "compose": "deploy/compose.yaml",
+      "files": [
+        "deploy/compose.yaml"
+      ]
+    },
+    "frontend": {
+      "source": "../../packages/neop-frontend",
+      "build": "pnpm --filter @neop/frontend typecheck",
+      "out": "../../packages/neop-frontend",
+      "servedBy": "frontend",
+      "process": "frontend",
+      "path": "/apps/wage",
+      "api": "/api/v1",
+      "backend": "NEOS_PLATFORM_URL",
+      "basePath": "NEOP_FRONTEND_BASE_PATH"
+    },
+    "processes": [
+      {
+        "name": "backend",
+        "service": "wage-backend",
+        "build": "../../../deploy/fleet/backend.Dockerfile",
+        "command": "node entry.mjs",
+        "port": 4101,
+        "health": {
+          "http": "http://127.0.0.1:4101/ready",
+          "live": "http://127.0.0.1:4101/live"
+        },
+        "receives": [
+          "platform-db",
+          "operator",
+          "platform-matrix"
+        ],
+        "credentials": [
+          "NEOP_APP_DB_URL",
+          "NEOP_RUNNER_DB_URL",
+          "NEOP_DIRECT_DB_URL",
+          "NEOP_JOB_TOKEN_SECRET",
+          "NEOP_LLM_SIGNING_KEY",
+          "NEOP_MATRIX_CLIENT_ACCOUNTS"
+        ]
+      },
+      {
+        "name": "agent",
+        "service": "wage-agent",
+        "build": "../../../deploy/fleet/agent.Dockerfile",
+        "command": "node entry.mjs",
+        "port": 4103,
+        "health": {
+          "http": "http://127.0.0.1:4103/live",
+          "live": "http://127.0.0.1:4103/live"
+        },
+        "receives": [],
+        "credentials": []
+      },
+      {
+        "name": "frontend",
+        "service": "wage-frontend",
+        "build": "../../../deploy/fleet/frontend.Dockerfile",
+        "command": "node entry.mjs",
+        "port": 4105,
+        "health": {
+          "http": "http://127.0.0.1:4105/ready",
+          "live": "http://127.0.0.1:4105/live"
+        },
+        "receives": [
+          "operator"
+        ],
+        "credentials": [
+          "NEOP_FRONTEND_KEY"
+        ]
+      }
+    ],
+    "credentials": [
+      {
+        "name": "NEOP_APP_DB_URL",
+        "class": "platform-db",
+        "process": "backend",
+        "required": true,
+        "secret": true,
+        "purpose": "connection for wage_app, restricted to the wage schema"
+      },
+      {
+        "name": "NEOP_RUNNER_DB_URL",
+        "class": "platform-db",
+        "process": "backend",
+        "required": true,
+        "secret": true,
+        "purpose": "connection for wage_runner, used by the trusted backend only"
+      },
+      {
+        "name": "NEOP_DIRECT_DB_URL",
+        "class": "platform-db",
+        "process": "backend",
+        "required": true,
+        "secret": true,
+        "purpose": "direct database session for advisory locks and LISTEN"
+      },
+      {
+        "name": "NEOP_JOB_TOKEN_SECRET",
+        "class": "operator",
+        "process": "backend",
+        "required": true,
+        "secret": true,
+        "purpose": "short-lived job-token signing secret; never sent to the agent"
+      },
+      {
+        "name": "NEOP_LLM_SIGNING_KEY",
+        "class": "operator",
+        "process": "backend",
+        "required": true,
+        "secret": true,
+        "purpose": "short-lived model-session signing key; never sent to the agent"
+      },
+      {
+        "name": "NEOP_MATRIX_CLIENT_ACCOUNTS",
+        "class": "platform-matrix",
+        "process": "backend",
+        "required": true,
+        "secret": true,
+        "purpose": "Matrix client account map and access tokens for the installed app"
+      },
+      {
+        "name": "NEOP_FRONTEND_KEY",
+        "class": "operator",
+        "process": "frontend",
+        "required": true,
+        "secret": true,
+        "purpose": "key presented by the authenticated platform proxy to the standalone frontend"
+      }
+    ]
+  }
+}

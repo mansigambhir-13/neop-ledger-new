@@ -43,6 +43,7 @@ export function templateOwnershipProblems(root: string, app: string): string[] {
   const problems: string[] = [];
   const ownership = templateOwnershipStatus(root);
   if (ownership.total !== 41) problems.push(`ownership crosswalk has ${ownership.total} rules instead of 41`);
+  if (!ownership.ready) problems.push(`ownership crosswalk is unfinished: ${JSON.stringify(ownership.counts)}`);
 
   const catalog = JSON.parse(readFileSync(path.join(root, 'fleet/catalog.json'), 'utf8')) as unknown;
   if (!isObject(catalog) || !Array.isArray(catalog.apps) || !catalog.apps.some((entry) => isObject(entry) && entry.id === app)) {

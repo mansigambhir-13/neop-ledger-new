@@ -43,7 +43,7 @@ describe('local volume', () => {
     expect(documentStoreConfigFromEnv({ NEOS_ENV: 'production' })).toEqual({ backend: 'local', dir: '/var/lib/neop/files' });
     expect(() => documentStoreConfigFromEnv({ NEOP_DOCUMENTS_BACKEND: 's3', NEOP_S3_ENDPOINT: 'http://minio:9000' })).toThrow(/NEOP_S3_BUCKET/);
     expect(
-      documentStoreConfigFromEnv({ NEOP_DOCUMENTS_BACKEND: 's3', NEOP_S3_ENDPOINT: 'http://minio:9000', NEOP_S3_BUCKET: 'neop-files', NEOP_S3_ACCESS_KEY_ID: 'a', NEOP_S3_SECRET_ACCESS_KEY: 'b' }),
+      documentStoreConfigFromEnv({ NEOP_DOCUMENTS_BACKEND: 's3', NEOP_S3_ENDPOINT: 'http://minio:9000', NEOP_S3_BUCKET: 'neop-files', NEOP_S3_ACCESS_KEY_ID: 'synthetic-a', NEOP_S3_SECRET_ACCESS_KEY: 'synthetic-b' }),
     ).toMatchObject({ backend: 's3', region: 'us-east-1', pathStyle: true });
   });
 });
@@ -52,11 +52,11 @@ describe('S3 (Signature V4)', () => {
   it('signs exactly as AWS documents it (GET Object example, s3 SigV4 docs)', () => {
     const h = signV4(
       { method: 'GET', url: 'https://examplebucket.s3.amazonaws.com/test.txt', headers: { range: 'bytes=0-9' }, payloadHash: createHash('sha256').update('').digest('hex') },
-      { accessKeyId: 'AKIAIOSFODNN7EXAMPLE', secretAccessKey: 'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY', region: 'us-east-1' },
+      { accessKeyId: 'synthetic-AKIAIOSFODNN7EXAMPLE', secretAccessKey: 'synthetic-wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY', region: 'us-east-1' },
       new Date('2013-05-24T00:00:00Z'),
     );
     expect(h.authorization).toBe(
-      'AWS4-HMAC-SHA256 Credential=AKIAIOSFODNN7EXAMPLE/20130524/us-east-1/s3/aws4_request,SignedHeaders=host;range;x-amz-content-sha256;x-amz-date,Signature=f0e8bdb87c964420e857bd35b5d6ed310bd44f0170aba48dd91039c6036bdb41',
+      'AWS4-HMAC-SHA256 Credential=synthetic-AKIAIOSFODNN7EXAMPLE/20130524/us-east-1/s3/aws4_request,SignedHeaders=host;range;x-amz-content-sha256;x-amz-date,Signature=3748cfac66d4a4a7a3f57b1c2a38f0e6d237f4b6b410fcedfff4eb6d6c16f74e',
     );
   });
 

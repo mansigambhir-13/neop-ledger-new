@@ -1,7 +1,7 @@
 // Reviewed synthetic scenarios from the per-app workflow suites; no live business data.
-import type { FleetApp } from '../runtime/apps.ts';
+import type { DraftFleetApp } from '../runtime/apps.ts';
 export interface JobCase { master: string; table: string; noun: string; fk: string; sample: Record<string, unknown>; settings: Record<string, unknown> | null; expected: Record<string, unknown> }
-export const JOB_CASES: Record<FleetApp, JobCase> = {
+export const JOB_CASES: Record<DraftFleetApp, JobCase> = {
   "asset": {
     "master": "assignees",
     "table": "requests",

@@ -9,6 +9,7 @@ RUN node --input-type=module -e "import fs from 'node:fs'; import {execFileSync}
 ARG NEOP_APP
 COPY entries/${NEOP_APP}/ ./
 ENV NEOS_ENV=production NODE_ENV=production NODE_NO_WARNINGS=1 NEOP_APP=${NEOP_APP} NEOP_DENO_PATH=/usr/local/bin/deno NEOP_DENO_DIR=/tmp/deno DENO_NO_UPDATE_CHECK=1
+RUN chmod -R a+rX /srv
 USER node
 EXPOSE 4101 4102 4104
 HEALTHCHECK --interval=15s --timeout=3s --retries=3 CMD ["node", "-e", "fetch('http://127.0.0.1:4101/live').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]

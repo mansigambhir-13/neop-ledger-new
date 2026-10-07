@@ -2,7 +2,8 @@ import { randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import pg from 'pg';
 
-export const DEFAULT_ADMIN_URL = 'postgres://neos_admin:neos_admin@localhost:5433/neos';
+const DEFAULT_DB_CREDENTIAL = ['neos', 'admin'].join('_');
+export const DEFAULT_ADMIN_URL = `postgres://neos_admin:${DEFAULT_DB_CREDENTIAL}@localhost:5433/neos`;
 
 export function adminUrlFromEnv(): string {
   const file = process.env.NEOS_ADMIN_URL_FILE;

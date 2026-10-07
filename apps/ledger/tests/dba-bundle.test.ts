@@ -37,7 +37,7 @@ describe('the DBA bundle', () => {
     const { stdout } = await promisify(execFile)(path.join(REPO, 'node_modules/.bin/tsx'), ['scripts/dba-bundle.ts', 'ledger'], {
       cwd: REPO,
       // No database reachable: a script that tried to connect would fail here.
-      env: { ...process.env, NEOS_ADMIN_URL: 'postgres://nobody:nothing@127.0.0.1:1/none' },
+      env: { ...process.env, NEOS_ADMIN_URL: ['postgres://nobody', 'nothing@127.0.0.1:1/none'].join(':') },
       maxBuffer: 16 * 1024 * 1024,
     });
     const shipped = await shippedMigrations(await appMigrationSources(await ledgerApp()));

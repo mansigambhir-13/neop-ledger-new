@@ -18,10 +18,13 @@
     "backup": "tsx scripts/backup.ts",
     "neos-publish": "tsx scripts/neos-publish.ts",
     "neos-install": "tsx scripts/neos-install.ts",
+    "neop-app-publish": "tsx scripts/neop-app-publish.ts",
+    "neop-app-install": "tsx scripts/neop-app-install.ts",
     "fleet:status": "tsx scripts/fleet/status.ts",
     "fleet:template-alignment": "node --import tsx scripts/fleet/template-alignment.ts",
     "fleet:template-gate": "node --import tsx scripts/fleet/run-template-gate.ts",
-    "fleet:template-ownership": "node --import tsx scripts/fleet/template-ownership.ts"
+    "fleet:template-ownership": "node --import tsx scripts/fleet/template-ownership.ts",
+    "fleet:emit-manifests": "node --import tsx scripts/fleet/emit-manifests.ts"
   },
   "devDependencies": {
     "@neop/testkit": "workspace:*",
@@ -36,8 +39,10 @@
     "@neop/ledger": "workspace:*",
     "@neop/marketing": "workspace:*",
     "@neop/wage": "workspace:*",
+    "jose": "^6.1.0",
     "@neop/platform": "workspace:*",
     "@neop/template": "workspace:*",
+    "@neop/frontend": "workspace:*",
     "@neop/pgkit": "workspace:*",
     "@neop/domain-values": "workspace:*",
     "@neop/pay": "workspace:*",

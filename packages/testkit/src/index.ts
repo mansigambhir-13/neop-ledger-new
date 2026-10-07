@@ -20,3 +20,5 @@ export * from './timer-lifecycle.ts';
 export * from './bus-result-lifecycle.ts';
 export * from './bus-question-lifecycle.ts';
 export * from './bus-answer-lifecycle.ts';
+export * from './template-migration.ts';
+export * from './template-frontend.ts';

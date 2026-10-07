@@ -4,6 +4,8 @@ import { RuntimeConfigError } from './config.ts';
 
 /** Backend-only loader. Never evaluate an environment value as a module path. */
 const loaders: Record<FleetApp, () => Promise<AppDefinition>> = {
+  ledger: async () => (await import('@neop/ledger')).ledgerApp(),
+  wage: async () => (await import('@neop/wage')).wageApp(),
   asset: async () => (await import('@neop/asset')).assetApp(),
   buy: async () => (await import('@neop/buy')).buyApp(),
   clear: async () => (await import('@neop/clear')).clearApp(),

@@ -1,0 +1,840 @@
+{
+  "id": "asset",
+  "name": "Asset",
+  "role": "Asset: internal request draft preparation",
+  "kit": "NEOS V3",
+  "version": "0.2.0",
+  "catalogueId": "ne-asset",
+  "icon": {
+    "emoji": "🏷️"
+  },
+  "category": "operations",
+  "persistence": "schema",
+  "schema": "asset",
+  "migrations": "migrations/",
+  "doors": [],
+  "uses": [],
+  "talksTo": {
+    "asks": [],
+    "uses": [],
+    "offers": [
+      "asset.assignees.list",
+      "asset.requests.list",
+      "asset.assignees.import",
+      "asset.request.prepare",
+      "asset.request.cancel"
+    ],
+    "line": "ask_app",
+    "dueMinutes": 1440
+  },
+  "packages": [],
+  "files": true,
+  "fileStore": {
+    "route": "/api/v1/files",
+    "store": "schema",
+    "tables": [
+      "files",
+      "file_blobs"
+    ],
+    "key": "<schema>/<company>/<id>",
+    "types": [
+      "text/csv",
+      "application/json",
+      "application/pdf"
+    ],
+    "maxKb": 5120
+  },
+  "matrix": {
+    "account": "NEOP_MATRIX_CLIENT_ACCOUNTS",
+    "mode": "client",
+    "direct_messages_only": true
+  },
+  "rooms": {
+    "direct_messages": "1:1 with Asset's account, from users on the install allowlist"
+  },
+  "events": [
+    "neos.neop.task",
+    "neos.neop.ask",
+    "neos.neop.answer",
+    "neos.neop.propose",
+    "neos.neop.approve",
+    "neos.neop.done",
+    "neos.neop.note"
+  ],
+  "valueClasses": {
+    "money": "integer minor units + ISO currency",
+    "unknown": "NULL",
+    "personalData": [
+      "assignees.source_id · assignees.name · assignees.category",
+      "requests.source_id · requests.item · requests.band · requests.notes · requests.source_snapshot",
+      "draft_origins.draft_id · draft_origins.job_id · draft_origins.input_hash"
+    ]
+  },
+  "scopes": [
+    "asset.read",
+    "asset.write"
+  ],
+  "keys": {
+    "assignees": "id",
+    "requests": "reference_id",
+    "draft_origins": "proposer_user_id",
+    "operations": "idempotency_key"
+  },
+  "tables": {
+    "assignees": "(company_id, id); personal: source_id, name, category",
+    "requests": "(company_id, reference_id); personal: source_id, item, band, notes, source_snapshot",
+    "draft_origins": "(company_id, proposer_user_id); personal: draft_id, job_id, input_hash",
+    "standard": "jobs · steps · waits · proposals · grants · operations · facts · switchboard · installs · config · notices · schedules · files · file_blobs · source_status · demo_rows"
+  },
+  "sources": [],
+  "switchboard": {
+    "floor": {
+      "asset.assignees.import": "ask",
+      "asset.request.cancel": "ask"
+    }
+  },
+  "capabilities": [
+    {
+      "id": "asset.assignees.list",
+      "method": "GET",
+      "scope": "asset.read",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1000000
+          }
+        },
+        "required": []
+      },
+      "output": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "generatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "empty": {
+            "type": "boolean"
+          },
+          "sources": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "entries": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 1000
+              },
+              "entry_ids": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "minItems": 0,
+                "maxItems": 1000
+              },
+              "basis": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200,
+                "pattern": "\\S"
+              }
+            },
+            "required": [
+              "entries",
+              "entry_ids",
+              "basis"
+            ]
+          },
+          "rows": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "source_id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 64,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+                },
+                "name": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200,
+                  "pattern": "\\S"
+                },
+                "category": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "minLength": 1,
+                  "maxLength": 120,
+                  "pattern": "\\S"
+                },
+                "version": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 2147483647
+                }
+              },
+              "required": [
+                "id",
+                "source_id",
+                "name",
+                "category",
+                "version"
+              ]
+            },
+            "minItems": 0,
+            "maxItems": 1000
+          },
+          "next_offset": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0,
+            "maximum": 1001000
+          }
+        },
+        "required": [
+          "generatedAt",
+          "empty",
+          "sources",
+          "rows",
+          "next_offset"
+        ]
+      }
+    },
+    {
+      "id": "asset.requests.list",
+      "method": "GET",
+      "scope": "asset.read",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1000000
+          }
+        },
+        "required": []
+      },
+      "output": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "generatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "empty": {
+            "type": "boolean"
+          },
+          "sources": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "entries": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 1000
+              },
+              "entry_ids": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "minItems": 0,
+                "maxItems": 1000
+              },
+              "basis": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200,
+                "pattern": "\\S"
+              }
+            },
+            "required": [
+              "entries",
+              "entry_ids",
+              "basis"
+            ]
+          },
+          "rows": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "source_id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 64,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+                },
+                "reference_id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "item": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 500,
+                  "pattern": "\\S"
+                },
+                "band": {
+                  "type": "string",
+                  "enum": [
+                    "standard",
+                    "premium",
+                    "executive"
+                  ]
+                },
+                "notes": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "minLength": 1,
+                  "maxLength": 500,
+                  "pattern": "\\S"
+                },
+                "requires_elevated_approval": {
+                  "type": "boolean"
+                },
+                "input_hash": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$"
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "draft",
+                    "cancelled"
+                  ]
+                },
+                "created_at": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "cancelled_at": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "external_completed": {
+                  "const": false
+                }
+              },
+              "required": [
+                "id",
+                "source_id",
+                "reference_id",
+                "item",
+                "band",
+                "notes",
+                "requires_elevated_approval",
+                "input_hash",
+                "status",
+                "created_at",
+                "cancelled_at",
+                "external_completed"
+              ]
+            },
+            "minItems": 0,
+            "maxItems": 1000
+          },
+          "next_offset": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0,
+            "maximum": 1001000
+          }
+        },
+        "required": [
+          "generatedAt",
+          "empty",
+          "sources",
+          "rows",
+          "next_offset"
+        ]
+      }
+    },
+    {
+      "id": "asset.assignees.import",
+      "method": "POST",
+      "scope": "asset.write",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "assignees": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "source_id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 64,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+                },
+                "name": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200,
+                  "pattern": "\\S"
+                },
+                "category": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "minLength": 1,
+                  "maxLength": 120,
+                  "pattern": "\\S"
+                }
+              },
+              "required": [
+                "source_id",
+                "name",
+                "category"
+              ]
+            },
+            "minItems": 1,
+            "maxItems": 1000
+          }
+        },
+        "required": [
+          "assignees"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "required": [
+          "outcome"
+        ],
+        "properties": {
+          "outcome": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "id": "asset.request.prepare",
+      "method": "POST",
+      "scope": "asset.write",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "source_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+          },
+          "reference_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "item": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500,
+            "pattern": "\\S"
+          },
+          "band": {
+            "type": "string",
+            "enum": [
+              "standard",
+              "premium",
+              "executive"
+            ]
+          },
+          "notes": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1,
+            "maxLength": 500,
+            "pattern": "\\S"
+          }
+        },
+        "required": [
+          "source_id",
+          "reference_id",
+          "item",
+          "band",
+          "notes"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "required": [
+          "outcome"
+        ],
+        "properties": {
+          "outcome": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "id": "asset.request.cancel",
+      "method": "POST",
+      "scope": "asset.write",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "input_hash": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "review": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "source_id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64,
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+              },
+              "reference_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "item": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 500,
+                "pattern": "\\S"
+              },
+              "band": {
+                "type": "string",
+                "enum": [
+                  "standard",
+                  "premium",
+                  "executive"
+                ]
+              },
+              "notes": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "minLength": 1,
+                "maxLength": 500,
+                "pattern": "\\S"
+              },
+              "requires_elevated_approval": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "source_id",
+              "reference_id",
+              "item",
+              "band",
+              "notes",
+              "requires_elevated_approval"
+            ]
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "required": [
+          "outcome"
+        ],
+        "properties": {
+          "outcome": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  ],
+  "abilities": [
+    {
+      "line": "asset.assignees.list",
+      "kind": "ability",
+      "from": "own",
+      "floor": "on",
+      "skill": "prepare-review",
+      "offers": "List assignees. Persisted company evidence, not a business approval or external effect.",
+      "read": true,
+      "capability": "asset.assignees.list",
+      "cappable": false
+    },
+    {
+      "line": "asset.requests.list",
+      "kind": "ability",
+      "from": "own",
+      "floor": "on",
+      "skill": "prepare-review",
+      "offers": "List requests. Persisted company evidence, not a business approval or external effect.",
+      "read": true,
+      "capability": "asset.requests.list",
+      "cappable": false
+    },
+    {
+      "line": "asset.assignees.import",
+      "kind": "ability",
+      "from": "own",
+      "floor": "ask",
+      "skill": null,
+      "offers": "Import assignees. Internal records only; no business authorization or external execution.",
+      "read": false,
+      "capability": "asset.assignees.import",
+      "cappable": false
+    },
+    {
+      "line": "asset.request.prepare",
+      "kind": "ability",
+      "from": "own",
+      "floor": "on",
+      "skill": "prepare-review",
+      "offers": "Prepare an internal request draft. Internal records only; no business authorization or external execution.",
+      "read": false,
+      "capability": "asset.request.prepare",
+      "cappable": false,
+      "floorReason": "the effect is internal and is verified from the company record book"
+    },
+    {
+      "line": "asset.request.cancel",
+      "kind": "ability",
+      "from": "own",
+      "floor": "ask",
+      "skill": null,
+      "offers": "Cancel an internal request draft. Internal records only; no business authorization or external execution.",
+      "read": false,
+      "capability": "asset.request.cancel",
+      "cappable": false
+    },
+    {
+      "line": "ask_app",
+      "kind": "ability",
+      "from": "own",
+      "floor": "on",
+      "skill": null,
+      "offers": "ask another installed app for information or a pinned ability",
+      "read": true,
+      "capability": null,
+      "cappable": false
+    },
+    {
+      "line": "notify_person",
+      "kind": "ability",
+      "from": "own",
+      "floor": "on",
+      "skill": null,
+      "offers": "send one rate-limited notice to an allowlisted person",
+      "read": false,
+      "capability": null,
+      "cappable": false,
+      "floorReason": "a notice changes no company record and cannot carry an approval"
+    }
+  ],
+  "schedules": [],
+  "skills": [
+    {
+      "id": "prepare-review",
+      "name": "Prepare Review",
+      "offers": "Prepare Review",
+      "requires": [
+        "asset.assignees.list",
+        "asset.requests.list",
+        "asset.request.prepare"
+      ]
+    }
+  ],
+  "blocks": [
+    {
+      "id": "drafts",
+      "kind": "page",
+      "title": "Asset drafts",
+      "file": "blocks/drafts.json"
+    }
+  ],
+  "runtime": {
+    "run": {
+      "compose": "deploy/compose.yaml",
+      "files": [
+        "deploy/compose.yaml"
+      ]
+    },
+    "frontend": {
+      "source": "../../packages/neop-frontend",
+      "build": "pnpm --filter @neop/frontend typecheck",
+      "out": "../../packages/neop-frontend",
+      "servedBy": "frontend",
+      "process": "frontend",
+      "path": "/apps/asset",
+      "api": "/api/v1",
+      "backend": "NEOS_PLATFORM_URL",
+      "basePath": "NEOP_FRONTEND_BASE_PATH"
+    },
+    "processes": [
+      {
+        "name": "backend",
+        "service": "asset-backend",
+        "build": "../../../deploy/fleet/backend.Dockerfile",
+        "command": "node entry.mjs",
+        "port": 4101,
+        "health": {
+          "http": "http://127.0.0.1:4101/ready",
+          "live": "http://127.0.0.1:4101/live"
+        },
+        "receives": [
+          "platform-db",
+          "operator",
+          "platform-matrix"
+        ],
+        "credentials": [
+          "NEOP_APP_DB_URL",
+          "NEOP_RUNNER_DB_URL",
+          "NEOP_DIRECT_DB_URL",
+          "NEOP_JOB_TOKEN_SECRET",
+          "NEOP_LLM_SIGNING_KEY",
+          "NEOP_MATRIX_CLIENT_ACCOUNTS"
+        ]
+      },
+      {
+        "name": "agent",
+        "service": "asset-agent",
+        "build": "../../../deploy/fleet/agent.Dockerfile",
+        "command": "node entry.mjs",
+        "port": 4103,
+        "health": {
+          "http": "http://127.0.0.1:4103/live",
+          "live": "http://127.0.0.1:4103/live"
+        },
+        "receives": [],
+        "credentials": []
+      },
+      {
+        "name": "frontend",
+        "service": "asset-frontend",
+        "build": "../../../deploy/fleet/frontend.Dockerfile",
+        "command": "node entry.mjs",
+        "port": 4105,
+        "health": {
+          "http": "http://127.0.0.1:4105/ready",
+          "live": "http://127.0.0.1:4105/live"
+        },
+        "receives": [
+          "operator"
+        ],
+        "credentials": [
+          "NEOP_FRONTEND_KEY"
+        ]
+      }
+    ],
+    "credentials": [
+      {
+        "name": "NEOP_APP_DB_URL",
+        "class": "platform-db",
+        "process": "backend",
+        "required": true,
+        "secret": true,
+        "purpose": "connection for asset_app, restricted to the asset schema"
+      },
+      {
+        "name": "NEOP_RUNNER_DB_URL",
+        "class": "platform-db",
+        "process": "backend",
+        "required": true,
+        "secret": true,
+        "purpose": "connection for asset_runner, used by the trusted backend only"
+      },
+      {
+        "name": "NEOP_DIRECT_DB_URL",
+        "class": "platform-db",
+        "process": "backend",
+        "required": true,
+        "secret": true,
+        "purpose": "direct database session for advisory locks and LISTEN"
+      },
+      {
+        "name": "NEOP_JOB_TOKEN_SECRET",
+        "class": "operator",
+        "process": "backend",
+        "required": true,
+        "secret": true,
+        "purpose": "short-lived job-token signing secret; never sent to the agent"
+      },
+      {
+        "name": "NEOP_LLM_SIGNING_KEY",
+        "class": "operator",
+        "process": "backend",
+        "required": true,
+        "secret": true,
+        "purpose": "short-lived model-session signing key; never sent to the agent"
+      },
+      {
+        "name": "NEOP_MATRIX_CLIENT_ACCOUNTS",
+        "class": "platform-matrix",
+        "process": "backend",
+        "required": true,
+        "secret": true,
+        "purpose": "Matrix client account map and access tokens for the installed app"
+      },
+      {
+        "name": "NEOP_FRONTEND_KEY",
+        "class": "operator",
+        "process": "frontend",
+        "required": true,
+        "secret": true,
+        "purpose": "key presented by the authenticated platform proxy to the standalone frontend"
+      }
+    ]
+  }
+}

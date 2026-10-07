@@ -10,36 +10,36 @@
     {
       "path": "src/app.mjs",
       "owner": "app",
-      "state": "adapter_required",
+      "state": "mapped",
       "strategy": "typed_app_contract",
-      "fleet_paths": ["apps/{app}/manifest.json", "apps/{app}/src/index.ts"],
-      "note": "Introduce one typed app declaration as the source for both fleet and upstream-compatible manifests."
+      "fleet_paths": ["apps/{app}/app.declaration.json", "apps/{app}/manifest.json", "apps/{app}/manifest.template.json", "packages/neop-template/src/declaration.ts"],
+      "note": "One typed app declaration deterministically emits the fleet and pinned-template manifests."
     },
     {
       "path": "src/capabilities/abilities.mjs",
       "owner": "app",
-      "state": "adapter_required",
+      "state": "mapped",
       "strategy": "typed_app_contract",
-      "fleet_paths": ["apps/{app}/src/capabilities/index.ts", "apps/{app}/manifest.json"],
-      "note": "Existing capabilities are typed but are not yet emitted through the upstream declaration contract."
+      "fleet_paths": ["apps/{app}/src/capabilities/index.ts", "apps/{app}/app.declaration.json", "apps/{app}/manifest.template.json"],
+      "note": "Typed app abilities are emitted as closed template capabilities and switchboard lines."
     },
     {
       "path": "src/capabilities/views.mjs",
       "owner": "app",
       "seed": true,
-      "state": "adapter_required",
+      "state": "mapped",
       "strategy": "typed_app_contract",
-      "fleet_paths": ["apps/{app}/blocks", "apps/{app}/manifest.json"],
-      "note": "Map declared reads and blocks to the upstream view contract without adding write paths."
+      "fleet_paths": ["apps/{app}/blocks", "apps/{app}/manifest.template.json", "scripts/fleet/testing/template-blocks.ts"],
+      "note": "Declared data-only blocks map to closed read capabilities without adding write paths."
     },
     {
       "path": "src/capabilities/sources.mjs",
       "owner": "app",
       "seed": true,
-      "state": "adapter_required",
+      "state": "mapped",
       "strategy": "typed_app_contract",
-      "fleet_paths": ["apps/{app}/src/data", "apps/{app}/manifest.json"],
-      "note": "Adopt the source lifecycle and count/provenance contract through a typed adapter."
+      "fleet_paths": ["apps/{app}/src/data", "apps/{app}/manifest.json", "scripts/fleet/testing/template-standard.ts"],
+      "note": "Every declared read is exercised for count, freshness, empty-state, and provenance behavior."
     },
     {
       "path": "src/capabilities/reads/**",
@@ -84,10 +84,10 @@
     {
       "path": "src/doors/**",
       "owner": "app",
-      "state": "adapter_required",
+      "state": "mapped",
       "strategy": "app_owned",
-      "fleet_paths": ["apps/{app}/src/doors", "apps/{app}/manifest.json"],
-      "note": "App door declarations need a typed per-app contract even when the app currently has no door."
+      "fleet_paths": ["apps/{app}/app.declaration.json", "apps/{app}/manifest.json"],
+      "note": "Door declarations are typed in the app declaration, including an explicit empty list."
     },
     {
       "path": "src/domain/proposals.mjs",
@@ -150,10 +150,10 @@
       "owner": "template",
       "render": true,
       "migration": true,
-      "state": "conflict",
+      "state": "mapped",
       "strategy": "forward_migration",
-      "fleet_paths": ["packages/neop-template/migrations/t*.sql", "apps/{app}/migrations"],
-      "note": "Upstream standard migrations must be cross-walked into new forward fleet migrations; applied numbering cannot be replaced."
+      "fleet_paths": ["packages/neop-template/migrations/t*.sql", "apps/{app}/migrations", "fleet/template-migrations.json", "scripts/fleet/testing/template-migration.ts"],
+      "note": "The pinned 001-008 set is cross-walked to immutable forward fleet migrations and proved on fresh and populated databases."
     },
     {
       "path": "migrations/**",
@@ -190,36 +190,36 @@
     {
       "path": "tests/**",
       "owner": "template",
-      "state": "adapter_required",
+      "state": "mapped",
       "strategy": "compatibility_test",
       "fleet_paths": ["packages/neop-template/tests", "scripts/fleet/tests", "packages/testkit/src"],
-      "note": "Build an explicit compatibility harness for every applicable upstream standard invariant."
+      "note": "Every app has a zero-skip compatibility harness for each applicable pinned standard invariant."
     },
     {
       "path": "deploy/compose.app.yaml",
       "owner": "app",
       "seed": true,
-      "state": "adapter_required",
+      "state": "mapped",
       "strategy": "shared_deployment",
-      "fleet_paths": ["fleet/catalog.json", "deploy/fleet"],
-      "note": "Generate app-specific environment overlays from the typed declaration."
+      "fleet_paths": ["fleet/catalog.json", "deploy/fleet/generated", "scripts/fleet/emit-manifests.ts"],
+      "note": "The fleet emitter generates one deterministic app-specific Compose contract per declaration."
     },
     {
       "path": "deploy/**",
       "owner": "template",
       "render": true,
-      "state": "adapter_required",
+      "state": "mapped",
       "strategy": "shared_deployment",
       "fleet_paths": ["deploy/fleet", "scripts/fleet/packaging"],
-      "note": "Add the frontend artifact and normalized one-app bridge while keeping the database backend-only."
+      "note": "Shared backend, agent, and frontend images enforce the normalized topology and keep the database backend-only."
     },
     {
       "path": "scripts/**",
       "owner": "template",
-      "state": "adapter_required",
+      "state": "mapped",
       "strategy": "shared_runtime",
-      "fleet_paths": ["scripts/fleet", "scripts/migrate.ts", "scripts/verify-install.ts"],
-      "note": "Map setup, manifest, verification and provider scripts to shared fleet commands."
+      "fleet_paths": ["scripts/fleet", "scripts/migrate.ts", "scripts/verify-install.ts", "scripts/neop-app-publish.ts", "scripts/neop-app-install.ts"],
+      "note": "Shared commands cover manifest emission, migration, verification, model provider policy, signed publish, and atomic install."
     },
     {
       "path": "docs/NEOP-V3-ALIGNMENT.md",
@@ -233,18 +233,18 @@
     {
       "path": "docs/BUILDING-A-NEOP.md",
       "owner": "template",
-      "state": "adapter_required",
+      "state": "mapped",
       "strategy": "documented_deviation",
-      "fleet_paths": ["docs/FLEET-V3-RUNTIME.md", "docs/TEMPLATE-ALIGNMENT-PLAN.md"],
-      "note": "Publish one fleet construction guide after the compatibility substrate stabilizes."
+      "fleet_paths": ["docs/BUILDING-A-NEOP.md", "docs/FLEET-V3-RUNTIME.md", "docs/TEMPLATE-ALIGNMENT-PLAN.md"],
+      "note": "The fleet construction guide documents app ownership, generation, verification, credentials, and release."
     },
     {
       "path": "docs/CHATGPT-PLAN-PROVIDER.md",
       "owner": "template",
-      "state": "conflict",
+      "state": "mapped",
       "strategy": "documented_deviation",
-      "fleet_paths": ["packages/platform/src/llm", "apps/ledger/scripts/llm-proxy.ts"],
-      "note": "Security must decide how the local broker maps to the fleet's short-lived keyless model proxy."
+      "fleet_paths": ["packages/platform/src/llm", "apps/ledger/scripts/llm-proxy.ts", "fleet/template-provider.json", "docs/adr/0033-pinned-template-model-provider-contract.md"],
+      "note": "The reviewed provider decision keeps the stronger short-lived keyless proxy, supports OpenRouter, and fails closed."
     },
     {
       "path": "docs/NEOP-WHOLE-PICTURE-v3.md",
@@ -258,10 +258,10 @@
       "path": ".env.example",
       "owner": "template",
       "render": true,
-      "state": "adapter_required",
+      "state": "mapped",
       "strategy": "shared_deployment",
-      "fleet_paths": ["deploy/production.env.example", "scripts/fleet/runtime/config.ts"],
-      "note": "Generate per-process settings from typed declarations and preserve strict credential placement."
+      "fleet_paths": ["deploy/fleet/runtime.env.example", "scripts/fleet/runtime/config.ts", "deploy/fleet/generated"],
+      "note": "The shared non-secret environment example and generated Compose files preserve strict per-process credential placement."
     },
     {
       "path": ".gitignore",
@@ -282,60 +282,60 @@
     {
       "path": "manifest.json",
       "owner": "generated",
-      "state": "conflict",
+      "state": "mapped",
       "strategy": "generated_contract",
-      "fleet_paths": ["apps/{app}/manifest.json"],
-      "note": "Current manifests are stored app artifacts; a deterministic dual-contract emitter is required."
+      "fleet_paths": ["apps/{app}/app.declaration.json", "apps/{app}/manifest.json", "apps/{app}/manifest.template.json", "packages/neop-template/src/declaration.ts"],
+      "note": "Both stored manifests are deterministic generated artifacts of the typed app declaration."
     },
     {
       "path": "template.json",
       "owner": "template",
-      "state": "adapter_required",
+      "state": "mapped",
       "strategy": "repository_policy",
-      "fleet_paths": ["fleet/template-alignment.json", "fleet/template-ownership.json"],
-      "note": "The monorepo records the pinned template and ownership crosswalk centrally."
+      "fleet_paths": ["reference/upstream/neos-neop-template/template.json", "fleet/template-alignment.json", "fleet/template-ownership.json"],
+      "note": "The monorepo preserves the exact pinned template definition and validated ownership crosswalk."
     },
     {
       "path": "frontend/server.mjs",
       "owner": "template",
       "render": true,
-      "state": "missing",
+      "state": "mapped",
       "strategy": "shared_frontend",
-      "fleet_paths": ["packages/neop-frontend/server"],
-      "note": "Create the shared no-login frontend server and authenticated backend proxy."
+      "fleet_paths": ["packages/neop-frontend/src/index.ts"],
+      "note": "The shared standalone frontend serves the no-login surface and authenticated backend proxy."
     },
     {
       "path": "frontend/next.config.mjs",
       "owner": "template",
-      "state": "missing",
+      "state": "mapped",
       "strategy": "shared_frontend",
-      "fleet_paths": ["packages/neop-frontend/next.config.mjs"],
-      "note": "Create shared base-path-aware frontend build configuration."
+      "fleet_paths": ["packages/neop-frontend/src/index.ts", "scripts/fleet/runtime/frontend.ts"],
+      "note": "The server-rendered fleet adapter applies the same base-path contract without a Next.js build dependency."
     },
     {
       "path": "frontend/lib/**",
       "owner": "template",
-      "state": "missing",
+      "state": "mapped",
       "strategy": "shared_frontend",
-      "fleet_paths": ["packages/neop-frontend/lib"],
-      "note": "Create shared no-login API, source and screen helpers."
+      "fleet_paths": ["packages/neop-frontend/src/index.ts", "packages/testkit/src/template-frontend.ts"],
+      "note": "Shared API, provenance, empty-state, and failure helpers are implemented and behavior-tested."
     },
     {
       "path": "frontend/**",
       "owner": "app",
-      "state": "missing",
+      "state": "mapped",
       "strategy": "app_owned",
-      "fleet_paths": ["apps/{app}/frontend"],
-      "note": "Each app needs app-owned screens using the shared frontend shell."
+      "fleet_paths": ["apps/{app}/blocks", "apps/{app}/manifest.template.json", "apps/{app}/scripts/frontend.ts"],
+      "note": "Each app owns its data-only screen declarations and generated frontend entry while sharing the hardened shell."
     },
     {
       "path": "dev/apps.fixtures.json",
       "owner": "app",
       "seed": true,
-      "state": "adapter_required",
+      "state": "mapped",
       "strategy": "development_fixture",
-      "fleet_paths": ["packages/testkit/src", "apps/{app}/tests/fixture.ts", "apps/{app}/tests/fixtures.ts"],
-      "note": "Provide one typed development app-directory fixture contract."
+      "fleet_paths": ["fleet/dev-apps.fixtures.json", "packages/testkit/src", "apps/{app}/tests/fixture.ts", "apps/{app}/tests/fixtures.ts"],
+      "note": "The fleet fixture contract names every app declaration, generated output, Compose contract, and local fixture."
     },
     {
       "path": "**",

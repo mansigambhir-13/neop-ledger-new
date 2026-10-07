@@ -16,6 +16,7 @@ import { LOCK_FILE, PACKAGES_DIR, packageContentHash, packageSlug, readLock, ren
 import { packageRole } from './migrate.ts';
 import { hasSelftest, selftestPackage } from './selftest.ts';
 import type { PackageBundle } from './types.ts';
+import { fleetManifest, stableJson, templateManifest, type AppDeclaration } from '../declaration.ts';
 
 /** A registry row as the registry serves it for install (signed; the artifact is fetched by its hash). */
 export interface RegistryEntry {
@@ -304,8 +305,10 @@ export async function installEntry(o: InstallOptions): Promise<InstallResult> {
   const { key, version } = parseSpec(o.spec);
   const root = path.resolve(o.root);
   const manifestFile = path.join(root, 'manifest.json');
+  const declarationFile = path.join(root, 'app.declaration.json');
   const lockFile = path.join(root, LOCK_FILE);
-  const manifestText = await readText(manifestFile);
+  const declaration = await readFile(declarationFile, 'utf8').then((text) => JSON.parse(text) as AppDeclaration, () => null);
+  const manifestText = declaration ? stableJson(declaration.manifest) : await readText(manifestFile);
   const manifest = JSON.parse(manifestText) as Manifest;
   const host = manifest.app;
   const lock = await readLock(lockFile);
@@ -314,6 +317,13 @@ export async function installEntry(o: InstallOptions): Promise<InstallResult> {
   const jwks = await o.source.jwks();
   const signature = await verifyEntry(entry, key, version, jwks, o.trusted);
   const stage = new Staging();
+  const stageManifest = async (text: string) => {
+    if (!declaration) return stage.write(manifestFile, text);
+    const next = { ...declaration, manifest: JSON.parse(text) as Manifest };
+    await stage.write(declarationFile, stableJson(next));
+    await stage.write(manifestFile, stableJson(fleetManifest(next)));
+    await stage.write(path.join(root, 'manifest.template.json'), stableJson(templateManifest(next, root)));
+  };
 
   if (entry.kind === 'skill') {
     if (!entry.body) throw new InstallError(`${key}@${version} has no text`, 'bad_entry');
@@ -321,7 +331,7 @@ export async function installEntry(o: InstallOptions): Promise<InstallResult> {
     const next: PackagesLock = { ...lock, skills: [...lock.skills.filter((s) => s.key !== key), pin] };
     const pins = [...(manifest.registry_skills ?? []).filter((s) => s.key !== key), { key, version, owner_app: entry.owner_app, content_hash: entry.content_hash, requires: pin.requires }].sort((a, b) => a.key.localeCompare(b.key));
     await stage.write(lockFile, renderLock(next));
-    await stage.write(manifestFile, setJsonArray(manifestText, 'registry_skills', pins, 'packages'));
+    await stageManifest(setJsonArray(manifestText, 'registry_skills', pins, 'packages'));
     await stage.commit();
     log(`${host}: pinned skill ${key}@${version} (${entry.content_hash}); it loads where the company switches it and all it requires on`);
     return { key, version, kind: 'skill', artifact_hash: null, migrations: [], selftest: 'none' };
@@ -433,7 +443,7 @@ export async function installEntry(o: InstallOptions): Promise<InstallResult> {
       skills: m.skills.map((s) => ({ key: s.key, requires: s.requires })),
     },
   ].sort((a, b) => a.key.localeCompare(b.key));
-  await stage.write(manifestFile, setJsonArray(await readText(manifestFile), 'packages', pins));
+  await stageManifest(setJsonArray(manifestText, 'packages', pins));
 
   // Its tests, inside the host.
   let selftest: InstallResult['selftest'] = 'skipped';
@@ -491,15 +501,24 @@ export interface RemoveResult {
 export async function removeEntry(o: { root: string; key: string; log?: (m: string) => void }): Promise<RemoveResult> {
   const root = path.resolve(o.root);
   const manifestFile = path.join(root, 'manifest.json');
+  const declarationFile = path.join(root, 'app.declaration.json');
   const lockFile = path.join(root, LOCK_FILE);
   const lock = await readLock(lockFile);
-  const manifestText = await readText(manifestFile);
+  const declaration = await readFile(declarationFile, 'utf8').then((text) => JSON.parse(text) as AppDeclaration, () => null);
+  const manifestText = declaration ? stableJson(declaration.manifest) : await readText(manifestFile);
   const manifest = JSON.parse(manifestText) as Manifest;
   const stage = new Staging();
+  const stageManifest = async (text: string) => {
+    if (!declaration) return stage.write(manifestFile, text);
+    const next = { ...declaration, manifest: JSON.parse(text) as Manifest };
+    await stage.write(declarationFile, stableJson(next));
+    await stage.write(manifestFile, stableJson(fleetManifest(next)));
+    await stage.write(path.join(root, 'manifest.template.json'), stableJson(templateManifest(next, root)));
+  };
   const skill = lock.skills.find((s) => s.key === o.key);
   if (skill) {
     await stage.write(lockFile, renderLock({ ...lock, skills: lock.skills.filter((s) => s.key !== o.key) }));
-    await stage.write(manifestFile, setJsonArray(manifestText, 'registry_skills', (manifest.registry_skills ?? []).filter((s) => s.key !== o.key), 'packages'));
+    await stageManifest(setJsonArray(manifestText, 'registry_skills', (manifest.registry_skills ?? []).filter((s) => s.key !== o.key), 'packages'));
     await stage.commit();
     o.log?.(`${manifest.app}: unpinned skill ${o.key}`);
     return { key: o.key, kind: 'skill', kept_migrations: [] };
@@ -510,7 +529,7 @@ export async function removeEntry(o: { root: string; key: string; log?: (m: stri
   await makeWritable(dir).catch(() => {});
   await rm(dir, { recursive: true, force: true });
   await stage.write(lockFile, renderLock({ ...lock, packages: lock.packages.filter((x) => x.key !== o.key) }));
-  await stage.write(manifestFile, setJsonArray(manifestText, 'packages', (manifest.packages ?? []).filter((x) => x.key !== o.key)));
+  await stageManifest(setJsonArray(manifestText, 'packages', (manifest.packages ?? []).filter((x) => x.key !== o.key)));
   await stage.commit();
   const kept = p.migrations.map((x) => x.host_file);
   o.log?.(`${manifest.app}: removed ${o.key}@${p.version}; its migrations stay (${kept.join(', ') || 'none'}) and its tables are kept`);

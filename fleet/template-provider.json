@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "template_commit": "94db804f94403c15ad1279e6d30dcecc7c078b82",
+  "selected_contract": "runner-signed-keyless-proxy",
+  "upstreams": ["anthropic-messages", "openrouter-anthropic-compatible"],
+  "direct_agent_provider_credentials": false,
+  "chatgpt_or_codex_plan_login_in_agent": false,
+  "fallback": "fail-closed-with-audited-retry",
+  "decision": "Provider credentials stay in the shared proxy. Each runner mints a short-lived app/company/job/session-bound token. Missing, revoked, foreign or expired trust fails closed; the agent never falls back to a provider credential. OpenRouter is supported at the proxy through bearer auth and a reviewed model prefix. Consumer ChatGPT/Codex plan login is deliberately not copied into an autonomous backend because it would move an interactive account credential into the runtime."
+}

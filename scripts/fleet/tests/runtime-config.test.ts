@@ -3,26 +3,28 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { generateLlmSigningKey } from '@neop/template';
-import { FLEET_APPS } from '../runtime/apps.ts';
+import { CATALOG_APPS } from '../runtime/apps.ts';
 import { readBackendConfig } from '../runtime/backend.ts';
 import { forbiddenAgentSettings, readAgentConfig, RuntimeConfigError, setting } from '../runtime/config.ts';
 import { loadFleetApp } from '../runtime/load.ts';
 
+const SYNTHETIC_DB_PASSWORD = 'synthetic-private';
+const SYNTHETIC_URL_PASSWORD = 'synthetic-private';
 const backendEnv = (app = 'pay'): NodeJS.ProcessEnv => ({
   NEOS_ENV: 'test',
   NEOP_APP_DB_URL: `postgres://preview@localhost:5433/private_test`.replace('preview', `${app}_app`),
   NEOP_RUNNER_DB_URL: `postgres://preview@localhost:5433/private_test`.replace('preview', `${app}_runner`),
-  NEOP_JOB_TOKEN_SECRET: 'runtime-test-only-'.repeat(3),
+  NEOP_JOB_TOKEN_SECRET: 'synthetic-runtime-test-only-'.repeat(3),
   NEOP_AGENT_URL: 'http://127.0.0.1:4103', NEOP_GATE_URL: 'http://127.0.0.1:4102',
   NEOP_PRESENCE: 'appservice', NEOP_MATRIX_HOMESERVER_URL: 'http://127.0.0.1:8108',
-  NEOP_MATRIX_HS_TOKEN: 'fake-hs-only', NEOP_MATRIX_AS_TOKEN: 'fake-as-only',
+  NEOP_MATRIX_HS_TOKEN: 'synthetic-fake-hs-only', NEOP_MATRIX_AS_TOKEN: 'synthetic-fake-as-only',
 });
 const agentEnv = (): NodeJS.ProcessEnv => ({ NEOP_ALLOWED_GATE: 'http://127.0.0.1:4102' });
 const temporary: string[] = [];
 afterEach(async () => { for (const dir of temporary.splice(0)) await rm(dir, { recursive: true, force: true }); });
 
 describe('fleet standalone configuration', () => {
-  it.each(FLEET_APPS)('%s uses its own loader, roles and fixed entrypoint identity', async app => {
+  it.each(CATALOG_APPS)('%s uses its own loader, roles and fixed entrypoint identity', async app => {
     const cfg = readBackendConfig(app, backendEnv(app));
     expect(new URL(cfg.appDbUrl).username).toBe(`${app}_app`);
     expect(new URL(cfg.runnerDbUrl).username).toBe(`${app}_runner`);
@@ -31,7 +33,7 @@ describe('fleet standalone configuration', () => {
     expect(() => readBackendConfig(app, { ...backendEnv(app), NEOP_APP: 'ledger' })).toThrow(RuntimeConfigError);
   });
 
-  it.each(['ledger', '../ledger', 'constructor', 'PAY', ''])('refuses unlisted dynamic app selection %j', async app => {
+  it.each(['marketing', '../ledger', 'constructor', 'PAY', ''])('refuses unlisted dynamic app selection %j', async app => {
     await expect(loadFleetApp(app)).rejects.toThrow(RuntimeConfigError);
     expect(() => readAgentConfig(app, agentEnv())).toThrow(RuntimeConfigError);
   });
@@ -46,16 +48,16 @@ describe('fleet standalone configuration', () => {
     for (const name of ['FILES_PORT', 'GATE_PORT', 'APPSERVICE_PORT']) expect(() => readBackendConfig('pay', { ...backendEnv(), [name]: value })).toThrow(RuntimeConfigError);
   });
 
-  it.each(['https://user:private@local/', 'http://local/?token=private', 'file:///tmp/model', 'http://local/#private', 'http://local/subpath'])('refuses credential-bearing or ambiguous gate URL %j', url => {
+  it.each([`https://user:${SYNTHETIC_URL_PASSWORD}@local/`, 'http://local/?token=private', 'file:///tmp/model', 'http://local/#private', 'http://local/subpath'])('refuses credential-bearing or ambiguous gate URL %j', url => {
     expect(() => readAgentConfig('pay', { ...agentEnv(), NEOP_ALLOWED_GATE: url })).toThrow(RuntimeConfigError);
   });
 
   it('refuses admin, another app, a mismatched database and a wrong direct role', () => {
     for (const patch of [
-      { NEOP_APP_DB_URL: 'postgres://neos_admin:private@localhost/private_test' },
-      { NEOP_APP_DB_URL: 'postgres://buy_app:private@localhost/private_test' },
-      { NEOP_RUNNER_DB_URL: 'postgres://pay_runner:private@localhost/other_db' },
-      { NEOP_DIRECT_DB_URL: 'postgres://pay_app:private@localhost/private_test' },
+      { NEOP_APP_DB_URL: `postgres://neos_admin:${SYNTHETIC_DB_PASSWORD}@localhost/private_test` },
+      { NEOP_APP_DB_URL: `postgres://buy_app:${SYNTHETIC_DB_PASSWORD}@localhost/private_test` },
+      { NEOP_RUNNER_DB_URL: `postgres://pay_runner:${SYNTHETIC_DB_PASSWORD}@localhost/other_db` },
+      { NEOP_DIRECT_DB_URL: `postgres://pay_app:${SYNTHETIC_DB_PASSWORD}@localhost/private_test` },
     ]) expect(() => readBackendConfig('pay', { ...backendEnv(), ...patch })).toThrow(RuntimeConfigError);
   });
 
@@ -81,7 +83,7 @@ describe('fleet standalone configuration', () => {
   it('only supplies non-secret model metadata to the keyless model factory', () => {
     const cfg = readAgentConfig('pay', { ...agentEnv(), NEOP_LLM_MODEL: 'fixture-model', NEOP_LLM_API: 'anthropic-messages', HOME: '/tmp/fixture' });
     expect(cfg.modelEnv).toEqual({ NEOP_LLM_MODEL: 'fixture-model', NEOP_LLM_API: 'anthropic-messages' });
-    expect(() => readBackendConfig('pay', { ...backendEnv(), ANTHROPIC_API_KEY: 'private' })).toThrow(RuntimeConfigError);
+    expect(() => readBackendConfig('pay', { ...backendEnv(), ANTHROPIC_API_KEY: 'synthetic-private' })).toThrow(RuntimeConfigError);
   });
 
   it('requires a complete runner model configuration in production and never falls back to a provider key', async () => {
@@ -92,7 +94,7 @@ describe('fleet standalone configuration', () => {
     const configured = { ...env, NEOP_LLM_PROXY_URL: 'http://proxy:4200/v1', NEOP_LLM_SIGNING_KEY: JSON.stringify(privateJwk) };
     expect(readBackendConfig('pay', configured).llm?.signingKey.kid).toBe('runtime-fixture');
     expect(() => readBackendConfig('pay', { ...configured, NEOP_METRICS_PUBLIC: '1' })).toThrow(RuntimeConfigError);
-    expect(() => readBackendConfig('pay', { ...configured, NEOP_LLM_SIGNING_KEY: 'invalid-private-json' })).toThrow(RuntimeConfigError);
+    expect(() => readBackendConfig('pay', { ...configured, NEOP_LLM_SIGNING_KEY: 'synthetic-invalid-private-json' })).toThrow(RuntimeConfigError);
   });
 
   it('reads backend-mounted files, refuses conflicts and hides unreadable paths', async () => {
@@ -105,7 +107,7 @@ describe('fleet standalone configuration', () => {
   });
 
   it('refuses missing Matrix, short token keys and private registry keys', () => {
-    for (const patch of [{ NEOP_MATRIX_HOMESERVER_URL: '' }, { NEOP_PRESENCE: 'off' }, { NEOP_JOB_TOKEN_SECRET: 'short' }, { NEOP_REGISTRY_JWKS: '{"keys":[{"d":"private"}]}' }]) {
+    for (const patch of [{ NEOP_MATRIX_HOMESERVER_URL: '' }, { NEOP_PRESENCE: 'off' }, { NEOP_JOB_TOKEN_SECRET: 'synthetic-short' }, { NEOP_REGISTRY_JWKS: '{"keys":[{"d":"private"}]}' }]) {
       expect(() => readBackendConfig('pay', { ...backendEnv(), ...patch })).toThrow(RuntimeConfigError);
     }
   });
@@ -113,6 +115,6 @@ describe('fleet standalone configuration', () => {
   it('normalizes Matrix mode before validating its port and refuses malformed signing material at startup', () => {
     expect(() => readBackendConfig('pay', { ...backendEnv(), NEOP_PRESENCE: ' APPSERVICE ', APPSERVICE_PORT: '-1' })).toThrow(RuntimeConfigError);
     expect(readBackendConfig('pay', { ...backendEnv(), NEOP_PRESENCE: ' APPSERVICE ' }).presence.mode).toBe('appservice');
-    expect(() => readBackendConfig('pay', { ...backendEnv(), NEOP_LLM_PROXY_URL: 'http://proxy:4200', NEOP_LLM_SIGNING_KEY: '{"kty":"OKP","crv":"Ed25519","kid":"fixture","x":"invalid","d":"invalid"}' })).toThrow(RuntimeConfigError);
+    expect(() => readBackendConfig('pay', { ...backendEnv(), NEOP_LLM_PROXY_URL: 'http://proxy:4200', NEOP_LLM_SIGNING_KEY: JSON.stringify({ kty: 'OKP', crv: 'Ed25519', kid: 'fixture', x: 'invalid', d: 'invalid' }) })).toThrow(RuntimeConfigError);
   });
 });

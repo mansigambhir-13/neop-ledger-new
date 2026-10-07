@@ -11,6 +11,9 @@ importers:
       '@neop/asset':
         specifier: workspace:*
         version: link:apps/asset
+      '@neop/buy':
+        specifier: workspace:*
+        version: link:apps/buy
       '@neop/clear':
         specifier: workspace:*
         version: link:apps/clear
@@ -20,6 +23,12 @@ importers:
       '@neop/desk':
         specifier: workspace:*
         version: link:apps/desk
+      '@neop/domain-values':
+        specifier: workspace:*
+        version: link:packages/domain-values
+      '@neop/frontend':
+        specifier: workspace:*
+        version: link:packages/neop-frontend
       '@neop/grant':
         specifier: workspace:*
         version: link:apps/grant
@@ -29,36 +38,6 @@ importers:
       '@neop/hire':
         specifier: workspace:*
         version: link:apps/hire
-      '@neop/post':
-        specifier: workspace:*
-        version: link:apps/post
-      '@neop/quote':
-        specifier: workspace:*
-        version: link:apps/quote
-      '@neop/reach':
-        specifier: workspace:*
-        version: link:apps/reach
-      '@neop/roster':
-        specifier: workspace:*
-        version: link:apps/roster
-      '@neop/shift':
-        specifier: workspace:*
-        version: link:apps/shift
-      '@neop/sign':
-        specifier: workspace:*
-        version: link:apps/sign
-      '@neop/sync':
-        specifier: workspace:*
-        version: link:apps/sync
-      '@neop/vet':
-        specifier: workspace:*
-        version: link:apps/vet
-      '@neop/buy':
-        specifier: workspace:*
-        version: link:apps/buy
-      '@neop/domain-values':
-        specifier: workspace:*
-        version: link:packages/domain-values
       '@neop/ledger':
         specifier: workspace:*
         version: link:apps/ledger
@@ -74,15 +53,42 @@ importers:
       '@neop/platform':
         specifier: workspace:*
         version: link:packages/platform
+      '@neop/post':
+        specifier: workspace:*
+        version: link:apps/post
+      '@neop/quote':
+        specifier: workspace:*
+        version: link:apps/quote
+      '@neop/reach':
+        specifier: workspace:*
+        version: link:apps/reach
       '@neop/renew':
         specifier: workspace:*
         version: link:apps/renew
+      '@neop/roster':
+        specifier: workspace:*
+        version: link:apps/roster
+      '@neop/shift':
+        specifier: workspace:*
+        version: link:apps/shift
+      '@neop/sign':
+        specifier: workspace:*
+        version: link:apps/sign
+      '@neop/sync':
+        specifier: workspace:*
+        version: link:apps/sync
       '@neop/template':
         specifier: workspace:*
         version: link:packages/neop-template
+      '@neop/vet':
+        specifier: workspace:*
+        version: link:apps/vet
       '@neop/wage':
         specifier: workspace:*
         version: link:apps/wage
+      jose:
+        specifier: ^6.1.0
+        version: 6.2.12
     devDependencies:
       '@neop/testkit':
         specifier: workspace:*
@@ -107,6 +113,25 @@ importers:
         version: 2.9.1
 
   apps/asset:
+    dependencies:
+      '@neop/contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
+      '@neop/domain-values':
+        specifier: workspace:*
+        version: link:../../packages/domain-values
+      '@neop/pgkit':
+        specifier: workspace:*
+        version: link:../../packages/pgkit
+      '@neop/template':
+        specifier: workspace:*
+        version: link:../../packages/neop-template
+    devDependencies:
+      '@neop/testkit':
+        specifier: workspace:*
+        version: link:../../packages/testkit
+
+  apps/buy:
     dependencies:
       '@neop/contracts':
         specifier: workspace:*
@@ -239,6 +264,81 @@ importers:
         specifier: workspace:*
         version: link:../../packages/testkit
 
+  apps/ledger:
+    dependencies:
+      '@hono/node-server':
+        specifier: ^1.19.0
+        version: 1.19.17(hono@4.13.9)
+      '@mariozechner/pi-ai':
+        specifier: ^0.73.1
+        version: 0.73.1(ws@8.21.3)(zod@4.6.5)
+      '@neop/contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
+      '@neop/pgkit':
+        specifier: workspace:*
+        version: link:../../packages/pgkit
+      '@neop/platform':
+        specifier: workspace:*
+        version: link:../../packages/platform
+      '@neop/template':
+        specifier: workspace:*
+        version: link:../../packages/neop-template
+      hono:
+        specifier: ^4.9.0
+        version: 4.13.9
+      jose:
+        specifier: ^6.1.0
+        version: 6.2.12
+      pg:
+        specifier: ^8.16.0
+        version: 8.23.0
+    devDependencies:
+      '@neop/marketing':
+        specifier: workspace:*
+        version: link:../marketing
+      '@neop/testkit':
+        specifier: workspace:*
+        version: link:../../packages/testkit
+
+  apps/marketing:
+    dependencies:
+      '@neop/contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
+      '@neop/pgkit':
+        specifier: workspace:*
+        version: link:../../packages/pgkit
+      '@neop/template':
+        specifier: workspace:*
+        version: link:../../packages/neop-template
+    devDependencies:
+      '@neop/ledger':
+        specifier: workspace:*
+        version: link:../ledger
+      '@neop/testkit':
+        specifier: workspace:*
+        version: link:../../packages/testkit
+
+  apps/pay:
+    dependencies:
+      '@neop/contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
+      '@neop/domain-values':
+        specifier: workspace:*
+        version: link:../../packages/domain-values
+      '@neop/pgkit':
+        specifier: workspace:*
+        version: link:../../packages/pgkit
+      '@neop/template':
+        specifier: workspace:*
+        version: link:../../packages/neop-template
+    devDependencies:
+      '@neop/testkit':
+        specifier: workspace:*
+        version: link:../../packages/testkit
+
   apps/post:
     dependencies:
       '@neop/contracts':
@@ -278,6 +378,25 @@ importers:
         version: link:../../packages/testkit
 
   apps/reach:
+    dependencies:
+      '@neop/contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
+      '@neop/domain-values':
+        specifier: workspace:*
+        version: link:../../packages/domain-values
+      '@neop/pgkit':
+        specifier: workspace:*
+        version: link:../../packages/pgkit
+      '@neop/template':
+        specifier: workspace:*
+        version: link:../../packages/neop-template
+    devDependencies:
+      '@neop/testkit':
+        specifier: workspace:*
+        version: link:../../packages/testkit
+
+  apps/renew:
     dependencies:
       '@neop/contracts':
         specifier: workspace:*
@@ -391,119 +510,6 @@ importers:
         specifier: workspace:*
         version: link:../../packages/testkit
 
-  apps/buy:
-    dependencies:
-      '@neop/contracts':
-        specifier: workspace:*
-        version: link:../../packages/contracts
-      '@neop/domain-values':
-        specifier: workspace:*
-        version: link:../../packages/domain-values
-      '@neop/pgkit':
-        specifier: workspace:*
-        version: link:../../packages/pgkit
-      '@neop/template':
-        specifier: workspace:*
-        version: link:../../packages/neop-template
-    devDependencies:
-      '@neop/testkit':
-        specifier: workspace:*
-        version: link:../../packages/testkit
-
-  apps/ledger:
-    dependencies:
-      '@hono/node-server':
-        specifier: ^1.19.0
-        version: 1.19.17(hono@4.13.9)
-      '@mariozechner/pi-ai':
-        specifier: ^0.73.1
-        version: 0.73.1(ws@8.21.3)(zod@4.6.5)
-      '@neop/contracts':
-        specifier: workspace:*
-        version: link:../../packages/contracts
-      '@neop/pgkit':
-        specifier: workspace:*
-        version: link:../../packages/pgkit
-      '@neop/platform':
-        specifier: workspace:*
-        version: link:../../packages/platform
-      '@neop/template':
-        specifier: workspace:*
-        version: link:../../packages/neop-template
-      hono:
-        specifier: ^4.9.0
-        version: 4.13.9
-      jose:
-        specifier: ^6.1.0
-        version: 6.2.12
-      pg:
-        specifier: ^8.16.0
-        version: 8.23.0
-    devDependencies:
-      '@neop/marketing':
-        specifier: workspace:*
-        version: link:../marketing
-      '@neop/testkit':
-        specifier: workspace:*
-        version: link:../../packages/testkit
-
-  apps/marketing:
-    dependencies:
-      '@neop/contracts':
-        specifier: workspace:*
-        version: link:../../packages/contracts
-      '@neop/pgkit':
-        specifier: workspace:*
-        version: link:../../packages/pgkit
-      '@neop/template':
-        specifier: workspace:*
-        version: link:../../packages/neop-template
-    devDependencies:
-      '@neop/ledger':
-        specifier: workspace:*
-        version: link:../ledger
-      '@neop/testkit':
-        specifier: workspace:*
-        version: link:../../packages/testkit
-
-  apps/pay:
-    dependencies:
-      '@neop/contracts':
-        specifier: workspace:*
-        version: link:../../packages/contracts
-      '@neop/domain-values':
-        specifier: workspace:*
-        version: link:../../packages/domain-values
-      '@neop/pgkit':
-        specifier: workspace:*
-        version: link:../../packages/pgkit
-      '@neop/template':
-        specifier: workspace:*
-        version: link:../../packages/neop-template
-    devDependencies:
-      '@neop/testkit':
-        specifier: workspace:*
-        version: link:../../packages/testkit
-
-  apps/renew:
-    dependencies:
-      '@neop/contracts':
-        specifier: workspace:*
-        version: link:../../packages/contracts
-      '@neop/domain-values':
-        specifier: workspace:*
-        version: link:../../packages/domain-values
-      '@neop/pgkit':
-        specifier: workspace:*
-        version: link:../../packages/pgkit
-      '@neop/template':
-        specifier: workspace:*
-        version: link:../../packages/neop-template
-    devDependencies:
-      '@neop/testkit':
-        specifier: workspace:*
-        version: link:../../packages/testkit
-
   apps/wage:
     dependencies:
       '@neop/contracts':
@@ -523,6 +529,8 @@ importers:
   packages/contracts: {}
 
   packages/domain-values: {}
+
+  packages/neop-frontend: {}
 
   packages/neop-template:
     dependencies:

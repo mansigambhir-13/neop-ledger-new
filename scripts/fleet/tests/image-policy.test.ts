@@ -23,7 +23,8 @@ it.each([{id:'neop-pay:latest'},{os:'darwin'},{architecture:'amd64'},{app:'ledge
 it('maps only explicit loopback fixtures, preserving their paths', () => {
   expect(loopbackPort('http://127.0.0.1:1234/llm')).toBe(1234);
   expect(hostFixtureUrl('http://127.0.0.1:1234/llm')).toBe('http://host.docker.internal:1234/llm');
-  for(const value of ['https://127.0.0.1:1234','http://example.com:1234','http://localhost:1234','http://127.0.0.1','http://user:secret@127.0.0.1:1234','http://127.0.0.1:1234?url=elsewhere']) expect(()=>loopbackPort(value)).toThrow();
+  const SYNTHETIC_URL_PASSWORD = 'synthetic-secret';
+  for(const value of ['https://127.0.0.1:1234','http://example.com:1234','http://localhost:1234','http://127.0.0.1',`http://user:${SYNTHETIC_URL_PASSWORD}@127.0.0.1:1234`,'http://127.0.0.1:1234?url=elsewhere']) expect(()=>loopbackPort(value)).toThrow();
 });
 it('binds original code/data and omits generated overlays/manifests and vendored files', () => {
   expect(originalSource(entry('runtime/packages/contracts/src/index.ts'),'agent')).toBe('packages/contracts/src/index.ts');

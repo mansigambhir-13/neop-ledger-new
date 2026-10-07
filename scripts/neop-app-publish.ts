@@ -1,0 +1,20 @@
+import { readFile } from 'node:fs/promises';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import type { JWK } from 'jose';
+import { createAppRelease, FileAppReleaseRegistry, signAppRelease } from '@neop/template';
+import { isFleetApp } from './fleet/runtime/apps.ts';
+
+const [app, registryArg] = process.argv.slice(2);
+if (!app || !isFleetApp(app) || !registryArg) throw new Error('usage: neop-app-publish.ts <app> <registry-dir>');
+const keyFile = process.env.NEOS_APP_PUBLISH_KEY_FILE;
+const kid = process.env.NEOS_APP_PUBLISH_KID;
+if (!keyFile || !kid) throw new Error('NEOS_APP_PUBLISH_KEY_FILE and NEOS_APP_PUBLISH_KID are required');
+const privateJwk = JSON.parse(await readFile(keyFile, 'utf8')) as JWK;
+const { d: _private, ...publicFields } = privateJwk;
+const publicJwk: JWK = { ...publicFields, kid, alg: privateJwk.alg ?? 'EdDSA' };
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const release = await createAppRelease(path.join(root, 'apps', app));
+const signed = await signAppRelease(release, privateJwk, kid);
+const result = await new FileAppReleaseRegistry(registryArg).publish(signed, { keys: [publicJwk] });
+console.log(JSON.stringify({ result, app, version: release.version, content_hash: release.content_hash }));

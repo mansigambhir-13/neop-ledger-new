@@ -25,7 +25,7 @@ export interface FakeUpstream {
 }
 
 export async function fakeAnthropic(opts: { apiKey?: string; usage?: { input: number; output: number } } = {}): Promise<FakeUpstream> {
-  const apiKey = opts.apiKey ?? 'sk-ant-real-provider-key';
+  const apiKey = opts.apiKey ?? 'synthetic-sk-ant-real-provider-key';
   const calls: FakeUpstream['calls'] = [];
   let brain: UpstreamBrain = () => ({ text: 'ok' });
   const usage = opts.usage ?? { input: 1200, output: 80 };

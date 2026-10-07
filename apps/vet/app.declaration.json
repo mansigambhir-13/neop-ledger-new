@@ -1,0 +1,607 @@
+{
+  "schema_version": 1,
+  "template": {
+    "repository": "https://github.com/NEOS-Ecosystem/neos-neop-template",
+    "commit": "94db804f94403c15ad1279e6d30dcecc7c078b82",
+    "version": "0.8.16"
+  },
+  "role": "Vet: internal onboarding draft preparation",
+  "kit": "NEOS V3",
+  "catalogue_id": "ne-vet",
+  "icon": {
+    "emoji": "🔎"
+  },
+  "category": "operations",
+  "manifest": {
+    "app": "vet",
+    "name": "Vet",
+    "subject": "Vet: internal onboarding draft preparation",
+    "description": "V3 Vet internal review slice. No business authorization, provider execution or production certification.",
+    "version": "0.2.0",
+    "contract_version": "1",
+    "abilities": [
+      {
+        "key": "vet.suppliers.list",
+        "version": "1.0.0",
+        "title": "List suppliers",
+        "description": "List suppliers. Persisted company evidence, not a business approval or external effect.",
+        "kind": "read",
+        "floor": "on",
+        "input": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "limit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000
+            },
+            "offset": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 1000000
+            }
+          },
+          "required": []
+        },
+        "output": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "generatedAt": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "empty": {
+              "type": "boolean"
+            },
+            "sources": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "entries": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 1000
+                },
+                "entry_ids": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "minItems": 0,
+                  "maxItems": 1000
+                },
+                "basis": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200,
+                  "pattern": "\\S"
+                }
+              },
+              "required": [
+                "entries",
+                "entry_ids",
+                "basis"
+              ]
+            },
+            "rows": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "source_id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 64,
+                    "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+                  },
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200,
+                    "pattern": "\\S"
+                  },
+                  "category": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "minLength": 1,
+                    "maxLength": 120,
+                    "pattern": "\\S"
+                  },
+                  "version": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 2147483647
+                  }
+                },
+                "required": [
+                  "id",
+                  "source_id",
+                  "name",
+                  "category",
+                  "version"
+                ]
+              },
+              "minItems": 0,
+              "maxItems": 1000
+            },
+            "next_offset": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 0,
+              "maximum": 1001000
+            }
+          },
+          "required": [
+            "generatedAt",
+            "empty",
+            "sources",
+            "rows",
+            "next_offset"
+          ]
+        }
+      },
+      {
+        "key": "vet.onboardings.list",
+        "version": "1.0.0",
+        "title": "List onboardings",
+        "description": "List onboardings. Persisted company evidence, not a business approval or external effect.",
+        "kind": "read",
+        "floor": "on",
+        "input": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "limit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000
+            },
+            "offset": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 1000000
+            }
+          },
+          "required": []
+        },
+        "output": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "generatedAt": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "empty": {
+              "type": "boolean"
+            },
+            "sources": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "entries": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 1000
+                },
+                "entry_ids": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "minItems": 0,
+                  "maxItems": 1000
+                },
+                "basis": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200,
+                  "pattern": "\\S"
+                }
+              },
+              "required": [
+                "entries",
+                "entry_ids",
+                "basis"
+              ]
+            },
+            "rows": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "source_id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 64,
+                    "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+                  },
+                  "reference_id": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "engagement": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 500,
+                    "pattern": "\\S"
+                  },
+                  "tier": {
+                    "type": "string",
+                    "enum": [
+                      "low",
+                      "medium",
+                      "high"
+                    ]
+                  },
+                  "notes": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "minLength": 1,
+                    "maxLength": 500,
+                    "pattern": "\\S"
+                  },
+                  "requires_elevated_approval": {
+                    "type": "boolean"
+                  },
+                  "input_hash": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{64}$"
+                  },
+                  "status": {
+                    "type": "string",
+                    "enum": [
+                      "draft",
+                      "cancelled"
+                    ]
+                  },
+                  "created_at": {
+                    "type": "string",
+                    "format": "date-time"
+                  },
+                  "cancelled_at": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "format": "date-time"
+                  },
+                  "external_completed": {
+                    "const": false
+                  }
+                },
+                "required": [
+                  "id",
+                  "source_id",
+                  "reference_id",
+                  "engagement",
+                  "tier",
+                  "notes",
+                  "requires_elevated_approval",
+                  "input_hash",
+                  "status",
+                  "created_at",
+                  "cancelled_at",
+                  "external_completed"
+                ]
+              },
+              "minItems": 0,
+              "maxItems": 1000
+            },
+            "next_offset": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 0,
+              "maximum": 1001000
+            }
+          },
+          "required": [
+            "generatedAt",
+            "empty",
+            "sources",
+            "rows",
+            "next_offset"
+          ]
+        }
+      },
+      {
+        "key": "vet.suppliers.import",
+        "version": "1.1.0",
+        "title": "Import suppliers",
+        "description": "Import suppliers. Internal records only; no business authorization or external execution.",
+        "kind": "write",
+        "floor": "ask_first",
+        "input": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "suppliers": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "source_id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 64,
+                    "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+                  },
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200,
+                    "pattern": "\\S"
+                  },
+                  "category": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "minLength": 1,
+                    "maxLength": 120,
+                    "pattern": "\\S"
+                  }
+                },
+                "required": [
+                  "source_id",
+                  "name",
+                  "category"
+                ]
+              },
+              "minItems": 1,
+              "maxItems": 1000
+            }
+          },
+          "required": [
+            "suppliers"
+          ]
+        },
+        "output": {
+          "type": "object",
+          "required": [
+            "outcome"
+          ],
+          "properties": {
+            "outcome": {
+              "type": "string"
+            }
+          }
+        },
+        "effects": {
+          "external": false
+        },
+        "verifyWith": "Immutable transaction receipt with ability-bound request checksum, stored atomically with the company-scoped record change."
+      },
+      {
+        "key": "vet.onboarding.prepare",
+        "version": "1.1.0",
+        "title": "Prepare an internal onboarding draft",
+        "description": "Prepare an internal onboarding draft. Internal records only; no business authorization or external execution.",
+        "kind": "write",
+        "floor": "on",
+        "input": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "source_id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+            },
+            "reference_id": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "engagement": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 500,
+              "pattern": "\\S"
+            },
+            "tier": {
+              "type": "string",
+              "enum": [
+                "low",
+                "medium",
+                "high"
+              ]
+            },
+            "notes": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "minLength": 1,
+              "maxLength": 500,
+              "pattern": "\\S"
+            }
+          },
+          "required": [
+            "source_id",
+            "reference_id",
+            "engagement",
+            "tier",
+            "notes"
+          ]
+        },
+        "output": {
+          "type": "object",
+          "required": [
+            "outcome"
+          ],
+          "properties": {
+            "outcome": {
+              "type": "string"
+            }
+          }
+        },
+        "effects": {
+          "external": false
+        },
+        "verifyWith": "Immutable transaction receipt with ability-bound request checksum, stored atomically with the company-scoped record change."
+      },
+      {
+        "key": "vet.onboarding.cancel",
+        "version": "1.1.0",
+        "title": "Cancel an internal onboarding draft",
+        "description": "Cancel an internal onboarding draft. Internal records only; no business authorization or external execution.",
+        "kind": "write",
+        "floor": "ask_first",
+        "input": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "id": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "input_hash": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            "review": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "source_id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 64,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+                },
+                "reference_id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "engagement": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 500,
+                  "pattern": "\\S"
+                },
+                "tier": {
+                  "type": "string",
+                  "enum": [
+                    "low",
+                    "medium",
+                    "high"
+                  ]
+                },
+                "notes": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "minLength": 1,
+                  "maxLength": 500,
+                  "pattern": "\\S"
+                },
+                "requires_elevated_approval": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "source_id",
+                "reference_id",
+                "engagement",
+                "tier",
+                "notes",
+                "requires_elevated_approval"
+              ]
+            }
+          },
+          "required": [
+            "id"
+          ]
+        },
+        "output": {
+          "type": "object",
+          "required": [
+            "outcome"
+          ],
+          "properties": {
+            "outcome": {
+              "type": "string"
+            }
+          }
+        },
+        "effects": {
+          "external": false
+        },
+        "verifyWith": "Immutable transaction receipt with ability-bound request checksum, stored atomically with the company-scoped record change."
+      }
+    ],
+    "doors": [],
+    "uses": [],
+    "skills": [
+      {
+        "key": "prepare-review",
+        "path": "src/agent/skills/prepare-review/SKILL.md",
+        "requires": [
+          "vet.suppliers.list",
+          "vet.onboardings.list",
+          "vet.onboarding.prepare"
+        ]
+      }
+    ],
+    "packages": [],
+    "blocks": [
+      "blocks/drafts.json"
+    ],
+    "personal_data": [
+      {
+        "table": "suppliers",
+        "columns": [
+          "source_id",
+          "name",
+          "category"
+        ],
+        "subject_key": "id"
+      },
+      {
+        "table": "onboardings",
+        "columns": [
+          "source_id",
+          "engagement",
+          "tier",
+          "notes",
+          "source_snapshot"
+        ],
+        "subject_key": "reference_id"
+      },
+      {
+        "table": "draft_origins",
+        "columns": [
+          "draft_id",
+          "job_id",
+          "input_hash"
+        ],
+        "subject_key": "proposer_user_id"
+      }
+    ]
+  }
+}

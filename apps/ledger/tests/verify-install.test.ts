@@ -26,7 +26,7 @@ async function run(env: Record<string, string> = {}, fetchImpl?: any) {
     env: {
       NEOS_PLATFORM_URL: P.platformUrl,
       NEOS_DB_URL: P.adminUrl,
-      NEOP_LLM_UPSTREAM_KEY: 'sk-never-printed',
+      NEOP_LLM_UPSTREAM_KEY: 'synthetic-sk-never-printed',
       NEOP_DOOR_SECRETS_DIR: P.doorsDir,
       NEOP_FILES_URL: `http://127.0.0.1:${P.backend.ports.files}`,
       NEOP_PRESENCE: 'appservice',

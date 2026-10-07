@@ -536,7 +536,7 @@ describe('the identity API (PUT /api/chat/presence) and NEOP_PRESENCE', () => {
       replyDeadlineMs: 1234,
       client: { accounts: [{ account: ME, tokenFile: '/run/secrets/matrix_ledger_token' }], syncTimeoutMs: undefined },
     });
-    expect(presenceConfigFromEnv({ NEOP_PRESENCE: 'appservice', NEOP_MATRIX_HOMESERVER_URL: 'http://hs', NEOP_MATRIX_HS_TOKEN: 'h', NEOP_MATRIX_AS_TOKEN: 'a' })).toMatchObject({
+    expect(presenceConfigFromEnv({ NEOP_PRESENCE: 'appservice', NEOP_MATRIX_HOMESERVER_URL: 'http://hs', NEOP_MATRIX_HS_TOKEN: 'synthetic-h', NEOP_MATRIX_AS_TOKEN: 'synthetic-a' })).toMatchObject({
       mode: 'appservice',
       appservice: { hsToken: 'h', asToken: 'a', port: 4104 },
     });

@@ -1,0 +1,47 @@
+{
+  "schema_version": 1,
+  "template_commit": "94db804f94403c15ad1279e6d30dcecc7c078b82",
+  "strategy": "forward-only-equivalence",
+  "rules": [
+    {
+      "upstream": "001_standard.sql",
+      "fleet": ["001_standard.sql", "t007_standard_columns.sql", "t008_transitions.sql", "t009_notify.sql", "t010_board_truth.sql", "t011_approved_path.sql", "t013_answer_wait.sql"],
+      "equivalence": "The fleet record book, tenant policies, switchboard, installs, grants and approved path are the compatible standard core."
+    },
+    {
+      "upstream": "002_notes.sql",
+      "fleet": ["app:first-shape"],
+      "equivalence": "The upstream notes table is sample app data; every fleet app supplies its own first business-shape migration."
+    },
+    {
+      "upstream": "003_standard_notices.sql",
+      "fleet": ["001_standard.sql", "t009_notify.sql"],
+      "equivalence": "Append-only outbox and proposal events provide durable, deduplicated notice delivery."
+    },
+    {
+      "upstream": "004_standard_schedules.sql",
+      "fleet": ["t004_timers_and_summary.sql", "t010_board_truth.sql"],
+      "equivalence": "Company-scoped schedules and desk-owned schedule functions preserve the standard scheduler behavior."
+    },
+    {
+      "upstream": "005_standard_files.sql",
+      "fleet": ["t006_documents_files.sql"],
+      "equivalence": "Immutable document metadata and content hashes back the signed backend-only file surface; bytes remain in the configured object store."
+    },
+    {
+      "upstream": "006_standard_job_endings.sql",
+      "fleet": ["t008_transitions.sql", "t018_desk_without_gateway.sql"],
+      "equivalence": "Terminal job transitions and cancellation are guarded by the fleet state machine and desk function."
+    },
+    {
+      "upstream": "007_standard_sources.sql",
+      "fleet": ["app:first-shape", "app:declared-reads"],
+      "equivalence": "Each app owns its source rows and provenance while the shared declared-read registry exposes only reviewed reads."
+    },
+    {
+      "upstream": "008_standard_peer_payloads.sql",
+      "fleet": ["t015_bus_room.sql", "t024_answer_intents.sql"],
+      "equivalence": "Typed Matrix bus threads and immutable answer intents admit bounded peer payloads without weakening stored fact checks."
+    }
+  ]
+}

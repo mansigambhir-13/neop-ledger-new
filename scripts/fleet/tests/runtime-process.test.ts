@@ -53,7 +53,7 @@ function launch(app: FleetApp, side: 'agent' | 'backend', env: NodeJS.ProcessEnv
 function backendEnv(app: FleetApp): NodeJS.ProcessEnv {
   return {
     NEOP_APP_DB_URL: roleUrl(db.adminUrl, `${app}_app`), NEOP_RUNNER_DB_URL: roleUrl(db.adminUrl, `${app}_runner`),
-    NEOP_JOB_TOKEN_SECRET: 'standalone-fixture-only-'.repeat(3),
+    NEOP_JOB_TOKEN_SECRET: 'synthetic-standalone-fixture-only-'.repeat(3),
     NEOP_GATE_URL: 'http://127.0.0.1:9', NEOP_AGENT_URL: 'http://127.0.0.1:9',
     FILES_HOST: '127.0.0.1', GATE_HOST: '127.0.0.1', APPSERVICE_HOST: '127.0.0.1',
     FILES_PORT: '0', GATE_PORT: '0', APPSERVICE_PORT: '0', POOL_SIZE: '1',

@@ -75,8 +75,8 @@ try {
     report.images.push({ app, tag: image, id: data.Id, os: data.Os, architecture: data.Architecture });
     const env: Record<string, string> = {
       NEOP_APP_DB_URL: roleUrl('postgres://postgres@database:5432/fleet', `${app}_app`), NEOP_RUNNER_DB_URL: roleUrl('postgres://postgres@database:5432/fleet', `${app}_runner`),
-      NEOP_JOB_TOKEN_SECRET: 'backend-image-fixture-'.repeat(3), NEOP_GATE_URL: 'http://backend:4102', NEOP_AGENT_URL: 'http://fixture:4103',
-      NEOP_MATRIX_HOMESERVER_URL: 'http://fixture:8080', NEOP_PRESENCE: 'appservice', NEOP_MATRIX_HS_TOKEN: 'backend-fixture-hs', NEOP_MATRIX_AS_TOKEN: 'backend-fixture-as',
+      NEOP_JOB_TOKEN_SECRET: 'synthetic-backend-image-fixture-'.repeat(3), NEOP_GATE_URL: 'http://backend:4102', NEOP_AGENT_URL: 'http://fixture:4103',
+      NEOP_MATRIX_HOMESERVER_URL: 'http://fixture:8080', NEOP_PRESENCE: 'appservice', NEOP_MATRIX_HS_TOKEN: 'synthetic-backend-fixture-hs', NEOP_MATRIX_AS_TOKEN: 'synthetic-backend-fixture-as',
       NEOP_LLM_PROXY_URL: 'http://fixture:8080/llm', NEOP_LLM_SIGNING_KEY: JSON.stringify(key.privateJwk),
       FILES_HOST: '0.0.0.0', GATE_HOST: '0.0.0.0', APPSERVICE_HOST: '0.0.0.0', POOL_SIZE: '1',
     };

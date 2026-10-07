@@ -1,13 +1,13 @@
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
-import { FLEET_APPS, type FleetApp } from '../runtime/apps.ts';
+import { FLEET_APPS, type DraftFleetApp } from '../runtime/apps.ts';
 import type { InventoryEntry } from '../packaging/agent-context.ts';
 
-export interface ImageRef { app: FleetApp; id: string; os: string; architecture: string }
-export function imageMap(rows: ImageRef[]): Map<FleetApp, ImageRef> {
-  if (!Array.isArray(rows) || rows.length !== FLEET_APPS.length) throw new Error('image evidence must cover all eighteen apps');
-  const found = new Map<FleetApp, ImageRef>();
+export interface ImageRef { app: DraftFleetApp; id: string; os: string; architecture: string }
+export function imageMap(rows: ImageRef[]): Map<DraftFleetApp, ImageRef> {
+  if (!Array.isArray(rows) || rows.length !== FLEET_APPS.length) throw new Error('image evidence must cover all eighteen draft apps');
+  const found = new Map<DraftFleetApp, ImageRef>();
   for (const row of rows) {
     if (!FLEET_APPS.includes(row.app) || found.has(row.app) || !/^sha256:[a-f0-9]{64}$/.test(row.id) || row.os !== 'linux' || row.architecture !== 'arm64') throw new Error('unsupported, duplicate or unpinned image evidence');
     found.set(row.app, row);
