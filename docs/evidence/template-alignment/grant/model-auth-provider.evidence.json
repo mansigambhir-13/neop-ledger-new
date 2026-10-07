@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "app": "grant",
+  "gate": "model-auth-provider",
+  "template_commit": "94db804f94403c15ad1279e6d30dcecc7c078b82",
+  "source_commit": "78d821e9fe633ec5706f3afd9cff4ab6ba472157",
+  "source_sha256": "c9185139fcd248f02afc26cd68dcfb81387d20045f3644fbe51d26894dc012f2",
+  "test_file": "apps/grant/tests/template-model-auth-provider.test.ts",
+  "runner": {
+    "kind": "vitest-json-v1",
+    "command": [
+      "pnpm",
+      "exec",
+      "vitest",
+      "run",
+      "apps/grant/tests/template-model-auth-provider.test.ts",
+      "--maxWorkers=1",
+      "--reporter=json",
+      "--outputFile=docs/evidence/template-alignment/grant/model-auth-provider.vitest.json"
+    ],
+    "report": "docs/evidence/template-alignment/grant/model-auth-provider.vitest.json",
+    "report_sha256": "5d0e5a3cea7957abba894fd55cb202ce4931e8542d04af6da8e209636a56acd6"
+  }
+}

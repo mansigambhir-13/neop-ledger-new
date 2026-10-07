@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "app": "reach",
+  "gate": "manifest",
+  "template_commit": "94db804f94403c15ad1279e6d30dcecc7c078b82",
+  "source_commit": "78d821e9fe633ec5706f3afd9cff4ab6ba472157",
+  "source_sha256": "ad4d0200a42a237c56cd08c47cdd9140cc7ceb45d79076d307cf50b27dc384aa",
+  "test_file": "apps/reach/tests/template-manifest.test.ts",
+  "runner": {
+    "kind": "vitest-json-v1",
+    "command": [
+      "pnpm",
+      "exec",
+      "vitest",
+      "run",
+      "apps/reach/tests/template-manifest.test.ts",
+      "--maxWorkers=1",
+      "--reporter=json",
+      "--outputFile=docs/evidence/template-alignment/reach/manifest.vitest.json"
+    ],
+    "report": "docs/evidence/template-alignment/reach/manifest.vitest.json",
+    "report_sha256": "49d1c1537e0720fc34108583973043555ae5ad7e33a489a865690055943a18d3"
+  }
+}

@@ -3,8 +3,8 @@
   "app": "quote",
   "gate": "ownership",
   "template_commit": "94db804f94403c15ad1279e6d30dcecc7c078b82",
-  "source_commit": "da3106c1aad6d20e0e2aaaaa91ff2b75edea7022",
-  "source_sha256": "5da79668e4f451f722f4703fc7809ed4d784a4d8db3a2666d7e9ea457083e8ec",
+  "source_commit": "78d821e9fe633ec5706f3afd9cff4ab6ba472157",
+  "source_sha256": "171898e5677ce94f7ceeaa0498f37b9b396b8cb3b09a8d05fed1fe89f96075f5",
   "test_file": "apps/quote/tests/template-ownership.test.ts",
   "runner": {
     "kind": "vitest-json-v1",
@@ -19,6 +19,6 @@
       "--outputFile=docs/evidence/template-alignment/quote/ownership.vitest.json"
     ],
     "report": "docs/evidence/template-alignment/quote/ownership.vitest.json",
-    "report_sha256": "548cd202c6534c288a4b0a73878a71baf785a32d1ee2606541164e090112ba76"
+    "report_sha256": "d2597455d72262552a66a86dfb8eef3811d3246777620746210f47efa7834bd0"
   }
 }

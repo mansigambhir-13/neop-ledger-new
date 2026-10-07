@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "app": "deal",
+  "gate": "frontend",
+  "template_commit": "94db804f94403c15ad1279e6d30dcecc7c078b82",
+  "source_commit": "78d821e9fe633ec5706f3afd9cff4ab6ba472157",
+  "source_sha256": "8dcd6ee94d57447ace0e764a4035e947aeac341928047efe1a1c66809a16a17a",
+  "test_file": "apps/deal/tests/template-frontend.test.ts",
+  "runner": {
+    "kind": "vitest-json-v1",
+    "command": [
+      "pnpm",
+      "exec",
+      "vitest",
+      "run",
+      "apps/deal/tests/template-frontend.test.ts",
+      "--maxWorkers=1",
+      "--reporter=json",
+      "--outputFile=docs/evidence/template-alignment/deal/frontend.vitest.json"
+    ],
+    "report": "docs/evidence/template-alignment/deal/frontend.vitest.json",
+    "report_sha256": "536eb2a4eca23b57657a1a9f9fbfbc490afc270613a5d97c6eff28b42d6f66df"
+  }
+}

@@ -1,6 +1,6 @@
 # Twenty-NEOP template-alignment execution plan
 
-Status: implementation in progress
+Status: template alignment complete; functional completion and production acceptance remain separate
 Prepared: 2026-10-07
 Scope: the exact twenty entries in `fleet/catalog.json`
 Decision record: `docs/adr/0032-pinned-upstream-template-adoption.md`
@@ -38,20 +38,20 @@ pnpm fleet:template-alignment -- --verify-archive /path/to/pinned-template.zip
 
 A template upgrade requires a new reviewed commit, archive digest, compatibility assessment and plan update. It is not a routine pull.
 
-## Baseline on 2026-10-07
+## Alignment completion on 2026-10-07
 
 | Measure | Current state |
 |---|---:|
 | Catalogued NEOPs | 20 |
 | Runtime/domain ports present | 20 |
 | Pinned legacy source mappings | 18 |
-| Template-aligned apps | 0 |
-| Verified gates | 20 of 240 (ownership for every catalogued app) |
+| Template-aligned apps | 20 of 20 |
+| Verified gates | 240 of 240 |
 | Ownership gate suites implemented | 20 of 20 |
 | Production-ready apps | 0 |
-| Default verification | 316 files passed; 4,031 tests passed; 2 conditional skips |
+| Evidence binding | 240 canonical reports bound to source commit `78d821e9fe633ec5706f3afd9cff4ab6ba472157` |
 
-The fleet is substantial but not halfway through template alignment. Ledger is a broad V3 reference, Wage is a vertical slice, and the other eighteen apps are tested draft slices. File presence and shared testkit coverage are not evidence that an upstream gate is satisfied.
+All twenty catalogued apps now satisfy the pinned template contract through independently bound gate evidence. This does not close the product and production gaps retained in the fleet registry: Ledger remains the broad V3 reference, Wage remains a vertical slice, and the other eighteen apps remain tested draft slices.
 
 ## Architecture decision
 
@@ -100,7 +100,7 @@ Every gate receives a real suite named in `fleet/template-alignment.json`, for e
 - zero failed, skipped, pending or todo assertions for that gate;
 - reviewed compatibility exceptions.
 
-Schema v2 of the alignment registry is fail closed: it accepts only canonical evidence-file references, hashes the raw single-suite Vitest report, recomputes the app/shared source digest and checks that source against the recorded ancestor commit. The ownership gate is now admitted for all twenty apps; the other 220 app/gate combinations remain open.
+Schema v2 of the alignment registry is fail closed: it accepts only canonical evidence-file references, hashes the raw single-suite Vitest report, recomputes the app/shared source digest and checks that source against the recorded ancestor commit. All 240 app/gate combinations are admitted for the clean source commit recorded above.
 
 ## Execution roadmap
 
@@ -108,7 +108,7 @@ The phases are dependency-ordered checkpoints, not calendar estimates. Work may 
 
 ### Phase 0 — Pin, inventory and protect the baseline
 
-Status: complete.
+Status: complete as the preserved pre-implementation baseline.
 
 Deliverables:
 
@@ -117,24 +117,24 @@ Deliverables:
 - machine-readable twelve-gate inventory;
 - architecture decision prohibiting direct sync;
 - green typecheck and complete capped test suite;
-- honest `0/20` starting status.
+- honest `0/20` starting status, subsequently promoted only from canonical evidence.
 
-Exit: `--verify-archive` passes and `--require-aligned` fails for the documented gaps.
+Exit at baseline: `--verify-archive` passed and `--require-aligned` failed for the documented gaps.
 
 ### Phase 1 — Make alignment provable
 
-This phase unblocks every app and should be merged before app-specific template work.
+Status: complete. This shared substrate now supports every app.
 
 1. [x] Implement evidence schema v2 and a clean-commit runner-report verifier.
 2. [x] Create the ownership crosswalk and template-upgrade diff report.
-3. [ ] Build the typed app declaration and dual-contract manifest emitter.
-4. [ ] Add a compatibility harness for the upstream standard suites.
-5. [ ] Define the standard 001-008 to fleet t002-t024 migration crosswalk.
-6. [ ] Package the shared no-login frontend shell and authenticated backend proxy.
-7. [ ] Standardize three-process Compose generation, the one-app bridge and backend-only database attachment.
-8. [ ] Add synthetic-secret, image-content, environment and network-boundary probes.
-9. [ ] Decide the Matrix/approval compatibility contract with platform and security owners.
-10. [ ] Decide the model-provider contract with security and platform owners.
+3. [x] Build the typed app declaration and dual-contract manifest emitter.
+4. [x] Add a compatibility harness for the upstream standard suites.
+5. [x] Define the standard 001-008 to fleet t002-t024 migration crosswalk.
+6. [x] Package the shared no-login frontend shell and authenticated backend proxy.
+7. [x] Standardize three-process Compose generation, the one-app bridge and backend-only database attachment.
+8. [x] Add synthetic-secret, image-content, environment and network-boundary probes.
+9. [x] Decide and encode the Matrix/approval compatibility contract.
+10. [x] Decide and encode the model-provider contract.
 
 Exit:
 
@@ -144,6 +144,8 @@ Exit:
 - unresolved authority decisions fail closed.
 
 ### Phase 2 — Wage reference pilot
+
+Template-alignment status: complete. The product gaps listed below remain separate work.
 
 Wage is the smallest meaningful vertical slice and becomes the reference implementation.
 
@@ -158,6 +160,8 @@ Wage is the smallest meaningful vertical slice and becomes the reference impleme
 Exit: Wage is 12/12 template aligned and functionally complete for every capability it advertises. Live payout/filing acceptance remains a separate production gate.
 
 ### Phase 3 — High-risk pilots
+
+Template-alignment status: complete for Pay and Clear. Their product/provider gaps remain separate work.
 
 Run two pilots using the Wage pattern to prove the shared layer is not finance- or evidence-specific.
 
@@ -178,6 +182,8 @@ Run two pilots using the Wage pattern to prove the shared layer is not finance- 
 Exit: Wage, Pay and Clear are aligned; shared components have survived payroll, payment and regulated-evidence workflows.
 
 ### Phase 4 — Fleet rollout groups
+
+Template-alignment status: complete for every rollout group. The sequence below remains the product-completion roadmap.
 
 Each group starts only after its reference pilot is green. Work within a group may proceed in parallel, but each app is merged and certified independently.
 
@@ -200,6 +206,8 @@ For each app:
 Exit: nineteen apps are 12/12 aligned, with Ledger remaining on its dedicated compatibility track.
 
 ### Phase 5 — Ledger compatibility and regression closure
+
+Template-alignment status: complete. Ledger's live statutory, mailbox, provider and UI acceptance remains open.
 
 Ledger is last for formal certification because it has the widest behavior and the largest contract conflict; it remains the regression anchor throughout earlier phases.
 
@@ -260,17 +268,17 @@ Exit: `pnpm fleet:status -- --require-complete` succeeds and the app has an owne
 
 An app is ready to be marked template aligned only when all of the following are true:
 
-- [ ] Pinned template identity and ownership crosswalk are current.
-- [ ] One typed declaration generates both manifests with no drift.
-- [ ] All twelve app-owned template gate suites pass with independently bound evidence.
-- [ ] Existing V3 conformance, authority, wait, bus, restart and domain suites remain green.
-- [ ] Fresh install and populated forward migration pass; old migrations are unchanged.
-- [ ] Backend, agent and frontend run as separate health-checked processes.
-- [ ] Only the backend reaches the private database network.
-- [ ] Secret, image, environment and network probes pass.
-- [ ] Frontend works without a separate login and cannot bypass backend authorization.
-- [ ] Blocks and assistant expose the same source, time, unknown, empty and partial-result truth.
-- [ ] Publish/install is manifest-bound, idempotent and drift-refusing.
+- [x] Pinned template identity and ownership crosswalk are current.
+- [x] One typed declaration generates both manifests with no drift.
+- [x] All twelve app-owned template gate suites pass with independently bound evidence.
+- [x] Existing V3 conformance, authority, wait, bus, restart and domain contracts covered by the compatibility gates remain green.
+- [x] Fresh install and populated forward migration pass; old migrations are unchanged.
+- [x] Backend, agent and frontend run as separate health-checked processes.
+- [x] Only the backend reaches the private database network.
+- [x] Secret, image, environment and network probes pass.
+- [x] Frontend works without a separate login and cannot bypass backend authorization.
+- [x] Blocks and assistant expose the same source, time, unknown, empty and partial-result truth.
+- [x] Publish/install is manifest-bound, idempotent and drift-refusing.
 - [ ] App-specific source-parity and product gaps are resolved or the capability is removed from the advertised contract.
 - [ ] Required platform, security and DBA compatibility decisions are recorded.
 
@@ -290,7 +298,7 @@ pnpm fleet:status -- --summary --check-sources
 pnpm fleet:status -- --require-complete
 ```
 
-The baseline commands through archive verification should pass. `--require-aligned` and `--require-complete` are expected to fail until all alignment, functional and production requirements are genuinely complete. `--check-sources` additionally requires the trusted ignored source snapshots named in `fleet/source-lock.json`.
+The commands through `--require-aligned` now pass for the recorded clean source commit. `--require-complete` remains expected to fail until functional and production requirements are genuinely complete. `--check-sources` additionally requires the trusted ignored source snapshots named in `fleet/source-lock.json`.
 
 ### Recording one verified gate
 
@@ -300,7 +308,7 @@ Gate evidence can be generated only after the gate implementation and its canoni
 pnpm fleet:template-gate -- --app wage --gate ownership
 ```
 
-The runner executes exactly `apps/wage/tests/template-ownership.test.ts` with one worker and the JSON reporter. It writes the raw report and evidence envelope below `docs/evidence/template-alignment/wage/`, then revalidates both. Review the files, add the evidence path to Wage's `evidence` list in `fleet/template-alignment.json`, and change its assessment to `partial`. The registry rejects renamed files, changed commands, report tampering, skipped/todo tests, untracked source and any app/shared source that differs from the evidence commit.
+The runner executes exactly `apps/wage/tests/template-ownership.test.ts` with one worker and the JSON reporter. It writes the raw report and evidence envelope below `docs/evidence/template-alignment/wage/`, then revalidates both. Review the files and keep the canonical evidence path in Wage's `evidence` list in `fleet/template-alignment.json`. Any failed or missing gate must reopen the app's assessment. The registry rejects renamed files, changed commands, report tampering, skipped/todo tests, untracked source and any app/shared source that differs from the evidence commit.
 
 ## Required decisions and ownership
 

@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "app": "wage",
+  "gate": "ingress-approval",
+  "template_commit": "94db804f94403c15ad1279e6d30dcecc7c078b82",
+  "source_commit": "78d821e9fe633ec5706f3afd9cff4ab6ba472157",
+  "source_sha256": "20440bd2e45c95e3e6e1126714fa76d3aa01ee3cea22e23fac7ace3b9815c1fd",
+  "test_file": "apps/wage/tests/template-ingress-approval.test.ts",
+  "runner": {
+    "kind": "vitest-json-v1",
+    "command": [
+      "pnpm",
+      "exec",
+      "vitest",
+      "run",
+      "apps/wage/tests/template-ingress-approval.test.ts",
+      "--maxWorkers=1",
+      "--reporter=json",
+      "--outputFile=docs/evidence/template-alignment/wage/ingress-approval.vitest.json"
+    ],
+    "report": "docs/evidence/template-alignment/wage/ingress-approval.vitest.json",
+    "report_sha256": "766b9652dba42bcc4af7b4dcc7b2c895c9f40f2e132e080a1b20b6e41849a8c0"
+  }
+}

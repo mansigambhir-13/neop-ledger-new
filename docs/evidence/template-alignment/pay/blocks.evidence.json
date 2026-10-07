@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "app": "pay",
+  "gate": "blocks",
+  "template_commit": "94db804f94403c15ad1279e6d30dcecc7c078b82",
+  "source_commit": "78d821e9fe633ec5706f3afd9cff4ab6ba472157",
+  "source_sha256": "2989ec4a52932bcfacadab4de313e16f3f17d944c30cf618d074391106af9712",
+  "test_file": "apps/pay/tests/template-blocks.test.ts",
+  "runner": {
+    "kind": "vitest-json-v1",
+    "command": [
+      "pnpm",
+      "exec",
+      "vitest",
+      "run",
+      "apps/pay/tests/template-blocks.test.ts",
+      "--maxWorkers=1",
+      "--reporter=json",
+      "--outputFile=docs/evidence/template-alignment/pay/blocks.vitest.json"
+    ],
+    "report": "docs/evidence/template-alignment/pay/blocks.vitest.json",
+    "report_sha256": "44bc448a69abfaf5b8adbed8f0b65e1fc5a89c1842646d529a44735b373d9d94"
+  }
+}

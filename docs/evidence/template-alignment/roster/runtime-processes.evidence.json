@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "app": "roster",
+  "gate": "runtime-processes",
+  "template_commit": "94db804f94403c15ad1279e6d30dcecc7c078b82",
+  "source_commit": "78d821e9fe633ec5706f3afd9cff4ab6ba472157",
+  "source_sha256": "11b5cd093b2b475f5ae58c0da956a45fe5e571353e62d1ee802395765ddfd277",
+  "test_file": "apps/roster/tests/template-runtime-processes.test.ts",
+  "runner": {
+    "kind": "vitest-json-v1",
+    "command": [
+      "pnpm",
+      "exec",
+      "vitest",
+      "run",
+      "apps/roster/tests/template-runtime-processes.test.ts",
+      "--maxWorkers=1",
+      "--reporter=json",
+      "--outputFile=docs/evidence/template-alignment/roster/runtime-processes.vitest.json"
+    ],
+    "report": "docs/evidence/template-alignment/roster/runtime-processes.vitest.json",
+    "report_sha256": "f0aa43d3e1f43a0d55c036831e2de33b99d1c7fd7fdcec512508b9aee14a2357"
+  }
+}

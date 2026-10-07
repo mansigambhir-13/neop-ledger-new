@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "app": "pay",
+  "gate": "migrations",
+  "template_commit": "94db804f94403c15ad1279e6d30dcecc7c078b82",
+  "source_commit": "78d821e9fe633ec5706f3afd9cff4ab6ba472157",
+  "source_sha256": "2989ec4a52932bcfacadab4de313e16f3f17d944c30cf618d074391106af9712",
+  "test_file": "apps/pay/tests/template-migration.test.ts",
+  "runner": {
+    "kind": "vitest-json-v1",
+    "command": [
+      "pnpm",
+      "exec",
+      "vitest",
+      "run",
+      "apps/pay/tests/template-migration.test.ts",
+      "--maxWorkers=1",
+      "--reporter=json",
+      "--outputFile=docs/evidence/template-alignment/pay/migrations.vitest.json"
+    ],
+    "report": "docs/evidence/template-alignment/pay/migrations.vitest.json",
+    "report_sha256": "8eaad96a3f6bfb2374ed76bab5da913a4f825583b8b499230f91c0953896c457"
+  }
+}

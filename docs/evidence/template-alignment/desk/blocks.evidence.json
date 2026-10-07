@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "app": "desk",
+  "gate": "blocks",
+  "template_commit": "94db804f94403c15ad1279e6d30dcecc7c078b82",
+  "source_commit": "78d821e9fe633ec5706f3afd9cff4ab6ba472157",
+  "source_sha256": "666c25ada27a47f12ca3712f5fa4a6f7c6d186290bd97d4ebce1b9580b79df0e",
+  "test_file": "apps/desk/tests/template-blocks.test.ts",
+  "runner": {
+    "kind": "vitest-json-v1",
+    "command": [
+      "pnpm",
+      "exec",
+      "vitest",
+      "run",
+      "apps/desk/tests/template-blocks.test.ts",
+      "--maxWorkers=1",
+      "--reporter=json",
+      "--outputFile=docs/evidence/template-alignment/desk/blocks.vitest.json"
+    ],
+    "report": "docs/evidence/template-alignment/desk/blocks.vitest.json",
+    "report_sha256": "fa7821eb4607f102ea247e652d500172a436cc3675f7534f32ad9d843749ee1f"
+  }
+}

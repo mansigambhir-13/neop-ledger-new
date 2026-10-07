@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "app": "buy",
+  "gate": "frontend",
+  "template_commit": "94db804f94403c15ad1279e6d30dcecc7c078b82",
+  "source_commit": "78d821e9fe633ec5706f3afd9cff4ab6ba472157",
+  "source_sha256": "fddfea3b77e752fdd37488f74a7a97d62dcb576e54c725089ad44d86c872f870",
+  "test_file": "apps/buy/tests/template-frontend.test.ts",
+  "runner": {
+    "kind": "vitest-json-v1",
+    "command": [
+      "pnpm",
+      "exec",
+      "vitest",
+      "run",
+      "apps/buy/tests/template-frontend.test.ts",
+      "--maxWorkers=1",
+      "--reporter=json",
+      "--outputFile=docs/evidence/template-alignment/buy/frontend.vitest.json"
+    ],
+    "report": "docs/evidence/template-alignment/buy/frontend.vitest.json",
+    "report_sha256": "7230683e77848a3aeac8ead64397a3f7aa9ba41c6de620e4c80d9f3a8092a874"
+  }
+}

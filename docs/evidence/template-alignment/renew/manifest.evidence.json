@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "app": "renew",
+  "gate": "manifest",
+  "template_commit": "94db804f94403c15ad1279e6d30dcecc7c078b82",
+  "source_commit": "78d821e9fe633ec5706f3afd9cff4ab6ba472157",
+  "source_sha256": "074c95795a458f9ffee0c7ea52d42732fc263591144dbb16b74d10ccb5907206",
+  "test_file": "apps/renew/tests/template-manifest.test.ts",
+  "runner": {
+    "kind": "vitest-json-v1",
+    "command": [
+      "pnpm",
+      "exec",
+      "vitest",
+      "run",
+      "apps/renew/tests/template-manifest.test.ts",
+      "--maxWorkers=1",
+      "--reporter=json",
+      "--outputFile=docs/evidence/template-alignment/renew/manifest.vitest.json"
+    ],
+    "report": "docs/evidence/template-alignment/renew/manifest.vitest.json",
+    "report_sha256": "5d868db41fae24309fad8362ae38d9f83417f80a157e27bc142b21ade26ff694"
+  }
+}

@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "app": "shift",
+  "gate": "model-auth-provider",
+  "template_commit": "94db804f94403c15ad1279e6d30dcecc7c078b82",
+  "source_commit": "78d821e9fe633ec5706f3afd9cff4ab6ba472157",
+  "source_sha256": "77ba2d9d03863b3e5dba1a6b7bf59c16d15dcf6c11a4a15b205d74ec0224b0a2",
+  "test_file": "apps/shift/tests/template-model-auth-provider.test.ts",
+  "runner": {
+    "kind": "vitest-json-v1",
+    "command": [
+      "pnpm",
+      "exec",
+      "vitest",
+      "run",
+      "apps/shift/tests/template-model-auth-provider.test.ts",
+      "--maxWorkers=1",
+      "--reporter=json",
+      "--outputFile=docs/evidence/template-alignment/shift/model-auth-provider.vitest.json"
+    ],
+    "report": "docs/evidence/template-alignment/shift/model-auth-provider.vitest.json",
+    "report_sha256": "d3f199be5d105468685cc33a5fef3aeec0f4529b896c1c6b4c534cf920010225"
+  }
+}

@@ -1,9 +1,10 @@
 # Wage — pinned template alignment
 
 Pin: `neos-neop-template@94db804f94403c15ad1279e6d30dcecc7c078b82` (`0.8.16`).
-Status: partial; **1/12 alignment gates verified**; not production ready.
-Verified gate: `ownership` (report-bound evidence at the clean source commit recorded in the fleet registry).
+Status: template aligned; **12/12 alignment gates verified**; `full_parity=true`.
+Verified gates: `ownership`, `manifest`, `standard-tests`, `migrations`, `ingress-approval`, `runtime-credentials`, `model-auth-provider`, `runtime-processes`, `frontend`, `blocks`, `secrets`, `publish-install`.
+Evidence: twelve canonical reports bound to source commit `78d821e9fe633ec5706f3afd9cff4ab6ba472157`.
 
-Wage is a payroll preparation vertical slice, not a template-native product. It lacks the generated upstream contract, standalone frontend and template source lifecycle. The reproduced 5,001-row list/output mismatch, bank payout, statutory filing and live payroll acceptance remain open.
+Template alignment does not imply functional completion or production acceptance. Remaining product/production gaps: 5001-row read/output contract mismatch; bank payout and statutory filing remain unimplemented.
 
 Use Wage as the first bounded-read/frontend pilot. Preserve exact payroll arithmetic, privacy boundaries, current migration history and existing transport safeguards; do not raise limits or truncate silently.

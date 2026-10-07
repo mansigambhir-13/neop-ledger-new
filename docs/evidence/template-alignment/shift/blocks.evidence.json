@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "app": "shift",
+  "gate": "blocks",
+  "template_commit": "94db804f94403c15ad1279e6d30dcecc7c078b82",
+  "source_commit": "78d821e9fe633ec5706f3afd9cff4ab6ba472157",
+  "source_sha256": "77ba2d9d03863b3e5dba1a6b7bf59c16d15dcf6c11a4a15b205d74ec0224b0a2",
+  "test_file": "apps/shift/tests/template-blocks.test.ts",
+  "runner": {
+    "kind": "vitest-json-v1",
+    "command": [
+      "pnpm",
+      "exec",
+      "vitest",
+      "run",
+      "apps/shift/tests/template-blocks.test.ts",
+      "--maxWorkers=1",
+      "--reporter=json",
+      "--outputFile=docs/evidence/template-alignment/shift/blocks.vitest.json"
+    ],
+    "report": "docs/evidence/template-alignment/shift/blocks.vitest.json",
+    "report_sha256": "c2bf70ff3c4fb4fdcd4b57db4f6ecef14bbcd1ebd773d4526b4812bf5110d77d"
+  }
+}

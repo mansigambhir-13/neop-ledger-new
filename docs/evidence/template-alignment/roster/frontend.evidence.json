@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "app": "roster",
+  "gate": "frontend",
+  "template_commit": "94db804f94403c15ad1279e6d30dcecc7c078b82",
+  "source_commit": "78d821e9fe633ec5706f3afd9cff4ab6ba472157",
+  "source_sha256": "11b5cd093b2b475f5ae58c0da956a45fe5e571353e62d1ee802395765ddfd277",
+  "test_file": "apps/roster/tests/template-frontend.test.ts",
+  "runner": {
+    "kind": "vitest-json-v1",
+    "command": [
+      "pnpm",
+      "exec",
+      "vitest",
+      "run",
+      "apps/roster/tests/template-frontend.test.ts",
+      "--maxWorkers=1",
+      "--reporter=json",
+      "--outputFile=docs/evidence/template-alignment/roster/frontend.vitest.json"
+    ],
+    "report": "docs/evidence/template-alignment/roster/frontend.vitest.json",
+    "report_sha256": "6d37f2282323b9d43a1e67ceb26cbf734a1876e5b9230ba45487ad655b45e8bf"
+  }
+}

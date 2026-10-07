@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "app": "deal",
+  "gate": "publish-install",
+  "template_commit": "94db804f94403c15ad1279e6d30dcecc7c078b82",
+  "source_commit": "78d821e9fe633ec5706f3afd9cff4ab6ba472157",
+  "source_sha256": "8dcd6ee94d57447ace0e764a4035e947aeac341928047efe1a1c66809a16a17a",
+  "test_file": "apps/deal/tests/template-publish-install.test.ts",
+  "runner": {
+    "kind": "vitest-json-v1",
+    "command": [
+      "pnpm",
+      "exec",
+      "vitest",
+      "run",
+      "apps/deal/tests/template-publish-install.test.ts",
+      "--maxWorkers=1",
+      "--reporter=json",
+      "--outputFile=docs/evidence/template-alignment/deal/publish-install.vitest.json"
+    ],
+    "report": "docs/evidence/template-alignment/deal/publish-install.vitest.json",
+    "report_sha256": "c1887eb0cc64813e000f19073910a386d54f03ca56da7e18608d475dfba430b6"
+  }
+}

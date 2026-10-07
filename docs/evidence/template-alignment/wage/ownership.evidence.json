@@ -3,8 +3,8 @@
   "app": "wage",
   "gate": "ownership",
   "template_commit": "94db804f94403c15ad1279e6d30dcecc7c078b82",
-  "source_commit": "da3106c1aad6d20e0e2aaaaa91ff2b75edea7022",
-  "source_sha256": "8c277b73580a1e9084af9cf7a964cb2511de30289a43bb8df5a66f841128e362",
+  "source_commit": "78d821e9fe633ec5706f3afd9cff4ab6ba472157",
+  "source_sha256": "20440bd2e45c95e3e6e1126714fa76d3aa01ee3cea22e23fac7ace3b9815c1fd",
   "test_file": "apps/wage/tests/template-ownership.test.ts",
   "runner": {
     "kind": "vitest-json-v1",
@@ -19,6 +19,6 @@
       "--outputFile=docs/evidence/template-alignment/wage/ownership.vitest.json"
     ],
     "report": "docs/evidence/template-alignment/wage/ownership.vitest.json",
-    "report_sha256": "6f2f376ad0787b4ada6c9122eee4e27baba288f976b0d57f4aa25a07a6c4576b"
+    "report_sha256": "6cc82fe3d7e65eaf9c971f55130eb03258969b0f83c3ec367d954b90613d178a"
   }
 }

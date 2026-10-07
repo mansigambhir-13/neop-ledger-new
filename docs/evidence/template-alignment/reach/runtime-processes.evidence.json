@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "app": "reach",
+  "gate": "runtime-processes",
+  "template_commit": "94db804f94403c15ad1279e6d30dcecc7c078b82",
+  "source_commit": "78d821e9fe633ec5706f3afd9cff4ab6ba472157",
+  "source_sha256": "ad4d0200a42a237c56cd08c47cdd9140cc7ceb45d79076d307cf50b27dc384aa",
+  "test_file": "apps/reach/tests/template-runtime-processes.test.ts",
+  "runner": {
+    "kind": "vitest-json-v1",
+    "command": [
+      "pnpm",
+      "exec",
+      "vitest",
+      "run",
+      "apps/reach/tests/template-runtime-processes.test.ts",
+      "--maxWorkers=1",
+      "--reporter=json",
+      "--outputFile=docs/evidence/template-alignment/reach/runtime-processes.vitest.json"
+    ],
+    "report": "docs/evidence/template-alignment/reach/runtime-processes.vitest.json",
+    "report_sha256": "f12917cd8028853e3af7e6fa7a48f3360ca5a34510b6476880fc23cdc0da13dd"
+  }
+}

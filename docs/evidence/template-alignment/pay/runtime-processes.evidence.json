@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "app": "pay",
+  "gate": "runtime-processes",
+  "template_commit": "94db804f94403c15ad1279e6d30dcecc7c078b82",
+  "source_commit": "78d821e9fe633ec5706f3afd9cff4ab6ba472157",
+  "source_sha256": "2989ec4a52932bcfacadab4de313e16f3f17d944c30cf618d074391106af9712",
+  "test_file": "apps/pay/tests/template-runtime-processes.test.ts",
+  "runner": {
+    "kind": "vitest-json-v1",
+    "command": [
+      "pnpm",
+      "exec",
+      "vitest",
+      "run",
+      "apps/pay/tests/template-runtime-processes.test.ts",
+      "--maxWorkers=1",
+      "--reporter=json",
+      "--outputFile=docs/evidence/template-alignment/pay/runtime-processes.vitest.json"
+    ],
+    "report": "docs/evidence/template-alignment/pay/runtime-processes.vitest.json",
+    "report_sha256": "1ff58d3193c869ea2676eb4712e2ec7a5dbc0bc039df7f4a762f15c4189d3c30"
+  }
+}

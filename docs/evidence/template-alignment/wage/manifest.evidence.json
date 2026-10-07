@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "app": "wage",
+  "gate": "manifest",
+  "template_commit": "94db804f94403c15ad1279e6d30dcecc7c078b82",
+  "source_commit": "78d821e9fe633ec5706f3afd9cff4ab6ba472157",
+  "source_sha256": "20440bd2e45c95e3e6e1126714fa76d3aa01ee3cea22e23fac7ace3b9815c1fd",
+  "test_file": "apps/wage/tests/template-manifest.test.ts",
+  "runner": {
+    "kind": "vitest-json-v1",
+    "command": [
+      "pnpm",
+      "exec",
+      "vitest",
+      "run",
+      "apps/wage/tests/template-manifest.test.ts",
+      "--maxWorkers=1",
+      "--reporter=json",
+      "--outputFile=docs/evidence/template-alignment/wage/manifest.vitest.json"
+    ],
+    "report": "docs/evidence/template-alignment/wage/manifest.vitest.json",
+    "report_sha256": "1e8af026c045251a8627c1c82712bfc5419d940b9b3f7838e1b4b2e8424b2650"
+  }
+}

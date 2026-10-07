@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "app": "sync",
+  "gate": "ingress-approval",
+  "template_commit": "94db804f94403c15ad1279e6d30dcecc7c078b82",
+  "source_commit": "78d821e9fe633ec5706f3afd9cff4ab6ba472157",
+  "source_sha256": "5a00623a1065317691df450f260c25f3d70aeac518aa39676125e901b2305313",
+  "test_file": "apps/sync/tests/template-ingress-approval.test.ts",
+  "runner": {
+    "kind": "vitest-json-v1",
+    "command": [
+      "pnpm",
+      "exec",
+      "vitest",
+      "run",
+      "apps/sync/tests/template-ingress-approval.test.ts",
+      "--maxWorkers=1",
+      "--reporter=json",
+      "--outputFile=docs/evidence/template-alignment/sync/ingress-approval.vitest.json"
+    ],
+    "report": "docs/evidence/template-alignment/sync/ingress-approval.vitest.json",
+    "report_sha256": "b2c7cf50136dcdf12b7c23ddc5ab5791a1fa64b98966b44eb20f1e13aa3ecda1"
+  }
+}

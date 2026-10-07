@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "app": "ledger",
+  "gate": "frontend",
+  "template_commit": "94db804f94403c15ad1279e6d30dcecc7c078b82",
+  "source_commit": "78d821e9fe633ec5706f3afd9cff4ab6ba472157",
+  "source_sha256": "8875029c091a84f34cefae11828c17d953a2c7ccbfb35077418d8a68a5f77540",
+  "test_file": "apps/ledger/tests/template-frontend.test.ts",
+  "runner": {
+    "kind": "vitest-json-v1",
+    "command": [
+      "pnpm",
+      "exec",
+      "vitest",
+      "run",
+      "apps/ledger/tests/template-frontend.test.ts",
+      "--maxWorkers=1",
+      "--reporter=json",
+      "--outputFile=docs/evidence/template-alignment/ledger/frontend.vitest.json"
+    ],
+    "report": "docs/evidence/template-alignment/ledger/frontend.vitest.json",
+    "report_sha256": "cc086a20514380fa1059e1ba2fcfef815b9a7e86679fdb260622954395ebf2ce"
+  }
+}

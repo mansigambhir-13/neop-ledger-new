@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "app": "deal",
+  "gate": "runtime-processes",
+  "template_commit": "94db804f94403c15ad1279e6d30dcecc7c078b82",
+  "source_commit": "78d821e9fe633ec5706f3afd9cff4ab6ba472157",
+  "source_sha256": "8dcd6ee94d57447ace0e764a4035e947aeac341928047efe1a1c66809a16a17a",
+  "test_file": "apps/deal/tests/template-runtime-processes.test.ts",
+  "runner": {
+    "kind": "vitest-json-v1",
+    "command": [
+      "pnpm",
+      "exec",
+      "vitest",
+      "run",
+      "apps/deal/tests/template-runtime-processes.test.ts",
+      "--maxWorkers=1",
+      "--reporter=json",
+      "--outputFile=docs/evidence/template-alignment/deal/runtime-processes.vitest.json"
+    ],
+    "report": "docs/evidence/template-alignment/deal/runtime-processes.vitest.json",
+    "report_sha256": "4068b2b53ebc7981f19e01b9ada29ef341449aa2e9bdea7fed4c7606cdd39140"
+  }
+}

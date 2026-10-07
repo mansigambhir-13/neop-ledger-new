@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "app": "buy",
+  "gate": "standard-tests",
+  "template_commit": "94db804f94403c15ad1279e6d30dcecc7c078b82",
+  "source_commit": "78d821e9fe633ec5706f3afd9cff4ab6ba472157",
+  "source_sha256": "fddfea3b77e752fdd37488f74a7a97d62dcb576e54c725089ad44d86c872f870",
+  "test_file": "apps/buy/tests/template-standard.test.ts",
+  "runner": {
+    "kind": "vitest-json-v1",
+    "command": [
+      "pnpm",
+      "exec",
+      "vitest",
+      "run",
+      "apps/buy/tests/template-standard.test.ts",
+      "--maxWorkers=1",
+      "--reporter=json",
+      "--outputFile=docs/evidence/template-alignment/buy/standard-tests.vitest.json"
+    ],
+    "report": "docs/evidence/template-alignment/buy/standard-tests.vitest.json",
+    "report_sha256": "07cf64c26062e8135234541e39e91309821c59e0a4f26a5877622063503377fd"
+  }
+}

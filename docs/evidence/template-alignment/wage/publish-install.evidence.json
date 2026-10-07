@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "app": "wage",
+  "gate": "publish-install",
+  "template_commit": "94db804f94403c15ad1279e6d30dcecc7c078b82",
+  "source_commit": "78d821e9fe633ec5706f3afd9cff4ab6ba472157",
+  "source_sha256": "20440bd2e45c95e3e6e1126714fa76d3aa01ee3cea22e23fac7ace3b9815c1fd",
+  "test_file": "apps/wage/tests/template-publish-install.test.ts",
+  "runner": {
+    "kind": "vitest-json-v1",
+    "command": [
+      "pnpm",
+      "exec",
+      "vitest",
+      "run",
+      "apps/wage/tests/template-publish-install.test.ts",
+      "--maxWorkers=1",
+      "--reporter=json",
+      "--outputFile=docs/evidence/template-alignment/wage/publish-install.vitest.json"
+    ],
+    "report": "docs/evidence/template-alignment/wage/publish-install.vitest.json",
+    "report_sha256": "1e549fbece1b15e105d0502fd83eb76d53e27ab8594dd372686bd4cdb6081b39"
+  }
+}

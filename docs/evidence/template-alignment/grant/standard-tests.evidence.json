@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "app": "grant",
+  "gate": "standard-tests",
+  "template_commit": "94db804f94403c15ad1279e6d30dcecc7c078b82",
+  "source_commit": "78d821e9fe633ec5706f3afd9cff4ab6ba472157",
+  "source_sha256": "c9185139fcd248f02afc26cd68dcfb81387d20045f3644fbe51d26894dc012f2",
+  "test_file": "apps/grant/tests/template-standard.test.ts",
+  "runner": {
+    "kind": "vitest-json-v1",
+    "command": [
+      "pnpm",
+      "exec",
+      "vitest",
+      "run",
+      "apps/grant/tests/template-standard.test.ts",
+      "--maxWorkers=1",
+      "--reporter=json",
+      "--outputFile=docs/evidence/template-alignment/grant/standard-tests.vitest.json"
+    ],
+    "report": "docs/evidence/template-alignment/grant/standard-tests.vitest.json",
+    "report_sha256": "4062fd89bcf9b007c4a98a618768beae705451452ba177c65e32f196c409ce5f"
+  }
+}

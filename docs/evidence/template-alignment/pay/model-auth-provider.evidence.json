@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "app": "pay",
+  "gate": "model-auth-provider",
+  "template_commit": "94db804f94403c15ad1279e6d30dcecc7c078b82",
+  "source_commit": "78d821e9fe633ec5706f3afd9cff4ab6ba472157",
+  "source_sha256": "2989ec4a52932bcfacadab4de313e16f3f17d944c30cf618d074391106af9712",
+  "test_file": "apps/pay/tests/template-model-auth-provider.test.ts",
+  "runner": {
+    "kind": "vitest-json-v1",
+    "command": [
+      "pnpm",
+      "exec",
+      "vitest",
+      "run",
+      "apps/pay/tests/template-model-auth-provider.test.ts",
+      "--maxWorkers=1",
+      "--reporter=json",
+      "--outputFile=docs/evidence/template-alignment/pay/model-auth-provider.vitest.json"
+    ],
+    "report": "docs/evidence/template-alignment/pay/model-auth-provider.vitest.json",
+    "report_sha256": "116cdf468005c6290c8cfded6b685d699f2e9b9d49edd02237f9f737ff17d1f4"
+  }
+}

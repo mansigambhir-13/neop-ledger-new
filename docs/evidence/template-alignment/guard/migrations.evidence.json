@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "app": "guard",
+  "gate": "migrations",
+  "template_commit": "94db804f94403c15ad1279e6d30dcecc7c078b82",
+  "source_commit": "78d821e9fe633ec5706f3afd9cff4ab6ba472157",
+  "source_sha256": "bbd43cc950236e08630f6434473bd798806db22ec7d59baa2923267095410a50",
+  "test_file": "apps/guard/tests/template-migration.test.ts",
+  "runner": {
+    "kind": "vitest-json-v1",
+    "command": [
+      "pnpm",
+      "exec",
+      "vitest",
+      "run",
+      "apps/guard/tests/template-migration.test.ts",
+      "--maxWorkers=1",
+      "--reporter=json",
+      "--outputFile=docs/evidence/template-alignment/guard/migrations.vitest.json"
+    ],
+    "report": "docs/evidence/template-alignment/guard/migrations.vitest.json",
+    "report_sha256": "72dc08a52ef3c12def8c0fb515fe0511552bc41364d8fd643509e2e1dfea1627"
+  }
+}

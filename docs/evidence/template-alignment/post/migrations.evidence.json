@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "app": "post",
+  "gate": "migrations",
+  "template_commit": "94db804f94403c15ad1279e6d30dcecc7c078b82",
+  "source_commit": "78d821e9fe633ec5706f3afd9cff4ab6ba472157",
+  "source_sha256": "96d6869990b237868c518d4a2f32001b4cb32c5d6dbc9a89bb2f76dc2346ed73",
+  "test_file": "apps/post/tests/template-migration.test.ts",
+  "runner": {
+    "kind": "vitest-json-v1",
+    "command": [
+      "pnpm",
+      "exec",
+      "vitest",
+      "run",
+      "apps/post/tests/template-migration.test.ts",
+      "--maxWorkers=1",
+      "--reporter=json",
+      "--outputFile=docs/evidence/template-alignment/post/migrations.vitest.json"
+    ],
+    "report": "docs/evidence/template-alignment/post/migrations.vitest.json",
+    "report_sha256": "176ccd7fccb9c9ca86e1c8dda4cb10e90d0c2481b7a6e2b9cf098531ac701aa2"
+  }
+}
